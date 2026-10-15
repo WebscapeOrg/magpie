@@ -1,3 +1,4 @@
+import qs.Commons
 import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3

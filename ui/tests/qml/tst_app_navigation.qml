@@ -496,109 +496,32 @@ Item {
       compare(kinds(), "list", "the list is not a step back from the calendar")
     }
 
-    function test_the_status_address_opens_the_account_switcher() {
-      var trigger = named(app, "status-account-button")
-      verify(trigger && trigger.visible, "the status address is the account-menu trigger")
-      var switcher = having(app, function(it) {
-        return typeof it.openCentered === "function" && typeof it.accountChosen === "function"
-      })
-      verify(switcher && !switcher.opened)
-
+    function test_the_header_account_button_opens_the_switcher() {
+      var trigger = named(app, "header-account-button")
+      verify(trigger && trigger.visible)
+      var switcher = having(app, function(it) { return typeof it.openCentered === "function" && typeof it.accountChosen === "function" })
       mouseClick(trigger)
-      tryCompare(switcher, "opened", true)
-      compare(trigger.selected, true, "the trigger stays selected while its popup is open")
+      tryCompare(switcher,"opened",true)
+      compare(trigger.selected,true)
       switcher.close()
     }
-
-    // The address is what this line is about and the key hints are a nicety
-    // beside it, so the room goes to the address first.
-    function test_the_status_address_keeps_its_room_from_the_key_hints() {
-      // The right of the line carries a notice or the hints, never both, so a
-      // status an earlier test left standing is a line with no hints on it.
-      mailService.actionStatus = ""
-      mailService.lastError = ""
-      app.notice = ""
-      mailService.syncedLabel = "Synced just now"
-      waitForRendering(app)
-
-      var label = named(app, "status-account-label")
-      var hints = named(app, "status-key-hints")
-      verify(label && hints)
-      compare(label.text, "me@example.com \u00b7 just now")
-      verify(!label.truncated, "a short address and its age fit beside the hints")
-      verify(hints.visible, "and the hints keep the room they were left")
-
-      // Grown rather than measured: how many characters fit is a fact about
-      // the theme's font, and what is being asserted is which of the two gives
-      // way, whatever that number turns out to be.
-      var address = "a.long.standing.mailbox.address@example.org"
-      for (var i = 0; i < 20 && hints.visible; i++) {
-        address = "longer." + address
-        mailService.accountEmail = address
-        waitForRendering(app)
-      }
-      verify(!hints.visible, "the hints step off the line rather than cutting the address")
-      verify(!label.truncated, "and the address keeps every character it has room for")
-
-      mailService.accountEmail = "me@example.com"
-      waitForRendering(app)
-      verify(hints.visible, "the hints come back when the address gives the room up")
-
-      // The one thing that still pushes the address over, because a notice is
-      // what the window most needs to say.
-      var slot = label.parent.parent
-      var wide = slot.width
-      mailService.actionStatus = "Moved to Archive"
-      waitForRendering(app)
-      verify(slot.width < wide, "a notice takes the right of the line back")
-
-      mailService.actionStatus = ""
-      mailService.syncedLabel = ""
-      waitForRendering(app)
+    function test_folder_navigation_is_hidden_until_requested() {
+      var toggle = named(app,"folder-button")
+      verify(toggle && toggle.visible)
+      compare(app.foldersVisible,false)
+      toggle.clicked()
+      compare(app.foldersVisible,true)
+      toggle.clicked()
+      compare(app.foldersVisible,false)
     }
-
-    function test_the_move_hint_only_appears_for_a_selected_message() {
-      var hints = named(app, "status-key-hints")
-      verify(hints)
-      verify(!hints.hints.some(function(hint) { return hint.key === "v" }),
-        "an empty list selection must not offer move")
-
-      app.cursorId = "message-1"
-      tryVerify(function() {
-        return hints.hints.some(function(hint) {
-          return hint.key === "v" && hint.label === "move to"
-        })
-      }, 1000, "v offers move to once a message is selected")
-
-      mailService.unavailableActions = ["move"]
-      tryVerify(function() {
-        return !hints.hints.some(function(hint) { return hint.key === "v" })
-      }, 1000, "a mailbox that cannot move must not advertise the shortcut")
-    }
-
-    // The box around the address pads it by one number and measures itself by
-    // another, and `Style.space` rounds each on its own. At the shell's
-    // `base-size 14` the two disagree by a pixel, and a Text a pixel short of
-    // its own content is elided however wide the window is — which is what put
-    // "just n..." on the line and made it look like a fixed width.
-    function test_the_status_address_is_not_a_pixel_short_of_its_box() {
-      var label = named(app, "status-account-label")
-      verify(label)
-      mailService.syncedLabel = "Synced just now"
-
-      // Every scale a rounded 4 and a rounded 8 can fall out of step on, and a
-      // couple where they agree, because the assertion is the same either way.
-      var scales = [1, 0.9, 7 / 6, 1.25, 1.375, 1.4, 1.5, 1.9]
-      for (var i = 0; i < scales.length; i++) {
-        Style.spacingScale = scales[i]
-        waitForRendering(app)
-        verify(!label.truncated,
-          "the address fits its own box at spacing scale " + scales[i])
-      }
-
-      Style.spacingScale = 1
-      mailService.syncedLabel = ""
-      waitForRendering(app)
+    function test_notices_do_not_leave_a_permanent_footer() {
+      var banner = named(app,"mail-notice")
+      mailService.lastError=""; mailService.actionStatus=""; app.notice=""
+      tryCompare(banner,"height",0)
+      app.notice="Connection restored"
+      tryVerify(function() { return banner.visible && banner.height>0 })
+      app.notice=""
+      tryCompare(banner,"height",0)
     }
 
     function test_header_shows_compose_for_mail_and_view_selector_for_calendar() {
@@ -667,7 +590,7 @@ Item {
     function test_opening_a_message_takes_the_keyboard_back_from_search() {
       var field = having(app, function(it) {
         return it.placeholderText !== undefined
-          && String(it.placeholderText).indexOf("Search mail") === 0
+          && String(it.placeholderText).indexOf("Search...") === 0
       })
       verify(field, "the search field is on the page")
       var scope = having(app, function(it) {

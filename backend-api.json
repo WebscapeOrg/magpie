@@ -1,9 +1,15 @@
 {
-  "apiVersion": 7,
+  "apiVersion": 8,
   "releasedApiVersion": 7,
   "protocolVersion": 1,
   "methods": [
     "system.info",
+    "inbox.snapshot",
+    "inbox.overviews",
+    "inbox.avatar",
+    "inbox.snooze",
+    "inbox.wake",
+    "inbox.tick",
     "system.quit",
     "credentials.get",
     "credentials.put",
@@ -1287,10 +1293,83 @@
       "types": {
         "ticket": "string"
       }
+    },
+    {
+      "name": "Inbox snapshot refuses unknown accounts",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "missing@example.org"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Inbox snooze validates before mutation",
+      "method": "inbox.snooze",
+      "params": {
+        "accountId": "contract@example.org",
+        "id": "bad\n",
+        "until": 0
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox snapshot returns private account working state",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "snoozes": []
+      },
+      "types": {
+        "overviews": "object"
+      }
+    },
+    {
+      "name": "Inbox avatar rejects address controls before a request",
+      "method": "inbox.avatar",
+      "params": {
+        "accountId": "contract@example.org",
+        "email": "sender@example.org\n"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox overview admission rejects empty message selection",
+      "method": "inbox.overviews",
+      "params": {
+        "accountId": "contract@example.org",
+        "ids": []
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox avatar rejects refresh controls before any request",
+      "method": "inbox.avatar",
+      "params": {
+        "accountId": "contract@example.org",
+        "email": "sender@example.org",
+        "refreshId": "images-bad\n"
+      },
+      "errorCode": -32602
     }
   ],
   "unreleased": {
-    "methods": [],
-    "cases": []
+    "methods": [
+      "inbox.snapshot",
+      "inbox.overviews",
+      "inbox.avatar",
+      "inbox.snooze",
+      "inbox.wake",
+      "inbox.tick"
+    ],
+    "cases": [
+      "Inbox snapshot refuses unknown accounts",
+      "Inbox snooze validates before mutation",
+      "Inbox snapshot returns private account working state",
+      "Inbox avatar rejects address controls before a request",
+      "Inbox overview admission rejects empty message selection",
+      "Inbox avatar rejects refresh controls before any request"
+    ]
   }
 }

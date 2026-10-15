@@ -8,8 +8,8 @@ import "../.." as Omamail
 // what the window closes on. These are the rules `App.qml` applies on top of
 // `account/Navigation.js`, run against the real views with a fake service.
 Item {
-  width: 900
-  height: 600
+  width: 1800
+  height: 1300
 
   QtObject {
     id: fakeShell

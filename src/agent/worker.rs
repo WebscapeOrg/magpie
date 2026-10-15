@@ -276,9 +276,9 @@ pub async fn run(id: &str) -> Result<(), &'static str> {
     store.write_json(id, "job.json", &job)
 }
 
-struct Outcome {
-    cancelled: bool,
-    failure: Option<&'static str>,
+pub(super) struct Outcome {
+    pub(super) cancelled: bool,
+    pub(super) failure: Option<&'static str>,
 }
 
 /// A std Child is intentional: Tokio's process driver can reap the leader before
@@ -375,7 +375,10 @@ async fn write(fd: AsyncFd<OwnedFd>, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-async fn execute<F: Future<Output = ()>, P: FnMut(&ProviderStream) -> Result<(), &'static str>>(
+pub(super) async fn execute<
+    F: Future<Output = ()>,
+    P: FnMut(&ProviderStream) -> Result<(), &'static str>,
+>(
     mut command: Command,
     prompt: &[u8],
     parser: &mut ProviderStream,

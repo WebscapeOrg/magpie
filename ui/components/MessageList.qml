@@ -26,6 +26,7 @@ Column {
   required property color dimColor
   required property color urgentColor
   required property string panelFontFamily
+  property string snoozeId: ""
   property string cursorId: ""
   // The rows ticked for a bulk action, by id. Held above the list, like the
   // cursor, because a reload rebuilds every row.
@@ -38,6 +39,7 @@ Column {
   signal agentRequested(string id, real sceneX, real sceneY)
   // A row's own star, archive and trash buttons. Routed up rather than
   // straight to the service so a ticked row's button means the selection.
+  signal snoozeRequested(string id, real sceneX, real sceneY)
   signal rowActionRequested(string id, string action)
   signal menuRequested(string id, real sceneX, real sceneY)
 
@@ -73,6 +75,12 @@ Column {
       // empty row rather than throwing on every field.
       readonly property var modelData: root.service.messages[index] || ({})
 
+      snoozeOpen: root.snoozeId === modelData.id
+      avatarData: root.service.inboxTools ? root.service.inboxTools.avatarFor(modelData) : ""
+      overview: root.service.inboxTools ? String(root.service.inboxTools.overviewFor(modelData).text || "") : ""
+      overviewState: root.service.inboxTools ? (root.service.inboxTools.available === false ? "unavailable" : root.service.inboxTools.paused === true ? "paused" : String(root.service.inboxTools.overviewFor(modelData).state || "")) : ""
+      onUnreadRequested: root.rowActionRequested(modelData.id, "markUnread")
+      onSnoozeRequested: function(x,y) { root.snoozeRequested(modelData.id,x,y) }
       summary: modelData
       textColor: root.textColor
       accentColor: root.accentColor

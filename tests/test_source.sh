@@ -266,19 +266,12 @@ fi
 if [ -e components/UserBar.qml ] || grep -q 'UserBar {' components/MailboxSidebar.qml; then
   fail "the account control belongs in the status bar, not the sidebar"
 fi
-grep -q 'objectName: "status-account-button"' App.qml \
-  || fail "the status address must be the account switcher trigger"
+grep -q 'objectName: "header-account-button"' App.qml \
+  || fail "the header account button must be the account switcher trigger"
 grep -q 'selected: accountSwitcher.opened' App.qml \
-  || fail "the status account trigger must stay selected while its popup is open"
+  || fail "the header account trigger must stay selected while its popup is open"
 grep -q 'accountSwitcher.openAt(scene.x, scene.y)' App.qml \
-  || fail "the account switcher must anchor to the status address"
-awk '
-  /id: accountBackground/ { in_background = 1 }
-  in_background && /anchors.margins: MailStyle.space\(2\)/ { found = 1 }
-  in_background && /^            }/ { exit !found }
-  END { exit !found }
-' App.qml \
-  || fail "the status account hover must use the same visual inset as the sidebar toggle"
+  || fail "the account switcher must anchor to the header account button"
 awk '
   /id: footer$/ { in_footer = 1 }
   in_footer && /anchors.leftMargin: MailStyle.space\(8\)/ { left = 1 }
@@ -975,7 +968,7 @@ MENUROWS
 # makes the same concept drift between pages and prevents App from naming it.
 for file in components/AppMenu.qml components/MessageMenu.qml components/AccountSwitcher.qml \
   components/ProviderPicker.qml components/MailboxTabs.qml components/SetupPage.qml \
-  components/ImapSetupPage.qml components/KeyHints.qml components/ImagePopover.qml \
+  components/ImapSetupPage.qml components/ImagePopover.qml \
   components/ComposeView.qml; do
   if grep -nE '(^|[^A-Za-z])Color\.' "$file"; then
     fail "$file reads theme colours instead of receiving semantic roles"

@@ -169,7 +169,7 @@ Item {
       var list = named(reader, "attachment-scroller")
       verify(list)
       compare(list.visible, false)
-      verify(emptyHeight - body.height < 45, "the collapsed count costs only one control row")
+      verify(emptyHeight - body.height <= button.height + MailStyle.space(12), "the collapsed count costs only one control row")
       show(1)
       verify(button.text.indexOf("1 attachment") >= 0)
       verify(button.text.indexOf("1 attachments") < 0)

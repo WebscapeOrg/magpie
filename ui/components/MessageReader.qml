@@ -52,6 +52,7 @@ Item {
   signal zoomResetRequested()
   signal composeRequested(string mode)
   signal mailtoRequested(string url)
+  signal snoozeRequested(real sceneX, real sceneY)
   signal actionRequested(string action)
   signal agentRequested(real sceneX, real sceneY)
   // A right-click on the From line or the To line: the addresses on it, and
@@ -346,26 +347,34 @@ Item {
       onClicked: root.composeRequested("draft")
     }
 
-    IconButton {
-      id: starButton
-      objectName: "reader-star-button"
+    Row {
+      id: readerTriage
       anchors.right: parent.right
       anchors.top: backBar.visible ? backBar.bottom : parent.top
       anchors.topMargin: backBar.visible ? MailStyle.space(10) : 0
       visible: !root.isDraft
-      iconName: "star"
-      filled: !!root.summary && root.summary.starred
-      tooltipText: (root.summary && root.summary.starred ? "Unstar" : "Star") + " · s"
-      foreground: root.summary && root.summary.starred ? root.accentColor : root.dimColor
-      hoverColor: root.accentColor
-      fontFamily: root.panelFontFamily
-      onClicked: if (root.service && root.summary) root.actionRequested("star")
+      IconButton {
+        objectName: "reader-mark-unread"
+        iconName: "unread"
+        iconSize: Style.font.icon * 2.5
+        tooltipText: "Mark unread · Shift+U"
+        foreground: root.dimColor; hoverColor: root.textColor; fontFamily: root.panelFontFamily
+        onClicked: root.actionRequested("markUnread")
+      }
+      IconButton {
+        objectName: "reader-snooze"
+        iconName: "snooze"
+        iconSize: Style.font.icon * 2.5
+        tooltipText: "Snooze until..."
+        foreground: root.dimColor; hoverColor: root.textColor; fontFamily: root.panelFontFamily
+        onClicked: { var at = mapToGlobal(0,height); root.snoozeRequested(at.x,at.y) }
+      }
     }
 
     Column {
       id: headerColumn
       anchors.left: parent.left
-      anchors.right: root.isDraft ? continueDraftButton.left : starButton.left
+      anchors.right: root.isDraft ? continueDraftButton.left : readerTriage.left
       anchors.rightMargin: MailStyle.space(8)
       anchors.top: backBar.visible ? backBar.bottom : parent.top
       anchors.topMargin: backBar.visible ? MailStyle.space(14) : 0
@@ -919,6 +928,7 @@ Item {
         height: implicitHeight
 
         IconButton {
+          iconSize: Style.font.icon * 2.5
           id: replyButton
           y: (parent.height - height) / 2
           iconName: "reply"; tooltipText: "Reply · r"
@@ -926,6 +936,7 @@ Item {
           onClicked: root.composeRequested("reply")
         }
         IconButton {
+          iconSize: Style.font.icon * 2.5
           id: replyAllButton
           x: replyButton.x + replyButton.width + messageActions.gap
           y: (parent.height - height) / 2
@@ -934,6 +945,7 @@ Item {
           onClicked: root.composeRequested("replyAll")
         }
         IconButton {
+          iconSize: Style.font.icon * 2.5
           id: forwardButton
           x: replyAllButton.x + replyAllButton.width + messageActions.gap
           y: Math.round((parent.height - height) / 2)
@@ -971,6 +983,7 @@ Item {
         // IMAP that is a move to a folder, and a server without one would have
         // this quietly do nothing — or worse, delete.
         IconButton {
+          iconSize: Style.font.icon * 2.5
           id: archiveButton
           x: actionGap.x + actionGap.width + messageActions.gap
           y: Math.round((parent.height - height) / 2)
@@ -982,6 +995,7 @@ Item {
         // Archive under a label, or move to a folder: the same picker `v`
         // opens, one press away in the reader too.
         IconButton {
+          iconSize: Style.font.icon * 2.5
           id: moveButton
           objectName: "reader-move-button"
           x: (archiveButton.visible
@@ -994,6 +1008,7 @@ Item {
           onClicked: root.actionRequested("moveToLabel")
         }
         IconButton {
+          iconSize: Style.font.icon * 2.5
           id: trashButton
           x: (moveButton.visible
             ? moveButton.x + moveButton.width
@@ -1077,6 +1092,7 @@ Item {
         // A separate action on the same toolbar. Its centre follows the mode
         // control's centre even where their natural heights differ.
         IconButton {
+          iconSize: Style.font.icon * 2.5
           id: openWebButton
           objectName: "openWebButton"
           visible: !root.service || root.service.canOpenOnWeb

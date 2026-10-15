@@ -11,6 +11,7 @@ pub mod cli;
 pub mod compose;
 pub mod contacts;
 pub mod credentials;
+pub mod inbox;
 pub mod mail;
 pub mod message;
 pub mod outbox;

@@ -22,12 +22,13 @@ var CALLBACK_PATH = "/oauth2callback"
 // permanently delete. gmail.send is what reply and compose need.
 // calendar.events reads calendars and creates events without broader account
 // access.
+var OPTIONAL_SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"]
 var SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
-]
+].concat(OPTIONAL_SCOPES)
 
 function normalizedPort(value) {
   var port = Math.floor(Number(value))
@@ -209,9 +210,14 @@ function refreshRetryDelay(attempt) {
 // A grant is only useful if it came back with everything the panel needs. A
 // user who unticks a checkbox on Google's consent screen gets a working token
 // with a scope set that silently breaks half the actions.
+function requiredScopes(scopes) {
+  var requested = Array.isArray(scopes) ? scopes : SCOPES
+  return requested.filter(function(scope) { return OPTIONAL_SCOPES.indexOf(scope) < 0 })
+}
+
 function missingScopes(granted, required) {
   var have = String(granted || "").split(/\s+/)
-  var want = Array.isArray(required) && required.length > 0 ? required : SCOPES
+  var want = Array.isArray(required) && required.length > 0 ? required : requiredScopes(SCOPES)
   var missing = []
   for (var i = 0; i < want.length; i++) {
     if (have.indexOf(want[i]) < 0) missing.push(want[i])

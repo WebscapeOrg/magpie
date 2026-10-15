@@ -35,9 +35,15 @@ Item {
   property real visualInset: MailStyle.space(2)
   property string fontFamily: MailStyle.family
 
+  activeFocusOnTab: true
+  Accessible.role: Accessible.Button
+  Accessible.name: tooltipText
+  Accessible.onPressAction: if (root.enabled) root.clicked()
+  Keys.onReturnPressed: if (root.enabled) root.clicked()
+  Keys.onSpacePressed: if (root.enabled) root.clicked()
   signal clicked()
 
-  readonly property bool hot: (mouse.containsMouse || hasCursor) && enabled
+  readonly property bool hot: (mouse.containsMouse || hasCursor || activeFocus) && enabled
 
   implicitWidth: size
   implicitHeight: size

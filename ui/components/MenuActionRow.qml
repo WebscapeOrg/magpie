@@ -16,14 +16,21 @@ Rectangle {
 
   signal activated()
 
-  implicitHeight: Style.spacing.popupRowHeight
+  activeFocusOnTab: true
+  Accessible.role: Accessible.MenuItem
+  Accessible.name: text
+  Accessible.onPressAction: if (root.enabled) root.activated()
+  Keys.onReturnPressed: if (root.enabled) root.activated()
+  Keys.onSpacePressed: if (root.enabled) root.activated()
+  implicitHeight: Math.max(Style.spacing.popupRowHeight, label.implicitHeight + MailStyle.space(12))
   radius: Style.cornerRadius
   opacity: enabled ? 1.0 : 0.4
-  color: hover.hovered || selected
+  color: hover.hovered || selected || activeFocus
     ? Qt.rgba(textColor.r, textColor.g, textColor.b, 0.08)
     : "transparent"
 
   Text {
+    id: label
     anchors.left: parent.left
     anchors.leftMargin: MailStyle.space(9)
     anchors.right: parent.right

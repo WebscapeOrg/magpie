@@ -123,7 +123,7 @@ Item {
       while (queued.length > 0 && Object.keys(pending).length < 64 && connected) {
         var entry = queued.shift()
         var next = Object.assign({}, pending)
-        var timeout = entry.operation === "agent.context" ? 65000 : 30000
+        var timeout = entry.operation === "agent.context" || entry.operation === "inbox.avatar" || entry.operation === "inbox.snooze" || entry.operation === "inbox.tick" || entry.operation === "inbox.wake" ? 65000 : 30000
         // An IMAP frame is a whole conversation — connect, login, SELECT, then
         // one command per 4 096-UID window — on a server that charges about
         // half a second per command, so it outlives the backend's own call

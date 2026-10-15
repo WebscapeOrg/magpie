@@ -1,6 +1,5 @@
 import QtQuick
 import qs.Commons
-
 Item {
   id: root
   required property color foreground
@@ -8,11 +7,13 @@ Item {
   property bool animated: false
   implicitWidth: Style.space(64)
   implicitHeight: implicitWidth
-  Text {
-    anchors.centerIn: parent
-    text: "🐦"
-    font.family: "Noto Color Emoji"
-    font.pixelSize: root.width * 0.8
-    Accessible.name: "Magpie"
+  Accessible.role: Accessible.Graphic
+  Accessible.name: "Magpie"
+  Image {
+    anchors.fill: parent
+    source: "../assets/magpie.svg"
+    sourceSize.width: width * 2
+    sourceSize.height: height * 2
+    fillMode: Image.PreserveAspectFit
   }
 }

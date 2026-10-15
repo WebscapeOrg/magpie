@@ -1,6 +1,12 @@
 // Advertised public operations; transport and domain dispatch share this inventory.
 pub const ALL: &[&str] = &[
     "system.info",
+    "inbox.snapshot",
+    "inbox.overviews",
+    "inbox.avatar",
+    "inbox.snooze",
+    "inbox.wake",
+    "inbox.tick",
     "system.quit",
     "credentials.get",
     "credentials.put",

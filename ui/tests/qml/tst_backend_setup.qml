@@ -4,7 +4,7 @@ import "../../components" as Omamail
 
 Item {
   width: 720
-  height: 500
+  height: Math.max(500, page.height + 32)
   QtObject {
     id: runtime
     property string state: "ready"
@@ -54,7 +54,7 @@ Item {
       runtime.installs=0
       runtime.busy=false
       page.visible=true
-      verify(waitForRendering(page))
+      wait(0)
     }
     function test_check_is_ghost_beside_version() {
       var check=findChild(page,"backend-refresh")

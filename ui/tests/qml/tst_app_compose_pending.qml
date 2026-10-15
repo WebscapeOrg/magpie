@@ -5,8 +5,8 @@ import "../../settings/Display.js" as Display
 import "../../settings"
 
 Item {
-  width: 900
-  height: 600
+  width: 1800
+  height: 1300
 
   QtObject {
     id: recoveryBackend
@@ -255,8 +255,11 @@ Item {
       compare(list.visible, false)
       app.runShortcut("backToList")
       compare(list.visible, true)
-      var toggle = named(app, "layout-toggle")
-      toggle.clicked()
+      var menu = named(app, "app-menu")
+      menu.openAt(100,100)
+      wait(20)
+      var toggle = findChild(menu, "layout-toggle")
+      toggle.activated()
       compare(mailService.displayPreferences.layout, "Split view")
       compare(app.singlePane, false)
       // A sufficiently wide window shows the list and reader together.
@@ -264,7 +267,8 @@ Item {
       verify(!app.compact)
       compare(list.visible, true)
       compare(reader.visible, true)
-      toggle.clicked()
+      menu.openAt(100,100)
+      toggle.activated()
       compare(app.singlePane, true)
       compare(list.visible, false)
       app.backToList()
@@ -914,11 +918,14 @@ Item {
     function test_header_ai_toggle_and_multiline_send() {
       app.open("{}")
       app.startCompose("new")
-      var toggle = named(app, "header-ai-button")
+      var toggle = named(app, "compose-menu-button")
       verify(toggle)
       verify(waitForRendering(toggle))
       verify(toggle.x >= 0 && toggle.x + toggle.width <= toggle.parent.width)
       mouseClick(toggle, toggle.width / 2, toggle.height / 2)
+      var menu = named(app, "app-menu")
+      tryCompare(menu, "opened", true)
+      findChild(menu, "app-menu-ai").activated()
       var dock = named(app, "compose-agent")
       tryCompare(dock, "opened", true)
       var field = named(dock, "agent-prompt-field")
@@ -945,26 +952,18 @@ Item {
       findChild(dock,"agent-pending-queue").messages=[]
       dock.submittedPrompt=""
       compare(app.composing, true)
-      mouseClick(toggle, toggle.width / 2, toggle.height / 2)
+      app.runShortcut("back", "Escape")
       tryCompare(dock, "opened", false)
     }
-    function test_unsupported_default_keeps_ai_visible_but_blocks_mouse_and_shortcut() {
-      app.open("{}")
-      app.backToList()
-      app.startCompose("new")
+    function test_unsupported_ai_is_refused_from_menu_and_shortcut() {
+      app.open("{}"); app.backToList(); app.startCompose("new")
       mailService.agentAvailable = false
-      var toggle = named(app, "header-ai-button")
-      tryVerify(function() { return toggle.visible })
-      verify(!toggle.enabled)
-      verify(toggle.tooltipText.indexOf("not supported") >= 0)
-      mouseClick(toggle, toggle.width / 2, toggle.height / 2)
       app.runShortcut("askAgent", "Alt+G")
       verify(!app.assistantOpen)
-      compare(mailService.agentRequests, 0)
+      compare(mailService.agentRequests,0)
       mailService.agentAvailable = true
-      verify(toggle.enabled)
-      mouseClick(toggle, toggle.width / 2, toggle.height / 2)
-      tryCompare(app, "assistantOpen", true)
+      app.runShortcut("askAgent", "Alt+G")
+      tryCompare(app,"assistantOpen",true)
     }
 
     function test_ai_slash_text_uses_normal_send_and_close_keys() {

@@ -28,6 +28,16 @@ Item {
   // Only the standalone host owns the application process. A plugin menu
   // must never offer to terminate the shell that loaded it.
   property bool canQuit: false
+  property bool singlePane: true
+  property bool hasAgent: true
+  property bool overviewsPaused: false
+  signal overviewPauseRequested()
+  signal refreshImagesRequested()
+  signal snoozedRequested()
+  signal layoutRequested()
+  signal refreshRequested()
+  signal aiRequested()
+  signal overviewRetryRequested()
   readonly property bool opened: menu.opened
 
   // Positioned against the window rather than a button, and flipped when it
@@ -36,7 +46,7 @@ Item {
   property real anchorX: 0
   property real anchorY: 0
   property int cursorIndex: -1
-  readonly property var menuRows: [inboxRow, calendarRow, markRow, webRow,
+  readonly property var menuRows: [snoozedRow, refreshImagesRow, pauseOverviewRow, layoutRow, refreshRow, aiToolsRow, overviewRow, inboxRow, calendarRow, markRow, webRow,
     switchRow, settingsRow, shortcutsRow, projectRow, authorRow, quitRow]
 
   function openAt(sceneX, sceneY) {
@@ -67,7 +77,13 @@ Item {
     })
     return values
   }
-  function moveCursor(step) { cursorIndex = Menu.nextSelectable(selectableRows(), cursorIndex, step) }
+  function moveCursor(step) {
+    cursorIndex = Menu.nextSelectable(selectableRows(), cursorIndex, step)
+    if (cursorIndex < 0) return
+    var row = menuRows[cursorIndex]
+    if (row.y < menuScroll.contentY) menuScroll.contentY = row.y
+    else if (row.y + row.height > menuScroll.contentY + menuScroll.height) menuScroll.contentY = row.y + row.height - menuScroll.height
+  }
   function runCursor() { if (cursorIndex >= 0) menuRows[cursorIndex].activated() }
 
   function close() { menu.close() }
@@ -103,8 +119,8 @@ Item {
 
   QQC.Popup {
     id: menu
-    width: MailStyle.space(210)
-    implicitHeight: menuItems.implicitHeight + MailStyle.space(8)
+    width: Math.min(root.width, MailStyle.space(260))
+    implicitHeight: Math.min(menuItems.implicitHeight + MailStyle.space(8), root.height - MailStyle.space(16))
     padding: MailStyle.space(4)
     modal: false
     focus: true
@@ -125,8 +141,15 @@ Item {
       border.width: 1
       border.color: root.popupBorderColor
     }
-    contentItem: Column {
+    contentItem: Flickable {
+      id: menuScroll
+      contentHeight: menuItems.implicitHeight
+      clip: true
+      boundsBehavior: Flickable.StopAtBounds
+      QQC.ScrollBar.vertical: QQC.ScrollBar { policy: QQC.ScrollBar.AsNeeded }
+      Column {
       id: menuItems
+      width: menuScroll.width
       spacing: MailStyle.space(2)
 
       focus: true
@@ -141,6 +164,49 @@ Item {
         }
       }
 
+      MenuRow {
+        id: snoozedRow
+        text: "Snoozed mail..."
+        onActivated: { menu.close(); root.snoozedRequested() }
+      }
+      MenuRow {
+        id: layoutRow
+        objectName: "layout-toggle"
+        text: root.singlePane ? "Split view" : "Single pane"
+        onActivated: { menu.close(); root.layoutRequested() }
+      }
+      MenuRow {
+        id: refreshRow
+        objectName: "refresh-button"
+        text: "Check mail"
+        enabled: root.signedIn
+        onActivated: { menu.close(); root.refreshRequested() }
+      }
+      MenuRow {
+        id: aiToolsRow
+        objectName: "app-menu-ai"
+        text: "AI tools..."
+        visible: root.hasAgent
+        onActivated: { menu.close(); root.aiRequested() }
+      }
+      MenuRow {
+        id: refreshImagesRow
+        text: "Refresh sender images"
+        enabled: root.signedIn
+        onActivated: { menu.close(); root.refreshImagesRequested() }
+      }
+      MenuRow {
+        id: pauseOverviewRow
+        text: root.overviewsPaused ? "Resume AI overviews" : "Pause new AI overviews"
+        visible: root.hasAgent
+        onActivated: { menu.close(); root.overviewPauseRequested() }
+      }
+      MenuRow {
+        id: overviewRow
+        text: "Retry AI overviews"
+        visible: root.hasAgent
+        onActivated: { menu.close(); root.overviewRetryRequested() }
+      }
       MenuRow {
         id: inboxRow
         text: "Inbox"
@@ -215,6 +281,7 @@ Item {
         text: "Quit"
         visible: root.canQuit
         onActivated: { menu.close(); root.quitRequested() }
+      }
       }
     }
   }

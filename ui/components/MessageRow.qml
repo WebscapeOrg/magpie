@@ -5,6 +5,7 @@ import qs.Commons
 import qs.Ui
 import "../message/Direction.js" as Direction
 import "../account/Model.js" as Model
+import "MailboxIdentity.js" as Identity
 import "../keys/Keymap.js" as Keymap
 
 // One message in the list. Unread is carried by weight and by the dot on the
@@ -52,6 +53,12 @@ Rectangle {
   signal activated()
   signal checkToggled()
   signal checkRangeRequested()
+  property bool snoozeOpen: false
+  property string avatarData: ""
+  property string overview: ""
+  property string overviewState: ""
+  signal unreadRequested()
+  signal snoozeRequested(real sceneX, real sceneY)
   signal starToggled()
   signal agentRequested(real sceneX, real sceneY)
   signal archiveRequested()
@@ -131,24 +138,26 @@ Rectangle {
     }
   }
 
-  Rectangle {
+  SenderAvatar {
+    id: avatar
+    objectName: "message-avatar"
     anchors.left: parent.left
-    anchors.leftMargin: MailStyle.space(4)
-    anchors.top: parent.top
-    anchors.topMargin: MailStyle.space(12)
-    width: MailStyle.space(5)
+    anchors.leftMargin: MailStyle.space(14)
+    y: body.y
+    width: sender.implicitHeight + subject.implicitHeight + body.spacing
     height: width
-    radius: width / 2
-    visible: root.summary.unread
-    color: root.accentColor
+    sender: root.summary.from || ({})
+    imageData: root.avatarData
+    foreground: root.textColor
+    accent: root.accentColor
+    fontFamily: root.panelFontFamily
   }
 
   Column {
     id: body
     anchors.left: parent.left
     anchors.right: parent.right
-    // Align message text with the reader and header content.
-    anchors.leftMargin: MailStyle.space(14)
+    anchors.leftMargin: MailStyle.space(14) + avatar.width + MailStyle.space(10)
     // Align text with the action glyph, rather than its padded hit target.
     anchors.rightMargin: MailStyle.space(6) + (MailStyle.space(24) - Style.font.iconSmall) / 2
     anchors.verticalCenter: parent.verticalCenter
@@ -171,7 +180,7 @@ Rectangle {
           : (count.visible ? count.left : time.left)
         anchors.rightMargin: (source.visible || count.visible) ? MailStyle.space(4) : MailStyle.space(8)
         textFormat: Text.PlainText
-        text: root.summary.from.display
+        text: root.summary.from ? root.summary.from.display : ""
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
@@ -185,25 +194,20 @@ Rectangle {
       //
       // A third of the row at most. Nothing limits the length of a name a user
       // can set, and a long one squeezed the sender to nothing.
-      Text {
+      ActionIcon {
         id: source
         objectName: "message-source"
         anchors.right: count.visible ? count.left : time.left
-        anchors.rightMargin: count.visible ? MailStyle.space(4) : MailStyle.space(8)
-        anchors.baseline: sender.baseline
+        anchors.rightMargin: MailStyle.space(8)
+        anchors.verticalCenter: sender.verticalCenter
         visible: root.sourceLabel !== ""
-        // A ceiling, because `elide` on its own never fires: with only an
-        // implicit width the label is as wide as the name a user typed, and
-        // `sender` subtracts that — so a long one squeezed the sender to
-        // nothing and pushed the row past its own width. A third is enough to
-        // tell three mailboxes apart and leaves the sender the rest.
-        width: Math.min(implicitWidth, Math.floor(parent.width / 3))
-        textFormat: Text.PlainText
-        text: root.sourceLabel
-        color: root.accentColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.listSize
-        elide: Text.ElideRight
+        name: Identity.icon(root.sourceLabel)
+        iconSize: MailStyle.listSize
+        color: root.textColor
+        Accessible.role: Accessible.Graphic
+        Accessible.name: root.sourceLabel
+        Widgets.PanelToolTip { visible: sourceHover.hovered; text: root.sourceLabel; fontFamily: root.panelFontFamily }
+        HoverHandler { id: sourceHover }
       }
 
       // How long the conversation is, beside who wrote it — where Gmail puts
@@ -243,7 +247,7 @@ Rectangle {
     Text {
       id: subject
       objectName: "message-subject"
-      width: parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0)
+      width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
       // Sender-controlled text must never activate Qt's rich-text loader.
       textFormat: Text.PlainText
       text: root.summary.subject
@@ -257,11 +261,11 @@ Rectangle {
 
     Text {
       objectName: "message-description"
-      width: subject.width
-      visible: root.summary.snippet !== ""
+      width: Math.max(0, Math.min(subject.width, parent.width - time.width - MailStyle.space(16)))
+      visible: true
       textFormat: Text.PlainText
-      text: root.summary.snippet
-      color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.42)
+      text: root.overview || (root.overviewState === "failed" ? "Overview unavailable · retry from Menu" : root.overviewState === "paused" ? "Overviews paused" : root.overviewState === "running" ? "Creating overview" : root.overviewState === "unavailable" ? "AI overview unavailable" : "Overview queued")
+      color: root.dimColor
       font.family: root.panelFontFamily
       font.pixelSize: MailStyle.listSize
       elide: Text.ElideRight
@@ -280,19 +284,32 @@ Rectangle {
     anchors.rightMargin: MailStyle.space(6)
     y: body.y + subject.y + (body.height - subject.y - height) / 2
     spacing: 0
-    visible: root.hot || root.summary.starred || root.selectionMode
+    visible: root.hot || root.selectionMode || root.snoozeOpen
 
     IconButton {
+      objectName: "message-mark-unread"
       visible: !root.selectionMode
-      iconName: "star"
-      filled: root.summary.starred
-      tooltipText: (root.summary.starred ? "Unstar" : "Star") + " · s"
-      foreground: root.summary.starred ? root.accentColor : root.dimColor
-      hoverColor: root.accentColor
-      iconSize: Style.font.iconSmall
-      size: MailStyle.space(24)
+      iconName: "unread"
+      tooltipText: "Mark unread · Shift+U"
+      foreground: root.dimColor
+      hoverColor: root.textColor
+      iconSize: Style.font.iconSmall * 2.5
+      size: Math.max(MailStyle.space(24), iconSize + MailStyle.space(8))
       fontFamily: root.panelFontFamily
-      onClicked: root.starToggled()
+      onClicked: root.unreadRequested()
+    }
+    IconButton {
+      objectName: "message-snooze"
+      visible: !root.selectionMode
+      iconName: "snooze"
+      tooltipText: "Snooze until..."
+      foreground: root.dimColor
+      hoverColor: root.textColor
+      iconSize: Style.font.iconSmall * 2.5
+      size: Math.max(MailStyle.space(24), iconSize + MailStyle.space(8))
+      selected: root.snoozeOpen
+      fontFamily: root.panelFontFamily
+      onClicked: { var scene = mapToGlobal(0, height); root.snoozeRequested(scene.x, scene.y) }
     }
 
     IconButton {
@@ -304,8 +321,8 @@ Rectangle {
       tooltipText: "Archive · e"
       foreground: root.dimColor
       hoverColor: root.textColor
-      iconSize: Style.font.iconSmall
-      size: MailStyle.space(24)
+      iconSize: Style.font.iconSmall * 2.5
+      size: Math.max(MailStyle.space(24), iconSize + MailStyle.space(8))
       fontFamily: root.panelFontFamily
       onClicked: root.archiveRequested()
     }
@@ -317,8 +334,8 @@ Rectangle {
       tooltipText: "Move to trash · d"
       foreground: root.dimColor
       hoverColor: root.textColor
-      iconSize: Style.font.iconSmall
-      size: MailStyle.space(24)
+      iconSize: Style.font.iconSmall * 2.5
+      size: Math.max(MailStyle.space(24), iconSize + MailStyle.space(8))
       fontFamily: root.panelFontFamily
       onClicked: root.trashRequested()
     }

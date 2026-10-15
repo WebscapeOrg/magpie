@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -105,7 +107,7 @@ Flickable {
             color: track.border.color
           }
 
-          Button {
+          Widgets.Button {
             id: chip
             anchors.fill: parent
             // Only the unread mailbox carries a count: repeating it on Inbox
@@ -117,7 +119,7 @@ Flickable {
             bordered: false
             selected: root.current === segment.modelData.key
             hasCursor: root.cursorIndex === segment.index
-            fontSize: Style.font.bodySmall
+            fontSize: MailStyle.bodySmall
             onClicked: root.selected(segment.modelData.key)
             onHovered: function(isHovered) { root.chipHovered(segment.index, isHovered) }
           }

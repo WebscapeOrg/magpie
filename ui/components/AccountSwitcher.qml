@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -140,9 +141,9 @@ Item {
 
   QQC.Popup {
     id: menu
-    width: Style.space(250)
-    implicitHeight: rows.implicitHeight + Style.space(8)
-    padding: Style.space(4)
+    width: MailStyle.space(250)
+    implicitHeight: rows.implicitHeight + MailStyle.space(8)
+    padding: MailStyle.space(4)
     modal: false
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
@@ -173,7 +174,7 @@ Item {
     // menu that does not move.
     contentItem: Column {
       id: rows
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
       // A key that reaches the column — the field lost focus to a click on
       // the padding, say — still goes to the search line.
       Keys.forwardTo: [search]
@@ -186,7 +187,7 @@ Item {
         foreground: root.textColor
         accent: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Type a name or address"
         onTextChanged: root.query = text
         onMoved: function(delta) { root.moveCursor(delta) }
@@ -200,7 +201,7 @@ Item {
         readonly property bool hasCursor: root.cursorIndex === 0
 
         width: menu.width - menu.leftPadding - menu.rightPadding
-        implicitHeight: visible ? Style.space(40) : 0
+        implicitHeight: visible ? MailStyle.space(40) : 0
         radius: Style.cornerRadius
         color: root.unifiedActive
           ? Style.selectedFillFor(root.textColor, root.accentColor)
@@ -212,9 +213,9 @@ Item {
         Rectangle {
           id: unifiedAvatar
           anchors.left: parent.left
-          anchors.leftMargin: Style.space(8)
+          anchors.leftMargin: MailStyle.space(8)
           anchors.verticalCenter: parent.verticalCenter
-          width: Style.space(22)
+          width: MailStyle.space(22)
           height: width
           radius: width / 2
           color: Style.selectedFillFor(root.textColor, root.accentColor)
@@ -225,17 +226,17 @@ Item {
             anchors.centerIn: parent
             name: "inbox"
             color: root.textColor
-            iconSize: Style.font.caption
+            iconSize: MailStyle.caption
           }
         }
 
         Column {
           anchors.left: unifiedAvatar.right
-          anchors.leftMargin: Style.space(9)
+          anchors.leftMargin: MailStyle.space(9)
           anchors.right: parent.right
-          anchors.rightMargin: Style.space(10)
+          anchors.rightMargin: MailStyle.space(10)
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(1)
+          spacing: MailStyle.space(1)
 
           Text {
             width: parent.width
@@ -244,7 +245,7 @@ Item {
             text: Model.UNIFIED_LABEL
             color: root.textColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: MailStyle.bodySmall
             font.bold: root.unifiedActive
             elide: Text.ElideRight
           }
@@ -255,7 +256,7 @@ Item {
             text: root.accountRowCount + " mailboxes in one list"
             color: root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             elide: Text.ElideRight
           }
         }
@@ -312,7 +313,7 @@ Item {
           readonly property bool inUse: modelData.active && !root.unifiedActive
 
           width: menu.width - menu.leftPadding - menu.rightPadding
-          implicitHeight: Style.space(40)
+          implicitHeight: MailStyle.space(40)
           radius: Style.cornerRadius
           color: row.inUse
             ? Style.selectedFillFor(root.textColor, root.accentColor)
@@ -327,9 +328,9 @@ Item {
           Rectangle {
             id: rowAvatar
             anchors.left: parent.left
-            anchors.leftMargin: Style.space(8)
+            anchors.leftMargin: MailStyle.space(8)
             anchors.verticalCenter: parent.verticalCenter
-            width: Style.space(22)
+            width: MailStyle.space(22)
             height: width
             radius: width / 2
             color: Style.selectedFillFor(root.textColor, root.accentColor)
@@ -344,18 +345,18 @@ Item {
               }
               color: root.textColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: MailStyle.caption
               font.bold: true
             }
           }
 
           Column {
             anchors.left: rowAvatar.right
-            anchors.leftMargin: Style.space(9)
+            anchors.leftMargin: MailStyle.space(9)
             anchors.right: parent.right
-            anchors.rightMargin: Style.space(10)
+            anchors.rightMargin: MailStyle.space(10)
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(1)
+            spacing: MailStyle.space(1)
 
             // A name if one was chosen, and the address otherwise.
             //
@@ -371,7 +372,7 @@ Item {
               text: row.primaryText
               color: root.textColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: MailStyle.bodySmall
               font.bold: row.inUse
               elide: Text.ElideMiddle
             }
@@ -386,7 +387,7 @@ Item {
               color: row.modelData.error !== undefined && row.modelData.error !== ""
                 ? root.urgentColor : root.dimColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: MailStyle.caption
               elide: Text.ElideRight
             }
           }
@@ -404,7 +405,7 @@ Item {
 
       Item {
         width: menu.width - menu.leftPadding - menu.rightPadding
-        implicitHeight: Style.space(7)
+        implicitHeight: MailStyle.space(7)
 
         PanelSeparator {
           anchors.verticalCenter: parent.verticalCenter
@@ -445,14 +446,14 @@ Item {
 
     Text {
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(9)
+      anchors.leftMargin: MailStyle.space(9)
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(9)
+      anchors.rightMargin: MailStyle.space(9)
       anchors.verticalCenter: parent.verticalCenter
       text: plainRow.text
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       elide: Text.ElideRight
     }
 

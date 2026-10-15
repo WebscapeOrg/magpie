@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Ui
 
@@ -28,27 +29,27 @@ Item {
     anchors.top: parent.top
     anchors.left: parent.left
     anchors.right: parent.right
-    anchors.margins: Style.space(14)
-    spacing: Style.space(8)
+    anchors.margins: MailStyle.space(14)
+    spacing: MailStyle.space(8)
 
     // Subject: two lines, the second short, the way a long subject wraps.
-    Bar { widthFactor: 0.82; barHeight: Style.space(13) }
-    Bar { widthFactor: 0.46; barHeight: Style.space(13) }
+    Bar { widthFactor: 0.82; barHeight: MailStyle.space(13) }
+    Bar { widthFactor: 0.46; barHeight: MailStyle.space(13) }
 
-    Item { width: 1; height: Style.space(4) }
+    Item { width: 1; height: MailStyle.space(4) }
 
     // Sender, then the recipients-and-date line under it.
-    Bar { widthFactor: 0.38; barHeight: Style.space(9) }
-    Bar { widthFactor: 0.52; barHeight: Style.space(8) }
+    Bar { widthFactor: 0.38; barHeight: MailStyle.space(9) }
+    Bar { widthFactor: 0.52; barHeight: MailStyle.space(8) }
 
-    Item { width: 1; height: Style.space(10) }
+    Item { width: 1; height: MailStyle.space(10) }
 
     PanelSeparator {
       width: parent.width
       foreground: root.textColor
     }
 
-    Item { width: 1; height: Style.space(6) }
+    Item { width: 1; height: MailStyle.space(6) }
 
     // Body: paragraphs of a few lines each, with a short last line.
     Repeater {
@@ -57,12 +58,12 @@ Item {
       Item {
         required property var modelData
         width: parent.width
-        implicitHeight: modelData === 0.0 ? Style.space(10) : Style.space(15)
+        implicitHeight: modelData === 0.0 ? MailStyle.space(10) : MailStyle.space(15)
 
         Bar {
           visible: modelData !== 0.0
           widthFactor: modelData
-          barHeight: Style.space(8)
+          barHeight: MailStyle.space(8)
         }
       }
     }
@@ -70,7 +71,7 @@ Item {
 
   component Bar: Rectangle {
     property real widthFactor: 1.0
-    property real barHeight: Style.space(8)
+    property real barHeight: MailStyle.space(8)
 
     width: Math.max(1, parent.width * widthFactor)
     height: barHeight

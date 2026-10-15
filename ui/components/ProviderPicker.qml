@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../providers/Registry.js" as Provider
@@ -24,18 +25,18 @@ Column {
 
   signal chosen(string providerId)
 
-  spacing: Style.space(16)
+  spacing: MailStyle.space(16)
 
   Column {
     width: parent.width
-    spacing: Style.space(4)
+    spacing: MailStyle.space(4)
 
     Text {
       width: parent.width
       text: "Add a mailbox"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.heading
+      font.pixelSize: MailStyle.heading
       font.bold: true
     }
 
@@ -44,14 +45,14 @@ Column {
       text: "Which kind?"
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       wrapMode: Text.WordWrap
     }
   }
 
   Column {
     width: parent.width
-    spacing: Style.space(8)
+    spacing: MailStyle.space(8)
 
     Repeater {
       model: Provider.ids()
@@ -63,7 +64,7 @@ Column {
         readonly property bool connectable: Provider.isConnectable(modelData)
 
         width: root.width
-        implicitHeight: Math.max(cardText.implicitHeight, cardMark.height) + Style.space(24)
+        implicitHeight: Math.max(cardText.implicitHeight, cardMark.height) + MailStyle.space(24)
         radius: Style.cornerRadius
         color: card.connectable && hover.hovered
           ? Style.hoverFillFor(root.textColor, root.accentColor)
@@ -83,9 +84,9 @@ Column {
         ProviderLogo {
           id: cardMark
           anchors.left: parent.left
-          anchors.leftMargin: Style.space(12)
+          anchors.leftMargin: MailStyle.space(12)
           anchors.verticalCenter: parent.verticalCenter
-          size: Style.space(26)
+          size: MailStyle.space(26)
           logo: Provider.mark(card.modelData)
           fallbackIcon: "unread"
           fallbackColor: root.textColor
@@ -94,11 +95,11 @@ Column {
         Column {
           id: cardText
           anchors.left: cardMark.right
-          anchors.leftMargin: Style.space(12)
+          anchors.leftMargin: MailStyle.space(12)
           anchors.right: parent.right
-          anchors.rightMargin: Style.space(12)
+          anchors.rightMargin: MailStyle.space(12)
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(3)
+          spacing: MailStyle.space(3)
 
           Text {
             width: parent.width
@@ -106,7 +107,7 @@ Column {
             text: Provider.badge(card.modelData)
             color: root.textColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: MailStyle.bodySmall
             font.bold: true
           }
 
@@ -120,7 +121,7 @@ Column {
               : Provider.unavailableReason(card.modelData)
             color: root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             wrapMode: Text.WordWrap
           }
         }

@@ -6,13 +6,13 @@ QtObject {
   readonly property real normalBorderWidth: 1
   readonly property var font: ({
     family: "monospace", title: 22, heading: 18, body: 14, bodySmall: 13, caption: 11,
-    icon: 16, iconSmall: 14
+    icon: 16, iconSmall: 14, iconLarge: 18
   })
   // `popupRowHeight` is the shell's 28. A stub without it gave every plain
   // menu row a height of zero, so a click on "Manage accounts..." fell through
   // the popup to whatever the window had underneath.
   readonly property var spacing: ({
-    controlPaddingX: 8, controlPaddingY: 5, inputPaddingY: 5,
+    controlPaddingX: 8, controlPaddingY: 5, inputPaddingY: 5, tooltipPaddingX:8, tooltipPaddingY:5, huge:24, labelGap:6, dropdownWidth:240, lg:8, numberFieldWidth:96,
     controlHeight: 30, controlGap: 6, sm: 3, md: 6, popupRowHeight: 28
   })
 
@@ -28,6 +28,9 @@ QtObject {
     var n = Number(value) * spacingScale
     return n <= 0 ? 0 : Math.max(1, Math.round(n))
   }
+  function controlFill(_focused, _hot, _foreground, _accent) { return "transparent" }
+  function focusFillFor(_foreground, accent) { return accent }
+  function hoverStateColor(foreground, _accent) { return foreground }
   function hoverFillFor(_foreground, accent) { return accent }
   function selectedFillFor(_foreground, accent) { return accent }
   function selectedStateColor(foreground, _accent) { return foreground }

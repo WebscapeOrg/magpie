@@ -40,6 +40,7 @@ Item {
   QtObject {
     id: mailService
 
+    property var displayPreferences: ({layout: "Split view"})
     property bool ready: false
     property bool anyAccountReady: false
     property bool hasSavedAccounts: true

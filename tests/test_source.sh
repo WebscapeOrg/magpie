@@ -239,10 +239,10 @@ fi
 #    `foreground` is the fixed theme value and does not follow that switch.
 grep -q 'bar ? bar\.barForeground' BarWidget.qml \
   || fail "the bar icon must follow bar.barForeground in transparent mode"
-grep -q 'markColor: root.accent' App.qml \
-  || fail "the Omamail header M must use the active theme accent"
-grep -q 'markColor: Commons.Color.accent' BarWidget.qml \
-  || fail "the bar M must use the active theme accent"
+grep -q 'MagpieLogo {' App.qml \
+  || fail "the header must use Magpie's identity"
+grep -q 'color: Commons.Color.accent' BarWidget.qml \
+  || fail "the unread marker must use the active theme accent"
 
 # IconTextButton has no separate hover glyph colour. Assigning one makes the
 # whole component type unavailable at runtime, and App.qml then cannot be
@@ -274,16 +274,16 @@ grep -q 'accountSwitcher.openAt(scene.x, scene.y)' App.qml \
   || fail "the account switcher must anchor to the status address"
 awk '
   /id: accountBackground/ { in_background = 1 }
-  in_background && /anchors.margins: Style.space\(2\)/ { found = 1 }
+  in_background && /anchors.margins: MailStyle.space\(2\)/ { found = 1 }
   in_background && /^            }/ { exit !found }
   END { exit !found }
 ' App.qml \
   || fail "the status account hover must use the same visual inset as the sidebar toggle"
 awk '
   /id: footer$/ { in_footer = 1 }
-  in_footer && /anchors.leftMargin: Style.space\(8\)/ { left = 1 }
-  in_footer && /anchors.rightMargin: Style.space\(8\)/ { right = 1 }
-  in_footer && /spacing: Style.space\(4\)/ { exit !(left && right) }
+  in_footer && /anchors.leftMargin: MailStyle.space\(8\)/ { left = 1 }
+  in_footer && /anchors.rightMargin: MailStyle.space\(8\)/ { right = 1 }
+  in_footer && /spacing: MailStyle.space\(4\)/ { exit !(left && right) }
   END { exit !(left && right) }
 ' components/MessageReader.qml \
   || fail "the reader toolbar control frames must share the status-bar inset"
@@ -446,12 +446,12 @@ from pathlib import Path
 
 text = Path("App.qml").read_text()
 header = text[text.index("id: headerRight"):text.index("PanelSeparator {", text.index("id: headerRight"))]
-if "spacing: Style.space(8)" not in header:
+if "spacing: MailStyle.space(8)" not in header:
     raise SystemExit("test_source.sh: refresh needs breathing room before the header action")
 for name in ("compose-button",):
     marker = 'objectName: "' + name + '"'
     start = text.index(marker)
-    opening = text.rfind("\n          Button {", 0, start)
+    opening = text.rfind("\n          Widgets.Button {", 0, start)
     if opening < 0:
         raise SystemExit("test_source.sh: " + name + " must use a normal text button")
     block = text[opening:text.index("\n          }", start)]
@@ -466,7 +466,7 @@ footer = sidebar[sidebar.index("id: footer"):sidebar.index("component Entry:")]
 if 'label: "Calendar"' not in footer or "calendarRequested" not in footer:
     raise SystemExit("test_source.sh: Calendar must stay fixed at the foot of the sidebar")
 calendar = footer.index('label: "Calendar"')
-if "Style.space(6)" not in footer[calendar:]:
+if "MailStyle.space(6)" not in footer[calendar:]:
     raise SystemExit("test_source.sh: Calendar must keep breathing room at the sidebar foot")
 
 app = Path("App.qml").read_text()
@@ -790,9 +790,9 @@ grep -q 'MAX_SUMMARIES_PER_QUERY' cache/Cache.js \
 
 # New-mail notifications use the application's own mark, not the desktop's
 # generic unread-mail glyph.
-grep -q 'assets/omamail.svg' ../scripts/notify-mail.py \
+grep -q 'assets/magpie.svg' ../scripts/notify-mail.py \
   || fail "new-mail notifications need the Omamail app icon"
-[ -f assets/omamail.svg ] || fail "the notification app icon is missing"
+[ -f assets/magpie.svg ] || fail "the notification app icon is missing"
 
 # Account actions live on the account's edit page. The switcher only changes
 # accounts and leads to management; the management list only leads to editing.
@@ -988,7 +988,7 @@ if grep -n 'size: Style\.space(20)' components/MessageRow.qml; then
 fi
 grep -q 'anchors.margins: root.visualInset' components/IconButton.qml \
   || fail "IconButton hover fill must sit inside its hit target"
-grep -q 'verticalPadding: Style.space(2)' components/ReaderNotice.qml \
+grep -q 'verticalPadding: MailStyle.space(2)' components/ReaderNotice.qml \
   || fail "ReaderNotice actions must keep their visual surface inside the notice"
 grep -q 'width: implicitWidth' components/ReaderNotice.qml \
   || fail "ReaderNotice actions need a trailing intrinsic-width lane"
@@ -1042,7 +1042,7 @@ awk '
 ' components/ImapSetupPage.qml \
   || fail "IMAP Remove account must be the trailing danger ghost beside Sign out"
 awk '
-  /^  Button \{/ { top_button = 1; next }
+  /^  Widgets\.Button \{/ { top_button = 1; next }
   top_button && /text: "Remove account"/ { exit 1 }
   top_button && /^  \}/ { top_button = 0 }
 ' components/ImapSetupPage.qml \
@@ -1153,8 +1153,8 @@ grep -q 'function beginDraft' components/ComposeView.qml \
   || fail "ComposeView must fill a new draft from a mailto"
 grep -q 'omarchy-shell shell summon' ../scripts/mailto.sh \
   || fail "the mailto handler must summon Omamail, not toggle it"
-grep -q 'register-mailto.sh' ../scripts/link-plugin.sh \
-  || fail "link-plugin.sh must register the mailto desktop handler"
+grep -q 'exec "$installer"' ../scripts/link-plugin.sh \
+  || fail "Magpie's install helper must use Enterprise's guarded copy installer"
 grep -q 'registerMailtoHandler' Service.qml \
   || fail "the service must register the mailto handler when the plugin loads"
 grep -q '("bcc", "Bcc")' ../src/providers/hey_actions.rs \

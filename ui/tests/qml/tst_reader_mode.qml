@@ -1,3 +1,4 @@
+import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 import qs.Commons
@@ -12,7 +13,7 @@ import "../../message/Html.js" as Html
 // decided against a font Qt measures — which is the half of that decision no
 // node test can make.
 Item {
-  width: 900
+  width: MailStyle.space(900)
   height: 600
 
   readonly property string senderHtml: '<table width="600" align="center" bgcolor="#ffeedd"'
@@ -72,7 +73,7 @@ Item {
   Omamail.MessageReader {
     id: reader
     // Sized rather than anchored: the panel's width is what these tests move.
-    width: 900
+    width: MailStyle.space(900)
     height: 600
     service: mailService
     textColor: Qt.rgba(1, 1, 1, 1)
@@ -181,11 +182,11 @@ Item {
       verify(edit.width < reader.bodyWidth,
         "a wide panel does not become a wide line of text")
       verify(reader.bodyOffset > 0, "and the column is centred in what is left")
-      verify(edit.width >= Style.space(800), "a wide reader uses at least 800 logical pixels")
-      reader.width = 1600
-      verify(body().width >= Style.space(800), "fullscreen keeps a usable content width")
+      verify(edit.width >= MailStyle.space(800), "a wide reader uses at least 800 logical pixels")
+      reader.width = MailStyle.space(1600)
+      verify(body().width >= MailStyle.space(800), "fullscreen keeps a usable content width")
       verify(body().width <= reader.bodyWidth, "content remains inside the panel")
-      reader.width = 900
+      reader.width = MailStyle.space(900)
 
       // The other two start at the page inset, because a sender's own layout
       // and a plain-text body both begin at the left edge.
@@ -196,11 +197,11 @@ Item {
     }
 
     function test_a_narrow_panel_gives_the_column_everything() {
-      reader.width = 420
+      reader.width = MailStyle.space(420)
       compare(reader.bodyOffset, 0, "there is nothing spare to centre in")
       compare(body().width, reader.bodyWidth)
       verify(body().x + body().width <= reader.width, "and nothing runs off the panel")
-      reader.width = 900
+      reader.width = MailStyle.space(900)
       verify(reader.bodyOffset > 0, "and the column comes back when there is room again")
     }
 
@@ -223,10 +224,10 @@ Item {
       compare(web.height, track.height,
         "Open Web has the same toolbar control box, not only the same centre")
 
-      reader.width = 300
+      reader.width = MailStyle.space(300)
       tryCompare(toolbar, "stacked", true)
       verify(track.y >= 0 && web.y >= 0)
-      reader.width = 900
+      reader.width = MailStyle.space(900)
       tryCompare(toolbar, "stacked", false)
       mailService.canOpenOnWeb = false
     }
@@ -246,22 +247,22 @@ Item {
 
     function test_all_modes_keep_the_content_limit_when_zooming() {
       var wasFont = body().font.pixelSize
-      reader.width = 1600
+      reader.width = MailStyle.space(1600)
       var modes = ["reader", "original", "plain"]
       for (var i = 0; i < modes.length; i++) {
         reader.bodyMode = modes[i]
         reader.zoom = 2.0
         verify(body().font.pixelSize > wasFont)
-        verify(body().width <= Style.space(800), modes[i] + " keeps its maximum width")
-        reader.width = 420
+        verify(body().width <= MailStyle.space(800), modes[i] + " keeps its maximum width")
+        reader.width = MailStyle.space(420)
         verify(body().width <= reader.bodyWidth, modes[i] + " fits a narrow panel")
-        reader.width = 1600
+        reader.width = MailStyle.space(1600)
       }
       reader.zoom = 1.0
-      reader.width = 900
+      reader.width = MailStyle.space(900)
       reader.bodyMode = "reader"
       compare(body().font.pixelSize, wasFont)
-      compare(body().width, Style.space(800))
+      compare(body().width, MailStyle.space(800))
     }
 
     function test_a_message_too_heavy_to_draw_says_so_rather_than_showing_nothing() {

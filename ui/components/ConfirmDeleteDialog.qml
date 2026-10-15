@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -63,8 +65,8 @@ Item {
   QQC.Popup {
     id: dialog
     anchors.centerIn: parent
-    width: Math.min(Style.space(420), parent.width - Style.space(32))
-    padding: Style.space(18)
+    width: Math.min(MailStyle.space(420), parent.width - MailStyle.space(32))
+    padding: MailStyle.space(18)
     modal: true
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape
@@ -80,7 +82,7 @@ Item {
       border.color: root.popupBorderColor
     }
     contentItem: Column {
-      spacing: Style.space(14)
+      spacing: MailStyle.space(14)
       // Popups consume keys before the window shortcut map.
       Keys.onPressed: function(event) {
         if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
@@ -101,7 +103,7 @@ Item {
         text: "Delete \"" + String(root.request ? root.request.name : "") + "\"?"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.heading
+        font.pixelSize: MailStyle.heading
         font.bold: true
         wrapMode: Text.Wrap
       }
@@ -112,13 +114,13 @@ Item {
         text: String(root.request && root.request.message || "")
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         wrapMode: Text.Wrap
       }
       Flow {
         width: parent.width
-        spacing: Style.space(8)
-        Button {
+        spacing: MailStyle.space(8)
+        Widgets.Button {
           id: cancelButton
           objectName: "delete-cancel"
           text: "Cancel"
@@ -131,7 +133,7 @@ Item {
         Repeater {
           id: choiceButtons
           model: root.choices
-          Button {
+          Widgets.Button {
             required property var modelData
             required property int index
             objectName: index === root.choices.length - 1 ? "delete-confirm" : "delete-choice-" + String(modelData.value)

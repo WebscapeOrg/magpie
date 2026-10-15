@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "id": "omamail",
-  "name": "Omamail",
+  "id": "magpie",
+  "name": "🐦 Magpie",
   "version": "0.11.0",
-  "author": "huacnlee",
+  "author": "dreinecke (fork of huacnlee/omamail)",
   "license": "MIT",
-  "homepage": "https://huacnlee.github.io/omamail/",
-  "description": "Email client for Omarchy: read, triage, and reply to Gmail, HEY and any JMAP or IMAP mailbox in a native window. Fastmail, iCloud, Outlook, Zoho, Proton Bridge, or your own server — several accounts at once, each with its own inbox and unread count. Keyboard-first, three columns when there is room and one when there is not, and it follows your theme. Meeting invitations are drawn as meetings you can answer, newsletters unsubscribe in one click, and remote images stay blocked until you ask.",
+  "homepage": "https://github.com/dreinecke/magpie",
+  "description": "Mail for Omarchy with single-pane and split layouts and independent interface, list and message fonts.",
   "kinds": [
     "service",
     "bar-widget",
@@ -19,7 +19,7 @@
     "panel": "ui/App.qml"
   },
   "barWidget": {
-    "displayName": "Omamail",
+    "displayName": "🐦 Magpie",
     "description": "Unread mail count in the bar; the inbox itself opens as its own window. Works with Gmail, HEY and any JMAP or IMAP mail server.",
     "category": "Communication",
     "aliases": [
@@ -60,7 +60,7 @@
         "type": "boolean",
         "label": "Show the icon in the bar",
         "defaultValue": true,
-        "description": "Turn this off to run Omamail with no envelope in the bar. Mail is still checked and still notifies; only the icon goes. With it off the window opens from a keybinding or a terminal and nowhere else, so bind a key first: o.bind(\"SUPER + SHIFT + G\", \"Omamail\", \"omarchy shell shell toggle omamail '{}'\")"
+        "description": "Turn this off to run Magpie with no envelope in the bar. Mail is still checked and still notifies; only the icon goes. With it off the window opens from a keybinding or a terminal and nowhere else, so bind a key first: o.bind(\"SUPER + SHIFT + G\", \"Magpie\", \"omarchy shell shell toggle magpie '{}'\")"
       },
       {
         "key": "refreshIntervalSec",
@@ -115,7 +115,12 @@
         "key": "aiAgent",
         "type": "enum",
         "label": "AI agent",
-        "options": ["System default", "OpenCode", "Codex", "Claude"],
+        "options": [
+          "System default",
+          "OpenCode",
+          "Codex",
+          "Claude"
+        ],
         "defaultValue": "System default",
         "description": "Agent for new mail chats and calendar suggestions. System default follows Omarchy; unsupported defaults disable AI. Changing the selection starts fresh chats and keeps previous chats read-only. Requires backend API 6."
       },
@@ -176,7 +181,7 @@
         "type": "boolean",
         "label": "Calendar desktop reminders",
         "defaultValue": true,
-        "description": "Show reminders while Omamail is running. Configure calendars and timing inside Calendar settings."
+        "description": "Show reminders while Magpie is running. Configure calendars and timing inside Calendar settings."
       },
       {
         "key": "calendarSnoozeMinutes",

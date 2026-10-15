@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../message/Calendar.js" as Calendar
@@ -43,7 +44,7 @@ Rectangle {
     && (invite.method === "CANCEL" || String(invite.status || "") === "CANCELLED")
 
   visible: !!invite
-  implicitHeight: visible ? column.implicitHeight + Style.space(24) : 0
+  implicitHeight: visible ? column.implicitHeight + MailStyle.space(24) : 0
   radius: Style.cornerRadius
   color: Style.normalFillFor(root.textColor, root.accentColor)
   border.width: 1
@@ -54,13 +55,13 @@ Rectangle {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.top: parent.top
-    anchors.margins: Style.space(12)
-    spacing: Style.space(6)
+    anchors.margins: MailStyle.space(12)
+    spacing: MailStyle.space(6)
 
     // ------------------------------------------------------------ heading
 
     Row {
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
 
       ActionIcon {
         anchors.verticalCenter: parent.verticalCenter
@@ -74,7 +75,7 @@ Rectangle {
         text: root.invite ? Calendar.headline(root.invite) : ""
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
     }
 
@@ -86,7 +87,7 @@ Rectangle {
       text: root.invite ? String(root.invite.summary || "(no title)") : ""
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.body
+      font.pixelSize: MailStyle.body
       font.bold: true
       // A cancelled meeting keeps its name legible rather than striking it
       // through: the heading above already says what happened, and struck text
@@ -106,7 +107,7 @@ Rectangle {
       visible: text !== ""
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       wrapMode: Text.WordWrap
     }
 
@@ -117,18 +118,18 @@ Rectangle {
       visible: text !== ""
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
 
     // --------------------------------------------------------------- where
 
-    Item { width: 1; height: Style.space(2); visible: whereRow.visible }
+    Item { width: 1; height: MailStyle.space(2); visible: whereRow.visible }
 
     Row {
       id: whereRow
       width: parent.width
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
       visible: !!root.invite && String(root.invite.location || "") !== ""
 
       ActionIcon {
@@ -140,12 +141,12 @@ Rectangle {
 
       Text {
         anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - Style.font.iconSmall - Style.space(6)
+        width: parent.width - Style.font.iconSmall - MailStyle.space(6)
         textFormat: Text.PlainText
         text: root.invite ? String(root.invite.location || "") : ""
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         elide: Text.ElideRight
       }
     }
@@ -154,7 +155,7 @@ Rectangle {
 
     Row {
       width: parent.width
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
       visible: !!root.invite && !!root.invite.organizer
         && String(root.invite.organizer.email || "") !== ""
 
@@ -167,7 +168,7 @@ Rectangle {
 
       Text {
         anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - Style.font.iconSmall - Style.space(6)
+        width: parent.width - Style.font.iconSmall - MailStyle.space(6)
         textFormat: Text.PlainText
         text: {
           if (!root.invite || !root.invite.organizer) return ""
@@ -177,7 +178,7 @@ Rectangle {
         }
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         elide: Text.ElideRight
       }
     }
@@ -186,7 +187,7 @@ Rectangle {
     // otherwise be a card longer than the message it came in.
     Column {
       width: parent.width
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
       visible: guests.count > 0
 
       Repeater {
@@ -200,14 +201,14 @@ Rectangle {
         Text {
           required property var modelData
           width: parent.width
-          leftPadding: Style.font.iconSmall + Style.space(6)
+          leftPadding: Style.font.iconSmall + MailStyle.space(6)
           textFormat: Text.PlainText
           text: String(modelData.name || modelData.email) + " — "
             + Calendar.partstatLabel(modelData.partstat)
             + (modelData.optional ? " (optional)" : "")
           color: root.dimmerColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           elide: Text.ElideRight
         }
       }
@@ -215,19 +216,19 @@ Rectangle {
 
     Text {
       width: parent.width
-      leftPadding: Style.font.iconSmall + Style.space(6)
+      leftPadding: Style.font.iconSmall + MailStyle.space(6)
       visible: !!root.invite && (root.invite.attendees || []).length > 6
       text: root.invite
         ? "and " + ((root.invite.attendees || []).length - 6) + " more"
         : ""
       color: root.dimmerColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
     }
 
     // --------------------------------------------------------------- join
 
-    Item { width: 1; height: Style.space(4); visible: joinButton.visible || rsvpRow.visible }
+    Item { width: 1; height: MailStyle.space(4); visible: joinButton.visible || rsvpRow.visible }
 
     IconTextButton {
       id: joinButton
@@ -240,7 +241,7 @@ Rectangle {
       foreground: root.textColor
       accent: root.accentColor
       fontFamily: root.panelFontFamily
-      fontSize: Style.font.caption
+      fontSize: MailStyle.caption
       onClicked: if (root.invite) root.openRequested(String(root.invite.meetLink || ""))
     }
 
@@ -248,7 +249,7 @@ Rectangle {
 
     Row {
       id: rsvpRow
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
       visible: root.canRespond && !root.fallbackAvailable
 
       Text {
@@ -256,7 +257,7 @@ Rectangle {
         text: "Going?"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
       Repeater {
@@ -278,7 +279,7 @@ Rectangle {
           foreground: root.textColor
           accent: root.accentColor
           fontFamily: root.panelFontFamily
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           onClicked: root.respondRequested(modelData.answer)
         }
       }
@@ -286,7 +287,7 @@ Rectangle {
 
     Column {
       width: parent.width
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
       visible: root.fallbackAvailable && root.canRespond
       Text {
         width: parent.width
@@ -295,11 +296,11 @@ Rectangle {
         wrapMode: Text.Wrap
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
       Flow {
         width: parent.width
-        spacing: Style.space(6)
+        spacing: MailStyle.space(6)
         IconTextButton {
           visible: root.calendarUrl !== ""
           text: "Open Calendar..."
@@ -334,7 +335,7 @@ Rectangle {
         : (root.response === "declined" ? "You are not going" : "You might be going")
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
     }
   }
 }

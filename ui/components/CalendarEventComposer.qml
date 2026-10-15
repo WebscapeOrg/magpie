@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Window
 import QtQuick.Controls as QQC
 import qs.Commons
@@ -100,7 +102,7 @@ Rectangle {
     width: parent.width
     color: root.textColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: MailStyle.bodySmall
     textFormat: Text.PlainText
     wrapMode: Text.Wrap
   }
@@ -116,9 +118,9 @@ Rectangle {
       composerFlick.contentY = Math.max(0, Math.min(top, bottom - composerFlick.height))
   }
 
-  component EditorField: TextField {
+  component EditorField: Widgets.TextField {
     id: input
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: MailStyle.bodySmall
     onActiveFocusChanged: if (activeFocus) Qt.callLater(root.revealField, input)
   }
 
@@ -135,8 +137,8 @@ Rectangle {
       return -1
     }
     onActivated: function(index) { chosen(String(model[index].value)) }
-    leftPadding: Style.space(10)
-    rightPadding: Style.space(30)
+    leftPadding: MailStyle.space(10)
+    rightPadding: MailStyle.space(30)
     contentItem: Text {
       text: option.displayText
       textFormat: Text.PlainText
@@ -144,11 +146,11 @@ Rectangle {
       verticalAlignment: Text.AlignVCenter
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.body
+      font.pixelSize: MailStyle.body
     }
     indicator: ActionIcon {
       name: "chevronDown"
-      x: option.width - width - Style.space(10)
+      x: option.width - width - MailStyle.space(10)
       y: (option.height - height) / 2
       color: root.dimColor
       iconSize: Style.font.iconSmall
@@ -172,7 +174,7 @@ Rectangle {
         textFormat: Text.PlainText
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.body
+        font.pixelSize: MailStyle.body
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
       }
@@ -182,8 +184,8 @@ Rectangle {
     }
     popup: QQC.Popup {
       width: option.width
-      padding: Style.space(4)
-      implicitHeight: Math.min(optionList.contentHeight + padding * 2, Style.space(280))
+      padding: MailStyle.space(4)
+      implicitHeight: Math.min(optionList.contentHeight + padding * 2, MailStyle.space(280))
       function place() {
         var window = option.Window.window
         if (!window) return
@@ -515,7 +517,7 @@ Rectangle {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: editorFooter.top
-    anchors.margins: Style.space(18)
+    anchors.margins: MailStyle.space(18)
     contentWidth: width
     contentHeight: form.implicitHeight
     clip: true
@@ -525,8 +527,8 @@ Rectangle {
     Column {
       id: form
       anchors.horizontalCenter: parent.horizontalCenter
-      width: Math.min(parent.width, Style.space(620))
-      spacing: Style.space(10)
+      width: Math.min(parent.width, MailStyle.space(620))
+      spacing: MailStyle.space(10)
 
       BackBar {
         label: "Calendar"
@@ -542,7 +544,7 @@ Rectangle {
           : root.editing ? "Edit event" : "Create event"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.heading
+        font.pixelSize: MailStyle.heading
         font.bold: true
         textFormat: Text.PlainText
       }
@@ -566,8 +568,8 @@ Rectangle {
         onActivated: function(index) { root.chooseCalendar(String(model[index].source.id)) }
         readonly property var choice: currentIndex >= 0 && currentIndex < model.length ? model[currentIndex] : null
         Accessible.name: "Calendar"
-        leftPadding: Style.space(30)
-        rightPadding: Style.space(32)
+        leftPadding: MailStyle.space(30)
+        rightPadding: MailStyle.space(32)
         contentItem: Text {
           text: calendarSelector.choice ? String(calendarSelector.choice.source.name || calendarSelector.choice.source.id) : "Choose a calendar"
           textFormat: Text.PlainText
@@ -575,19 +577,19 @@ Rectangle {
           verticalAlignment: Text.AlignVCenter
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: MailStyle.body
         }
         Rectangle {
-          x: Style.space(12)
+          x: MailStyle.space(12)
           anchors.verticalCenter: parent.verticalCenter
-          width: Style.space(8)
+          width: MailStyle.space(8)
           height: width
           radius: width / 2
           color: calendarPalette.colorFor(calendarSelector.choice ? calendarSelector.choice.source.colorKey : "accent")
         }
         indicator: ActionIcon {
           name: "chevronDown"
-          x: calendarSelector.width - width - Style.space(10)
+          x: calendarSelector.width - width - MailStyle.space(10)
           y: (calendarSelector.height - height) / 2
           color: root.dimColor
           iconSize: Style.font.iconSmall
@@ -606,12 +608,12 @@ Rectangle {
           required property var modelData
           required property int index
           width: calendarSelector.popup.availableWidth
-          implicitHeight: optionContent.implicitHeight + Style.space(12)
+          implicitHeight: optionContent.implicitHeight + MailStyle.space(12)
           highlighted: calendarSelector.highlightedIndex === index
-          padding: Style.space(6)
+          padding: MailStyle.space(6)
           contentItem: Column {
             id: optionContent
-            spacing: Style.space(8)
+            spacing: MailStyle.space(8)
             Text {
               width: parent.width
               visible: calendarOption.modelData.firstInGroup
@@ -619,28 +621,28 @@ Rectangle {
               textFormat: Text.PlainText
               color: root.dimColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: MailStyle.caption
               wrapMode: Text.Wrap
               MouseArea { anchors.fill: parent }
             }
             Row {
               width: parent.width
-              spacing: Style.space(8)
+              spacing: MailStyle.space(8)
               Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(8)
+                width: MailStyle.space(8)
                 height: width
                 radius: width / 2
                 color: calendarPalette.colorFor(calendarOption.modelData.source.colorKey)
               }
               Text {
-                width: parent.width - Style.space(40)
+                width: parent.width - MailStyle.space(40)
                 text: String(calendarOption.modelData.source.name || calendarOption.modelData.source.id)
                 textFormat: Text.PlainText
                 elide: Text.ElideMiddle
                 color: root.textColor
                 font.family: root.panelFontFamily
-                font.pixelSize: Style.font.body
+                font.pixelSize: MailStyle.body
               }
               Text {
                 text: root.selectedSourceId === String(calendarOption.modelData.source.id) ? "✓" : ""
@@ -657,8 +659,8 @@ Rectangle {
         }
         popup: QQC.Popup {
           width: calendarSelector.width
-          padding: Style.space(6)
-          implicitHeight: Math.min(calendarOptions.contentHeight + padding * 2, Style.space(320))
+          padding: MailStyle.space(6)
+          implicitHeight: Math.min(calendarOptions.contentHeight + padding * 2, MailStyle.space(320))
           function place() {
             var window = calendarSelector.Window.window
             if (!window) return
@@ -701,7 +703,7 @@ Rectangle {
 
       Column {
         width: parent.width
-        spacing: Style.space(6)
+        spacing: MailStyle.space(6)
         FieldLabel { text: "Description" }
         EditorField {
           id: notesField
@@ -739,7 +741,7 @@ Rectangle {
       FieldLabel { text: "Starts" }
       Row {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
         EditorField {
           id: dateField
           objectName: "event-start-date-field"
@@ -753,7 +755,7 @@ Rectangle {
           id: startField
           objectName: "event-start-time-field"
           visible: !root.editingAllDay
-          width: Style.space(120)
+          width: MailStyle.space(120)
           foreground: root.textColor
           font.family: root.panelFontFamily
           placeholderText: "Start"
@@ -762,7 +764,7 @@ Rectangle {
       FieldLabel { text: root.allDay ? "Last day" : "Ends" }
       Row {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
         EditorField {
           id: endDateField
           objectName: "event-end-date-field"
@@ -775,7 +777,7 @@ Rectangle {
           id: endField
           objectName: "event-end-time-field"
           visible: !root.editingAllDay
-          width: Style.space(120)
+          width: MailStyle.space(120)
           foreground: root.textColor
           font.family: root.panelFontFamily
           placeholderText: "End"
@@ -791,7 +793,7 @@ Rectangle {
         wrapMode: Text.Wrap
         color: root.urgentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
       Text {
@@ -800,7 +802,7 @@ Rectangle {
         textFormat: Text.PlainText
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
       FieldLabel { text: "Location or meeting link" }
@@ -828,7 +830,7 @@ Rectangle {
 
       Column {
         width: parent.width
-        spacing: Style.space(6)
+        spacing: MailStyle.space(6)
         visible: root.googleWrites
         FieldLabel { text: "Guests"; visible: guestsField.visible }
         EditorField {
@@ -873,7 +875,7 @@ Rectangle {
         }
         Column {
           width: parent.width
-          spacing: Style.space(6)
+          spacing: MailStyle.space(6)
           visible: root.advancedOptionsOpen
           FieldLabel { text: "Time zone for repeating events" }
           EditorField {
@@ -892,7 +894,7 @@ Rectangle {
             wrapMode: Text.Wrap
             color: root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
           }
           FieldLabel { text: "Availability" }
           EventOption {
@@ -912,7 +914,7 @@ Rectangle {
         FieldLabel { text: "Event reminders" }
         Flow {
           width: parent.width
-          spacing: Style.space(6)
+          spacing: MailStyle.space(6)
           Repeater {
             model: root.editing ? ["preserve", "default", "none", "custom"] : ["default", "none", "custom"]
             IconTextButton {
@@ -930,10 +932,10 @@ Rectangle {
         Row {
           visible: root.reminderMode === "custom"
           width: parent.width
-          spacing: Style.space(8)
+          spacing: MailStyle.space(8)
           EditorField {
             id: reminderField
-            width: Style.space(80)
+            width: MailStyle.space(80)
             placeholderText: "Minutes"
             foreground: root.textColor
             accent: root.accentColor
@@ -951,7 +953,7 @@ Rectangle {
 
       Column {
         width: parent.width
-        spacing: Style.space(6)
+        spacing: MailStyle.space(6)
         visible: (!root.editing && !!root.chosenSource && root.chosenSource.kind !== "microsoft")
           || (root.editing && !root.editingEvent.recurringEventId && root.googleWrites)
         FieldLabel { text: "Repeat" }
@@ -974,31 +976,31 @@ Rectangle {
       Column {
         width: parent.width
         visible: root.recurring && !!root.chosenSource && root.chosenSource.kind !== "microsoft" && (!root.editing || root.changeRecurrence)
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
         Row {
           width: parent.width
-          spacing: Style.space(8)
+          spacing: MailStyle.space(8)
 
           Column {
             width: (parent.width - parent.spacing) * 0.5
-            spacing: Style.space(4)
+            spacing: MailStyle.space(4)
 
             Text {
               text: "Repeat every"
               color: root.dimColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: MailStyle.caption
               textFormat: Text.PlainText
             }
 
             Row {
               width: parent.width
-              spacing: Style.space(8)
+              spacing: MailStyle.space(8)
 
               EditorField {
                 id: intervalField
-                width: Math.min(Style.space(96), parent.width * 0.5)
+                width: Math.min(MailStyle.space(96), parent.width * 0.5)
                 foreground: root.textColor
                 font.family: root.panelFontFamily
                 inputMethodHints: Qt.ImhDigitsOnly
@@ -1010,7 +1012,7 @@ Rectangle {
                   root.recurrenceFrequency, intervalField.text)
                 color: root.textColor
                 font.family: root.panelFontFamily
-                font.pixelSize: Style.font.body
+                font.pixelSize: MailStyle.body
                 textFormat: Text.PlainText
               }
             }
@@ -1018,13 +1020,13 @@ Rectangle {
 
           Column {
             width: (parent.width - parent.spacing) * 0.5
-            spacing: Style.space(4)
+            spacing: MailStyle.space(4)
 
             Text {
               text: "End after (optional)"
               color: root.dimColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: MailStyle.caption
               textFormat: Text.PlainText
             }
 
@@ -1048,9 +1050,9 @@ Rectangle {
     objectName: "event-editor-footer"
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.bottom: parent.bottom
-    anchors.bottomMargin: Style.space(18)
-    width: Math.min(parent.width - Style.space(36), Style.space(620))
-    spacing: Style.space(10)
+    anchors.bottomMargin: MailStyle.space(18)
+    width: Math.min(parent.width - MailStyle.space(36), MailStyle.space(620))
+    spacing: MailStyle.space(10)
 
     PanelSeparator { width: parent.width; foreground: root.textColor }
 
@@ -1061,14 +1063,14 @@ Rectangle {
       visible: text !== ""
       color: root.urgentColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.Wrap
       textFormat: Text.PlainText
     }
 
     Flow {
       width: parent.width
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
 
       IconTextButton {
         objectName: "event-save-button"

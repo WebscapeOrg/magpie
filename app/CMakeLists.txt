@@ -104,6 +104,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml")
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/*"
     "${CMAKE_CURRENT_SOURCE_DIR}/../ui/*.qml"
     "${CMAKE_CURRENT_SOURCE_DIR}/../ui/*.js"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ui/qmldir"
     "${CMAKE_CURRENT_SOURCE_DIR}/../ui/assets/*")
   list(FILTER OMAMAIL_STANDALONE_QML EXCLUDE REGEX "/ui/tests/")
   qt_add_resources(omamail-app standalone_qml

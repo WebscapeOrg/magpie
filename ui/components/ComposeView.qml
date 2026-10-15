@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls
 import QtQuick.Controls as QQC
 import Quickshell
@@ -32,9 +34,9 @@ DropArea {
   required property color popupBorderColor
   required property string panelFontFamily
 
-  readonly property int formInset: Style.space(18)
-  readonly property int formLabelWidth: Style.space(52)
-  readonly property int formLabelGap: Style.space(10)
+  readonly property int formInset: MailStyle.space(18)
+  readonly property int formLabelWidth: MailStyle.space(52)
+  readonly property int formLabelGap: MailStyle.space(10)
 
   property bool opened: false
   property bool userModified: false
@@ -1149,12 +1151,12 @@ DropArea {
     anchors.top: parent.top
     anchors.left: parent.left
     anchors.right: parent.right
-    height: Style.space(44)
+    height: MailStyle.space(44)
 
     BackBar {
       id: backBar
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(14)
+      anchors.leftMargin: MailStyle.space(14)
       anchors.verticalCenter: parent.verticalCenter
       textColor: root.textColor
       dimColor: root.dimColor
@@ -1166,9 +1168,9 @@ DropArea {
       id: titleRow
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(10)
+      spacing: MailStyle.space(10)
 
-      PanelSectionHeader {
+      Widgets.PanelSectionHeader {
         anchors.verticalCenter: parent.verticalCenter
         text: root.title
         foreground: root.textColor
@@ -1201,7 +1203,7 @@ DropArea {
 
     Item {
       width: parent.width
-      implicitHeight: fromButton.implicitHeight + Style.space(14)
+      implicitHeight: fromButton.implicitHeight + MailStyle.space(14)
 
       Text {
         id: fromLabel
@@ -1213,14 +1215,14 @@ DropArea {
         text: "From"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
       // Sized to the address rather than to the row: a full-width trigger puts
       // the chevron a screen away from the name it belongs to. The extra width
       // is the room the chevron is drawn into, over the button's own trailing
       // padding, so the two read as one control.
-      Button {
+      Widgets.Button {
         id: fromButton
         objectName: "compose-from-button"
         readonly property real trailing: root.canChooseFrom
@@ -1230,14 +1232,14 @@ DropArea {
         anchors.leftMargin: root.formLabelGap
         anchors.verticalCenter: parent.verticalCenter
         width: Math.min(implicitWidth + trailing,
-          parent.width - fromLabel.width - Style.space(46))
+          parent.width - fromLabel.width - MailStyle.space(46))
         text: root.fromEmail
         foreground: root.textColor
         accent: root.accentColor
         background: Style.normalFillFor(root.textColor, root.accentColor)
         bordered: true
         fontFamily: root.panelFontFamily
-        fontSize: Style.font.bodySmall
+        fontSize: MailStyle.bodySmall
         verticalPadding: Style.spacing.inputPaddingY
         leftAlign: true
         selected: fromMenu.opened
@@ -1273,7 +1275,7 @@ DropArea {
       // its border is not crowded against the rules above and below. Derived
       // rather than a fixed height: the field grows with the theme's font
       // scale, and a fixed row would scale that growth a second time.
-      implicitHeight: toField.implicitHeight + Style.space(14)
+      implicitHeight: toField.implicitHeight + MailStyle.space(14)
 
       Text {
         id: toLabel
@@ -1285,62 +1287,62 @@ DropArea {
         text: "To"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
       Row {
         id: copyToggles
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(18)
+        anchors.rightMargin: MailStyle.space(18)
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(4)
+        spacing: MailStyle.space(4)
 
-        Button {
+        Widgets.Button {
           id: contactsButton
           objectName: "compose-contacts-button"
           text: "Contacts"
           foreground: contactsPicker.opened ? root.textColor : root.dimColor
           bordered: false
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           onClicked: {
             var global = contactsButton.mapToGlobal(0, contactsButton.height)
             contactsPicker.toggleAt(global.x, global.y)
           }
         }
 
-        Button {
+        Widgets.Button {
           id: ccToggle
           objectName: "compose-cc-toggle"
           text: "Cc"
           foreground: root.ccVisible ? root.textColor : root.dimColor
           bordered: false
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           onClicked: { root.ccVisible = !root.ccVisible; root.noteUserModified() }
         }
 
-        Button {
+        Widgets.Button {
           id: bccToggle
           objectName: "compose-bcc-toggle"
           text: "Bcc"
           foreground: root.bccVisible ? root.textColor : root.dimColor
           bordered: false
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           onClicked: { root.bccVisible = !root.bccVisible; root.noteUserModified() }
         }
 
-        Button {
+        Widgets.Button {
           id: replyToToggle
           objectName: "compose-reply-to-toggle"
           text: "Reply-To"
           tooltipText: "Ask for answers at another address"
           foreground: root.replyToVisible ? root.textColor : root.dimColor
           bordered: false
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           onClicked: { root.replyToVisible = !root.replyToVisible; root.noteUserModified() }
         }
       }
 
-      TextField {
+      Widgets.TextField {
         id: toField
         objectName: "compose-to-field"
         TextMenuTrigger {}
@@ -1348,12 +1350,12 @@ DropArea {
         anchors.left: toLabel.right
         anchors.leftMargin: root.formLabelGap
         anchors.right: copyToggles.left
-        anchors.rightMargin: Style.space(8)
+        anchors.rightMargin: MailStyle.space(8)
         anchors.verticalCenter: parent.verticalCenter
         foreground: root.textColor
         accent: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "recipient@example.com"
         onTextChanged: {
           root.updateRecipientSuggestions()
@@ -1383,7 +1385,7 @@ DropArea {
         id: toSuggestionsPopup
         objectName: "compose-to-suggestions"
         x: toField.x
-        y: parent.height - Style.space(2)
+        y: parent.height - MailStyle.space(2)
         width: toField.width
         z: 60
         contacts: root.toSuggestions
@@ -1411,7 +1413,7 @@ DropArea {
       // its border is not crowded against the rules above and below. Derived
       // rather than a fixed height: the field grows with the theme's font
       // scale, and a fixed row would scale that growth a second time.
-      implicitHeight: ccField.implicitHeight + Style.space(14)
+      implicitHeight: ccField.implicitHeight + MailStyle.space(14)
 
       Text {
         id: ccLabel
@@ -1423,10 +1425,10 @@ DropArea {
         text: "Cc"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
-      TextField {
+      Widgets.TextField {
         id: ccField
         objectName: "compose-cc-field"
         TextMenuTrigger {}
@@ -1434,12 +1436,12 @@ DropArea {
         anchors.left: ccLabel.right
         anchors.leftMargin: root.formLabelGap
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(18)
+        anchors.rightMargin: MailStyle.space(18)
         anchors.verticalCenter: parent.verticalCenter
         foreground: root.textColor
         accent: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         onTextChanged: {
           root.updateRecipientSuggestions()
           root.noteDraftChanged()
@@ -1467,7 +1469,7 @@ DropArea {
       RecipientSuggestions {
         id: ccSuggestionsPopup
         x: ccField.x
-        y: parent.height - Style.space(2)
+        y: parent.height - MailStyle.space(2)
         width: ccField.width
         z: 60
         contacts: root.ccSuggestions
@@ -1491,7 +1493,7 @@ DropArea {
       visible: root.bccVisible
       width: parent.width
       z: root.bccSuggestions.length > 0 ? 100 : 0
-      implicitHeight: bccField.implicitHeight + Style.space(14)
+      implicitHeight: bccField.implicitHeight + MailStyle.space(14)
 
       Text {
         id: bccLabel
@@ -1503,10 +1505,10 @@ DropArea {
         text: "Bcc"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
-      TextField {
+      Widgets.TextField {
         id: bccField
         objectName: "compose-bcc-field"
         TextMenuTrigger {}
@@ -1514,12 +1516,12 @@ DropArea {
         anchors.left: bccLabel.right
         anchors.leftMargin: root.formLabelGap
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(18)
+        anchors.rightMargin: MailStyle.space(18)
         anchors.verticalCenter: parent.verticalCenter
         foreground: root.textColor
         accent: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         onTextChanged: {
           root.updateRecipientSuggestions()
           root.noteDraftChanged()
@@ -1548,7 +1550,7 @@ DropArea {
         id: bccSuggestionsPopup
         objectName: "compose-bcc-suggestions"
         x: bccField.x
-        y: parent.height - Style.space(2)
+        y: parent.height - MailStyle.space(2)
         width: bccField.width
         z: 60
         contacts: root.bccSuggestions
@@ -1571,7 +1573,7 @@ DropArea {
     Item {
       visible: root.replyToVisible
       width: parent.width
-      implicitHeight: replyToField.implicitHeight + Style.space(14)
+      implicitHeight: replyToField.implicitHeight + MailStyle.space(14)
 
       Text {
         id: replyToLabel
@@ -1583,10 +1585,10 @@ DropArea {
         text: "Reply-To"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
-      TextField {
+      Widgets.TextField {
         id: replyToField
         objectName: "compose-reply-to-field"
         TextMenuTrigger {}
@@ -1594,12 +1596,12 @@ DropArea {
         anchors.left: replyToLabel.right
         anchors.leftMargin: root.formLabelGap
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(18)
+        anchors.rightMargin: MailStyle.space(18)
         anchors.verticalCenter: parent.verticalCenter
         foreground: root.textColor
         accent: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         onTextChanged: root.noteDraftChanged()
       }
 
@@ -1616,7 +1618,7 @@ DropArea {
       // its border is not crowded against the rules above and below. Derived
       // rather than a fixed height: the field grows with the theme's font
       // scale, and a fixed row would scale that growth a second time.
-      implicitHeight: subjectField.implicitHeight + Style.space(14)
+      implicitHeight: subjectField.implicitHeight + MailStyle.space(14)
 
       Text {
         id: subjectLabel
@@ -1628,10 +1630,10 @@ DropArea {
         text: "Subject"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
-      TextField {
+      Widgets.TextField {
         id: subjectField
         objectName: "compose-subject-field"
         TextMenuTrigger {}
@@ -1639,12 +1641,12 @@ DropArea {
         anchors.left: subjectLabel.right
         anchors.leftMargin: root.formLabelGap
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(18)
+        anchors.rightMargin: MailStyle.space(18)
         anchors.verticalCenter: parent.verticalCenter
         foreground: root.textColor
         accent: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Subject"
         horizontalAlignment: root.composeAlignment
         KeyNavigation.tab: bodyEdit
@@ -1664,20 +1666,20 @@ DropArea {
     Item {
       visible: root.mode === "forward" && root.originalAttachments.length > 0
       width: parent.width
-      implicitHeight: attachmentSummary.implicitHeight + Style.space(14)
+      implicitHeight: attachmentSummary.implicitHeight + MailStyle.space(14)
 
       Text {
         id: attachmentLabel
         anchors.left: parent.left
         anchors.leftMargin: root.formInset
         anchors.top: parent.top
-        anchors.topMargin: Style.space(9)
+        anchors.topMargin: MailStyle.space(9)
         width: root.formLabelWidth
         horizontalAlignment: Text.AlignRight
         text: "Files"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
       Column {
@@ -1685,10 +1687,10 @@ DropArea {
         anchors.left: attachmentLabel.right
         anchors.leftMargin: root.formLabelGap
         anchors.right: retryAttachments.left
-        anchors.rightMargin: Style.space(8)
+        anchors.rightMargin: MailStyle.space(8)
         anchors.top: parent.top
-        anchors.topMargin: Style.space(7)
-        spacing: Style.space(3)
+        anchors.topMargin: MailStyle.space(7)
+        spacing: MailStyle.space(3)
 
         Text {
           width: parent.width
@@ -1701,7 +1703,7 @@ DropArea {
           textFormat: Text.PlainText
           color: root.forwardAttachmentError !== "" ? root.accentColor : root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           wrapMode: Text.WordWrap
         }
 
@@ -1715,23 +1717,23 @@ DropArea {
               + Mail.formatSize(modelData.size)
             color: root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             elide: Text.ElideMiddle
           }
         }
       }
 
-      Button {
+      Widgets.Button {
         id: retryAttachments
         visible: root.forwardAttachmentError !== ""
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(18)
+        anchors.rightMargin: MailStyle.space(18)
         anchors.top: parent.top
-        anchors.topMargin: Style.space(6)
+        anchors.topMargin: MailStyle.space(6)
         text: "Retry"
         foreground: root.textColor
         bordered: false
-        fontSize: Style.font.caption
+        fontSize: MailStyle.caption
         onClicked: root.loadForwardAttachments()
       }
 
@@ -1755,9 +1757,9 @@ DropArea {
   QQC.Popup {
     id: fromMenu
     objectName: "compose-from-menu"
-    width: Math.min(Style.space(360), root.width - Style.space(36))
-    implicitHeight: Math.min(fromRows.implicitHeight + Style.space(8), Style.space(260))
-    padding: Style.space(4)
+    width: Math.min(MailStyle.space(360), root.width - MailStyle.space(36))
+    implicitHeight: Math.min(fromRows.implicitHeight + MailStyle.space(8), MailStyle.space(260))
+    padding: MailStyle.space(4)
     modal: false
     focus: opened
     z: 50
@@ -1786,7 +1788,7 @@ DropArea {
         required property var modelData
 
         width: fromMenu.width - fromMenu.leftPadding - fromMenu.rightPadding
-        implicitHeight: Style.space(42)
+        implicitHeight: MailStyle.space(42)
         radius: Style.cornerRadius
         color: root.fromEmail.toLowerCase() === String(modelData.email || "").toLowerCase()
           ? Style.selectedFillFor(root.textColor, root.accentColor)
@@ -1795,11 +1797,11 @@ DropArea {
 
         Column {
           anchors.left: parent.left
-          anchors.leftMargin: Style.space(9)
+          anchors.leftMargin: MailStyle.space(9)
           anchors.right: parent.right
-          anchors.rightMargin: Style.space(9)
+          anchors.rightMargin: MailStyle.space(9)
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(1)
+          spacing: MailStyle.space(1)
 
           Text {
             width: parent.width
@@ -1807,7 +1809,7 @@ DropArea {
             text: String(fromRow.modelData.email || "")
             color: root.textColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: MailStyle.bodySmall
             font.bold: root.fromEmail.toLowerCase()
               === String(fromRow.modelData.email || "").toLowerCase()
             elide: Text.ElideMiddle
@@ -1820,7 +1822,7 @@ DropArea {
             text: Senders.subtitle(fromRow.modelData)
             color: root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             elide: Text.ElideRight
           }
         }
@@ -1871,9 +1873,9 @@ DropArea {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: attachStrip.top
-    anchors.leftMargin: Style.space(18)
-    anchors.rightMargin: Style.space(18)
-    anchors.topMargin: Style.space(12)
+    anchors.leftMargin: MailStyle.space(18)
+    anchors.rightMargin: MailStyle.space(18)
+    anchors.topMargin: MailStyle.space(12)
     contentWidth: width
     contentHeight: bodyEdit.height
     clip: true
@@ -1899,7 +1901,7 @@ DropArea {
       selectionColor: Style.selectionFillFor(root.textColor, root.accentColor)
       selectedTextColor: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       onTextChanged: {
         root.noteDraftChanged()
         if (!root.settingBodyText && activeFocus) {
@@ -1927,7 +1929,7 @@ DropArea {
     anchors.right: parent.right
     anchors.bottom: actions.top
     height: root.draftAttachments.length > 0
-      ? Math.min(attachFlick.contentHeight, Style.space(240)) + Style.space(12)
+      ? Math.min(attachFlick.contentHeight, MailStyle.space(240)) + MailStyle.space(12)
       : 0
 
     Flickable {
@@ -1935,9 +1937,9 @@ DropArea {
 
       WheelScroller { view: attachFlick }
       anchors.fill: parent
-      anchors.leftMargin: Style.space(18)
-      anchors.rightMargin: Style.space(18)
-      anchors.topMargin: Style.space(4)
+      anchors.leftMargin: MailStyle.space(18)
+      anchors.rightMargin: MailStyle.space(18)
+      anchors.topMargin: MailStyle.space(4)
       visible: root.draftAttachments.length > 0
       clip: true
       contentWidth: width
@@ -1948,7 +1950,7 @@ DropArea {
       Column {
         id: attachList
         width: attachFlick.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
         Repeater {
           model: root.draftAttachments
@@ -1958,14 +1960,14 @@ DropArea {
             required property var modelData
             required property int index
             width: attachList.width
-            spacing: Style.space(4)
+            spacing: MailStyle.space(4)
 
             Image {
               visible: String(attachItem.modelData.mimeType || "").indexOf("image/") === 0
                 && String(attachItem.modelData.path || "") !== ""
               width: parent.width
               height: visible
-                ? Math.min(Math.max(sourceSize.height, Style.space(72)), Style.space(200))
+                ? Math.min(Math.max(sourceSize.height, MailStyle.space(72)), MailStyle.space(200))
                 : 0
               fillMode: Image.PreserveAspectFit
               asynchronous: true
@@ -1974,7 +1976,7 @@ DropArea {
             }
 
             Row {
-              spacing: Style.space(6)
+              spacing: MailStyle.space(6)
               width: parent.width
 
               ActionIcon {
@@ -1986,12 +1988,12 @@ DropArea {
 
               Text {
                 anchors.verticalCenter: parent.verticalCenter
-                width: Math.max(0, parent.width - Style.space(120))
+                width: Math.max(0, parent.width - MailStyle.space(120))
                 textFormat: Text.PlainText
                 text: String(attachItem.modelData.filename || "attachment")
                 color: root.textColor
                 font.family: root.panelFontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: MailStyle.caption
                 elide: Text.ElideMiddle
               }
 
@@ -2000,7 +2002,7 @@ DropArea {
                 text: Mail.formatSize(attachItem.modelData.size)
                 color: root.dimmerColor
                 font.family: root.panelFontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: MailStyle.caption
               }
 
               IconButton {
@@ -2027,7 +2029,7 @@ DropArea {
     anchors.bottom: parent.bottom
     anchors.left: parent.left
     anchors.right: parent.right
-    height: Style.space(52)
+    height: MailStyle.space(52)
 
     PanelSeparator {
       anchors.top: parent.top
@@ -2037,9 +2039,9 @@ DropArea {
 
     Row {
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(18)
+      anchors.leftMargin: MailStyle.space(18)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(10)
+      spacing: MailStyle.space(10)
 
       IconTextButton {
         iconName: "send"
@@ -2064,12 +2066,12 @@ DropArea {
         onClicked: root.chooseFiles()
       }
 
-      Button {
+      Widgets.Button {
         objectName: "compose-discard-button"
         text: "Discard"
         foreground: root.dimColor
         bordered: false
-        fontSize: Style.font.bodySmall
+        fontSize: MailStyle.bodySmall
         onClicked: root.finish()
       }
     }

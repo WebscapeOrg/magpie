@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../account/Model.js" as Model
@@ -40,7 +42,7 @@ Column {
   signal menuRequested(string id, real sceneX, real sceneY)
 
   width: parent ? parent.width : 0
-  spacing: Style.space(2)
+  spacing: MailStyle.space(2)
 
   // Where a row sits in this column's own coordinates, so the panel's scroller
   // can bring it into view. Found by index rather than by asking the rows which
@@ -114,18 +116,18 @@ Column {
     width: parent.width
     visible: root.service.messages.length === 0
       && !Model.showInitialListSkeleton(root.service.listLoading, 0)
-    implicitHeight: Style.space(70)
+    implicitHeight: MailStyle.space(70)
 
     Text {
       anchors.centerIn: parent
-      width: parent.width - Style.space(20)
+      width: parent.width - MailStyle.space(20)
       horizontalAlignment: Text.AlignHCenter
       text: root.service.listLoaded
           ? (root.service.searchQuery !== "" ? "Nothing matches that search" : "Nothing here")
           : ""
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       wrapMode: Text.WordWrap
     }
   }
@@ -140,18 +142,18 @@ Column {
   Item {
     width: parent.width
     visible: root.service.hasMore
-    implicitHeight: Style.space(40)
+    implicitHeight: MailStyle.space(40)
 
-    Button {
+    Widgets.Button {
       objectName: "load-more"
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(8)
+      anchors.rightMargin: MailStyle.space(8)
       anchors.verticalCenter: parent.verticalCenter
       visible: root.service.hasMore
       text: root.service.listLoading ? "Loading" : "Load more"
       foreground: root.textColor
       bordered: false
-      fontSize: Style.font.caption
+      fontSize: MailStyle.caption
       enabled: !root.service.listLoading
       onClicked: root.service.loadMore()
     }

@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 
@@ -18,8 +20,8 @@ Rectangle {
 
   signal undoRequested()
 
-  implicitWidth: content.implicitWidth + Style.space(16)
-  implicitHeight: Math.max(content.implicitHeight + Style.space(12), Style.space(42))
+  implicitWidth: content.implicitWidth + MailStyle.space(16)
+  implicitHeight: Math.max(content.implicitHeight + MailStyle.space(12), MailStyle.space(42))
   radius: Style.cornerRadius
   color: Qt.rgba(popupBackgroundColor.r, popupBackgroundColor.g,
     popupBackgroundColor.b, 1)
@@ -29,7 +31,7 @@ Rectangle {
   Row {
     id: content
     anchors.centerIn: parent
-    spacing: Style.space(12)
+    spacing: MailStyle.space(12)
 
     Text {
       objectName: "undo-send-message"
@@ -40,10 +42,10 @@ Rectangle {
       textFormat: Text.PlainText
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
     }
 
-    Button {
+    Widgets.Button {
       objectName: "undo-send-button"
       anchors.verticalCenter: parent.verticalCenter
       text: root.queuedCount > 1 ? "Undo last  alt+z" : "Undo  alt+z"
@@ -51,7 +53,7 @@ Rectangle {
       accent: root.accentColor
       bordered: true
       fontFamily: root.panelFontFamily
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.undoRequested()
     }
   }

@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Ui
 
@@ -35,7 +36,7 @@ Item {
     bordered: true
     foreground: root.dimColor
     fontFamily: root.panelFontFamily
-    fontSize: Style.font.bodySmall
+    fontSize: MailStyle.bodySmall
     tooltipText: root.label + " · esc"
     onClicked: root.activated()
   }

@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls
 import qs.Commons
 import qs.Ui
@@ -37,7 +38,7 @@ Rectangle {
   function scrollBy(steps) {
     if (!scroller.interactive) return
     scroller.contentY = Model.clampContentY(
-      scroller.contentY + steps * Style.space(20),
+      scroller.contentY + steps * MailStyle.space(20),
       Model.contentYBounds(scroller.originY, scroller.contentHeight,
         scroller.height, scroller.topMargin, scroller.bottomMargin))
   }
@@ -46,9 +47,9 @@ Rectangle {
   // them this window can hold. Three is the ceiling: past that the sheet is
   // wider than it is readable, and the eye has to travel further to cross it
   // than to scroll it.
-  readonly property real columnWidth: Style.space(330)
+  readonly property real columnWidth: MailStyle.space(330)
   readonly property int columnCount: Math.max(1, Math.min(3,
-    Math.floor((width - Style.space(60)) / columnWidth)))
+    Math.floor((width - MailStyle.space(60)) / columnWidth)))
 
   // From the table, so this sheet cannot drift from what the keys actually do.
   // It used to be written by hand, and had: Esc listed twice, no `u` and no
@@ -74,7 +75,7 @@ Rectangle {
     // scrollbar fix: a Flickable sized to its column puts the bar at that
     // column's edge, which on a wide window is the middle of the screen.
     anchors.fill: parent
-    anchors.margins: Style.space(20)
+    anchors.margins: MailStyle.space(20)
     contentWidth: width
     contentHeight: holder.implicitHeight
     clip: true
@@ -106,25 +107,25 @@ Rectangle {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
         width: Math.min(scroller.width,
-          root.columnCount * root.columnWidth + (root.columnCount - 1) * Style.space(28))
-        spacing: Style.space(6)
+          root.columnCount * root.columnWidth + (root.columnCount - 1) * MailStyle.space(28))
+        spacing: MailStyle.space(6)
 
         Text {
           text: "Keyboard shortcuts"
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.subtitle
+          font.pixelSize: MailStyle.subtitle
           font.bold: true
         }
 
         Item {
           width: parent.width
-          implicitHeight: Style.space(6)
+          implicitHeight: MailStyle.space(6)
         }
 
         Row {
           width: parent.width
-          spacing: Style.space(28)
+          spacing: MailStyle.space(28)
 
           Repeater {
             model: root.columns
@@ -132,9 +133,9 @@ Rectangle {
             Column {
               id: sheetColumn
               required property var modelData
-              width: (column.width - (root.columnCount - 1) * Style.space(28))
+              width: (column.width - (root.columnCount - 1) * MailStyle.space(28))
                 / root.columnCount
-              spacing: Style.space(6)
+              spacing: MailStyle.space(6)
 
               Repeater {
                 model: sheetColumn.modelData
@@ -143,11 +144,11 @@ Rectangle {
                   id: group
                   required property var modelData
                   width: sheetColumn.width
-                  spacing: Style.space(6)
+                  spacing: MailStyle.space(6)
 
                   Item {
                     width: parent.width
-                    implicitHeight: Style.space(8)
+                    implicitHeight: MailStyle.space(8)
                   }
 
                   Text {
@@ -155,7 +156,7 @@ Rectangle {
                     textFormat: Text.PlainText
                     color: root.dimColor
                     font.family: root.panelFontFamily
-                    font.pixelSize: Style.font.caption
+                    font.pixelSize: MailStyle.caption
                     font.bold: true
                   }
 
@@ -165,7 +166,7 @@ Rectangle {
                     Item {
                       required property var modelData
                       width: group.width
-                      implicitHeight: Style.space(20)
+                      implicitHeight: MailStyle.space(20)
 
                       Text {
                         anchors.left: parent.left
@@ -177,19 +178,19 @@ Rectangle {
                         text: Keymap.keycapLabel(modelData.keys)
                         color: root.textColor
                         font.family: root.panelFontFamily
-                        font.pixelSize: Style.font.caption
+                        font.pixelSize: MailStyle.caption
                         elide: Text.ElideRight
                       }
 
                       Text {
                         anchors.left: parent.left
-                        anchors.leftMargin: Math.round(parent.width * 0.54) + Style.space(5)
+                        anchors.leftMargin: Math.round(parent.width * 0.54) + MailStyle.space(5)
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         text: modelData.action
                         color: root.dimColor
                         font.family: root.panelFontFamily
-                        font.pixelSize: Style.font.caption
+                        font.pixelSize: MailStyle.caption
                         elide: Text.ElideRight
                       }
                     }

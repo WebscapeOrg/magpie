@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Ui
 
@@ -25,7 +26,7 @@ Column {
 
   signal sectionRequested(string key)
 
-  spacing: Style.space(2)
+  spacing: MailStyle.space(2)
 
   Repeater {
     model: root.sections
@@ -39,7 +40,7 @@ Column {
 
       objectName: "settings-section-" + entry.key
       width: root.width
-      implicitHeight: Style.space(28)
+      implicitHeight: MailStyle.space(28)
       radius: Style.cornerRadius
       color: entry.selected
         ? Style.selectedFillFor(root.textColor, root.accentColor)
@@ -47,15 +48,15 @@ Column {
 
       Text {
         anchors.left: parent.left
-        anchors.leftMargin: Style.space(10)
+        anchors.leftMargin: MailStyle.space(10)
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(6)
+        anchors.rightMargin: MailStyle.space(6)
         anchors.verticalCenter: parent.verticalCenter
         textFormat: Text.PlainText
         text: String(entry.modelData.title || "")
         color: entry.selected ? root.textColor : root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         // Weight as well as fill, so a theme whose selected fill is close to
         // the rail's ground still shows which row is current.
         font.bold: entry.selected

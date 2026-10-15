@@ -1,4 +1,6 @@
 import QtQuick
+import "controls" as Widgets
+import "settings"
 import QtQuick.Controls
 import QtQuick.Window
 import Quickshell
@@ -45,7 +47,7 @@ Item {
     && (service.backendRuntime.state !== "ready" || !service.backend.ready)
 
   readonly property string pluginId: manifest && manifest.id
-    ? String(manifest.id) : "omamail"
+    ? String(manifest.id) : "magpie"
   property var composeRecovery: Recovery.empty()
   property bool composeRecoveryLoaded: false
   property bool composeRecoveryRestoring: false
@@ -134,7 +136,7 @@ Item {
     Math.min(accent.hslSaturation, 0.55),
     accent.hslLightness, 1.0)
 
-  readonly property string fontFamily: Style.font.family
+  readonly property string fontFamily: MailStyle.family
 
   function copyText(text) {
     return service && typeof service.copyText === "function"
@@ -169,14 +171,16 @@ Item {
   readonly property bool assistantOpen: agentPrompt.opened || composeAgent.opened
   readonly property var activeAssistant: composeAgent.opened ? composeAgent : (agentPrompt.opened ? agentPrompt : null)
   property real preferredAssistantWidth: 0
-  readonly property real assistantMaxWidth: Math.max(0, Math.min(window.width * 0.65, window.width - Style.space(320)))
-  readonly property real assistantMinWidth: Math.min(Style.space(280), assistantMaxWidth)
+  readonly property real assistantMaxWidth: Math.max(0, Math.min(window.width * 0.65, window.width - MailStyle.space(320)))
+  readonly property real assistantMinWidth: Math.min(MailStyle.space(280), assistantMaxWidth)
   readonly property real assistantWidth: assistantOpen ? Math.max(assistantMinWidth, Math.min(assistantMaxWidth,
-    preferredAssistantWidth > 0 ? preferredAssistantWidth : Math.min(Style.space(420), window.width * 0.45))) : 0
+    preferredAssistantWidth > 0 ? preferredAssistantWidth : Math.min(MailStyle.space(420), window.width * 0.45))) : 0
   property bool assistantEditing: false
   readonly property real mailWidth: window.width - assistantWidth
   readonly property bool wide: mailWidth >= Style.space(1000)
+  readonly property bool singlePane: !service || !service.displayPreferences || service.displayPreferences.layout !== "Split view"
   readonly property bool compact: mailWidth < Style.space(760)
+  readonly property bool singleContent: singlePane || compact
 
   property string cursorId: ""
   // The rows ticked for a bulk action, by id. Like the cursor, a fact about
@@ -196,7 +200,7 @@ Item {
   // puts the window in the reader view, so a click, a Shift+click and `d`
   // used to trash only the open message — the ticks were there and ignored.
   readonly property bool listOnScreen: currentView === "list"
-    || (currentView === "reader" && !compact)
+    || (currentView === "reader" && !singleContent)
   readonly property bool selectionActive: checkedIds.length > 0 && listOnScreen
 
   function toggleCheck(id) {
@@ -279,18 +283,14 @@ Item {
   // reads their mail is a fact about them, not about the message that made them
   // reach for it. The service holds it because that is what writes it to disk.
   readonly property string bodyMode: service ? service.bodyMode : "reader"
-  // Reading zoom for the message body only. The window's own chrome follows
-  // the theme's font scale, which is Omarchy's to set, not this app's. The
-  // service holds it because it is written to disk: a size somebody reached for
-  // is theirs until they change it, not until they close the window.
   readonly property real bodyZoom: service ? service.bodyZoom : 1.0
   // 0 means "proportional"; anything else is a width somebody dragged to.
   // Where the two dividers were dragged to, or 0 for each pane's own default.
   // Seeded from the service's window file and written back when a drag ends.
   property real listWidth: 0
   property real sidebarWidth: 0
-  readonly property real sidebarMinWidth: Style.space(110)
-  readonly property real sidebarMaxWidth: Style.space(360)
+  readonly property real sidebarMinWidth: MailStyle.space(110)
+  readonly property real sidebarMaxWidth: MailStyle.space(360)
 
   function persistPaneWidths() {
     if (service) service.setPaneWidths(sidebarWidth, listWidth)
@@ -627,7 +627,7 @@ Item {
     if (!bounds) return
     listFlick.contentY = Model.contentYToReveal(listFlick.contentY,
       listFlick.height, list.y + bounds.y, bounds.height,
-      listFlick.contentHeight, Style.space(8))
+      listFlick.contentHeight, MailStyle.space(8))
   }
 
   // Keyboard selection is explicit reading, with the same cache, network and
@@ -863,8 +863,8 @@ Item {
   function openAgentCentered(id) {
     if (!service || !service.hasAgent || service.agentAvailable === false) return false
     if (selectionActive) {
-      var centre = root.mapToGlobal(Math.max(0, root.width / 2 - Style.space(190)),
-        Math.max(0, root.height / 2 - Style.space(90)))
+      var centre = root.mapToGlobal(Math.max(0, root.width / 2 - MailStyle.space(190)),
+        Math.max(0, root.height / 2 - MailStyle.space(90)))
       agentPrompt.openForSelection(checkedIds, centre.x, centre.y)
       return true
     }
@@ -1442,11 +1442,11 @@ Item {
 
   FloatingWindow {
     id: window
-    title: "Omamail"
+    title: "🐦 Magpie"
     color: root.background
-    implicitWidth: Style.space(980)
-    implicitHeight: Style.space(720)
-    minimumSize: Qt.size(Style.space(760), Style.space(520))
+    implicitWidth: MailStyle.space(980)
+    implicitHeight: MailStyle.space(720)
+    minimumSize: Qt.size(Style.space(640), Style.space(480))
 
     Component.onCompleted: root.syncWindowVisibility()
 
@@ -1461,7 +1461,7 @@ Item {
       color: root.background
       BackendSetup {
         anchors.centerIn: parent
-        width: Math.min(parent.width - Style.space(48), Style.space(480))
+        width: Math.min(parent.width - MailStyle.space(48), MailStyle.space(480))
         runtime: root.service ? root.service.backendRuntime || null : null
         backendError: root.service && root.service.backend ? root.service.backend.failure : ""
         diagnosisAvailable: !!root.service && root.service.hasAgent === true
@@ -1566,7 +1566,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         height: calendarHeaderSlot.visible && calendarHeaderSlot.stacked
-          ? Style.space(60) + calendarView.toolbarHeight : Math.max(Style.space(48), calendarHeaderSlot.visible ? calendarView.toolbarHeight + Style.space(12) : 0)
+          ? MailStyle.space(60) + calendarView.toolbarHeight : Math.max(MailStyle.space(48), calendarHeaderSlot.visible ? calendarView.toolbarHeight + MailStyle.space(12) : 0)
         visible: !root.composing
 
         WindowMoveArea {
@@ -1579,27 +1579,26 @@ Item {
         Row {
           id: headerLeft
           anchors.left: parent.left
-          anchors.leftMargin: Style.space(14)
+          anchors.leftMargin: MailStyle.space(14)
           anchors.verticalCenter: parent.verticalCenter
-          anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (Style.space(48) - header.height) / 2 : 0
-          spacing: Style.space(8)
+          anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (MailStyle.space(48) - header.height) / 2 : 0
+          spacing: MailStyle.space(8)
 
-          ActionIcon {
+          MagpieLogo {
             anchors.verticalCenter: parent.verticalCenter
-            name: "gmail"
-            iconSize: Style.font.iconLarge
-            color: root.foreground
-            markColor: root.accent
-            brand: true
+            width: Style.font.iconLarge * 1.6
+            height: width
+            foreground: root.foreground
+            accent: root.accent
           }
 
           Text {
             anchors.verticalCenter: parent.verticalCenter
             visible: !root.compact
-            text: "Omamail"
+            text: "Magpie"
             color: root.foreground
             font.family: root.fontFamily
-            font.pixelSize: Style.font.title
+            font.pixelSize: MailStyle.title
           }
 
           // Next to the mark: this is the window's own menu, not an action on
@@ -1629,8 +1628,8 @@ Item {
           id: searchSlot
           anchors.left: headerLeft.right
           anchors.right: headerRight.left
-          anchors.leftMargin: Style.space(12)
-          anchors.rightMargin: Style.space(12)
+          anchors.leftMargin: MailStyle.space(12)
+          anchors.rightMargin: MailStyle.space(12)
           anchors.verticalCenter: parent.verticalCenter
           height: searchBar.implicitHeight
 
@@ -1645,11 +1644,11 @@ Item {
               (header.width - width) / 2 - parent.x))
             // Capped well short of the gap it is given: a search field as wide
             // as the window looks like the window's main event, and it is not.
-            width: Math.min(Style.space(340), parent.width)
+            width: Math.min(MailStyle.space(340), parent.width)
             // Below this it is a slot too small to type in; the shortcut still
             // works and reopens it as the window grows.
             visible: !root.showPage && !root.composing && !root.calendarVisible
-              && parent.width >= Style.space(120)
+              && parent.width >= MailStyle.space(120)
           textColor: root.foreground
           accentColor: root.accent
           panelFontFamily: root.fontFamily
@@ -1672,21 +1671,35 @@ Item {
         Item {
           id: calendarHeaderSlot
           objectName: "calendar-header-slot"
-          readonly property bool stacked: header.width < Style.space(1100)
+          readonly property bool stacked: header.width < MailStyle.space(1100)
           visible: root.calendarVisible && !root.showPage && !root.composing && !calendarView.detailOpen
-          x: stacked ? Style.space(14) : headerLeft.x + headerLeft.width + Style.space(20)
-          y: stacked ? Style.space(48) : (header.height - height) / 2
-          width: Math.max(0, (stacked ? header.width - Style.space(14) : headerRight.x - Style.space(20)) - x)
+          x: stacked ? MailStyle.space(14) : headerLeft.x + headerLeft.width + MailStyle.space(20)
+          y: stacked ? MailStyle.space(48) : (header.height - height) / 2
+          width: Math.max(0, (stacked ? header.width - MailStyle.space(14) : headerRight.x - MailStyle.space(20)) - x)
           height: calendarView.toolbarHeight
         }
 
         Row {
           id: headerRight
           anchors.right: parent.right
-          anchors.rightMargin: Style.space(14)
+          anchors.rightMargin: MailStyle.space(14)
           anchors.verticalCenter: parent.verticalCenter
-          anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (Style.space(48) - header.height) / 2 : 0
-          spacing: Style.space(8)
+          anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (MailStyle.space(48) - header.height) / 2 : 0
+          spacing: MailStyle.space(8)
+
+          Widgets.Button {
+            objectName: "layout-toggle"
+            focusable: true
+            anchors.verticalCenter: parent.verticalCenter
+            visible: !root.showPage && !root.composing && !root.calendarVisible
+            text: root.singlePane ? "Split view" : "Single pane"
+            tooltipText: root.singlePane ? "Show the list beside the message" : "Show either the list or the message"
+            foreground: root.foreground
+            accent: root.accent
+            fontFamily: root.fontFamily
+            fontSize: MailStyle.caption
+            onClicked: if (root.service) root.service.setDisplayPreference("layout", root.singlePane ? "Split view" : "Single pane")
+          }
 
           IconButton {
             objectName: "refresh-button"
@@ -1713,7 +1726,7 @@ Item {
             }
           }
 
-          Button {
+          Widgets.Button {
             id: headerComposeButton
             objectName: "compose-button"
             anchors.verticalCenter: parent.verticalCenter
@@ -1724,12 +1737,12 @@ Item {
             bordered: true
             accent: root.accent
             fontFamily: root.fontFamily
-            fontSize: Style.font.caption
+            fontSize: MailStyle.caption
             enabled: root.ready
             onClicked: root.startCompose("new")
           }
 
-          Button {
+          Widgets.Button {
             id: headerAgentButton
             parent: root.composing ? composeAiSlot : headerRight
             anchors.right: root.composing ? parent.right : undefined
@@ -1746,7 +1759,7 @@ Item {
             ActionIcon {
               anchors.centerIn: parent
               // Center the robot's body.
-              anchors.verticalCenterOffset: -Style.space(1)
+              anchors.verticalCenterOffset: -MailStyle.space(1)
               name: "agent"
               iconSize: Style.font.icon
               color: headerAgentButton.foreground
@@ -1758,7 +1771,7 @@ Item {
             focusable: true
             accent: root.accent
             fontFamily: root.fontFamily
-            fontSize: Style.font.caption
+            fontSize: MailStyle.caption
             enabled: root.ready && !!root.service && root.service.agentAvailable !== false && (root.assistantOpen || compose.opened || root.selectionActive
               || root.cursorId !== "" || (!!root.service && root.service.selectedId !== ""))
             onClicked: {
@@ -1782,8 +1795,8 @@ Item {
         id: composeAiSlot
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(14)
-        height: Style.space(44)
+        anchors.rightMargin: MailStyle.space(14)
+        height: MailStyle.space(44)
         width: headerAgentButton.width
         visible: root.composing
         z: 30
@@ -1804,11 +1817,11 @@ Item {
           anchors.left: parent.left
           anchors.top: parent.top
           anchors.bottom: parent.bottom
-          width: root.sidebarCollapsed ? Style.space(44)
+          width: root.sidebarCollapsed ? MailStyle.space(44)
             : (root.sidebarWidth > 0
               ? Math.max(root.sidebarMinWidth, Math.min(root.sidebarMaxWidth, root.sidebarWidth))
-              : Style.space(148))
-          visible: !root.compact && !root.showPage && !root.composing
+              : MailStyle.space(148))
+          visible: !root.singleContent && !root.showPage && !root.composing
           collapsed: root.sidebarCollapsed
           calendarSelected: root.calendarVisible
           menuLabelPath: labelMenu.opened && !!root.service
@@ -1844,8 +1857,8 @@ Item {
           anchors.top: parent.top
           anchors.left: parent.left
           anchors.right: parent.right
-          anchors.margins: Style.space(14)
-          visible: root.compact && !root.showPage && !root.composing && root.currentView === "list"
+          anchors.margins: MailStyle.space(14)
+          visible: root.singleContent && !root.showPage && !root.composing && root.currentView === "list"
           textColor: root.foreground
           accentColor: root.accent
           panelFontFamily: root.fontFamily
@@ -1865,7 +1878,7 @@ Item {
           anchors.left: sidebar.right
           anchors.top: parent.top
           anchors.bottom: parent.bottom
-          width: Style.space(5)
+          width: MailStyle.space(5)
           visible: sidebar.visible && !root.sidebarCollapsed
           z: 5
 
@@ -1900,19 +1913,14 @@ Item {
           anchors.left: sidebar.visible ? sidebar.right : parent.left
           anchors.top: tabs.visible ? tabs.bottom : parent.top
           anchors.bottom: parent.bottom
-          anchors.topMargin: tabs.visible ? Style.space(8) : 0
-          // Proportional until somebody drags the divider, then whatever they
-          // dragged it to. The floor is low on purpose: at a hundred pixels the
-          // column is a strip of times and initials, which is a legitimate way
-          // to work when the message is what you are reading. Refusing to go
-          // there was the app deciding how someone else should use their screen.
-          width: root.compact
+          anchors.topMargin: tabs.visible ? MailStyle.space(8) : 0
+          width: root.singleContent
             ? (root.currentView === "list" ? parent.width : 0)
-            : Math.max(Style.space(100),
+            : Math.max(MailStyle.space(100),
                 Math.min(parent.width - (sidebar.visible ? sidebar.width : 0)
-                  - listSplitter.width - Style.space(200),
+                  - listSplitter.width - MailStyle.space(200),
                   root.listWidth > 0 ? root.listWidth
-                    : Math.min(Style.space(460), Math.round(parent.width * 0.34))))
+                    : Math.min(MailStyle.space(460), Math.round(parent.width * 0.34))))
           visible: width > 0 && !root.showPage && !root.composing
             && !root.calendarVisible
 
@@ -1925,7 +1933,7 @@ Item {
             WheelScroller { view: listFlick }
             anchors.fill: parent
             contentWidth: width
-            contentHeight: list.implicitHeight + Style.space(12)
+            contentHeight: list.implicitHeight + MailStyle.space(12)
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -1934,7 +1942,7 @@ Item {
               id: list
               scroller: listFlick
               // Match the sidebar's first row inset below the header.
-              y: Style.space(6)
+              y: MailStyle.space(6)
               // Full width, so selected and hovered rows meet the splitter.
               // Text and action breathing room belongs inside MessageRow;
               // shrinking the whole list leaves a conspicuous dead strip.
@@ -1943,7 +1951,7 @@ Item {
               textColor: root.foreground
               accentColor: root.accent
               dimColor: root.dim
-              panelFontFamily: root.fontFamily
+              panelFontFamily: MailStyle.listFamily
               cursorId: root.cursorId
               checkedIds: root.checkedIds
               ctrlHeld: focusScope.ctrlHeld
@@ -1970,8 +1978,8 @@ Item {
           anchors.left: listColumn.right
           anchors.top: parent.top
           anchors.bottom: parent.bottom
-          width: Style.space(5)
-          visible: listColumn.visible && !root.compact
+          width: MailStyle.space(5)
+          visible: listColumn.visible && !root.singleContent
           z: 5
 
           PanelSeparator {
@@ -2016,7 +2024,7 @@ Item {
           anchors.top: parent.top
           anchors.bottom: parent.bottom
           visible: !root.showPage && !root.composing && !root.calendarVisible
-            && (!root.compact || root.currentView === "reader")
+            && (!root.singleContent || root.currentView === "reader")
           service: root.service
           textColor: root.foreground
           backgroundColor: root.background
@@ -2029,7 +2037,7 @@ Item {
           leadingBoundaryOverlap: listSplitter.visible ? listSplitter.width : 0
           panelFontFamily: root.fontFamily
           zoom: root.bodyZoom
-          showBack: root.compact
+          showBack: root.singleContent
           bodyMode: root.bodyMode
           alwaysRenderHeavyMessages: !!root.service && root.service.alwaysRenderHeavyMessages
           contentDirection: root.service ? root.service.contentDirection : ""
@@ -2198,10 +2206,10 @@ Item {
           // Keep the fixed Back hit target above the full-height settings viewport.
           z: 2
           parent: root.showSettings && root.compact ? settingsHolder : body
-          x: (root.showSettings && root.compact ? 0 : Style.space(18))
+          x: (root.showSettings && root.compact ? 0 : MailStyle.space(18))
             + (root.showSettings ? settingsArea.blockLeft : setup.x)
           anchors.top: parent.top
-          anchors.topMargin: Style.space(18)
+          anchors.topMargin: MailStyle.space(18)
           visible: root.showPage && Nav.depth(root.nav) > 1
           textColor: root.foreground
           dimColor: root.dim
@@ -2209,8 +2217,8 @@ Item {
           onActivated: root.back()
         }
         // Where a page's content starts: under the Back when there is one.
-        readonly property real pageTop: Style.space(18)
-          + (pageBack.visible ? pageBack.height + Style.space(16) : 0)
+        readonly property real pageTop: MailStyle.space(18)
+          + (pageBack.visible ? pageBack.height + MailStyle.space(16) : 0)
 
         // Setup takes the whole body: there is nothing else to look at until
         // the mailbox is connected.
@@ -2219,7 +2227,7 @@ Item {
 
           WheelScroller { view: setupFlick }
           anchors.fill: parent
-          anchors.margins: Style.space(18)
+          anchors.margins: MailStyle.space(18)
           anchors.topMargin: parent.pageTop
           // The chooser and the forms share this page: the Loader below picks
           // which. Hiding it for one of them is a blank window.
@@ -2250,7 +2258,7 @@ Item {
             // A measure this long is unreadable across a wide window, so it is
             // capped rather than stretched.
             anchors.horizontalCenter: parent.horizontalCenter
-            width: Math.min(setupHolder.width, Style.space(560))
+            width: Math.min(setupHolder.width, MailStyle.space(560))
             // The provider is on the entry, so a service that briefly reports
             // Gmail while it rebuilds an account host cannot swap the page.
             readonly property string kind: root.editingProvider !== "" ? root.editingProvider : "gmail"
@@ -2271,16 +2279,16 @@ Item {
         Item {
           id: settingsArea
           anchors.fill: parent
-          anchors.leftMargin: Style.space(18)
-          anchors.rightMargin: Style.space(18)
+          anchors.leftMargin: MailStyle.space(18)
+          anchors.rightMargin: MailStyle.space(18)
           visible: root.showSettings
 
           // The rail and the page are one block, centred together: the rail
           // sits against the page's left edge rather than against the
           // window's, so the two read as one thing with two columns.
           readonly property real railWidth: settingsRail.visible
-            ? settingsRail.width + Style.space(18) : 0
-          readonly property real pageWidth: Math.min(width - railWidth, Style.space(560))
+            ? settingsRail.width + MailStyle.space(18) : 0
+          readonly property real pageWidth: Math.min(width - railWidth, MailStyle.space(560))
           readonly property real blockLeft: Math.max(0, (width - railWidth - pageWidth) / 2)
 
           SettingsSidebar {
@@ -2293,7 +2301,7 @@ Item {
             x: settingsArea.blockLeft
             anchors.top: parent.top
             anchors.topMargin: body.pageTop
-            width: Style.space(176)
+            width: MailStyle.space(176)
             sections: settings.sections
             activeKey: Model.activeSettingsSection(settings.sections, settingsFlick.contentY)
             textColor: root.foreground
@@ -2378,9 +2386,9 @@ Item {
 
       UndoSendToast {
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(16)
+        anchors.rightMargin: MailStyle.space(16)
         anchors.bottom: statusBar.top
-        anchors.bottomMargin: Style.space(12)
+        anchors.bottomMargin: MailStyle.space(12)
         z: 80
         visible: !!root.service && root.service.sendPending && compose.parkedForSend
         secondsRemaining: root.service ? root.service.sendSecondsRemaining : 0
@@ -2397,9 +2405,9 @@ Item {
 
       DraftSavedToast {
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(16)
+        anchors.rightMargin: MailStyle.space(16)
         anchors.bottom: statusBar.top
-        anchors.bottomMargin: Style.space(12)
+        anchors.bottomMargin: MailStyle.space(12)
         z: 80
         visible: root.draftSavedNotice !== ""
         message: root.draftSavedNotice
@@ -2417,7 +2425,7 @@ Item {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        height: Style.space(28)
+        height: MailStyle.space(28)
 
         PanelSeparator {
           anchors.top: parent.top
@@ -2435,11 +2443,11 @@ Item {
           // 6 (the column's inset) + 8 (the row's) from the left, at the
           // rail's glyph size. The button is wider than its glyph, so it
           // starts that much further left.
-          readonly property real railGlyphLeft: Style.space(6) + Style.space(8)
+          readonly property real railGlyphLeft: MailStyle.space(6) + MailStyle.space(8)
           anchors.left: parent.left
           anchors.leftMargin: railGlyphLeft - (size - iconSize) / 2
           anchors.verticalCenter: parent.verticalCenter
-          visible: !root.compact && !root.showPage && !root.composing
+          visible: !root.singleContent && !root.showPage && !root.composing
           iconName: "sidebar"
           tooltipText: root.sidebarCollapsed ? "Show the sidebar" : "Hide the sidebar"
           // No fill for the open state. The sidebar standing there is the state,
@@ -2448,7 +2456,7 @@ Item {
           foreground: root.dim
           hoverColor: root.foreground
           iconSize: Style.font.icon
-          size: Style.space(24)
+          size: MailStyle.space(24)
           fontFamily: root.fontFamily
           onClicked: root.toggleSidebar()
         }
@@ -2460,13 +2468,13 @@ Item {
           id: selectionLabel
           objectName: "status-selection"
           anchors.left: railToggle.visible ? railToggle.right : parent.left
-          anchors.leftMargin: Style.space(8)
+          anchors.leftMargin: MailStyle.space(8)
           anchors.verticalCenter: parent.verticalCenter
           visible: root.selectionActive && !root.showPage && !root.composing
           text: Model.selectionStatus(root.checkedIds.length)
           color: root.foreground
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           font.bold: true
         }
 
@@ -2477,17 +2485,17 @@ Item {
           objectName: "status-activity"
           anchors.left: selectionLabel.visible ? selectionLabel.right
             : (railToggle.visible ? railToggle.right : parent.left)
-          anchors.leftMargin: Style.space(8)
+          anchors.leftMargin: MailStyle.space(8)
           anchors.verticalCenter: parent.verticalCenter
           visible: text !== "" && !root.showPage
           text: root.service && root.service.activityStatus !== undefined
             ? root.service.activityStatus : ""
           // Capped so a long line of it cannot push the address off the bar.
-          width: Math.min(implicitWidth, Style.space(360))
+          width: Math.min(implicitWidth, MailStyle.space(360))
           elide: Text.ElideRight
           color: root.dim
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
         }
 
         Item {
@@ -2499,8 +2507,8 @@ Item {
           // past its glyph by half its slack, so the text starts that much
           // less after the box.
           anchors.leftMargin: railToggle.visible
-            ? Style.space(9) - (railToggle.size - railToggle.iconSize) / 2
-            : Style.space(14)
+            ? MailStyle.space(9) - (railToggle.size - railToggle.iconSize) / 2
+            : MailStyle.space(14)
           // The address runs to the end of the line and the hints take what it
           // leaves. Stopping at the hints instead asked a question with no
           // answer: the slot wanted to know how much the hints had left over
@@ -2509,9 +2517,9 @@ Item {
           // because a notice is what the window most needs to say and it says
           // it only while there is something wrong.
           anchors.right: statusBar.hasNotice ? notice.left : parent.right
-          anchors.rightMargin: Style.space(12)
+          anchors.rightMargin: MailStyle.space(12)
           anchors.verticalCenter: parent.verticalCenter
-          height: Style.space(24)
+          height: MailStyle.space(24)
 
           Item {
             id: accountControl
@@ -2525,14 +2533,14 @@ Item {
             // The text was then elided at every window width, which is what put
             // "just n..." on the line and why it looked like a fixed width: the
             // cut had nothing to do with how much room there was.
-            readonly property real inset: Style.space(4)
+            readonly property real inset: MailStyle.space(4)
             width: Math.min(parent.width, accountText.implicitWidth + inset * 2)
             height: parent.height
 
             Rectangle {
               id: accountBackground
               anchors.fill: parent
-              anchors.margins: Style.space(2)
+              anchors.margins: MailStyle.space(2)
               radius: Style.cornerRadius
               color: accountMouse.pressed
                 ? Style.pressedFillFor(root.foreground, root.accent)
@@ -2559,7 +2567,7 @@ Item {
               }
               color: accountMouse.containsMouse || accountControl.selected ? root.foreground : root.dim
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: MailStyle.caption
               elide: Text.ElideRight
             }
 
@@ -2583,14 +2591,14 @@ Item {
           id: diagnoseErrorButton
           objectName: "diagnose-error-button"
           anchors.right: parent.right
-          anchors.rightMargin: Style.space(14)
+          anchors.rightMargin: MailStyle.space(14)
           anchors.verticalCenter: parent.verticalCenter
           visible: !!root.service && root.service.hasAgent !== false && root.service.lastError !== ""
             && typeof root.service.diagnoseError === "function"
           enabled: visible && !root.service.diagnosing
           iconName: "agent"
           iconSize: Style.font.iconSmall
-          size: Style.space(24)
+          size: MailStyle.space(24)
           foreground: root.urgent
           accent: root.accent
           fontFamily: root.fontFamily
@@ -2603,11 +2611,11 @@ Item {
         Text {
           id: notice
           anchors.right: diagnoseErrorButton.visible ? diagnoseErrorButton.left : parent.right
-          anchors.rightMargin: diagnoseErrorButton.visible ? Style.space(8) : Style.space(14)
+          anchors.rightMargin: diagnoseErrorButton.visible ? MailStyle.space(8) : MailStyle.space(14)
           anchors.verticalCenter: parent.verticalCenter
           visible: statusBar.hasNotice
           width: Math.min(implicitWidth, Math.max(0, parent.width / 2
-            - (diagnoseErrorButton.visible ? diagnoseErrorButton.width + Style.space(8) : 0)))
+            - (diagnoseErrorButton.visible ? diagnoseErrorButton.width + MailStyle.space(8) : 0)))
           horizontalAlignment: Text.AlignRight
           textFormat: Text.PlainText
           text: {
@@ -2620,20 +2628,20 @@ Item {
             ? root.urgent
             : root.dim
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           elide: Text.ElideRight
           HoverHandler { id: noticeHover }
           ToolTip {
             visible: notice.visible && noticeHover.hovered && notice.truncated
             delay: 500
-            width: Math.min(Style.space(600), window.width - Style.space(32))
+            width: Math.min(MailStyle.space(600), window.width - MailStyle.space(32))
             contentItem: Text {
               text: notice.text
               textFormat: Text.PlainText
               wrapMode: Text.Wrap
               color: root.foreground
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: MailStyle.caption
             }
             background: Rectangle { color: root.popupBackground; border.color: root.popupBorder }
           }
@@ -2643,7 +2651,7 @@ Item {
           id: keyHints
           objectName: "status-key-hints"
           anchors.right: parent.right
-          anchors.rightMargin: Style.space(14)
+          anchors.rightMargin: MailStyle.space(14)
           anchors.verticalCenter: parent.verticalCenter
           // Only once the address has been given its room, and only whole:
           // hints are a nicety and the address is a fact, so the run of them
@@ -2652,7 +2660,7 @@ Item {
           // is what keeps the two from asking each other.
           readonly property real roomLeft: statusBar.width
             - (accountSlot.x + accountControl.width)
-            - Style.space(12) - Style.space(14)
+            - MailStyle.space(12) - MailStyle.space(14)
           visible: !statusBar.hasNotice && !root.compact && roomLeft >= implicitWidth
           textColor: root.foreground
           dimColor: root.dimmer
@@ -2740,7 +2748,7 @@ Item {
           anchors.left: parent.left
           anchors.top: parent.top
           anchors.bottom: parent.bottom
-          width: Style.space(5)
+          width: MailStyle.space(5)
           z: 100
           cursorShape: Qt.SplitHCursor
           property real grabbedAt: 0

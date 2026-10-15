@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -43,8 +45,8 @@ Item {
   }
 
   function open() {
-    anchorX = Math.max(0, root.width - menu.width - Style.space(16))
-    anchorY = Style.space(70)
+    anchorX = Math.max(0, root.width - menu.width - MailStyle.space(16))
+    anchorY = MailStyle.space(70)
     searchField.text = ""
     root.searchQuery = ""
     menu.open()
@@ -73,17 +75,17 @@ Item {
 
   function place() {
     if (!menu.visible) return
-    var x = Math.max(Style.space(8), Math.min(anchorX, root.width - menu.width - Style.space(8)))
-    var y = Math.max(Style.space(8), Math.min(anchorY, root.height - menu.implicitHeight - Style.space(8)))
+    var x = Math.max(MailStyle.space(8), Math.min(anchorX, root.width - menu.width - MailStyle.space(8)))
+    var y = Math.max(MailStyle.space(8), Math.min(anchorY, root.height - menu.implicitHeight - MailStyle.space(8)))
     menu.x = x
     menu.y = y
   }
 
   QQC.Popup {
     id: menu
-    width: Math.min(Style.space(340), root.width - Style.space(24))
-    implicitHeight: Math.min(contentColumn.implicitHeight + Style.space(16), Style.space(420))
-    padding: Style.space(8)
+    width: Math.min(MailStyle.space(340), root.width - MailStyle.space(24))
+    implicitHeight: Math.min(contentColumn.implicitHeight + MailStyle.space(16), MailStyle.space(420))
+    padding: MailStyle.space(8)
     modal: false
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
@@ -101,17 +103,17 @@ Item {
 
     contentItem: Column {
       id: contentColumn
-      spacing: Style.space(8)
+      spacing: MailStyle.space(8)
 
       Row {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
         Text {
           text: "Contacts"
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           font.bold: true
           anchors.verticalCenter: parent.verticalCenter
         }
@@ -120,18 +122,18 @@ Item {
           text: "(" + (root.contacts ? root.contacts.length : 0) + ")"
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           anchors.verticalCenter: parent.verticalCenter
         }
       }
 
-      TextField {
+      Widgets.TextField {
         id: searchField
         width: parent.width
         foreground: root.textColor
         accent: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Search contacts..."
         onTextChanged: root.searchQuery = text
       }
@@ -141,7 +143,7 @@ Item {
 
         WheelScroller { view: contactsList }
         width: parent.width
-        implicitHeight: Math.min(contentHeight, Style.space(280))
+        implicitHeight: Math.min(contentHeight, MailStyle.space(280))
         clip: true
         model: root.filteredContacts
         QQC.ScrollBar.vertical: QQC.ScrollBar { policy: QQC.ScrollBar.AsNeeded }
@@ -152,7 +154,7 @@ Item {
           required property int index
 
           width: contactsList.width
-          implicitHeight: Style.space(44)
+          implicitHeight: MailStyle.space(44)
           radius: Style.cornerRadius
           color: contactHover.hovered
             ? Style.hoverFillFor(root.textColor, root.accentColor) : "transparent"
@@ -160,9 +162,9 @@ Item {
           Rectangle {
             id: avatar
             anchors.left: parent.left
-            anchors.leftMargin: Style.space(6)
+            anchors.leftMargin: MailStyle.space(6)
             anchors.verticalCenter: parent.verticalCenter
-            width: Style.space(26)
+            width: MailStyle.space(26)
             height: width
             radius: width / 2
             color: Style.selectedFillFor(root.textColor, root.accentColor)
@@ -176,18 +178,18 @@ Item {
               }
               color: root.textColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: MailStyle.caption
               font.bold: true
             }
           }
 
           Column {
             anchors.left: avatar.right
-            anchors.leftMargin: Style.space(8)
+            anchors.leftMargin: MailStyle.space(8)
             anchors.right: actionPills.left
-            anchors.rightMargin: Style.space(4)
+            anchors.rightMargin: MailStyle.space(4)
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(1)
+            spacing: MailStyle.space(1)
 
             Text {
               width: parent.width
@@ -195,7 +197,7 @@ Item {
               text: String(contactRow.modelData.name || contactRow.modelData.email || "")
               color: root.textColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: MailStyle.bodySmall
               font.bold: true
               elide: Text.ElideRight
             }
@@ -207,7 +209,7 @@ Item {
               text: String(contactRow.modelData.email || "")
               color: root.dimColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: MailStyle.caption
               elide: Text.ElideMiddle
             }
           }
@@ -215,14 +217,14 @@ Item {
           Row {
             id: actionPills
             anchors.right: parent.right
-            anchors.rightMargin: Style.space(6)
+            anchors.rightMargin: MailStyle.space(6)
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(3)
+            spacing: MailStyle.space(3)
 
-            Button {
+            Widgets.Button {
               text: "+ To"
               bordered: false
-              fontSize: Style.font.caption
+              fontSize: MailStyle.caption
               foreground: root.accentColor
               onClicked: {
                 root.contactChosen(contactRow.modelData, "to")
@@ -230,10 +232,10 @@ Item {
               }
             }
 
-            Button {
+            Widgets.Button {
               text: "+ Cc"
               bordered: false
-              fontSize: Style.font.caption
+              fontSize: MailStyle.caption
               foreground: root.dimColor
               onClicked: {
                 root.contactChosen(contactRow.modelData, "cc")
@@ -241,10 +243,10 @@ Item {
               }
             }
 
-            Button {
+            Widgets.Button {
               text: "+ Bcc"
               bordered: false
-              fontSize: Style.font.caption
+              fontSize: MailStyle.caption
               foreground: root.dimColor
               onClicked: {
                 root.contactChosen(contactRow.modelData, "bcc")
@@ -271,9 +273,9 @@ Item {
         text: "No contacts found"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
-        topPadding: Style.space(12)
-        bottomPadding: Style.space(12)
+        font.pixelSize: MailStyle.caption
+        topPadding: MailStyle.space(12)
+        bottomPadding: MailStyle.space(12)
       }
     }
   }

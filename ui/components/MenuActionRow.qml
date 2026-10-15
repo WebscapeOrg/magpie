@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Ui
 
@@ -24,15 +25,15 @@ Rectangle {
 
   Text {
     anchors.left: parent.left
-    anchors.leftMargin: Style.space(9)
+    anchors.leftMargin: MailStyle.space(9)
     anchors.right: parent.right
-    anchors.rightMargin: Style.space(9)
+    anchors.rightMargin: MailStyle.space(9)
     anchors.verticalCenter: parent.verticalCenter
     textFormat: Text.PlainText
     text: root.text
     color: root.tone
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: MailStyle.bodySmall
     elide: Text.ElideRight
   }
 

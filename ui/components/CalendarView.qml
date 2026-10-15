@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
@@ -90,7 +91,7 @@ Item {
   property double requestedEventStart: 0
   property bool waitingForEvent: false
   readonly property bool detailOpen: detailEvent !== null
-  readonly property real toolbarFontSize: Style.font.body
+  readonly property real toolbarFontSize: MailStyle.body
   readonly property real toolbarControlHeight: Style.spacing.controlHeight
   readonly property var monthSpans: Calendar.monthSpanLayout(controller ? controller.events : [], days)
   readonly property var days: Calendar.monthGridDays(
@@ -346,7 +347,7 @@ Item {
   FontMetrics {
     id: monthFontMetrics
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
   }
 
   TextMetrics {
@@ -359,8 +360,8 @@ Item {
   Column {
     id: mainColumn
     anchors.fill: parent
-    anchors.margins: Style.space(14)
-    spacing: Style.space(10)
+    anchors.margins: MailStyle.space(14)
+    spacing: MailStyle.space(10)
 
     Item {
       id: calendarToolbar
@@ -368,8 +369,8 @@ Item {
       parent: root.toolbarHost || mainColumn
       visible: root.visible && !root.detailOpen
       width: parent.width
-      readonly property bool stacked: width < dateControls.implicitWidth + viewControls.implicitWidth + Style.space(24)
-      height: stacked ? dateControls.implicitHeight + viewControls.implicitHeight + Style.space(12)
+      readonly property bool stacked: width < dateControls.implicitWidth + viewControls.implicitWidth + MailStyle.space(24)
+      height: stacked ? dateControls.implicitHeight + viewControls.implicitHeight + MailStyle.space(12)
         : Math.max(dateControls.implicitHeight, viewControls.implicitHeight)
 
       RowLayout {
@@ -377,7 +378,7 @@ Item {
         anchors.left: parent.left
         anchors.verticalCenter: !calendarToolbar.stacked ? parent.verticalCenter : undefined
         anchors.top: calendarToolbar.stacked ? parent.top : undefined
-        spacing: Style.space(2)
+        spacing: MailStyle.space(2)
 
         IconTextButton {
           text: "‹"
@@ -427,7 +428,7 @@ Item {
           text: "Today"
           implicitHeight: root.toolbarControlHeight
           tooltipText: "Show the current date"
-          Layout.leftMargin: Style.space(10)
+          Layout.leftMargin: MailStyle.space(10)
           foreground: root.textColor
           accent: root.accentColor
           ghost: true
@@ -443,12 +444,12 @@ Item {
         anchors.right: parent.right
         anchors.verticalCenter: !calendarToolbar.stacked ? parent.verticalCenter : undefined
         anchors.bottom: calendarToolbar.stacked ? parent.bottom : undefined
-        spacing: Style.space(4)
+        spacing: MailStyle.space(4)
 
         Item {
           id: calendarLoading
-          width: visible ? Style.space(24) : 0
-          height: Style.space(24)
+          width: visible ? MailStyle.space(24) : 0
+          height: MailStyle.space(24)
           visible: !!root.controller && root.controller.loading
 
           ActionIcon {
@@ -477,8 +478,8 @@ Item {
           textRole: "label"
           currentIndex: ["day", "week", "month", "agenda"].indexOf(root.viewMode)
           onActivated: function(index) { root.setView(root.viewOptions[index].mode) }
-          leftPadding: Style.space(10)
-          rightPadding: Style.space(28)
+          leftPadding: MailStyle.space(10)
+          rightPadding: MailStyle.space(28)
           contentItem: Text {
             text: viewSelector.displayText
             textFormat: Text.PlainText
@@ -489,7 +490,7 @@ Item {
           }
           indicator: ActionIcon {
             name: "chevronDown"
-            x: viewSelector.width - width - Style.space(8)
+            x: viewSelector.width - width - MailStyle.space(8)
             y: (viewSelector.height - height) / 2
             iconSize: Style.font.iconSmall
             color: root.textColor
@@ -503,7 +504,7 @@ Item {
             id: viewOption
             required property var modelData
             required property int index
-            width: viewSelector.popup.width - Style.space(8)
+            width: viewSelector.popup.width - MailStyle.space(8)
             implicitHeight: Style.spacing.controlHeight
             highlighted: viewSelector.highlightedIndex === index
             contentItem: Text {
@@ -519,8 +520,8 @@ Item {
             }
           }
           popup: Popup {
-            width: Math.max(viewSelector.width, Style.space(170))
-            padding: Style.space(4)
+            width: Math.max(viewSelector.width, MailStyle.space(170))
+            padding: MailStyle.space(4)
             implicitHeight: viewList.contentHeight + padding * 2
             function place() {
               var window = viewSelector.Window.window
@@ -553,7 +554,7 @@ Item {
     Rectangle {
       id: calendarError
       width: parent.width
-      height: visible ? Style.space(34) : 0
+      height: visible ? MailStyle.space(34) : 0
       visible: root.controller && root.controller.lastError !== ""
       radius: Style.cornerRadius
       color: Qt.rgba(root.urgentColor.r, root.urgentColor.g, root.urgentColor.b, 0.12)
@@ -568,13 +569,13 @@ Item {
         anchors.right: errorActions.visible ? errorActions.left : parent.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        anchors.leftMargin: Style.space(10)
-        anchors.rightMargin: Style.space(10)
+        anchors.leftMargin: MailStyle.space(10)
+        anchors.rightMargin: MailStyle.space(10)
         verticalAlignment: Text.AlignVCenter
         text: root.controller ? root.controller.lastError : ""
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         elide: Text.ElideRight
         textFormat: Text.PlainText
       }
@@ -582,9 +583,9 @@ Item {
       Row {
         id: errorActions
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(4)
+        anchors.rightMargin: MailStyle.space(4)
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(4)
+        spacing: MailStyle.space(4)
         visible: calendarError.apiDisabled
 
         IconTextButton {
@@ -594,7 +595,7 @@ Item {
           foreground: root.textColor
           accent: root.accentColor
           fontFamily: root.panelFontFamily
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           onClicked: root.copyRequested(root.controller.lastError)
         }
 
@@ -605,7 +606,7 @@ Item {
           foreground: root.textColor
           accent: root.accentColor
           fontFamily: root.panelFontFamily
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           onClicked: root.openRequested(Calendar.googleCalendarApiUrl())
         }
       }
@@ -618,7 +619,7 @@ Item {
       textFormat: Text.PlainText
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.Wrap
     }
 
@@ -658,16 +659,16 @@ Item {
         delegate: Item {
           required property string modelData
           width: weekdayGrid.width / 7
-          height: Style.space(24)
+          height: MailStyle.space(24)
 
           Text {
             anchors.left: parent.left
-            anchors.leftMargin: Style.space(7)
+            anchors.leftMargin: MailStyle.space(7)
             anchors.verticalCenter: parent.verticalCenter
             text: modelData
             color: root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             textFormat: Text.PlainText
           }
         }
@@ -680,11 +681,11 @@ Item {
       width: parent.width
       height: parent.height - y
       readonly property real weekHeight: height / (root.days.length / 7)
-      readonly property real eventTop: Style.space(10) + monthFontMetrics.height
-      readonly property real eventPitch: Style.space(25)
+      readonly property real eventTop: MailStyle.space(10) + monthFontMetrics.height
+      readonly property real eventPitch: MailStyle.space(25)
       // Leave space for an overflow link even when spanning events fill a week.
       readonly property int spanLimit: Math.max(0, Math.floor(
-        (weekHeight - eventTop - Style.space(5) - monthFontMetrics.height) / eventPitch))
+        (weekHeight - eventTop - MailStyle.space(5) - monthFontMetrics.height) / eventPitch))
       function visibleLanes(week) { return Math.min(spanLimit, root.monthSpans.laneCounts[week] || 0) }
 
       HoverHandler {
@@ -713,7 +714,7 @@ Item {
           }).length
           readonly property int overflowCount: hiddenSpans + Math.max(0, dayEvents.length - eventLimit)
           readonly property int eventLimit: Calendar.monthEventLimit(
-            height - eventRows.y - Style.space(5), Style.space(23), eventRows.spacing,
+            height - eventRows.y - MailStyle.space(5), MailStyle.space(23), eventRows.spacing,
             overflowLabel.implicitHeight, hiddenSpans > 0 ? Number.MAX_VALUE : dayEvents.length)
           x: index % 7 * width
           y: week * height
@@ -762,8 +763,8 @@ Item {
 
           Rectangle {
             anchors.centerIn: dayNumber
-            width: Math.max(dayNumber.implicitWidth + Style.space(8), dayNumber.implicitHeight + Style.space(4))
-            height: dayNumber.implicitHeight + Style.space(4)
+            width: Math.max(dayNumber.implicitWidth + MailStyle.space(8), dayNumber.implicitHeight + MailStyle.space(4))
+            height: dayNumber.implicitHeight + MailStyle.space(4)
             radius: height / 2
             color: root.accentColor
             visible: dayCell.modelData.isoDate === root.todayIso
@@ -774,13 +775,13 @@ Item {
             height: monthFontMetrics.height
             anchors.top: parent.top
             anchors.left: parent.left
-            anchors.margins: Style.space(6)
+            anchors.margins: MailStyle.space(6)
             text: dayCell.modelData.day
             color: dayCell.modelData.isoDate === root.todayIso ? root.backgroundColor
               : dayCell.modelData.inMonth ? root.textColor : root.dimColor
             opacity: dayCell.modelData.inMonth ? 1 : 0.55
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             font.bold: dayCell.modelData.isoDate === root.todayIso
             textFormat: Text.PlainText
           }
@@ -788,12 +789,12 @@ Item {
           Column {
             id: eventRows
             anchors.top: dayNumber.bottom
-            anchors.topMargin: Style.space(4) + monthGrid.visibleLanes(dayCell.week) * monthGrid.eventPitch
+            anchors.topMargin: MailStyle.space(4) + monthGrid.visibleLanes(dayCell.week) * monthGrid.eventPitch
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.leftMargin: Style.space(4)
-            anchors.rightMargin: Style.space(4)
-            spacing: Style.space(2)
+            anchors.leftMargin: MailStyle.space(4)
+            anchors.rightMargin: MailStyle.space(4)
+            spacing: MailStyle.space(2)
 
             Repeater {
               model: Math.min(dayCell.dayEvents.length, dayCell.eventLimit)
@@ -804,8 +805,8 @@ Item {
                 readonly property color eventColor: calendarPalette.colorFor(
                   root.controller ? root.controller.colorKeyFor(eventData.sourceId) : "")
                 width: parent.width
-                height: Style.space(23)
-                radius: Style.space(3)
+                height: MailStyle.space(23)
+                radius: MailStyle.space(3)
                 color: Qt.rgba(eventColor.r, eventColor.g, eventColor.b,
                   eventData && Calendar.eventKey(eventData) === root.selectedEventId ? 0.28 : 0.15)
                 border.width: eventData && Calendar.eventKey(eventData) === root.selectedEventId ? 2 : 0
@@ -815,14 +816,14 @@ Item {
                   anchors.left: parent.left
                   anchors.top: parent.top
                   anchors.bottom: parent.bottom
-                  width: Style.space(3)
+                  width: MailStyle.space(3)
                   color: monthEvent.eventColor
                 }
 
                 Text {
                   anchors.fill: parent
-                  anchors.leftMargin: Style.space(4)
-                  anchors.rightMargin: Style.space(4)
+                  anchors.leftMargin: MailStyle.space(4)
+                  anchors.rightMargin: MailStyle.space(4)
                   verticalAlignment: Text.AlignVCenter
                   text: {
                     var event = monthEvent.eventData
@@ -830,11 +831,11 @@ Item {
                     var time = event.start && !event.start.allDay
                       ? Calendar.timeLabel(event.start.ms, root.timeFormat) + " " : ""
                     var title = String(event.summary || "Untitled event")
-                    return monthEvent.width < Style.space(140) ? title + (time ? " · " + time.trim() : "") : time + title
+                    return monthEvent.width < MailStyle.space(140) ? title + (time ? " · " + time.trim() : "") : time + title
                   }
                   color: root.textColor
                   font.family: root.panelFontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: MailStyle.caption
                   elide: Text.ElideRight
                   textFormat: Text.PlainText
                 }
@@ -872,7 +873,7 @@ Item {
               text: "+" + dayCell.overflowCount + " more..."
               color: root.dimColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: MailStyle.caption
               textFormat: Text.PlainText
               MouseArea {
                 anchors.fill: parent
@@ -894,34 +895,34 @@ Item {
           readonly property color eventColor: calendarPalette.colorFor(
             root.controller ? root.controller.colorKeyFor(eventData.sourceId) : "")
           visible: modelData.lane < monthGrid.visibleLanes(modelData.week)
-          x: modelData.startColumn * monthGrid.width / 7 + Style.space(4)
+          x: modelData.startColumn * monthGrid.width / 7 + MailStyle.space(4)
           y: modelData.week * monthGrid.weekHeight + monthGrid.eventTop + modelData.lane * monthGrid.eventPitch
-          width: (modelData.endColumn - modelData.startColumn + 1) * monthGrid.width / 7 - Style.space(8)
-          height: Style.space(23)
-          radius: Style.space(3)
+          width: (modelData.endColumn - modelData.startColumn + 1) * monthGrid.width / 7 - MailStyle.space(8)
+          height: MailStyle.space(23)
+          radius: MailStyle.space(3)
           color: Qt.alpha(eventColor, Calendar.eventKey(eventData) === root.selectedEventId ? 0.28 : 0.15)
           border.color: eventColor
           border.width: Calendar.eventKey(eventData) === root.selectedEventId ? 1 : 0
           Rectangle {
             anchors.left: parent.left
             height: parent.height
-            width: Style.space(3)
+            width: MailStyle.space(3)
             color: spanBar.eventColor
           }
           Text {
             anchors.left: parent.left
-            anchors.leftMargin: Style.space(6)
+            anchors.leftMargin: MailStyle.space(6)
             anchors.verticalCenter: parent.verticalCenter
             text: spanBar.modelData.continuesBefore ? "‹" : ""
             textFormat: Text.PlainText
             color: root.textColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
           }
           Text {
             anchors.fill: parent
-            anchors.leftMargin: Style.space(spanBar.modelData.continuesBefore ? 18 : 6)
-            anchors.rightMargin: Style.space(spanBar.modelData.continuesAfter ? 18 : 6)
+            anchors.leftMargin: MailStyle.space(spanBar.modelData.continuesBefore ? 18 : 6)
+            anchors.rightMargin: MailStyle.space(spanBar.modelData.continuesAfter ? 18 : 6)
             verticalAlignment: Text.AlignVCenter
             text: (spanBar.eventData.start.allDay ? "" : Calendar.timeLabel(spanBar.eventData.start.ms, root.timeFormat) + " ")
               + String(spanBar.eventData.summary || "Untitled event")
@@ -929,17 +930,17 @@ Item {
             elide: Text.ElideRight
             color: root.textColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
           }
           Text {
             anchors.right: parent.right
-            anchors.rightMargin: Style.space(6)
+            anchors.rightMargin: MailStyle.space(6)
             anchors.verticalCenter: parent.verticalCenter
             text: spanBar.modelData.continuesAfter ? "›" : ""
             textFormat: Text.PlainText
             color: root.textColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
           }
           MouseArea {
             anchors.fill: parent
@@ -1001,12 +1002,12 @@ Item {
       height: parent.height - y
       visible: root.viewMode === "agenda"
       clip: true
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
       model: root.agendaEvents
       ScrollBar.vertical: ScrollBar {}
       Text {
         anchors.centerIn: parent
-        width: parent.width - Style.space(24)
+        width: parent.width - MailStyle.space(24)
         visible: agendaList.count === 0
         text: "No upcoming events in this date range."
         textFormat: Text.PlainText
@@ -1019,7 +1020,7 @@ Item {
         id: agendaRow
         required property var modelData
         width: ListView.view.width
-        height: Style.space(64)
+        height: MailStyle.space(64)
         radius: Style.cornerRadius
         color: Calendar.eventKey(modelData) === root.selectedEventId
           ? Style.selectedFillFor(root.textColor, root.accentColor)
@@ -1027,8 +1028,8 @@ Item {
           : Style.normalFillFor(root.textColor, root.accentColor)
         Column {
           anchors.fill: parent
-          anchors.margins: Style.space(8)
-          spacing: Style.space(4)
+          anchors.margins: MailStyle.space(8)
+          spacing: MailStyle.space(4)
           Text {
             width: parent.width
             text: String(agendaRow.modelData.summary || "Untitled event")
@@ -1074,7 +1075,7 @@ Item {
     parent: root.Window.window ? root.Window.window.contentItem : root
     property Item dayCell: null
     property bool opened: false
-    readonly property real padding: Style.space(10)
+    readonly property real padding: MailStyle.space(10)
     readonly property var events: dayCell ? Calendar.eventsOnDay(root.controller ? root.controller.events : [], dayCell.modelData) : []
     function open() { opened = true }
     function close() {
@@ -1084,9 +1085,9 @@ Item {
     }
     visible: opened
     z: 1000
-    width: Math.min(Style.space(400), parent.width - Style.space(16))
-    height: Math.min(Style.space(460), parent.height - Style.space(24), overflowHeading.implicitHeight
-      + overflowEvents.height + padding * 2 + Style.space(10))
+    width: Math.min(MailStyle.space(400), parent.width - MailStyle.space(16))
+    height: Math.min(MailStyle.space(460), parent.height - MailStyle.space(24), overflowHeading.implicitHeight
+      + overflowEvents.height + padding * 2 + MailStyle.space(10))
     color: root.backgroundColor
     border.color: Style.normalBorderFor(root.textColor, root.accentColor)
     radius: Style.cornerRadius
@@ -1121,14 +1122,14 @@ Item {
         textFormat: Text.PlainText
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.body
+        font.pixelSize: MailStyle.body
         font.bold: true
       }
       Flickable {
         id: overflowScroll
         objectName: "calendar-month-overflow-scroll"
         anchors.top: overflowHeading.bottom
-        anchors.topMargin: Style.space(10)
+        anchors.topMargin: MailStyle.space(10)
         anchors.bottom: parent.bottom
         width: parent.width
         clip: true
@@ -1140,7 +1141,7 @@ Item {
         Column {
           id: overflowEvents
           width: parent.width
-          spacing: Style.space(4)
+          spacing: MailStyle.space(4)
           Repeater {
             model: monthOverflow.events
             delegate: Rectangle {
@@ -1149,26 +1150,26 @@ Item {
               objectName: "calendar-overflow-event-" + String(modelData.googleId || modelData.uid)
               readonly property color eventColor: calendarPalette.colorFor(root.controller ? root.controller.colorKeyFor(modelData.sourceId) : "")
               width: parent.width
-              height: overflowTitle.implicitHeight + overflowTime.implicitHeight + Style.space(18)
+              height: overflowTitle.implicitHeight + overflowTime.implicitHeight + MailStyle.space(18)
               color: Qt.alpha(eventColor, overflowMouse.containsMouse ? 0.25 : 0.12)
               radius: Style.cornerRadius
-              Rectangle { width: Style.space(3); height: parent.height; color: overflowEvent.eventColor }
+              Rectangle { width: MailStyle.space(3); height: parent.height; color: overflowEvent.eventColor }
               Text {
                 id: overflowTitle
-                x: Style.space(8)
-                y: Style.space(6)
-                width: parent.width - Style.space(20)
+                x: MailStyle.space(8)
+                y: MailStyle.space(6)
+                width: parent.width - MailStyle.space(20)
                 text: String(overflowEvent.modelData.summary || "Untitled event")
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
                 color: root.textColor
                 font.family: root.panelFontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: MailStyle.caption
               }
               Text {
                 id: overflowTime
                 x: overflowTitle.x
-                y: overflowTitle.y + overflowTitle.height + Style.space(2)
+                y: overflowTitle.y + overflowTitle.height + MailStyle.space(2)
                 width: overflowTitle.width
                 text: overflowEvent.modelData.start.allDay ? "All day"
                   : Calendar.spansMultipleDays(overflowEvent.modelData)
@@ -1179,7 +1180,7 @@ Item {
                 wrapMode: Text.Wrap
                 color: root.dimColor
                 font.family: root.panelFontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: MailStyle.caption
               }
               MouseArea {
                 id: overflowMouse
@@ -1199,8 +1200,8 @@ Item {
     id: datePopup
     parent: root.toolbarHost && root.toolbarHost.Window.window ? root.toolbarHost.Window.window.contentItem : root
     property date shownMonth: new Date()
-    width: Style.space(310)
-    padding: Style.space(10)
+    width: MailStyle.space(310)
+    padding: MailStyle.space(10)
     focus: true
     function place() {
       var below = dateButton.mapToItem(parent, 0, dateButton.height)
@@ -1216,9 +1217,9 @@ Item {
       radius: Style.cornerRadius
     }
     contentItem: Column {
-      spacing: Style.space(8)
+      spacing: MailStyle.space(8)
       Row {
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
         IconTextButton {
           text: "‹"
           Accessible.name: "Previous month"

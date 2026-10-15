@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../providers/Registry.js" as Provider
@@ -6,7 +8,7 @@ import "../providers/Registry.js" as Provider
 // Connecting a HEY mailbox, which is a program and a button.
 //
 // There is no form here at all, and that is the point: HEY publishes no IMAP
-// and no API this plugin could sign in to, so Omamail reads it through `hey`,
+// and no API this plugin could sign in to, so Magpie reads it through `hey`,
 // the command line client 37signals ship — and `hey` owns the sign-in, the
 // token and the keyring entry it lives in. Everything this page can do is say
 // whether the program is there, start its browser flow, and be honest about
@@ -35,7 +37,7 @@ Column {
   // user's behalf, which is a thing to decide in a terminal you are looking at.
   readonly property string installCommand: "curl -fsSL https://hey.com/install-cli | bash"
 
-  spacing: Style.space(16)
+  spacing: MailStyle.space(16)
 
   // ------------------------------------------------------------------ hero
 
@@ -43,7 +45,7 @@ Column {
     width: parent.width
     providerId: "hey"
     title: "Add a HEY mailbox"
-    detail: "HEY does not speak IMAP or POP. Omamail reads it through the HEY CLI, the client 37signals publish for exactly this — install it once, then sign in here."
+    detail: "HEY does not speak IMAP or POP. Magpie reads it through the HEY CLI, the client 37signals publish for exactly this — install it once, then sign in here."
     textColor: root.textColor
     dimColor: root.dimColor
     panelFontFamily: root.panelFontFamily
@@ -55,7 +57,7 @@ Column {
   Column {
     width: parent.width
     visible: root.checked && !root.installed
-    spacing: Style.space(10)
+    spacing: MailStyle.space(10)
 
     // The name of the thing to install is also where to read about it. Split
     // rather than set as rich text: only the client's name is the link, and a
@@ -68,7 +70,7 @@ Column {
         text: "Install the "
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         font.bold: true
       }
 
@@ -76,7 +78,7 @@ Column {
         text: "HEY CLI"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         font.bold: true
         tooltipText: "Open the HEY CLI on GitHub"
         onActivated: if (root.service) root.service.openProviderClient("hey")
@@ -88,7 +90,7 @@ Column {
       text: "Run this in a terminal:"
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
 
@@ -96,7 +98,7 @@ Column {
     // terminal. Read-only: nothing here runs what it holds.
     Rectangle {
       width: parent.width
-      implicitHeight: commandText.implicitHeight + Style.space(20)
+      implicitHeight: commandText.implicitHeight + MailStyle.space(20)
       radius: Style.cornerRadius
       color: Style.normalFillFor(root.textColor, root.accentColor)
       border.width: 1
@@ -106,7 +108,7 @@ Column {
         id: commandText
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.margins: Style.space(12)
+        anchors.margins: MailStyle.space(12)
         anchors.verticalCenter: parent.verticalCenter
         text: root.installCommand
         textFormat: TextEdit.PlainText
@@ -117,7 +119,7 @@ Column {
         selectedTextColor: root.textColor
         selectionColor: Style.selectedFillFor(root.textColor, root.accentColor)
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
     }
 
@@ -126,15 +128,15 @@ Column {
       text: "Recent versions of Omarchy install it for you — omarchy-mise-install github:basecamp/hey-cli hey does the same thing. Either way it lands in ~/.local/bin."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
 
-    Button {
+    Widgets.Button {
       text: "Check again"
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: if (root.auth) root.auth.recheck()
     }
   }
@@ -144,44 +146,44 @@ Column {
   Column {
     width: parent.width
     visible: root.installed && !root.signedIn
-    spacing: Style.space(10)
+    spacing: MailStyle.space(10)
 
     Text {
       width: parent.width
       text: "Sign in to HEY"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       font.bold: true
     }
 
     Text {
       width: parent.width
-      text: "This opens HEY in your browser. The token comes back to the HEY CLI, which keeps it in your keyring and refreshes it — Omamail never holds it and never asks for your HEY password."
+      text: "This opens HEY in your browser. The token comes back to the HEY CLI, which keeps it in your keyring and refreshes it — Magpie never holds it and never asks for your HEY password."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
 
     Row {
-      spacing: Style.space(8)
+      spacing: MailStyle.space(8)
 
-      Button {
+      Widgets.Button {
         visible: !root.busy
         text: "Sign in to HEY..."
         foreground: root.textColor
         bordered: true
-        fontSize: Style.font.bodySmall
+        fontSize: MailStyle.bodySmall
         onClicked: if (root.service) root.service.signIn()
       }
 
-      Button {
+      Widgets.Button {
         visible: root.busy
         text: "Cancel"
         foreground: root.textColor
         bordered: true
-        fontSize: Style.font.bodySmall
+        fontSize: MailStyle.bodySmall
         onClicked: if (root.service) root.service.cancelSignIn()
       }
 
@@ -191,7 +193,7 @@ Column {
         text: "Waiting for the browser"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
     }
   }
@@ -201,14 +203,14 @@ Column {
   Column {
     width: parent.width
     visible: root.signedIn
-    spacing: Style.space(4)
+    spacing: MailStyle.space(4)
 
     Text {
       width: parent.width
       text: "Connected"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       font.bold: true
     }
 
@@ -220,7 +222,7 @@ Column {
         : "Signed in through the HEY CLI."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
@@ -233,7 +235,7 @@ Column {
     text: root.auth ? root.auth.lastError : ""
     color: root.dangerColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     wrapMode: Text.WordWrap
   }
 
@@ -245,14 +247,14 @@ Column {
 
   Column {
     width: parent.width
-    spacing: Style.space(4)
+    spacing: MailStyle.space(4)
 
     Text {
       width: parent.width
       text: "What is different about HEY"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       font.bold: true
     }
 
@@ -261,29 +263,29 @@ Column {
       text: "No star and no archive — HEY has neither. A thread is moved to Set Aside, Reply Later or Paper Trail instead, and those are mailboxes in the rail. No Sent either: the HEY CLI does not serve one yet. Reading, marking read, replying, searching, labels and reporting spam all work. A row here is one conversation rather than one message, and attachments and the Screener stay in HEY's own app."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
 
   Row {
-    spacing: Style.space(8)
+    spacing: MailStyle.space(8)
 
-    Button {
+    Widgets.Button {
       visible: root.signedIn
       text: "Sign out of HEY"
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: if (root.service) root.service.signOut()
     }
 
-    Button {
+    Widgets.Button {
       visible: root.accountCount > 1
       text: "Remove account"
       foreground: root.dangerColor
       bordered: false
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.removeRequested()
     }
   }
@@ -296,7 +298,7 @@ Column {
     text: "Signing out signs the HEY CLI out, so anything else on this machine that uses it — the HEY terminal app, the bar plugin — is signed out too."
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     wrapMode: Text.WordWrap
   }
 }

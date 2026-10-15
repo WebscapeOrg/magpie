@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../message/Direction.js" as Direction
@@ -93,7 +95,7 @@ Rectangle {
   }
 
   width: parent ? parent.width : 0
-  implicitHeight: body.implicitHeight + Style.space(14)
+  implicitHeight: body.implicitHeight + MailStyle.space(14)
   radius: Style.cornerRadius
   // The checkbox identifies bulk selection independently of the reader fill.
   color: selected || hasCursor || checked
@@ -131,10 +133,10 @@ Rectangle {
 
   Rectangle {
     anchors.left: parent.left
-    anchors.leftMargin: Style.space(4)
+    anchors.leftMargin: MailStyle.space(4)
     anchors.top: parent.top
-    anchors.topMargin: Style.space(12)
-    width: Style.space(5)
+    anchors.topMargin: MailStyle.space(12)
+    width: MailStyle.space(5)
     height: width
     radius: width / 2
     visible: root.summary.unread
@@ -146,11 +148,11 @@ Rectangle {
     anchors.left: parent.left
     anchors.right: parent.right
     // Align message text with the reader and header content.
-    anchors.leftMargin: Style.space(14)
+    anchors.leftMargin: MailStyle.space(14)
     // Align text with the action glyph, rather than its padded hit target.
-    anchors.rightMargin: Style.space(6) + (Style.space(24) - Style.font.iconSmall) / 2
+    anchors.rightMargin: MailStyle.space(6) + (MailStyle.space(24) - Style.font.iconSmall) / 2
     anchors.verticalCenter: parent.verticalCenter
-    spacing: Style.space(2)
+    spacing: MailStyle.space(2)
 
     // The sender, the mailbox it arrived in where the list is made of several,
     // and how long the conversation is. Both of the last two are optional and
@@ -167,12 +169,12 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: source.visible ? source.left
           : (count.visible ? count.left : time.left)
-        anchors.rightMargin: (source.visible || count.visible) ? Style.space(4) : Style.space(8)
+        anchors.rightMargin: (source.visible || count.visible) ? MailStyle.space(4) : MailStyle.space(8)
         textFormat: Text.PlainText
         text: root.summary.from.display
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.listSize
         elide: Text.ElideRight
         horizontalAlignment: root.textAlignment
       }
@@ -187,7 +189,7 @@ Rectangle {
         id: source
         objectName: "message-source"
         anchors.right: count.visible ? count.left : time.left
-        anchors.rightMargin: count.visible ? Style.space(4) : Style.space(8)
+        anchors.rightMargin: count.visible ? MailStyle.space(4) : MailStyle.space(8)
         anchors.baseline: sender.baseline
         visible: root.sourceLabel !== ""
         // A ceiling, because `elide` on its own never fires: with only an
@@ -200,7 +202,7 @@ Rectangle {
         text: root.sourceLabel
         color: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.listSize
         elide: Text.ElideRight
       }
 
@@ -214,14 +216,14 @@ Rectangle {
         id: count
         objectName: "message-conversation-count"
         anchors.right: time.left
-        anchors.rightMargin: Style.space(8)
+        anchors.rightMargin: MailStyle.space(8)
         anchors.baseline: sender.baseline
         visible: root.conversations && root.threadCount > 0
         textFormat: Text.PlainText
         text: root.threadCount
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.listSize
         font.bold: root.summary.unread
       }
 
@@ -234,20 +236,20 @@ Rectangle {
         text: root.summary.time
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.listSize
       }
     }
 
     Text {
       id: subject
       objectName: "message-subject"
-      width: parent.width - (actions.visible ? actions.width + Style.space(4) : 0)
+      width: parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0)
       // Sender-controlled text must never activate Qt's rich-text loader.
       textFormat: Text.PlainText
       text: root.summary.subject
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.body
+      font.pixelSize: MailStyle.listSize
       font.bold: root.summary.unread
       elide: Text.ElideRight
       horizontalAlignment: root.subjectAlignment
@@ -261,7 +263,7 @@ Rectangle {
       text: root.summary.snippet
       color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.42)
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.listSize
       elide: Text.ElideRight
       maximumLineCount: 1
       horizontalAlignment: root.textAlignment
@@ -275,7 +277,7 @@ Rectangle {
     id: actions
     objectName: "message-actions"
     anchors.right: parent.right
-    anchors.rightMargin: Style.space(6)
+    anchors.rightMargin: MailStyle.space(6)
     y: body.y + subject.y + (body.height - subject.y - height) / 2
     spacing: 0
     visible: root.hot || root.summary.starred || root.selectionMode
@@ -288,7 +290,7 @@ Rectangle {
       foreground: root.summary.starred ? root.accentColor : root.dimColor
       hoverColor: root.accentColor
       iconSize: Style.font.iconSmall
-      size: Style.space(24)
+      size: MailStyle.space(24)
       fontFamily: root.panelFontFamily
       onClicked: root.starToggled()
     }
@@ -303,7 +305,7 @@ Rectangle {
       foreground: root.dimColor
       hoverColor: root.textColor
       iconSize: Style.font.iconSmall
-      size: Style.space(24)
+      size: MailStyle.space(24)
       fontFamily: root.panelFontFamily
       onClicked: root.archiveRequested()
     }
@@ -316,7 +318,7 @@ Rectangle {
       foreground: root.dimColor
       hoverColor: root.textColor
       iconSize: Style.font.iconSmall
-      size: Style.space(24)
+      size: MailStyle.space(24)
       fontFamily: root.panelFontFamily
       onClicked: root.trashRequested()
     }
@@ -326,7 +328,7 @@ Rectangle {
     Item {
       id: checkControl
       objectName: "message-check"
-      width: Style.space(24)
+      width: MailStyle.space(24)
       height: width
       visible: root.selectionMode
       Accessible.role: Accessible.CheckBox
@@ -338,7 +340,7 @@ Rectangle {
       BorderSurface {
         id: checkBox
         anchors.centerIn: parent
-        width: Style.space(12)
+        width: MailStyle.space(12)
         height: width
         radius: 0
         color: checkMouse.pressed ? Style.pressedFillFor(root.textColor, root.accentColor)
@@ -368,7 +370,7 @@ Rectangle {
         }
       }
 
-      PanelToolTip {
+      Widgets.PanelToolTip {
         visible: checkMouse.containsMouse
         text: (root.checked ? "Deselect" : "Select") + " · "
           + Keymap.keycapLabel(Keymap.displayFor(Keymap.byId("toggleCheck")))

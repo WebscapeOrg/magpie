@@ -1265,7 +1265,7 @@ Item {
     sidebarWidth = prefs.sidebarWidth
     listWidth = prefs.listWidth
     collapsedFolders = prefs.collapsedFolders
-    bodyZoom = prefs.bodyZoom
+    bodyZoom = Display.zoomForWindow(raw, prefs.bodyZoom)
     bodyMode = prefs.bodyMode
     alwaysShowImages = prefs.alwaysShowImages
     restoreWindow = prefs.windowOpen

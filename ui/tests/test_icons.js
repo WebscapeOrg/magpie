@@ -27,6 +27,8 @@ assert.notStrictEqual(icons.glyph("forward"), icons.glyph("chevronRight"))
 assert.strictEqual(icons.glyph("sent").codePointAt(0), 0xF10DD,
   "the Sent mailbox uses the balanced email-send-outline glyph")
 
+assert.strictEqual(icons.glyph("snooze").codePointAt(0), 0xF0150, "snooze uses the conventional clock outline");
+
 // Every icon a view asks for by name is defined. Scans the QML for the
 // literal names handed to ActionIcon, IconButton, IconTextButton and
 // ProviderLogo's fallback, so a typo in a view is a failed test rather than

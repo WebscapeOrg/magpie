@@ -10,6 +10,7 @@ import qs.Commons as Commons
 import qs.Ui
 
 import "account/Model.js" as Model
+import "components/MailboxIdentity.js" as MailboxIdentity
 import "account" as Account
 import "account/Accounts.js" as Accounts
 import "account/Navigation.js" as Nav
@@ -178,6 +179,7 @@ Item {
   property bool assistantEditing: false
   readonly property real mailWidth: window.width - assistantWidth
   readonly property bool wide: mailWidth >= Style.space(1000)
+  property bool foldersVisible: false
   readonly property bool singlePane: !service || !service.displayPreferences || service.displayPreferences.layout !== "Split view"
   readonly property bool compact: mailWidth < Style.space(760)
   readonly property bool singleContent: singlePane || compact
@@ -1688,42 +1690,18 @@ Item {
           spacing: MailStyle.space(8)
 
           Widgets.Button {
-            objectName: "layout-toggle"
-            focusable: true
+            objectName: "folder-button"
             anchors.verticalCenter: parent.verticalCenter
             visible: !root.showPage && !root.composing && !root.calendarVisible
-            text: root.singlePane ? "Split view" : "Single pane"
-            tooltipText: root.singlePane ? "Show the list beside the message" : "Show either the list or the message"
-            foreground: root.foreground
+            text: "Folder"
+            tooltipText: root.foldersVisible ? "Hide folders" : "Show folders"
+            foreground: root.dim
             accent: root.accent
+            selected: root.foldersVisible
             fontFamily: root.fontFamily
             fontSize: MailStyle.caption
-            onClicked: if (root.service) root.service.setDisplayPreference("layout", root.singlePane ? "Split view" : "Single pane")
-          }
-
-          IconButton {
-            objectName: "refresh-button"
-            anchors.verticalCenter: parent.verticalCenter
-            visible: !root.showPage && !root.composing && !root.calendarVisible
-            iconName: "refresh"
-            tooltipText: root.calendarVisible
-              ? (root.service && root.service.calendarController.loading
-                ? "Loading calendars" : "Refresh calendars · F5 / Ctrl+R")
-              : (root.service && root.service.listLoading
-                ? "Checking for mail" : "Check mail · F5 / Ctrl+R")
-            foreground: root.dim
-            hoverColor: root.foreground
-            fontFamily: root.fontFamily
-            busy: !!root.service && (root.calendarVisible
-              ? !!(root.service.calendarController && root.service.calendarController.loading)
-              : root.service.listLoading === true)
-            enabled: root.ready && (root.calendarVisible
-              ? !(root.service && root.service.calendarController.loading)
-              : !(root.service && root.service.listLoading))
-            onClicked: {
-              if (root.calendarVisible) calendarView.refresh()
-              else if (root.service) root.service.refresh()
-            }
+            focusable: true
+            onClicked: root.foldersVisible = !root.foldersVisible
           }
 
           Widgets.Button {
@@ -1743,43 +1721,31 @@ Item {
           }
 
           Widgets.Button {
-            id: headerAgentButton
-            parent: root.composing ? composeAiSlot : headerRight
-            anchors.right: root.composing ? parent.right : undefined
-            objectName: "header-ai-button"
-            opacity: enabled ? 1 : 0.4
+            id: headerAccountButton
+            objectName: "header-account-button"
             anchors.verticalCenter: parent.verticalCenter
-            visible: !!root.service && root.service.hasAgent !== false
-              && !root.showPage && !root.calendarVisible && root.overlay !== "eventComposer"
-            width: headerComposeButton.implicitHeight
+            visible: !root.showPage && !root.composing
+            text: root.service && root.service.unified ? "All" : ""
+            width: Math.max(implicitWidth, headerComposeButton.implicitHeight)
             height: headerComposeButton.implicitHeight
-            Accessible.name: "AI"
-            Accessible.description: tooltipText
-            tooltipText: root.service && root.service.agentAvailable === false ? root.service.agentUnavailableReason : "AI... · alt+g"
-            ActionIcon {
-              anchors.centerIn: parent
-              // Center the robot's body.
-              anchors.verticalCenterOffset: -MailStyle.space(1)
-              name: "agent"
-              iconSize: Style.font.icon
-              color: headerAgentButton.foreground
-              fontFamily: root.fontFamily
-            }
-            foreground: root.assistantOpen ? root.foreground : root.dim
-            bordered: true
-            selected: root.assistantOpen
-            focusable: true
+            foreground: root.foreground
             accent: root.accent
             fontFamily: root.fontFamily
             fontSize: MailStyle.caption
-            enabled: root.ready && !!root.service && root.service.agentAvailable !== false && (root.assistantOpen || compose.opened || root.selectionActive
-              || root.cursorId !== "" || (!!root.service && root.service.selectedId !== ""))
-            onClicked: {
-              if (root.assistantOpen) { agentPrompt.close(); composeAgent.close() }
-              else root.runShortcut("askAgent", "Alt+G")
+            focusable: true
+            selected: accountSwitcher.opened
+            tooltipText: "Choose mailboxes... · Alt+A"
+            Accessible.name: root.service && root.service.unified ? "All mailboxes" : root.service ? root.service.accountEmail : "Choose mailboxes"
+            ActionIcon {
+              anchors.centerIn: parent
+              visible: !root.service || !root.service.unified
+              name: MailboxIdentity.icon(root.service ? root.service.accountLabel : "")
+              iconSize: Style.font.icon
+              color: root.foreground
             }
-
+            onClicked: { var scene = mapToGlobal(0, height); accountSwitcher.openAt(scene.x, scene.y) }
           }
+
 
         }
 
@@ -1797,9 +1763,19 @@ Item {
         anchors.right: parent.right
         anchors.rightMargin: MailStyle.space(14)
         height: MailStyle.space(44)
-        width: headerAgentButton.width
+        width: MailStyle.space(32)
         visible: root.composing
         z: 30
+        IconButton {
+          objectName: "compose-menu-button"
+          anchors.centerIn: parent
+          iconName: "menu"
+          tooltipText: "Menu"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          selected: appMenu.opened
+          onClicked: { var scene = mapToGlobal(0,height); appMenu.openAt(scene.x,scene.y) }
+        }
       }
 
       // -------------------------------------------------------------- body
@@ -1810,7 +1786,7 @@ Item {
         anchors.top: header.visible ? header.bottom : parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: statusBar.top
+        anchors.bottom: parent.bottom
 
         MailboxSidebar {
           id: sidebar
@@ -1821,7 +1797,7 @@ Item {
             : (root.sidebarWidth > 0
               ? Math.max(root.sidebarMinWidth, Math.min(root.sidebarMaxWidth, root.sidebarWidth))
               : MailStyle.space(148))
-          visible: !root.singleContent && !root.showPage && !root.composing
+          visible: root.foldersVisible && !root.singleContent && !root.showPage && !root.composing
           collapsed: root.sidebarCollapsed
           calendarSelected: root.calendarVisible
           menuLabelPath: labelMenu.opened && !!root.service
@@ -1858,7 +1834,7 @@ Item {
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.margins: MailStyle.space(14)
-          visible: root.singleContent && !root.showPage && !root.composing && root.currentView === "list"
+          visible: root.foldersVisible && root.singleContent && !root.showPage && !root.composing && root.currentView === "list"
           textColor: root.foreground
           accentColor: root.accent
           panelFontFamily: root.fontFamily
@@ -1958,6 +1934,8 @@ Item {
               urgentColor: root.urgent
               onMessageActivated: function(id) { root.openMessage(id) }
               onAgentRequested: function(id, sceneX, sceneY) { root.openAgentFromRow(id, sceneX, sceneY) }
+              onSnoozeRequested: function(id,x,y) { snoozePicker.openAt(id,x,y) }
+              snoozeId: snoozePicker.opened ? snoozePicker.messageId : ""
               onRowActionRequested: function(id, action) { root.actFromRow(id, action) }
               onCheckToggled: function(id) { root.toggleCheck(id) }
               onCheckRangeRequested: function(id) { root.checkRange(id) }
@@ -2051,6 +2029,7 @@ Item {
           onMemberMenuRequested: function(id, sceneX, sceneY) {
             rowMenu.openForMember(id, sceneX, sceneY)
           }
+          onSnoozeRequested: function(x,y) { snoozePicker.openAt(root.service.selectedId,x,y) }
           onComposeRequested: function(mode) {
             if (mode === "draft" && root.service) root.editDraft(root.service.selectedId)
             else root.startCompose(mode)
@@ -2387,7 +2366,7 @@ Item {
       UndoSendToast {
         anchors.right: parent.right
         anchors.rightMargin: MailStyle.space(16)
-        anchors.bottom: statusBar.top
+        anchors.bottom: parent.bottom
         anchors.bottomMargin: MailStyle.space(12)
         z: 80
         visible: !!root.service && root.service.sendPending && compose.parkedForSend
@@ -2406,7 +2385,7 @@ Item {
       DraftSavedToast {
         anchors.right: parent.right
         anchors.rightMargin: MailStyle.space(16)
-        anchors.bottom: statusBar.top
+        anchors.bottom: parent.bottom
         anchors.bottomMargin: MailStyle.space(12)
         z: 80
         visible: root.draftSavedNotice !== ""
@@ -2418,258 +2397,55 @@ Item {
         panelFontFamily: root.fontFamily
       }
 
-      // --------------------------------------------------------- status bar
-
-      Item {
+      Rectangle {
         id: statusBar
+        objectName: "mail-notice"
         anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: MailStyle.space(28)
-
-        PanelSeparator {
-          anchors.top: parent.top
-          width: parent.width
-          foreground: root.foreground
-        }
-
-        // The rail's own switch, at the far left of the status line. On the rail
-        // it cost a whole row above the mailboxes; in the header it was a
-        // button about the sidebar sitting among buttons about the mailbox.
-        // The status line is where a view toggle belongs.
-        IconButton {
-          id: railToggle
-          // In line with the rail's own column of glyphs above it: those sit
-          // 6 (the column's inset) + 8 (the row's) from the left, at the
-          // rail's glyph size. The button is wider than its glyph, so it
-          // starts that much further left.
-          readonly property real railGlyphLeft: MailStyle.space(6) + MailStyle.space(8)
-          anchors.left: parent.left
-          anchors.leftMargin: railGlyphLeft - (size - iconSize) / 2
-          anchors.verticalCenter: parent.verticalCenter
-          visible: !root.singleContent && !root.showPage && !root.composing
-          iconName: "sidebar"
-          tooltipText: root.sidebarCollapsed ? "Show the sidebar" : "Hide the sidebar"
-          // No fill for the open state. The sidebar standing there is the state,
-          // said far better than a lit square on the status line could say it,
-          // and this control has no business drawing attention to itself.
-          foreground: root.dim
-          hoverColor: root.foreground
-          iconSize: Style.font.icon
-          size: MailStyle.space(24)
-          fontFamily: root.fontFamily
-          onClicked: root.toggleSidebar()
-        }
-
-        // How many rows are ticked, beside the rail toggle. Said here rather
-        // than in the list because the list is where the ticks already are;
-        // this is the count, for a selection longer than the window.
-        Text {
-          id: selectionLabel
-          objectName: "status-selection"
-          anchors.left: railToggle.visible ? railToggle.right : parent.left
-          anchors.leftMargin: MailStyle.space(8)
-          anchors.verticalCenter: parent.verticalCenter
-          visible: root.selectionActive && !root.showPage && !root.composing
-          text: Model.selectionStatus(root.checkedIds.length)
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: MailStyle.caption
-          font.bold: true
-        }
-
-        // What is still in flight — sends parked or going, actions running or
-        // waiting their turn — said once, here, while any of it is true.
-        Text {
-          id: activityLabel
-          objectName: "status-activity"
-          anchors.left: selectionLabel.visible ? selectionLabel.right
-            : (railToggle.visible ? railToggle.right : parent.left)
-          anchors.leftMargin: MailStyle.space(8)
-          anchors.verticalCenter: parent.verticalCenter
-          visible: text !== "" && !root.showPage
-          text: root.service && root.service.activityStatus !== undefined
-            ? root.service.activityStatus : ""
-          // Capped so a long line of it cannot push the address off the bar.
-          width: Math.min(implicitWidth, MailStyle.space(360))
-          elide: Text.ElideRight
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: MailStyle.caption
-        }
-
-        Item {
-          id: accountSlot
-          anchors.left: activityLabel.visible ? activityLabel.right
-            : selectionLabel.visible ? selectionLabel.right
-            : (railToggle.visible ? railToggle.right : parent.left)
-          // The rail's labels sit 9 after their glyph; the toggle's box runs
-          // past its glyph by half its slack, so the text starts that much
-          // less after the box.
-          anchors.leftMargin: railToggle.visible
-            ? MailStyle.space(9) - (railToggle.size - railToggle.iconSize) / 2
-            : MailStyle.space(14)
-          // The address runs to the end of the line and the hints take what it
-          // leaves. Stopping at the hints instead asked a question with no
-          // answer: the slot wanted to know how much the hints had left over
-          // while the hints wanted to know whether the address had left them
-          // room. A notice is the one thing that does push the address over,
-          // because a notice is what the window most needs to say and it says
-          // it only while there is something wrong.
-          anchors.right: statusBar.hasNotice ? notice.left : parent.right
-          anchors.rightMargin: MailStyle.space(12)
-          anchors.verticalCenter: parent.verticalCenter
-          height: MailStyle.space(24)
-
-          Item {
-            id: accountControl
-            objectName: "status-account-button"
-            property bool selected: accountSwitcher.opened
-            // One inset, counted twice, rather than asked for again as its own
-            // double. `Style.space` rounds, and a theme whose spacing follows
-            // the font does not round the two the same way: at `base-size 14`
-            // the scale is 7/6, which makes `space(4)` 5 a side while
-            // `space(8)` is 9 — a box a pixel narrower than the text it holds.
-            // The text was then elided at every window width, which is what put
-            // "just n..." on the line and why it looked like a fixed width: the
-            // cut had nothing to do with how much room there was.
-            readonly property real inset: MailStyle.space(4)
-            width: Math.min(parent.width, accountText.implicitWidth + inset * 2)
-            height: parent.height
-
-            Rectangle {
-              id: accountBackground
-              anchors.fill: parent
-              anchors.margins: MailStyle.space(2)
-              radius: Style.cornerRadius
-              color: accountMouse.pressed
-                ? Style.pressedFillFor(root.foreground, root.accent)
-                : (accountControl.selected
-                  ? Style.selectedFillFor(root.foreground, root.accent)
-                  : (accountMouse.containsMouse
-                    ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"))
-            }
-
-            Text {
-              id: accountText
-              objectName: "status-account-label"
-              anchors.left: parent.left
-              anchors.leftMargin: accountControl.inset
-              anchors.right: parent.right
-              anchors.rightMargin: accountControl.inset
-              anchors.verticalCenter: parent.verticalCenter
-              // The full address lives here at every window width; the sync
-              // age follows it, and the line opens the account controls.
-              text: {
-                if (!root.service || !root.ready) return "Not connected"
-                return Model.readingStatusLine(root.service.unified,
-                  root.service.accountEmail, root.service.syncedLabel)
-              }
-              color: accountMouse.containsMouse || accountControl.selected ? root.foreground : root.dim
-              font.family: root.fontFamily
-              font.pixelSize: MailStyle.caption
-              elide: Text.ElideRight
-            }
-
-            MouseArea {
-              id: accountMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              onClicked: {
-                var scene = accountControl.mapToGlobal(0, 0)
-                accountSwitcher.openAt(scene.x, scene.y)
-              }
-            }
-          }
-        }
-
-        readonly property bool hasNotice: root.notice !== ""
-          || (!!root.service
-            && (root.service.actionStatus !== "" || root.service.lastError !== ""))
-
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width - MailStyle.space(28), MailStyle.space(720))
+        height: visible ? noticeText.implicitHeight + MailStyle.space(16) : 0
+        visible: noticeText.text !== ""
+        z: 70
+        radius: Style.cornerRadius
+        color: root.popupBackground
+        border.color: root.popupBorder
         IconButton {
           id: diagnoseErrorButton
           objectName: "diagnose-error-button"
           anchors.right: parent.right
-          anchors.rightMargin: MailStyle.space(14)
           anchors.verticalCenter: parent.verticalCenter
-          visible: !!root.service && root.service.hasAgent !== false && root.service.lastError !== ""
-            && typeof root.service.diagnoseError === "function"
+          visible: !!root.service && root.service.hasAgent !== false && root.service.lastError !== "" && typeof root.service.diagnoseError === "function"
           enabled: visible && !root.service.diagnosing
           iconName: "agent"
-          iconSize: Style.font.iconSmall
-          size: MailStyle.space(24)
-          foreground: root.urgent
-          accent: root.accent
-          fontFamily: root.fontFamily
           tooltipText: "Diagnose with AI..."
-          Accessible.role: Accessible.Button
-          Accessible.name: "Diagnose with AI..."
+          foreground: root.urgent
+          fontFamily: root.fontFamily
           onClicked: root.service.diagnoseError()
         }
-
         Text {
-          id: notice
-          anchors.right: diagnoseErrorButton.visible ? diagnoseErrorButton.left : parent.right
-          anchors.rightMargin: diagnoseErrorButton.visible ? MailStyle.space(8) : MailStyle.space(14)
-          anchors.verticalCenter: parent.verticalCenter
-          visible: statusBar.hasNotice
-          width: Math.min(implicitWidth, Math.max(0, parent.width / 2
-            - (diagnoseErrorButton.visible ? diagnoseErrorButton.width + MailStyle.space(8) : 0)))
-          horizontalAlignment: Text.AlignRight
+          id: noticeText
+          anchors.fill: parent
+          anchors.margins: MailStyle.space(8)
           textFormat: Text.PlainText
-          text: {
-            if (root.notice !== "") return root.notice
-            if (!root.service) return ""
-            if (root.service.actionStatus !== "") return root.service.actionStatus
-            return root.service.lastError
-          }
-          color: root.service && root.service.lastError !== "" && root.service.actionStatus === ""
-            ? root.urgent
-            : root.dim
+          anchors.rightMargin: diagnoseErrorButton.visible ? diagnoseErrorButton.width + MailStyle.space(8) : MailStyle.space(8)
+          text: root.notice || (root.service && root.service.inboxTools ? root.service.inboxTools.error || root.service.inboxTools.notice : "") || (root.service ? root.service.lastError || root.service.actionStatus || root.service.activityStatus || "" : "")
+          color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: MailStyle.caption
-          elide: Text.ElideRight
-          HoverHandler { id: noticeHover }
-          ToolTip {
-            visible: notice.visible && noticeHover.hovered && notice.truncated
-            delay: 500
-            width: Math.min(MailStyle.space(600), window.width - MailStyle.space(32))
-            contentItem: Text {
-              text: notice.text
-              textFormat: Text.PlainText
-              wrapMode: Text.Wrap
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: MailStyle.caption
-            }
-            background: Rectangle { color: root.popupBackground; border.color: root.popupBorder }
-          }
+          wrapMode: Text.WordWrap
         }
+      }
 
-        KeyHints {
-          id: keyHints
-          objectName: "status-key-hints"
-          anchors.right: parent.right
-          anchors.rightMargin: MailStyle.space(14)
-          anchors.verticalCenter: parent.verticalCenter
-          // Only once the address has been given its room, and only whole:
-          // hints are a nicety and the address is a fact, so the run of them
-          // steps off the line rather than arriving with its last pair cut in
-          // half. `accountSlot` no longer measures itself against this, which
-          // is what keeps the two from asking each other.
-          readonly property real roomLeft: statusBar.width
-            - (accountSlot.x + accountControl.width)
-            - MailStyle.space(12) - MailStyle.space(14)
-          visible: !statusBar.hasNotice && !root.compact && roomLeft >= implicitWidth
-          textColor: root.foreground
-          dimColor: root.dimmer
-          accentColor: root.accent
-          panelFontFamily: root.fontFamily
-          hints: Keymap.hintsFor(focusScope.keyContext,
-            root.service ? root.service.unavailableActions : [],
-            root.cursorId !== "")
-        }
+      SnoozePicker {
+        id: snoozePicker
+        textColor: root.foreground
+        dimColor: root.dim
+        accentColor: root.accent
+        popupBackgroundColor: root.popupBackground
+        popupBorderColor: root.popupBorder
+        panelFontFamily: root.fontFamily
+        tools: root.service ? root.service.inboxTools || null : null
+        onSnoozed: function(id,until) { if (tools) tools.snooze(id,until) }
       }
 
       // The window menu is opened by the menu button beside the mark.
@@ -2685,6 +2461,16 @@ Item {
         canOpenWebInbox: !!root.service && root.service.canOpenWebInbox
         accountCount: root.service ? root.service.accountCount : 1
         canQuit: root.standaloneWindowChrome
+        singlePane: root.singlePane
+        hasAgent: !!root.service && root.service.hasAgent !== false
+        overviewsPaused: !!root.service && !!root.service.inboxTools && root.service.inboxTools.paused
+        onRefreshImagesRequested: if (root.service && root.service.inboxTools) root.service.inboxTools.refreshAvatars()
+        onOverviewPauseRequested: if (root.service && root.service.inboxTools) root.service.inboxTools.setPaused(!root.service.inboxTools.paused)
+        onSnoozedRequested: snoozePicker.openScheduled()
+        onLayoutRequested: if (root.service) root.service.setDisplayPreference("layout", root.singlePane ? "Split view" : "Single pane")
+        onRefreshRequested: if (root.service) root.service.refresh()
+        onAiRequested: root.runShortcut("askAgent", "Alt+G")
+        onOverviewRetryRequested: if (root.service && root.service.inboxTools) root.service.inboxTools.retry()
         onMarkAllReadRequested: if (root.service) root.service.markAllRead()
         onOpenWebRequested: if (root.service) root.service.openWebInbox()
         onShortcutsRequested: root.openHelp()
@@ -2740,7 +2526,7 @@ Item {
         objectName: "assistant-dock"
         anchors.right: parent.right
         anchors.top: root.composing ? composeAiSlot.bottom : header.bottom
-        anchors.bottom: statusBar.top
+        anchors.bottom: parent.bottom
         width: root.assistantWidth
         visible: root.assistantOpen
         MouseArea {

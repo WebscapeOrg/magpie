@@ -841,3 +841,82 @@ async fn gmail_bodyless_trash_posts_exact_id_with_explicit_empty_length() {
         );
     }
 }
+
+#[tokio::test]
+async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
+    use crate::mail::tests::{account_fixture, isolated};
+    use serde_json::json;
+    if isolated() {
+        return;
+    }
+    let fixture = account_fixture(json!({"version":1,"activeId":"snooze@example.org",
+        "accounts":[{"provider":"gmail","email":"snooze@example.org"}]}));
+    let credentials = crate::platform::private_fs::directories(
+        &fixture.config,
+        &[crate::platform::dirs::APP_DIRECTORY],
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    crate::platform::private_fs::atomic_replace(
+        &credentials,
+        "credentials.json",
+        json!({"installed":{
+        "client_id":"123-snooze.apps.googleusercontent.com",
+        "client_secret":"synthetic-client-secret"}})
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap();
+    let _credential =
+        crate::credentials::tests::isolated_store(crate::credentials::tests::SingleCredential {
+            key: crate::credentials::CredentialKey {
+                provider: "gmail".into(),
+                account_id: "snooze@example.org".into(),
+                kind: crate::credentials::CredentialKind::GoogleRefreshToken {
+                    client_id: "123-snooze.apps.googleusercontent.com".into(),
+                },
+            },
+            secret: crate::credentials::Secret::new(b"synthetic-refresh-token".to_vec()).unwrap(),
+        });
+
+    let message=json!({"id":"abc","threadId":"thread","labelIds":["INBOX","UNREAD"],"payload":{"headers":[{"name":"Subject","value":"Synthetic meeting"}]}});
+    let second=json!({"id":"def","threadId":"thread","labelIds":["INBOX"]});
+    let response=|body:Value| {let body=body.to_string();format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",body.len()).into_bytes()};
+    let grant=json!({"access_token":"synthetic-access-token","expires_in":3600});
+    let peer=server_sequence(vec![response(grant.clone()),response(message.clone()),response(json!({"messages":[message.clone(),second]})),ok(),response(grant),response(json!({"messages":[{"id":"abc","labelIds":["UNREAD"]},{"id":"def","labelIds":["TRASH"]}]})),ok()],Duration::ZERO).await;
+    let transport=client_builder().https_only(false).build().unwrap();
+    let origin=peer.url.strip_suffix("/messages/abc").unwrap().to_owned();
+    with_test_transport(transport,origin,async {
+        let session=crate::backend::Session::default();
+        assert!(session.dispatch("inbox.snooze",&json!({"accountId":"snooze@example.org","id":"abc","until":0})).await.is_err());
+        assert!(peer.requests.lock().unwrap().is_empty(),"invalid schedules must not contact Gmail");
+        let answer=session.dispatch("inbox.snooze",&json!({"accountId":"snooze@example.org","id":"abc","until":chrono::Utc::now().timestamp_millis()+600_000})).await.unwrap();
+        assert_eq!(answer["ok"],true);
+        let snapshot=session.dispatch("inbox.snapshot",&json!({"accountId":"snooze@example.org"})).await.unwrap();
+        assert_eq!(snapshot["snoozes"].as_array().unwrap().len(),1);
+        assert_eq!(snapshot["snoozes"][0]["ids"],json!(["abc","def"]));
+        let path=fixture.state.join("omamail/inbox/snoozes.json");
+        let bytes=std::fs::read(&path).unwrap();
+        assert!(!String::from_utf8_lossy(&bytes).contains("synthetic-access-token"));
+        let mut schedule:Value=serde_json::from_slice(&bytes).unwrap();
+        schedule.as_object_mut().unwrap().values_mut().next().unwrap()["until"]=json!(1);
+        std::fs::write(&path,schedule.to_string()).unwrap();
+        drop(session);
+        let restarted=crate::backend::Session::default();
+        let result=restarted.dispatch("inbox.tick",&json!({})).await.unwrap();
+        assert_eq!(result["woke"],1);
+        assert_eq!(result["failures"],0);
+        assert!(restarted.dispatch("inbox.snapshot",&json!({"accountId":"snooze@example.org"})).await.unwrap()["snoozes"].as_array().unwrap().is_empty());
+    }).await;
+    let requests=peer.requests.lock().unwrap();
+    let writes:Vec<_>=requests.iter().filter(|r|r.starts_with("POST /gmail/v1/users/me/messages/batchModify ")).collect();
+    assert_eq!(writes.len(),2);
+    let body=|request:&&String|serde_json::from_str::<Value>(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+    let archive=body(&writes[0]);
+    assert_eq!(archive["removeLabelIds"],json!(["INBOX"]));
+    assert_eq!(archive["ids"],json!(["abc","def"]));
+    let wake=body(&writes[1]);
+    assert_eq!(wake["ids"],json!(["abc"]),"the message trashed after snoozing must never return");
+    assert_eq!(wake["addLabelIds"],json!(["INBOX","UNREAD"]));
+}

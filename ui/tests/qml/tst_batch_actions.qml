@@ -292,10 +292,10 @@ Item {
       app.persistPaneWidths()
     }
 
-    function test_reader_star_uses_the_visible_selection_data() {
+    function test_reader_mark_unread_uses_the_visible_selection_data() {
       return [
         { tag: "checked-open-message", checked: true, outside: false, compact: false, starred: false, expected: "1:INBOX,2:INBOX" },
-        { tag: "unstar-checked-messages", checked: true, outside: false, compact: false, starred: true, expected: "1:INBOX,2:INBOX" },
+        { tag: "checked-messages-already-starred", checked: true, outside: false, compact: false, starred: true, expected: "1:INBOX,2:INBOX" },
         { tag: "open-message-outside-selection", checked: true, outside: true, compact: false, starred: false, expected: "3:INBOX" },
         { tag: "compact-reader-hides-selection", checked: true, outside: false, compact: true, starred: false, expected: "1:INBOX" },
         { tag: "no-selection", checked: false, outside: false, compact: false, starred: false, expected: "1:INBOX" }
@@ -339,19 +339,19 @@ Item {
       })
       verify(target !== null)
       var check = findChild(target, "message-check")
-      var star = having(target, function(item) { return item.iconName === "star" })
-      verify(check !== null && star !== null)
+      var unread = having(target, function(item) { return item.iconName === "unread" })
+      verify(check !== null && unread !== null)
       compare(check.visible, false)
-      compare(star.visible, true)
+      compare(unread.visible, true)
       keyPress(Qt.Key_Control)
       tryCompare(check, "visible", true)
-      compare(star.visible, false)
+      compare(unread.visible, false)
       keyRelease(Qt.Key_Control)
       tryCompare(check, "visible", false)
-      compare(star.visible, true)
+      compare(unread.visible, true)
       mouseClick(target, 32, target.height / 2, Qt.LeftButton, Qt.ControlModifier)
       compare(check.visible, true, "selection mode survives releasing Ctrl")
-      compare(star.visible, false)
+      compare(unread.visible, false)
       compare(app.checkedIds.join(","), "1:INBOX")
       // Visibility changes synchronously, but Row lays out its replacement
       // controls on the next polish. Wait for the actual checkbox hit target,
@@ -361,7 +361,7 @@ Item {
       mouseClick(check, check.width / 2, check.height / 2)
       compare(app.checkedIds.length, 0, "the checkbox click clears the selection")
       compare(check.visible, false, "clearing the last check restores actions")
-      compare(star.visible, true)
+      compare(unread.visible, true)
       app.close()
     }
 
@@ -394,7 +394,7 @@ Item {
       app.close()
     }
 
-    function test_reader_star_uses_the_visible_selection(data) {
+    function test_reader_mark_unread_uses_the_visible_selection(data) {
       seed([entry(ada)], "imap:" + ada)
       var account = mailService.accountAt(0)
       var messages = [row("1:INBOX"), row("2:INBOX"), row("3:INBOX")]
@@ -415,16 +415,16 @@ Item {
       var cursorBefore = app.cursorId
       var reader = having(app, function(item) { return item.forceRichAnyway !== undefined })
       verify(reader !== null)
-      var star = having(reader, function(item) { return item.iconName === "star" })
-      verify(star !== null)
+      var unread = having(reader, function(item) { return item.iconName === "unread" })
+      verify(unread !== null)
       wait(0)
-      mouseClick(star, star.width / 2, star.height / 2)
+      mouseClick(unread, unread.width / 2, unread.height / 2)
       tryCompare(record, "batches", [data.expected])
-      compare(app.cursorId, cursorBefore, "starring does not move the list cursor")
+      compare(app.cursorId, app.selectionActive && !data.outside ? cursorBefore : account.selectedId, "mark unread follows the visible reader unless acting on the selection")
       var acted = data.expected.split(",")
       for (var j = 0; j < messages.length; j++) {
         var changed = acted.indexOf(messages[j].id) >= 0
-        compare(account.messages[j].starred, changed ? !data.starred : data.starred)
+        compare(account.messages[j].unread, changed)
       }
       app.close()
       window.width = MailStyle.space(980)

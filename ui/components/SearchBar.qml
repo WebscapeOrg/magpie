@@ -56,7 +56,7 @@ Item {
     // The operator examples earn their place: they are the whole reason the
     // field takes Gmail syntax straight through, and nowhere else says so at
     // the moment you would use it.
-    placeholderText: "Search mail — from:jane has:attachment"
+    placeholderText: "Search..."
     font.family: root.panelFontFamily
     font.pixelSize: MailStyle.bodySmall
     rightPadding: horizontalPadding + MailStyle.space(22)

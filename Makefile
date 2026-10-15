@@ -1,6 +1,6 @@
 QMLLINT := /usr/lib/qt6/bin/qmllint
 .DEFAULT_GOAL := test
-QML_FILES := ui/tests/qml/tst_display_settings.qml ui/controls/Dropdown.qml ui/controls/NumberField.qml ui/controls/Button.qml ui/controls/TextField.qml ui/controls/PanelToolTip.qml ui/controls/PanelSectionHeader.qml ui/controls/PanelActionButton.qml ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryController.qml ui/compose/PendingCompose.qml \
+QML_FILES := ui/tests/qml/tst_inbox_tools.qml  ui/tests/qml/tst_snooze_picker.qml  ui/inbox/InboxTools.qml ui/components/SnoozePicker.qml ui/components/SenderAvatar.qml  ui/tests/qml/tst_display_settings.qml ui/controls/Dropdown.qml ui/controls/NumberField.qml ui/controls/Button.qml ui/controls/TextField.qml ui/controls/PanelToolTip.qml ui/controls/PanelSectionHeader.qml ui/controls/PanelActionButton.qml ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryController.qml ui/compose/PendingCompose.qml \
 	ui/tests/compatibility/tst_published_agent.qml \
 	ui/tests/qml/tst_unified_batch.qml ui/tests/qml/tst_clipboard_arguments.qml \
 	ui/tests/qml/tst_reader_subject_menu.qml \
@@ -35,7 +35,6 @@ QML_FILES := ui/tests/qml/tst_display_settings.qml ui/controls/Dropdown.qml ui/c
 	ui/components/IconTextButton.qml \
 	ui/components/ImagePopover.qml \
 	ui/components/AttachmentRow.qml \
-  ui/components/KeyHints.qml \
 	ui/components/MessageReader.qml \
 	ui/components/ConversationRail.qml \
 	ui/components/ReaderNotice.qml \
@@ -116,6 +115,7 @@ backend:
 # The parsing, formatting, and decision rules live in plain JS precisely so
 # they can be tested without a compositor. These run anywhere node does.
 test-js:
+	node ui/tests/test_inbox.js
 	node ui/tests/test_display.js
 	node app/tests/test_theme.js
 	node app/tests/test_shell_theme.js

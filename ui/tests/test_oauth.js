@@ -140,6 +140,9 @@ assert.strictEqual(
   "Google sign-in finished without the calendar.events permission. Sign in again and leave every checkbox ticked")
 assert.strictEqual(oauth.missingScopeMessage([]), "")
 
+assert(oauth.SCOPES.includes("https://www.googleapis.com/auth/contacts.readonly"), "new sign-ins request optional contact photos")
+assert(!oauth.requiredScopes(oauth.SCOPES).includes("https://www.googleapis.com/auth/contacts.readonly"), "denying optional contacts does not disable mail")
+
 // -------------------------------------------------------------- redaction
 //
 // Google echoes request parameters back in error descriptions, so anything

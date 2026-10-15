@@ -15,6 +15,10 @@
 // stroked drawings before, and the outline glyphs keep that weight next to
 // the shell's.
 var GLYPHS = {
+  home: 0xF02DC,
+  tree: 0xF0531,
+  snooze: 0xF0150,       // clock-outline
+  folder: 0xF0256,
   reply: 0xF0F20,        // reply-outline
   replyAll: 0xF0F1F,     // reply-all-outline
   forward: 0xF0932,      // share-outline — the mail-forward arrow, not "next"

@@ -12,7 +12,7 @@ by the app, and scoped to the contexts where it means something.
 Everything follows from that:
 
 - Every binding lives in one table, `ui/keys/Keymap.js`. Nothing else describes a
-  key. The shortcut sheet and the status-bar hints render from that table.
+  key. The shortcut sheet renders from that table.
 - `ui/components/KeyRouter.qml` turns the table into `Shortcut` objects and reports
   what was pressed by id. `App.qml` answers with one `runShortcut` function.
 - `Escape` is a binding like any other, not a `Keys.onEscapePressed` handler, so
@@ -321,7 +321,7 @@ different row under the still pointer, and the cursor snapped back to it — so
    read it with `slotFor`, never by parsing the string.
 3. Add the row to the table above. The test will tell you if you forget.
 
-That is all. The shortcut sheet and the status hints pick it up on their own.
+That is all. The shortcut sheet picks it up on its own.
 
 ## Why it looks like this
 

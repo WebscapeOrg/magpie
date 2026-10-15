@@ -1,3 +1,4 @@
+import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
@@ -48,6 +49,7 @@ Item {
   QtObject {
     id: mailService
 
+    property var displayPreferences: ({layout: "Split view"})
     property bool ready: true
     property bool anyAccountReady: true
     property bool hasSavedAccounts: true
@@ -220,7 +222,7 @@ Item {
     // The window `App` measures itself by is the one it draws, not the test
     // root: find it by its title to size it.
     function window() {
-      return having(app, function(it) { return it.title === "Omamail" })
+      return having(app, function(it) { return it.title === "🐦 Magpie" })
     }
 
     function having(item, accept) {
@@ -238,7 +240,7 @@ Item {
       mailService.anyAccountReady = true
       mailService.hasSavedAccounts = true
       app.opened = true
-      window().width = 980
+      window().width = MailStyle.space(980)
       app.backToList()
       app.resetNavigation()
       app.openSettings()
@@ -278,7 +280,7 @@ Item {
       verify(rail && rail.visible, "a wide window has a rail")
       var page = named(app, "settings-page")
       var keys = page.sections.map(function(s) { return s.key })
-      compare(keys.join(","), "backend,bar,reading,notifications,writing,mailboxes,calendars,oauth")
+      compare(keys.join(","), "display,backend,bar,reading,notifications,writing,mailboxes,calendars,oauth")
       for (var i = 1; i < page.sections.length; i++)
         verify(page.sections[i].y > page.sections[i - 1].y, "sections are laid out top to bottom")
       for (var j = 0; j < keys.length; j++)
@@ -293,13 +295,13 @@ Item {
       var view = flick()
       verify(view, "the page scrolls inside a Flickable")
       compare(view.contentY, 0)
-      compare(rail.activeKey, "backend",
+      compare(rail.activeKey, "display",
         "the top of the page is the first section, whichever that is")
       compare(app.navKinds.join(","), "list,settings")
 
       // The rail sits against the page, and the pair is centred in the area.
       var area = rail.parent
-      verify(Math.abs((rail.x + rail.width + 18) - page.x) < 1, "the rail is against the page's left edge")
+      verify(Math.abs((rail.x + rail.width + MailStyle.space(18)) - page.x) < 1, "the rail is against the page's left edge")
       verify(Math.abs(rail.x - (area.width - page.x - page.width)) < 1, "and the block is centred")
       // Back belongs to the block too: on its left edge, above the rail.
       var back = named(app, "page-back")
@@ -324,7 +326,7 @@ Item {
       // Scrolled by other means — the wheel, say — the highlight still
       // follows the page, because the page is what it describes.
       view.contentY = 0
-      tryCompare(rail, "activeKey", "backend")
+      tryCompare(rail, "activeKey", "display")
       view.contentY = sectionY(page, "mailboxes") + 5
       tryCompare(rail, "activeKey", "mailboxes")
     }

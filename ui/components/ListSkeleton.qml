@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 
 // Rows shaped like the message summaries that will replace them. One shared
@@ -9,7 +10,7 @@ Column {
   required property color textColor
   property real pulse: 0.45
 
-  spacing: Style.space(2)
+  spacing: MailStyle.space(2)
 
   SequentialAnimation on pulse {
     running: root.visible
@@ -24,19 +25,19 @@ Column {
     Item {
       required property real modelData
       width: root.width
-      implicitHeight: Style.space(64)
+      implicitHeight: MailStyle.space(64)
 
       Column {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.leftMargin: Style.space(14)
-        anchors.rightMargin: Style.space(14)
+        anchors.leftMargin: MailStyle.space(14)
+        anchors.rightMargin: MailStyle.space(14)
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(5)
+        spacing: MailStyle.space(5)
 
-        Bar { widthFactor: modelData; barHeight: Style.space(9) }
-        Bar { widthFactor: Math.max(0.28, modelData - 0.34); barHeight: Style.space(8) }
-        Bar { widthFactor: Math.min(0.72, modelData + 0.08); barHeight: Style.space(7) }
+        Bar { widthFactor: modelData; barHeight: MailStyle.space(9) }
+        Bar { widthFactor: Math.max(0.28, modelData - 0.34); barHeight: MailStyle.space(8) }
+        Bar { widthFactor: Math.min(0.72, modelData + 0.08); barHeight: MailStyle.space(7) }
       }
     }
   }

@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../account/Model.js" as Model
@@ -29,10 +30,10 @@ Item {
 
   // The legend is the first thing to go when the pane gets tight: the heading
   // above it is the part that carries information.
-  readonly property bool showLegend: height > Style.space(300) && width > Style.space(320)
+  readonly property bool showLegend: height > MailStyle.space(300) && width > MailStyle.space(320)
 
   readonly property string versionText: !!service && service.version
-    ? String(service.pluginName || "Omamail") + " " + String(service.version)
+    ? String(service.pluginName || "Magpie") + " " + String(service.version)
     : ""
   // The column above is centred, so what is left under it is half the leftover
   // height — and that has to hold the label, its margin, and a gap wide enough
@@ -40,7 +41,7 @@ Item {
   // the column is more than twice as tall with the shortcut legend as without.
   readonly property bool showVersion: versionText !== ""
     && (height - centeredColumn.height) / 2
-       >= versionLabel.implicitHeight + Style.space(12) + Style.space(12)
+       >= versionLabel.implicitHeight + MailStyle.space(12) + MailStyle.space(12)
 
   readonly property var keys: [
     { key: "j / k", action: "Move through the list" },
@@ -55,18 +56,18 @@ Item {
   Column {
     id: centeredColumn
     anchors.centerIn: parent
-    width: Math.min(parent.width - Style.space(48), Style.space(340))
-    spacing: Style.space(10)
+    width: Math.min(parent.width - MailStyle.space(48), MailStyle.space(340))
+    spacing: MailStyle.space(10)
 
-    OmamailLogo {
+    MagpieLogo {
       anchors.horizontalCenter: parent.horizontalCenter
-      width: Style.space(44)
+      width: MailStyle.space(44)
       height: width
       foreground: Qt.alpha(root.dimColor, 0.5)
       accent: root.accentColor
     }
 
-    Item { width: 1; height: Style.space(4) }
+    Item { width: 1; height: MailStyle.space(4) }
 
     Text {
       width: parent.width
@@ -76,7 +77,7 @@ Item {
         : root.mailboxName
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.subtitle
+      font.pixelSize: MailStyle.subtitle
       font.bold: true
       elide: Text.ElideRight
     }
@@ -92,26 +93,26 @@ Item {
       }
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       wrapMode: Text.WordWrap
     }
 
     Item {
       width: parent.width
-      height: Style.space(14)
+      height: MailStyle.space(14)
       visible: root.showLegend && !root.empty
 
       PanelSeparator {
         anchors.verticalCenter: parent.verticalCenter
         anchors.horizontalCenter: parent.horizontalCenter
-        width: Style.space(60)
+        width: MailStyle.space(60)
         foreground: root.textColor
       }
     }
 
     Column {
       width: parent.width
-      spacing: Style.space(3)
+      spacing: MailStyle.space(3)
       visible: root.showLegend && !root.empty
 
       Repeater {
@@ -120,16 +121,16 @@ Item {
         Item {
           required property var modelData
           width: parent.width
-          implicitHeight: Style.space(17)
+          implicitHeight: MailStyle.space(17)
 
           Text {
             anchors.right: parent.horizontalCenter
-            anchors.rightMargin: Style.space(12)
+            anchors.rightMargin: MailStyle.space(12)
             anchors.verticalCenter: parent.verticalCenter
             text: Keymap.keycapLabel(modelData.key)
             color: root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
           }
 
           Text {
@@ -139,13 +140,13 @@ Item {
             text: modelData.action
             color: root.dimmerColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             elide: Text.ElideRight
           }
         }
       }
 
-      Item { width: 1; height: Style.space(6) }
+      Item { width: 1; height: MailStyle.space(6) }
 
       Text {
         width: parent.width
@@ -153,7 +154,7 @@ Item {
         text: "? for every shortcut"
         color: root.dimmerColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
     }
   }
@@ -165,15 +166,15 @@ Item {
     id: versionLabel
     objectName: "reader-version"
     anchors.bottom: parent.bottom
-    anchors.bottomMargin: Style.space(12)
+    anchors.bottomMargin: MailStyle.space(12)
     anchors.horizontalCenter: parent.horizontalCenter
-    width: Math.min(parent.width - Style.space(48), Style.space(340))
+    width: Math.min(parent.width - MailStyle.space(48), MailStyle.space(340))
     horizontalAlignment: Text.AlignHCenter
     visible: root.showVersion
     text: root.versionText
     color: root.dimmerColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     elide: Text.ElideRight
   }
 }

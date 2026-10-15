@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -55,8 +57,8 @@ Item {
   QQC.Popup {
     id: dialog
     anchors.centerIn: parent
-    width: Math.min(Style.space(400), parent.width - Style.space(32))
-    padding: Style.space(18)
+    width: Math.min(MailStyle.space(400), parent.width - MailStyle.space(32))
+    padding: MailStyle.space(18)
     modal: true
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape
@@ -69,7 +71,7 @@ Item {
       border.color: root.popupBorderColor
     }
     contentItem: Column {
-      spacing: Style.space(14)
+      spacing: MailStyle.space(14)
       // A popup consumes keys before the window shortcuts. Keep its button
       // activation here, with the focus cycle contained by KeyNavigation.
       Keys.onPressed: function(event) {
@@ -85,7 +87,7 @@ Item {
         text: "Save this draft?"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.heading
+        font.pixelSize: MailStyle.heading
         font.bold: true
         wrapMode: Text.Wrap
       }
@@ -95,13 +97,13 @@ Item {
         text: "You changed this message. Save your changes before leaving?"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         wrapMode: Text.Wrap
       }
       Row {
         anchors.right: parent.right
-        spacing: Style.space(8)
-        Button {
+        spacing: MailStyle.space(8)
+        Widgets.Button {
           id: cancelButton
           text: "Cancel"
           foreground: root.textColor
@@ -112,7 +114,7 @@ Item {
           KeyNavigation.backtab: saveButton
           onClicked: root.cancel()
         }
-        Button {
+        Widgets.Button {
           id: discardButton
           text: "Discard"
           foreground: root.dangerColor
@@ -123,7 +125,7 @@ Item {
           KeyNavigation.backtab: cancelButton
           onClicked: root.discard()
         }
-        Button {
+        Widgets.Button {
           id: saveButton
           text: "Save draft"
           foreground: root.textColor

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Registers Omamail as the desktop handler for mailto: links.
+# Registers Magpie as the desktop handler for mailto: links.
 #
 # The plugin is not an installed application until this file exists: XDG only
 # offers handlers that ship a .desktop claiming the scheme. The Exec path is
@@ -24,7 +24,7 @@ while [ "$#" -gt 0 ]; do
 done
 plugin_dir=$(cd "$plugin_dir" && pwd)
 [ -x "$plugin_dir/scripts/mailto.sh" ] || fail 'register-mailto.sh: mailto.sh is missing'
-[ -f "$plugin_dir/ui/assets/omamail.svg" ] || fail 'register-mailto.sh: omamail.svg is missing'
+[ -f "$plugin_dir/ui/assets/magpie.svg" ] || fail 'register-mailto.sh: magpie.svg is missing'
 
 data_home=${XDG_DATA_HOME:-${HOME:?}/.local/share}
 apps="$data_home/applications"
@@ -39,10 +39,10 @@ fi
 cat > "$desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Omamail
+Name=🐦 Magpie
 Comment=Email client for Omarchy
 Exec=$plugin_dir/scripts/mailto.sh %u
-Icon=$plugin_dir/ui/assets/omamail.svg
+Icon=$plugin_dir/ui/assets/magpie.svg
 Terminal=false
 StartupNotify=false
 MimeType=x-scheme-handler/mailto;

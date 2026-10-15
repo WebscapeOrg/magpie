@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 
@@ -15,7 +17,7 @@ Item {
   // Keep the words while the field has room for both them and the query. The
   // rotating refresh remains at narrow widths, where a status sentence would
   // leave almost no editable field behind.
-  readonly property bool showServerLabel: width >= Style.space(260)
+  readonly property bool showServerLabel: width >= MailStyle.space(260)
 
   signal submitted(string query)
   signal cleared()
@@ -46,7 +48,7 @@ Item {
     field.text = String(text || "")
   }
 
-  TextField {
+  Widgets.TextField {
     id: field
     anchors.fill: parent
     foreground: root.textColor
@@ -56,9 +58,9 @@ Item {
     // the moment you would use it.
     placeholderText: "Search mail — from:jane has:attachment"
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.bodySmall
-    rightPadding: horizontalPadding + Style.space(22)
-      + (root.serverSearching ? serverState.width + Style.space(7) : 0)
+    font.pixelSize: MailStyle.bodySmall
+    rightPadding: horizontalPadding + MailStyle.space(22)
+      + (root.serverSearching ? serverState.width + MailStyle.space(7) : 0)
     onAccepted: root.submitted(text.trim())
 
     // Quieter than the kit's own control surface, which outlines the field at
@@ -87,16 +89,16 @@ Item {
   Item {
     id: serverState
     anchors.right: clearButton.left
-    anchors.rightMargin: Style.space(3)
+    anchors.rightMargin: MailStyle.space(3)
     anchors.verticalCenter: parent.verticalCenter
     visible: root.serverSearching
     width: visible ? serverStateRow.implicitWidth : 0
-    height: Style.space(22)
+    height: MailStyle.space(22)
 
     Row {
       id: serverStateRow
       anchors.centerIn: parent
-      spacing: root.showServerLabel ? Style.space(5) : 0
+      spacing: root.showServerLabel ? MailStyle.space(5) : 0
 
       ActionIcon {
         anchors.verticalCenter: parent.verticalCenter
@@ -120,22 +122,22 @@ Item {
         textFormat: Text.PlainText
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
     }
   }
 
-  PanelActionButton {
+  Widgets.PanelActionButton {
     id: clearButton
     anchors.right: parent.right
-    anchors.rightMargin: Style.space(4)
+    anchors.rightMargin: MailStyle.space(4)
     anchors.verticalCenter: parent.verticalCenter
     visible: field.text !== ""
     iconText: "×"
     tooltipText: "Clear search · esc"
     foreground: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.55)
     hoverColor: root.textColor
-    fontSize: Style.font.body
+    fontSize: MailStyle.body
     onClicked: root.clear()
   }
 }

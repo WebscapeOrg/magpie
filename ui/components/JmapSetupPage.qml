@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../providers/JmapProtocol.js" as Jmap
@@ -49,7 +51,7 @@ Column {
   readonly property string schemeLabel: settings ? Jmap.schemeLabel(settings.authScheme) : ""
   readonly property bool sendingRefused: signedIn && !!auth && auth.sendingOffered === false
 
-  spacing: Style.space(16)
+  spacing: MailStyle.space(16)
 
   function syncFromStore() {
     nameField.syncFromStore()
@@ -180,7 +182,7 @@ Column {
   Rectangle {
     width: parent.width
     visible: root.toolsMissing
-    implicitHeight: missingText.implicitHeight + Style.space(20)
+    implicitHeight: missingText.implicitHeight + MailStyle.space(20)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
     border.width: 1
@@ -190,7 +192,7 @@ Column {
       id: missingText
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.margins: Style.space(12)
+      anchors.margins: MailStyle.space(12)
       anchors.verticalCenter: parent.verticalCenter
       text: root.auth && root.auth.missingTools
         ? "Install " + root.auth.missingTools.join(", ")
@@ -198,7 +200,7 @@ Column {
         : ""
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
@@ -207,7 +209,7 @@ Column {
 
   Column {
     width: parent.width
-    spacing: Style.space(10)
+    spacing: MailStyle.space(10)
 
     AccountNameField {
       id: nameField
@@ -215,17 +217,17 @@ Column {
       width: parent.width
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       onAccepted: addressField.forceActiveFocus()
     }
 
-    TextField {
+    Widgets.TextField {
       id: addressField
       objectName: "jmap-address-field"
       width: parent.width
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       placeholderText: "Email address — you@example.com"
       onAccepted: secretField.forceActiveFocus()
     }
@@ -236,7 +238,7 @@ Column {
     // is the one thing on the page that is worth reading before typing.
     Rectangle {
       width: parent.width
-      implicitHeight: noteText.implicitHeight + Style.space(20)
+      implicitHeight: noteText.implicitHeight + MailStyle.space(20)
       radius: Style.cornerRadius
       color: Style.normalFillFor(root.textColor, root.accentColor)
       border.width: 1
@@ -246,12 +248,12 @@ Column {
         id: noteText
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.margins: Style.space(12)
+        anchors.margins: MailStyle.space(12)
         anchors.verticalCenter: parent.verticalCenter
         text: "Most servers want an app password or an API token made for this client, not the password you sign in to the website with. Your provider's security settings are where to create one."
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
     }
@@ -260,7 +262,7 @@ Column {
       width: parent.width
       implicitHeight: secretField.implicitHeight
 
-      TextField {
+      Widgets.TextField {
         id: secretField
         objectName: "jmap-secret-field"
         anchors.left: parent.left
@@ -268,17 +270,17 @@ Column {
         // Masked by default: this window is shoulder-surfable. Readable on
         // demand, because a pasted token is a string nobody can check by eye.
         password: !root.secretVisible
-        rightPadding: horizontalPadding + Style.space(26)
+        rightPadding: horizontalPadding + MailStyle.space(26)
         foreground: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "App password, or API token"
         onAccepted: root.signIn()
       }
 
       IconButton {
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(4)
+        anchors.rightMargin: MailStyle.space(4)
         anchors.verticalCenter: secretField.verticalCenter
         visible: secretField.text !== ""
         iconName: root.secretVisible ? "eyeOff" : "eye"
@@ -286,7 +288,7 @@ Column {
         foreground: root.dimColor
         hoverColor: root.textColor
         iconSize: Style.font.iconSmall
-        size: Style.space(22)
+        size: MailStyle.space(22)
         fontFamily: root.panelFontFamily
         onClicked: root.secretVisible = !root.secretVisible
       }
@@ -301,7 +303,7 @@ Column {
       text: ""
       color: root.dangerColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
@@ -316,7 +318,7 @@ Column {
     id: progress
     width: parent.width
     visible: root.busy
-    spacing: Style.space(6)
+    spacing: MailStyle.space(6)
 
     readonly property var lines: [
       "Finding the server", "Checking the app password", "Reading your mailboxes"]
@@ -332,13 +334,13 @@ Column {
         readonly property bool done: root.step > index + 1
         readonly property bool running: root.step === index + 1
 
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
         ActionIcon {
           anchors.verticalCenter: parent.verticalCenter
           visible: line.done
           name: "check"
-          iconSize: Style.font.caption
+          iconSize: MailStyle.caption
           color: root.accentColor
         }
 
@@ -351,7 +353,7 @@ Column {
           text: "·"
           color: line.running ? root.accentColor : root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           font.bold: line.running
         }
 
@@ -360,7 +362,7 @@ Column {
           text: line.modelData
           color: line.running ? root.textColor : root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           font.bold: line.running
         }
       }
@@ -372,7 +374,7 @@ Column {
   Column {
     width: parent.width
     visible: root.signedIn && !root.rejected
-    spacing: Style.space(4)
+    spacing: MailStyle.space(4)
 
     Text {
       width: parent.width
@@ -382,7 +384,7 @@ Column {
         : "Signed in"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       font.bold: true
       elide: Text.ElideRight
     }
@@ -397,7 +399,7 @@ Column {
       text: "Sending is not offered: this credential cannot submit mail."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
@@ -411,7 +413,7 @@ Column {
   Rectangle {
     width: parent.width
     visible: root.rejected
-    implicitHeight: rejectedText.implicitHeight + Style.space(20)
+    implicitHeight: rejectedText.implicitHeight + MailStyle.space(20)
     radius: Style.cornerRadius
     // The same surface every other note on this page draws on, with the
     // sentence in the danger colour rather than the box: colour alone never
@@ -424,12 +426,12 @@ Column {
       id: rejectedText
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.margins: Style.space(12)
+      anchors.margins: MailStyle.space(12)
       anchors.verticalCenter: parent.verticalCenter
       text: "The server rejected that app password or API token. Enter it again — it may have expired or been revoked."
       color: root.dangerColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
@@ -442,7 +444,7 @@ Column {
 
   Column {
     width: parent.width
-    spacing: Style.space(10)
+    spacing: MailStyle.space(10)
 
     IconTextButton {
       objectName: "jmap-server-disclosure"
@@ -452,35 +454,35 @@ Column {
         : (root.host !== "" ? "Server settings — " + root.host : "Server settings")
       foreground: root.dimColor
       fontFamily: root.panelFontFamily
-      fontSize: Style.font.caption
+      fontSize: MailStyle.caption
       onClicked: root.serversVisible = !root.serversVisible
     }
 
     Column {
       width: parent.width
       visible: root.serversVisible
-      spacing: Style.space(8)
+      spacing: MailStyle.space(8)
 
-      TextField {
+      Widgets.TextField {
         id: serverField
         objectName: "jmap-server-field"
         width: parent.width
         foreground: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Server — mail.example.org, or the full session URL"
       }
 
       // Only for the servers where the login name is not the address, which is
       // common enough on self-hosted mail to be worth a field and rare enough
       // to keep out of the way.
-      TextField {
+      Widgets.TextField {
         id: usernameField
         objectName: "jmap-username-field"
         width: parent.width
         foreground: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Username — only if it is not the address"
       }
 
@@ -489,62 +491,62 @@ Column {
         text: "Left empty, the server is looked up from the address's domain. HTTPS only, and the credential goes to the server that answered and to the addresses inside its own session object."
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
     }
   }
 
   Row {
-    spacing: Style.space(8)
+    spacing: MailStyle.space(8)
 
-    Button {
+    Widgets.Button {
       visible: !root.signedIn && !root.rejected
       text: root.busy ? "Checking" : "Connect the mailbox"
       enabled: !root.busy && addressField.text.trim() !== "" && secretField.text !== ""
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.signIn()
     }
 
-    Button {
+    Widgets.Button {
       visible: root.rejected
       text: root.busy ? "Checking" : "Sign in again"
       enabled: !root.busy && secretField.text !== ""
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.signIn()
     }
 
-    Button {
+    Widgets.Button {
       visible: root.signedIn && !root.rejected
       text: "Save changes"
       enabled: !root.busy
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.save()
     }
 
     // No sign-out while the credential is being re-entered: signing out would
     // throw away the keyring entry and the cache to fix a string in a field.
-    Button {
+    Widgets.Button {
       visible: root.signedIn && !root.rejected
       text: "Sign out"
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: if (root.service) root.service.signOut()
     }
 
-    Button {
+    Widgets.Button {
       visible: root.accountCount > 1
       text: "Remove account"
       foreground: root.dangerColor
       bordered: false
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.removeRequested()
     }
   }

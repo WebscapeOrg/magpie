@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls
 import qs.Commons
 import "../calendar/Calendar.js" as Calendar
@@ -40,26 +41,26 @@ Item {
     }
   }
 
-  readonly property real timeRailWidth: Math.max(Style.space(52),
-    allDayLabelMetrics.advanceWidth + Style.space(12),
-    midnightTimeMetrics.advanceWidth + Style.space(12),
-    noonTimeMetrics.advanceWidth + Style.space(12), nowLabel.implicitWidth + Style.space(12))
+  readonly property real timeRailWidth: Math.max(MailStyle.space(52),
+    allDayLabelMetrics.advanceWidth + MailStyle.space(12),
+    midnightTimeMetrics.advanceWidth + MailStyle.space(12),
+    noonTimeMetrics.advanceWidth + MailStyle.space(12), nowLabel.implicitWidth + MailStyle.space(12))
   TextMetrics {
     id: allDayLabelMetrics
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     text: "all-day"
   }
   TextMetrics {
     id: midnightTimeMetrics
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     text: Calendar.timeLabel(new Date(2000, 0, 1, 0, 59).getTime(), root.timeFormat)
   }
   TextMetrics {
     id: noonTimeMetrics
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     text: Calendar.timeLabel(new Date(2000, 0, 1, 12, 59).getTime(), root.timeFormat)
   }
   readonly property var weekdayNames: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -77,7 +78,7 @@ Item {
   readonly property var allDayLayout: Calendar.spanLayout(
     (controller ? controller.events : []).filter(Calendar.displayInAllDayLane), days)
   readonly property int allDayCount: allDayLayout.laneCounts[0] || 0
-  readonly property real allDayHeight: Style.space(8 + Math.max(1, allDayCount) * 24)
+  readonly property real allDayHeight: MailStyle.space(8 + Math.max(1, allDayCount) * 24)
   property int allDayDragStart: -1
   property int allDayDragEnd: -1
   readonly property string todayIso: Calendar.isoDate(new Date(nowMs))
@@ -97,7 +98,7 @@ Item {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.top: parent.top
-    height: Style.space(28)
+    height: MailStyle.space(28)
 
     Item { width: root.timeRailWidth; height: parent.height }
 
@@ -111,8 +112,8 @@ Item {
         height: parent.height
         Rectangle {
           anchors.centerIn: parent
-          width: headerLabel.implicitWidth + Style.space(14)
-          height: headerLabel.implicitHeight + Style.space(6)
+          width: headerLabel.implicitWidth + MailStyle.space(14)
+          height: headerLabel.implicitHeight + MailStyle.space(6)
           radius: Style.cornerRadius
           color: Qt.alpha(root.accentColor, 0.12)
           visible: dayHeader.modelData.isoDate === root.todayIso
@@ -124,7 +125,7 @@ Item {
           color: modelData.isoDate === root.todayIso
             ? root.textColor : root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           font.bold: modelData.isoDate === root.todayIso
           textFormat: Text.PlainText
         }
@@ -146,13 +147,13 @@ Item {
 
     Text {
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(4)
+      anchors.leftMargin: MailStyle.space(4)
       anchors.verticalCenter: parent.verticalCenter
-      width: root.timeRailWidth - Style.space(8)
+      width: root.timeRailWidth - MailStyle.space(8)
       text: "all-day"
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       elide: Text.ElideRight
       textFormat: Text.PlainText
     }
@@ -227,10 +228,10 @@ Item {
           objectName: "calendar-all-day-event-" + String(eventData.googleId || eventData.uid)
           readonly property color eventColor: calendarPalette.colorFor(
             root.controller ? root.controller.colorKeyFor(eventData.sourceId) : "")
-          x: modelData.startColumn * parent.width / Math.max(1, root.days.length) + Style.space(2)
-          y: Style.space(2) + modelData.lane * Style.space(24)
-          width: (modelData.endColumn - modelData.startColumn + 1) * parent.width / Math.max(1, root.days.length) - Style.space(4)
-          height: Style.space(22)
+          x: modelData.startColumn * parent.width / Math.max(1, root.days.length) + MailStyle.space(2)
+          y: MailStyle.space(2) + modelData.lane * MailStyle.space(24)
+          width: (modelData.endColumn - modelData.startColumn + 1) * parent.width / Math.max(1, root.days.length) - MailStyle.space(4)
+          height: MailStyle.space(22)
           color: Qt.alpha(eventColor, Calendar.eventKey(eventData) === root.selectedEventId ? 0.3 : 0.16)
           border.width: Calendar.eventKey(eventData) === root.selectedEventId ? 1 : 0
           border.color: eventColor
@@ -238,8 +239,8 @@ Item {
 
           Text {
             anchors.fill: parent
-            anchors.leftMargin: Style.space(4)
-            anchors.rightMargin: Style.space(3)
+            anchors.leftMargin: MailStyle.space(4)
+            anchors.rightMargin: MailStyle.space(3)
             verticalAlignment: Text.AlignVCenter
             text: (allDayEvent.modelData.continuesBefore ? "‹ " : "")
               + (allDayEvent.eventData.start.allDay ? "" : "Timed · ")
@@ -247,7 +248,7 @@ Item {
               + (allDayEvent.modelData.continuesAfter ? " ›" : "")
             color: root.textColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             elide: Text.ElideRight
             textFormat: Text.PlainText
           }
@@ -290,7 +291,7 @@ Item {
     anchors.right: parent.right
     anchors.top: allDayLane.bottom
     anchors.bottom: parent.bottom
-    readonly property real hourHeight: Math.max(Style.space(60), height / root.hourCount)
+    readonly property real hourHeight: Math.max(MailStyle.space(60), height / root.hourCount)
     contentWidth: width
     contentHeight: Math.max(height, hourHeight * root.hourCount)
     clip: true
@@ -311,13 +312,13 @@ Item {
           height: timeline.hourHeight
           Text {
             anchors.left: parent.left
-            anchors.leftMargin: Style.space(4)
+            anchors.leftMargin: MailStyle.space(4)
             anchors.top: parent.top
-            anchors.topMargin: index === 0 ? Style.space(2) : -implicitHeight / 2
+            anchors.topMargin: index === 0 ? MailStyle.space(2) : -implicitHeight / 2
             text: Calendar.timeLabel(new Date(2000, 0, 1, root.firstHour + index).getTime(), root.timeFormat)
             color: root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             textFormat: Text.PlainText
           }
           Rectangle {
@@ -338,10 +339,10 @@ Item {
         readonly property real offset: Calendar.weekNowOffset(
           root.days, root.firstHour, root.lastHour, timeline.hourHeight, root.nowMs)
         visible: offset >= 0
-        x: Style.space(4)
+        x: MailStyle.space(4)
         y: offset - height / 2
-        width: nowLabel.implicitWidth + Style.space(6)
-        height: nowLabel.implicitHeight + Style.space(2)
+        width: nowLabel.implicitWidth + MailStyle.space(6)
+        height: nowLabel.implicitHeight + MailStyle.space(2)
         radius: Style.cornerRadius
         color: root.urgentColor
         z: 2
@@ -351,7 +352,7 @@ Item {
           text: Calendar.timeLabel(root.nowMs, root.timeFormat)
           color: root.backgroundColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           font.bold: true
           textFormat: Text.PlainText
         }
@@ -430,8 +431,8 @@ Item {
                 readonly property bool canReschedule: !!root.controller
                   && typeof root.controller.rescheduleRefusal === "function"
                   && root.controller.rescheduleRefusal(eventData) === ""
-                x: Style.space(3) + modelData.column * (dayColumn.width - Style.space(6)) / modelData.columns
-                width: (dayColumn.width - Style.space(6)) / modelData.columns - Style.space(2)
+                x: MailStyle.space(3) + modelData.column * (dayColumn.width - MailStyle.space(6)) / modelData.columns
+                width: (dayColumn.width - MailStyle.space(6)) / modelData.columns - MailStyle.space(2)
                 y: Calendar.eventTop(eventData, dayColumn.modelData,
                   root.firstHour, timeline.hourHeight)
                 height: Calendar.eventHeight(eventData, dayColumn.modelData, timeline.hourHeight)
@@ -447,39 +448,39 @@ Item {
                   anchors.left: parent.left
                   anchors.top: parent.top
                   anchors.bottom: parent.bottom
-                  width: Style.space(3)
+                  width: MailStyle.space(3)
                   color: eventBlock.eventColor
                 }
                 Column {
                   anchors.fill: parent
-                  anchors.margins: Style.space(5)
-                  spacing: Style.space(1)
+                  anchors.margins: MailStyle.space(5)
+                  spacing: MailStyle.space(1)
                   Text {
                     width: parent.width
                     text: eventBlock.eventData.summary || "Untitled event"
                     color: root.textColor
                     font.family: root.panelFontFamily
-                    font.pixelSize: Style.font.caption
+                    font.pixelSize: MailStyle.caption
                     font.bold: true
                     wrapMode: Text.WordWrap
-                    maximumLineCount: eventBlock.height > Style.space(70) ? 2 : 1
+                    maximumLineCount: eventBlock.height > MailStyle.space(70) ? 2 : 1
                     elide: Text.ElideRight
                     textFormat: Text.PlainText
                   }
                   Text {
                     width: parent.width
-                    visible: eventBlock.height >= Style.space(38)
+                    visible: eventBlock.height >= MailStyle.space(38)
                     text: width >= timeMetrics.advanceWidth ? timeMetrics.text
                       : Calendar.timeLabel(eventBlock.eventData.start.ms, root.timeFormat)
                     elide: Text.ElideRight
                     color: root.dimColor
                     font.family: root.panelFontFamily
-                    font.pixelSize: Style.font.caption
+                    font.pixelSize: MailStyle.caption
                     textFormat: Text.PlainText
                     TextMetrics {
                       id: timeMetrics
                       font.family: root.panelFontFamily
-                      font.pixelSize: Style.font.caption
+                      font.pixelSize: MailStyle.caption
                       text: Calendar.timeRangeLabel(eventBlock.eventData.start.ms, eventBlock.eventData.end.ms, root.timeFormat)
                     }
                   }
@@ -491,7 +492,7 @@ Item {
                   hoverEnabled: true
                   enabled: !root.pendingGesture && !(root.controller && root.controller.eventWriting)
                   cursorShape: !eventBlock.canReschedule ? Qt.PointingHandCursor
-                    : mouseY < Style.space(9) || mouseY > height - Style.space(9)
+                    : mouseY < MailStyle.space(9) || mouseY > height - MailStyle.space(9)
                     ? Qt.SizeVerCursor : Qt.OpenHandCursor
                   preventStealing: true
                   property point initial: Qt.point(0, 0)
@@ -500,7 +501,7 @@ Item {
                   property var proposed: null
                   onPressed: function(mouse) {
                     initial = mapToItem(timeline, mouse.x, mouse.y)
-                    edge = mouse.y < Style.space(9) ? "start" : mouse.y > height - Style.space(9) ? "end" : ""
+                    edge = mouse.y < MailStyle.space(9) ? "start" : mouse.y > height - MailStyle.space(9) ? "end" : ""
                     moved = false
                     proposed = null
                   }
@@ -537,9 +538,9 @@ Item {
                 Rectangle {
                   anchors.horizontalCenter: parent.horizontalCenter
                   anchors.top: parent.top
-                  anchors.topMargin: Style.space(3)
-                  width: Math.min(Style.space(24), parent.width * 0.4)
-                  height: Style.space(3)
+                  anchors.topMargin: MailStyle.space(3)
+                  width: Math.min(MailStyle.space(24), parent.width * 0.4)
+                  height: MailStyle.space(3)
                   radius: height / 2
                   color: eventBlock.eventColor
                   visible: eventBlock.canReschedule && (eventMouse.containsMouse || eventMouse.pressed)
@@ -547,9 +548,9 @@ Item {
                 Rectangle {
                   anchors.horizontalCenter: parent.horizontalCenter
                   anchors.bottom: parent.bottom
-                  anchors.bottomMargin: Style.space(3)
-                  width: Math.min(Style.space(24), parent.width * 0.4)
-                  height: Style.space(3)
+                  anchors.bottomMargin: MailStyle.space(3)
+                  width: Math.min(MailStyle.space(24), parent.width * 0.4)
+                  height: MailStyle.space(3)
                   radius: height / 2
                   color: eventBlock.eventColor
                   visible: eventBlock.canReschedule && (eventMouse.containsMouse || eventMouse.pressed)
@@ -573,13 +574,13 @@ Item {
                 Text {
                   anchors.right: parent.right
                   anchors.bottom: parent.bottom
-                  anchors.margins: Style.space(4)
+                  anchors.margins: MailStyle.space(4)
                   visible: !!root.pendingGesture && root.pendingGesture.key === Calendar.eventKey(eventBlock.eventData)
                   text: "Saving"
                   textFormat: Text.PlainText
                   color: root.textColor
                   font.family: root.panelFontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: MailStyle.caption
                 }
               }
             }
@@ -605,7 +606,7 @@ Item {
               Rectangle {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(7)
+                width: MailStyle.space(7)
                 height: width
                 radius: width / 2
                 color: root.urgentColor
@@ -629,7 +630,7 @@ Item {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.margins: Style.space(5)
+        anchors.margins: MailStyle.space(5)
         text: root.dragPreview ? root.dragPreview.label || "" : ""
         elide: Text.ElideRight
         textFormat: Text.PlainText

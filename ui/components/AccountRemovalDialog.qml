@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -30,8 +32,8 @@ Item {
   QQC.Popup {
     id: dialog
     anchors.centerIn: parent
-    width: Math.min(Style.space(360), parent.width - Style.space(32))
-    padding: Style.space(18)
+    width: Math.min(MailStyle.space(360), parent.width - MailStyle.space(32))
+    padding: MailStyle.space(18)
     modal: true
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape
@@ -43,7 +45,7 @@ Item {
       border.color: root.popupBorderColor
     }
     contentItem: Column {
-      spacing: Style.space(14)
+      spacing: MailStyle.space(14)
 
       Text {
         width: parent.width
@@ -51,29 +53,29 @@ Item {
         text: "Remove " + String(root.request ? root.request.email : "") + "?"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.heading
+        font.pixelSize: MailStyle.heading
         font.bold: true
         wrapMode: Text.Wrap
       }
       Text {
         width: parent.width
         textFormat: Text.PlainText
-        text: "This mailbox will be removed from Omamail."
+        text: "This mailbox will be removed from Magpie."
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         wrapMode: Text.Wrap
       }
       Row {
         anchors.right: parent.right
-        spacing: Style.space(8)
-        Button {
+        spacing: MailStyle.space(8)
+        Widgets.Button {
           text: "Cancel"
           foreground: root.textColor
           bordered: false
           onClicked: dialog.close()
         }
-        Button {
+        Widgets.Button {
           text: "Remove"
           foreground: root.dangerColor
           bordered: false

@@ -1,3 +1,4 @@
+import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 import qs.Commons
@@ -9,7 +10,7 @@ import "../../components" as Mail
 // The button stays for the page that did not come.
 Item {
   width: 400
-  height: 300
+  height: MailStyle.space(300)
 
   QtObject {
     id: fakeService

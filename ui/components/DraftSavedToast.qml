@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 
 Rectangle {
@@ -11,8 +12,8 @@ Rectangle {
   required property color popupBorderColor
   required property string panelFontFamily
 
-  implicitWidth: content.implicitWidth + Style.space(20)
-  implicitHeight: Math.max(content.implicitHeight + Style.space(12), Style.space(42))
+  implicitWidth: content.implicitWidth + MailStyle.space(20)
+  implicitHeight: Math.max(content.implicitHeight + MailStyle.space(12), MailStyle.space(42))
   radius: Style.cornerRadius
   color: Qt.rgba(popupBackgroundColor.r, popupBackgroundColor.g,
     popupBackgroundColor.b, 1)
@@ -22,11 +23,11 @@ Rectangle {
   Row {
     id: content
     anchors.centerIn: parent
-    spacing: Style.space(8)
+    spacing: MailStyle.space(8)
 
     Rectangle {
       anchors.verticalCenter: parent.verticalCenter
-      width: Style.space(7)
+      width: MailStyle.space(7)
       height: width
       radius: width / 2
       color: root.accentColor
@@ -38,7 +39,7 @@ Rectangle {
       textFormat: Text.PlainText
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
     }
   }
 }

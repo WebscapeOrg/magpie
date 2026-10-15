@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -59,8 +61,8 @@ Item {
   function place() {
     if (!menu.visible) return
     var menuHeight = menu.height > 0 ? menu.height : menu.implicitHeight
-    menu.x = Math.max(Style.space(8), (root.width - menu.width) / 2)
-    menu.y = Math.max(Style.space(8), (root.height - menuHeight) / 3)
+    menu.x = Math.max(MailStyle.space(8), (root.width - menu.width) / 2)
+    menu.y = Math.max(MailStyle.space(8), (root.height - menuHeight) / 3)
   }
 
   function moveCursor(delta) {
@@ -79,9 +81,9 @@ Item {
 
   QQC.Popup {
     id: menu
-    width: Math.min(Style.space(340), root.width - Style.space(24))
-    implicitHeight: card.implicitHeight + Style.space(16)
-    padding: Style.space(8)
+    width: Math.min(MailStyle.space(340), root.width - MailStyle.space(24))
+    implicitHeight: card.implicitHeight + MailStyle.space(16)
+    padding: MailStyle.space(8)
     modal: false
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
@@ -97,17 +99,17 @@ Item {
 
     contentItem: Column {
       id: card
-      spacing: Style.space(8)
+      spacing: MailStyle.space(8)
 
       Row {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
         Text {
           text: "Move to"
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           font.bold: true
           anchors.verticalCenter: parent.verticalCenter
         }
@@ -116,7 +118,7 @@ Item {
           text: "(" + root.matchingLabels.length + ")"
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           anchors.verticalCenter: parent.verticalCenter
         }
       }
@@ -126,13 +128,13 @@ Item {
       // the popup takes every key before the shortcut map sees it -- and this
       // one has to intercept the arrows and Return before the text cursor
       // does, while leaving every printable key to the filter.
-      TextField {
+      Widgets.TextField {
         id: searchField
         width: parent.width
         foreground: root.textColor
         accent: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Filter folders or labels..."
         onTextChanged: {
           root.searchQuery = text
@@ -159,7 +161,7 @@ Item {
 
         WheelScroller { view: labelList }
         width: parent.width
-        implicitHeight: Math.min(contentHeight, Style.space(280))
+        implicitHeight: Math.min(contentHeight, MailStyle.space(280))
         clip: true
         model: root.matchingLabels
         currentIndex: root.cursorIndex
@@ -177,7 +179,7 @@ Item {
           readonly property bool hasCursor: root.cursorIndex === labelRow.index
 
           width: labelList.width
-          implicitHeight: Style.space(34)
+          implicitHeight: MailStyle.space(34)
           radius: Style.cornerRadius
           color: labelRow.hasCursor || rowHover.hovered
             ? Style.hoverFillFor(root.textColor, root.accentColor) : "transparent"
@@ -188,15 +190,15 @@ Item {
           // leaf; a match to typed letters shows its whole path, flat.
           Text {
             anchors.left: parent.left
-            anchors.leftMargin: Style.space(10) + Math.min(8, Number(labelRow.modelData.depth) || 0) * Style.space(12)
+            anchors.leftMargin: MailStyle.space(10) + Math.min(8, Number(labelRow.modelData.depth) || 0) * MailStyle.space(12)
             anchors.right: parent.right
-            anchors.rightMargin: Style.space(10)
+            anchors.rightMargin: MailStyle.space(10)
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: String(labelRow.modelData.leaf || labelRow.modelData.name || "")
             color: root.textColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: MailStyle.bodySmall
             elide: Text.ElideRight
           }
 
@@ -232,7 +234,7 @@ Item {
           : "No folder or label matches that"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
     }
   }

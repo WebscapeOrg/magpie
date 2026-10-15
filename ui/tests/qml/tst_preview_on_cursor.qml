@@ -16,6 +16,7 @@ Item {
   QtObject {
     id: mailService
 
+    property var displayPreferences: ({layout: "Split view"})
     property bool ready: true
     property bool anyAccountReady: true
     property bool previewOnCursor: true
@@ -162,7 +163,7 @@ Item {
     // The FloatingWindow, found by its title the way the other App tests find
     // it: `children[0]` is not reliably the window.
     function window() {
-      return having(app, function(it) { return it.title === "Omamail" })
+      return having(app, function(it) { return it.title === "🐦 Magpie" })
     }
 
     // The reader panel, found by the one property only it has. It draws no

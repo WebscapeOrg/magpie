@@ -28,6 +28,7 @@ Item {
 
   QtObject {
     id: agentBackend
+    property var displayPreferences: ({layout: "Split view"})
     property bool ready: true
     property int apiVersion: 6
     function call(method, params, callback) {

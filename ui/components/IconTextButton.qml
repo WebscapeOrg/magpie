@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -37,8 +39,8 @@ Rectangle {
   // theme can put the selected fill close enough to the normal one that
   // colour alone says nothing.
   property bool selected: false
-  property string fontFamily: Style.font.family
-  property real fontSize: Style.font.bodySmall
+  property string fontFamily: MailStyle.family
+  property real fontSize: MailStyle.bodySmall
 
   signal clicked()
 
@@ -46,7 +48,7 @@ Rectangle {
 
   implicitWidth: row.implicitWidth + Style.spacing.controlPaddingX * 2
   implicitHeight: ghost
-    ? Math.max(Style.space(24), iconSize + Style.spacing.sm * 2)
+    ? Math.max(MailStyle.space(24), iconSize + Style.spacing.sm * 2)
     : Style.spacing.controlHeight
   radius: Style.cornerRadius
   opacity: enabled ? 1.0 : 0.4
@@ -93,7 +95,7 @@ Rectangle {
     onClicked: root.clicked()
   }
 
-  PanelToolTip {
+  Widgets.PanelToolTip {
     visible: root.tooltipText !== "" && mouse.containsMouse
     text: root.tooltipText
     fontFamily: root.fontFamily

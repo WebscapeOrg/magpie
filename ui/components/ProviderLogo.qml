@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -23,7 +24,7 @@ Item {
   // decides its own proportions: Gmail's mark is square, HEY's is a wordmark
   // more than twice as wide as it is tall, and forcing either into the other's
   // box would either crop it or strand it in empty space.
-  property real size: Style.space(40)
+  property real size: MailStyle.space(40)
 
   // What to draw for a provider with no artwork of its own. An envelope, in the
   // theme's colour, because that is what IMAP honestly is: a mailbox somewhere,

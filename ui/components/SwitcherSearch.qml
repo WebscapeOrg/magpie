@@ -1,4 +1,5 @@
 import QtQuick
+import "../controls" as Widgets
 import qs.Commons
 import qs.Ui
 
@@ -8,7 +9,7 @@ import qs.Ui
 // carry numbers, a bare digit with nothing typed opens the row that
 // carries it — and only when a row does carry it, so a name of numbers can
 // still be typed. The account switcher's rows carry none.
-TextField {
+Widgets.TextField {
   id: root
 
   signal moved(int delta)

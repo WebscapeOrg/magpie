@@ -23,7 +23,28 @@ for entry in service:ui/Service.qml barWidget:ui/BarWidget.qml panel:ui/App.qml;
 done
 
 [ -x scripts/link-plugin.sh ] || fail "scripts/link-plugin.sh must be executable"
-grep -q 'plugin-backups' scripts/link-plugin.sh || fail "backups must not land inside the plugins directory"
+# Every run gets a PATH of test folders only, so the real installer can never run here. The fake installer lives
+# outside HOME, so only the PATH lookup can find it.
+installer_root=$(mktemp -d)
+mkdir -p "$installer_root/bin" "$installer_root/home" "$installer_root/none" "$installer_root/plain" "$installer_root/here"
+printf '#!/bin/sh\nprintf delegated > "$HOME/delegated"\n' > "$installer_root/bin/magpie-mail-install"
+chmod +x "$installer_root/bin/magpie-mail-install"
+cp "$installer_root/bin/magpie-mail-install" "$installer_root/here/magpie-mail-install"
+cp "$installer_root/bin/magpie-mail-install" "$installer_root/plain/magpie-mail-install"
+chmod -x "$installer_root/plain/magpie-mail-install"
+link_plugin="$PWD/scripts/link-plugin.sh"
+HOME="$installer_root/home" PATH="$installer_root/bin" "$BASH" "$link_plugin" --no-restart
+[ -f "$installer_root/home/delegated" ] || fail "Magpie must delegate to the main machine's guarded copy installer"
+rm -f "$installer_root/home/delegated"
+# No installer, one that cannot run, and one reached only through a relative PATH entry all stop with the message.
+for search in "$installer_root/none" "$installer_root/plain" . "$installer_root/none:"; do
+  if out=$(cd "$installer_root/here" && HOME="$installer_root/home" PATH="$search" "$BASH" "$link_plugin" --no-restart 2>&1); then
+    fail "link-plugin.sh succeeded with PATH=$search"
+  fi
+  [ "$out" = 'Magpie installer missing; see MAGPIE.md.' ] || fail "link-plugin.sh with PATH=$search printed: $out"
+  [ ! -e "$installer_root/home/delegated" ] || fail "link-plugin.sh ran an installer it found through PATH=$search"
+done
+rm -rf "$installer_root"
 
 test_root=$(mktemp -d)
 trap 'rm -rf "$test_root"' EXIT
@@ -92,7 +113,7 @@ grep -q '^MimeType=x-scheme-handler/mailto;$' "$desktop" \
   || fail "omamail.desktop must claim mailto"
 grep -q "^Exec=$(pwd)/scripts/mailto.sh %u$" "$desktop" \
   || fail "omamail.desktop Exec must be the plugin mailto handler"
-grep -q "^Icon=$(pwd)/ui/assets/omamail.svg$" "$desktop" \
+grep -q "^Icon=$(pwd)/ui/assets/magpie.svg$" "$desktop" \
   || fail "omamail.desktop must use the Omamail mark"
 # A second run with the file already there must not require --claim-default
 # just to keep the desktop file current.

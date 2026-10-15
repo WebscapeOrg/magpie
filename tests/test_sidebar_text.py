@@ -62,7 +62,7 @@ Item {
     when: windowShown
     function textItem(item, value) {
       if (item.text === value && item.textFormat !== undefined) return item
-      var children = item.children || []
+      var children = item.data || item.children || []
       for (var i = 0; i < children.length; i++) {
         var found = textItem(children[i], value)
         if (found) return found
@@ -71,7 +71,7 @@ Item {
     }
     function named(item, name, out) {
       if (item.objectName === name) out.push(item)
-      var children = item.children || []
+      var children = item.data || item.children || []
       for (var i = 0; i < children.length; i++) named(children[i], name, out)
       return out
     }

@@ -1,4 +1,5 @@
 import QtQuick
+import "settings"
 import "compose/Recipients.js" as AgentRecipients
 import Quickshell
 import Quickshell.Io
@@ -24,6 +25,7 @@ import "message/Outbox.js" as Outbox
 import "message/Html.js" as Html
 import "message/Direction.js" as Direction
 import "settings/Appearance.js" as Appearance
+import "settings/Display.js" as Display
 
 // Owns each MailAccount and forwards the active mailbox's surface to views.
 // All accounts poll unread counts; only the active account loads lists/bodies.
@@ -114,7 +116,7 @@ Item {
   readonly property var calendarReminderInbox: calendarReminderLoader.item ? calendarReminderLoader.item.inbox : null
 
   readonly property string pluginId: manifest && manifest.id
-    ? String(manifest.id) : "omamail"
+    ? String(manifest.id) : "magpie"
   // Modern Omarchy strips private manifest metadata for third-party plugins.
   // Helpers live at the plugin root, one level above the UI components.
   readonly property string pluginDir: decodeURIComponent(String(Qt.resolvedUrl(".."))
@@ -125,7 +127,7 @@ Item {
   // constructs the service with a stub manifest, and an empty version makes the
   // interface say nothing rather than guess a number.
   readonly property string pluginName: manifest && manifest.name
-    ? String(manifest.name) : "Omamail"
+    ? String(manifest.name) : "Magpie"
   readonly property string version: manifest && manifest.version
     ? String(manifest.version) : ""
 
@@ -442,7 +444,7 @@ Item {
 
   // Thunderbird and Betterbird keep both explicit and learned addresses in
   // their local profile. The helper reads those databases without modifying
-  // them. Nothing is copied into Omamail's settings or cache.
+  // them. Nothing is copied into Magpie's settings or cache.
   property var recipientContacts: []
   property bool contactsLoading: false
 
@@ -461,7 +463,7 @@ Item {
     mailtoInstaller.running = true
   }
 
-  // Whether mailto: links and Omarchy's SUPER+SHIFT+E open Omamail. Empty
+  // Whether mailto: links and Omarchy's SUPER+SHIFT+E open Magpie. Empty
   // until default-mail.sh has been asked; the settings page asks on open,
   // because either half can change behind this window's back.
   property string defaultMailClient: ""
@@ -866,7 +868,7 @@ Item {
   function openNotification(accountId, messageId) {
     if (!Accounts.find(accountList, accountId) || !messageId) return false
     if (shell && typeof shell.summon === "function")
-      return shell.summon("omamail", JSON.stringify({ accountId: accountId, messageId: messageId }))
+      return shell.summon(pluginId, JSON.stringify({ accountId: accountId, messageId: messageId }))
     return false
   }
 
@@ -1229,6 +1231,14 @@ Item {
   // pushed in from the bar widget and are not the window's to write. Only what
   // the window cannot recompute lives here.
 
+  property var displayPreferences: Display.normalize({})
+  Binding { target: MailStyle; property: "preferences"; value: root.displayPreferences }
+
+  function setDisplayPreference(key, value) {
+    displayPreferences = Display.changed(displayPreferences, key, value)
+    saveWindowPrefs()
+  }
+
   property bool sidebarCollapsed: false
   // How wide the rail and the list were dragged to, in pixels; 0 is "never
   // dragged", which each pane reads as its own default.
@@ -1238,22 +1248,9 @@ Item {
   // "Archive" folded is a way of reading the rail, and it reads the same in
   // every mailbox that has one.
   property var collapsedFolders: []
-  // Somebody who needed the text bigger needs it bigger for their mail, not for
-  // the message that made them reach for it. The same goes for `bodyMode`:
-  // both of these are ways of reading mail, not ways of reading one message.
   property real bodyZoom: 1.0
-  // How a message is read: rebuilt for reading, the sender's own formatting, or
-  // text. Reading is the default because it is the one that answers the same
-  // way for every sender — a newsletter, a receipt and a reply all arrive as
-  // this window's type at this window's measure — and the other two are there
-  // for the messages whose own layout is carrying something.
   property string bodyMode: "reader"
-  // Off until somebody says otherwise, and then it stays said. Loading a
-  // remote image tells its host that this address opened this message, at this
-  // moment — the reason the answer was once asked for one message at a time.
-  // Asked for every message, it is a decision somebody makes once and should
-  // not be asked to make again on the next one; the switch that turns it on is
-  // in Settings, which is also the only place that can turn it back off.
+  // Remote images stay blocked unless explicitly allowed.
   property bool alwaysShowImages: false
   property bool windowPrefsLoaded: false
   property string windowWritePayload: ""
@@ -1262,6 +1259,7 @@ Item {
   property int restoreAttempts: 0
 
   function applyWindowPrefs(raw) {
+    displayPreferences = Display.fromWindow(raw)
     var prefs = Model.windowPrefs(raw)
     sidebarCollapsed = prefs.sidebarCollapsed
     sidebarWidth = prefs.sidebarWidth
@@ -1302,6 +1300,7 @@ Item {
     }
     windowPrefsSettling.stop()
     windowWritePayload = JSON.stringify({
+      display: displayPreferences,
       sidebarCollapsed: sidebarCollapsed,
       sidebarWidth: sidebarWidth,
       listWidth: listWidth,
@@ -1404,13 +1403,13 @@ Item {
   // The bar answers for all of them: a badge that counted only the mailbox you
   // happen to be looking at would be worse than none.
   readonly property string barTooltip: {
-    if (!ready) return "Omamail · Not connected"
+    if (!ready) return "Magpie · Not connected"
     var suffix = unreadTotal === 0 ? "No unread mail"
       : (unreadTotal === 1 ? "1 unread message" : unreadTotal + " unread messages")
     // The address, whatever the number of mailboxes. How many are configured is
     // not something a tooltip on a mail icon is asked, and the count it used to
     // give was of mailboxes rather than of anything waiting in them.
-    return (accountEmail !== "" ? accountEmail : "Omamail") + " · " + suffix
+    return (accountEmail !== "" ? accountEmail : "Magpie") + " · " + suffix
   }
 
   // The switcher's model: every mailbox, its count, and why it is not usable.
@@ -2538,7 +2537,7 @@ Item {
   // Not forwarded to an account: the project exists whether or not anyone has
   // signed in, and the menu offers it on the setup page too.
   function openProjectPage() {
-    openExternal("https://github.com/huacnlee/omamail")
+    openExternal("https://github.com/dreinecke/magpie")
   }
 
   function openAuthorPage() {

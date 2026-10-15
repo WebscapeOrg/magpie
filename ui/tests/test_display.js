@@ -27,3 +27,7 @@ console.log('Display preferences: defaults, independent fonts, round trip, bound
 
 deepEqual(Display.fromWindow(JSON.stringify({display:saved, bodyZoom:1})), saved)
 assert.equal(Display.fromWindow('broken').layout, 'Single pane')
+
+assert.equal(Display.zoomForWindow(JSON.stringify({bodyZoom:1.7}), 1.7), 1)
+assert.equal(Display.zoomForWindow(JSON.stringify({display:initial,bodyZoom:1.7}), 1.7), 1.7)
+assert.equal(Display.zoomForWindow('broken', 2), 1)

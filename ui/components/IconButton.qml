@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -29,9 +31,9 @@ Item {
   // and nothing else changes: the button still says what it always said.
   property bool attention: false
   property real iconSize: Style.font.icon
-  property real size: Math.max(Style.space(24), iconSize + Style.spacing.sm * 2)
-  property real visualInset: Style.space(2)
-  property string fontFamily: Style.font.family
+  property real size: Math.max(MailStyle.space(24), iconSize + Style.spacing.sm * 2)
+  property real visualInset: MailStyle.space(2)
+  property string fontFamily: MailStyle.family
 
   signal clicked()
 
@@ -48,8 +50,8 @@ Item {
   Rectangle {
     id: halo
     anchors.fill: parent
-    anchors.margins: root.visualInset - Style.space(1)
-    radius: Style.cornerRadius + Style.space(1)
+    anchors.margins: root.visualInset - MailStyle.space(1)
+    radius: Style.cornerRadius + MailStyle.space(1)
     color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.18)
     border.width: Style.normalBorderWidth
     border.color: root.accent
@@ -101,7 +103,7 @@ Item {
     onClicked: root.clicked()
   }
 
-  PanelToolTip {
+  Widgets.PanelToolTip {
     visible: root.tooltipText !== "" && mouse.containsMouse
     text: root.tooltipText
     fontFamily: root.fontFamily

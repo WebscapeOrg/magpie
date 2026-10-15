@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../keys/Keymap.js" as Keymap
@@ -22,7 +23,7 @@ Row {
   // [{ key: "j / k", label: "move" }, ...]
   property var hints: []
 
-  spacing: Style.space(7)
+  spacing: MailStyle.space(7)
 
   Repeater {
     model: root.hints
@@ -30,12 +31,12 @@ Row {
     delegate: Row {
       id: pair
       required property var modelData
-      spacing: Style.space(3)
+      spacing: MailStyle.space(3)
 
       Rectangle {
         anchors.verticalCenter: parent.verticalCenter
-        width: cap.implicitWidth + Style.space(5)
-        height: cap.implicitHeight + Style.space(2)
+        width: cap.implicitWidth + MailStyle.space(5)
+        height: cap.implicitHeight + MailStyle.space(2)
         radius: Style.cornerRadius
         // Fill only. An outline as well made these read as buttons you could
         // press, which drew far more attention than a hint deserves.
@@ -47,7 +48,7 @@ Row {
           text: Keymap.keycapLabel(pair.modelData.key)
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
         }
       }
 
@@ -56,7 +57,7 @@ Row {
         text: pair.modelData.label
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
     }
   }

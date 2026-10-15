@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -67,9 +68,9 @@ Item {
 
   QQC.Popup {
     id: menu
-    width: Style.space(180)
-    implicitHeight: rows.implicitHeight + Style.space(8)
-    padding: Style.space(4)
+    width: MailStyle.space(180)
+    implicitHeight: rows.implicitHeight + MailStyle.space(8)
+    padding: MailStyle.space(4)
     modal: false
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
@@ -87,7 +88,7 @@ Item {
 
     contentItem: Column {
       id: rows
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       focus: true
       Keys.onPressed: function(event) {

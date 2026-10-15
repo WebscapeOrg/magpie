@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../calendar/Sources.js" as Sources
@@ -149,7 +151,7 @@ Column {
   }
 
   width: parent ? parent.width : implicitWidth
-  spacing: Style.space(16)
+  spacing: MailStyle.space(16)
 
   // One settings row, the shape every other row on this page has: a title and
   // a caption on the left, the control that changes it on the right.
@@ -159,17 +161,17 @@ Column {
     property string detail: ""
     default property alias controls: rowControls.data
     width: parent ? parent.width : 0
-    implicitHeight: Math.max(settingText.implicitHeight, rowControls.implicitHeight) + Style.space(16)
+    implicitHeight: Math.max(settingText.implicitHeight, rowControls.implicitHeight) + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
     Column {
       id: settingText
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(12)
+      anchors.leftMargin: MailStyle.space(12)
       anchors.right: rowControls.left
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
       Text {
         width: parent.width
         text: settingRow.title
@@ -177,7 +179,7 @@ Column {
         elide: Text.ElideMiddle
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
       Text {
         width: parent.width
@@ -187,22 +189,22 @@ Column {
         wrapMode: Text.WordWrap
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
     }
     Row {
       id: rowControls
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
     }
   }
 
   component SectionHeading: Text {
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.letterSpacing: 1
   }
 
@@ -213,23 +215,23 @@ Column {
     property var source: ({})
     property string detail: ""
     width: parent ? parent.width : 0
-    spacing: Style.space(2)
+    spacing: MailStyle.space(2)
 
     Rectangle {
       width: parent.width
-      implicitHeight: Math.max(calendarText.implicitHeight, calendarActions.implicitHeight) + Style.space(16)
+      implicitHeight: Math.max(calendarText.implicitHeight, calendarActions.implicitHeight) + MailStyle.space(16)
       radius: Style.cornerRadius
       color: Style.normalFillFor(root.textColor, root.accentColor)
 
-      Button {
+      Widgets.Button {
         id: colorButton
         objectName: "calendar-source-color"
         focusable: true
         // The dot's left edge sits on the same line as the titles above it.
         anchors.left: parent.left
-        anchors.leftMargin: Style.space(12) - (width - Style.space(10)) / 2
+        anchors.leftMargin: MailStyle.space(12) - (width - MailStyle.space(10)) / 2
         anchors.verticalCenter: parent.verticalCenter
-        width: Style.space(24)
+        width: MailStyle.space(24)
         height: width
         horizontalPadding: 0
         verticalPadding: 0
@@ -249,7 +251,7 @@ Column {
         Rectangle {
           objectName: "calendar-source-color-swatch"
           anchors.centerIn: parent
-          width: Style.space(10)
+          width: MailStyle.space(10)
           height: width
           radius: width / 2
           color: calendarPalette.colorFor(calendarRow.source.colorKey)
@@ -259,11 +261,11 @@ Column {
       Column {
         id: calendarText
         anchors.left: parent.left
-        anchors.leftMargin: Style.space(30)
+        anchors.leftMargin: MailStyle.space(30)
         anchors.right: calendarActions.left
-        anchors.rightMargin: Style.space(10)
+        anchors.rightMargin: MailStyle.space(10)
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(2)
+        spacing: MailStyle.space(2)
         Text {
           width: parent.width
           text: root.displayName(calendarRow.source)
@@ -271,7 +273,7 @@ Column {
           elide: Text.ElideRight
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
         }
         Text {
           objectName: "calendar-source-detail"
@@ -282,16 +284,16 @@ Column {
           elide: Text.ElideMiddle
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
         }
       }
 
       Row {
         id: calendarActions
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(10)
+        anchors.rightMargin: MailStyle.space(10)
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(6)
+        spacing: MailStyle.space(6)
         IconTextButton {
           anchors.verticalCenter: parent.verticalCenter
           visible: calendarRow.source.kind === "caldav" && calendarRow.source.discovered !== true
@@ -335,26 +337,26 @@ Column {
     Row {
       id: colorRow
       objectName: "calendar-color-picker"
-      x: Style.space(12)
+      x: MailStyle.space(12)
       visible: root.colorEditingId === String(calendarRow.source.id)
       height: visible ? implicitHeight : 0
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
       Text {
         anchors.verticalCenter: parent.verticalCenter
         text: "Color"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         textFormat: Text.PlainText
       }
       Repeater {
         model: calendarPalette.slots
-        Button {
+        Widgets.Button {
           id: paletteOption
           required property string modelData
           objectName: "calendar-color-" + modelData
           focusable: true
-          width: Style.space(24)
+          width: MailStyle.space(24)
           height: width
           horizontalPadding: 0
           verticalPadding: 0
@@ -372,7 +374,7 @@ Column {
           }
           Rectangle {
             anchors.centerIn: parent
-            width: Style.space(14)
+            width: MailStyle.space(14)
             height: width
             radius: width / 2
             color: "transparent"
@@ -381,7 +383,7 @@ Column {
             Rectangle {
               objectName: "calendar-color-swatch-" + paletteOption.modelData
               anchors.centerIn: parent
-              width: Style.space(8)
+              width: MailStyle.space(8)
               height: width
               radius: width / 2
               color: calendarPalette.colorFor(paletteOption.modelData)
@@ -393,20 +395,20 @@ Column {
 
     Row {
       id: passwordRow
-      x: Style.space(12)
+      x: MailStyle.space(12)
       width: parent.width - x
       visible: calendarRow.source.kind === "caldav" && calendarRow.source.discovered !== true
         && root.passwordEditingId === String(calendarRow.source.id)
       height: visible ? implicitHeight : 0
-      spacing: Style.space(6)
-      TextField {
+      spacing: MailStyle.space(6)
+      Widgets.TextField {
         id: existingPassword
         width: Math.max(80, parent.width - saveExisting.implicitWidth
           - cancelExisting.implicitWidth - parent.spacing * 2)
         password: true
         foreground: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Password or app password"
         onAccepted: saveExisting.clicked()
       }
@@ -434,14 +436,14 @@ Column {
 
   Column {
     width: parent.width
-    spacing: Style.space(4)
+    spacing: MailStyle.space(4)
     SectionHeading { text: "CALENDARS" }
     Text {
       width: parent.width
       text: "Choose which calendars appear and their colors. New events and reminders are set below."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
     }
@@ -457,10 +459,10 @@ Column {
     wrapMode: Text.WordWrap
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
   }
 
-  Button {
+  Widgets.Button {
     visible: root.discoverableAccounts().length === 0
     text: "Add an account..."
     foreground: root.textColor
@@ -476,7 +478,7 @@ Column {
       required property var modelData
       readonly property var calendars: root.accountCalendars(modelData.id)
       width: root.width
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       SettingRow {
         title: String(accountBlock.modelData.email || accountBlock.modelData.label || "")
@@ -485,14 +487,14 @@ Column {
             : accountBlock.calendars.length > 0
               ? accountBlock.calendars.length + (accountBlock.calendars.length === 1 ? " calendar" : " calendars")
               : "Uses this mailbox's sign-in")
-        Button {
+        Widgets.Button {
           id: discoveryButton
           objectName: "calendar-discover-" + String(accountBlock.modelData.calendarProvider || "account")
           focusable: true
           bordered: true
           foreground: root.textColor
           fontFamily: root.panelFontFamily
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           enabled: !!root.controller && !root.controller.discoveringCalendars
             && !root.controller.savingSource
           text: accountBlock.modelData.signedIn !== true ? "Sign in..."
@@ -534,13 +536,13 @@ Column {
     objectName: "calendar-setup-recovery"
     width: root.width
     visible: root.setupError !== ""
-    spacing: Style.space(6)
+    spacing: MailStyle.space(6)
     Text {
       width: parent.width
       text: root.accountLabel({ accountId: root.setupAccountId }) + ": " + root.setupError
       color: root.urgentColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
     }
@@ -549,7 +551,7 @@ Column {
       text: "For Google, enable the Google Calendar API in the same Cloud project as your Gmail client. If access was refused, sign in again and allow calendar access. Your saved calendar choices are kept."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
       visible: root.setupAccountId !== "" && root.discoverableAccounts().some(function(account) {
@@ -558,22 +560,22 @@ Column {
     }
     Flow {
       width: parent.width
-      spacing: Style.space(6)
-      Button {
+      spacing: MailStyle.space(6)
+      Widgets.Button {
         text: "Check again"
         foreground: root.textColor
         fontFamily: root.panelFontFamily
         enabled: !!root.controller && !root.controller.discoveringCalendars && !root.controller.savingSource
         onClicked: root.controller.discoverAccountCalendars(root.setupAccountId)
       }
-      Button {
+      Widgets.Button {
         text: "Sign in again..."
         foreground: root.textColor
         fontFamily: root.panelFontFamily
         enabled: root.accountIndex(root.setupAccountId) >= 0
         onClicked: root.accountSetupRequested(root.accountIndex(root.setupAccountId))
       }
-      Button {
+      Widgets.Button {
         text: "Google Calendar API setup..."
         visible: root.setupAccountId !== "" && root.discoverableAccounts().some(function(account) {
           return account.id === root.setupAccountId && account.calendarProvider === "google"
@@ -588,12 +590,12 @@ Column {
   Column {
     width: root.width
     visible: !!root.controller && root.controller.discoveryChoices !== null
-    spacing: Style.space(8)
+    spacing: MailStyle.space(8)
     Text {
       text: "Choose calendars to show"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       textFormat: Text.PlainText
     }
     Text {
@@ -601,7 +603,7 @@ Column {
       text: "Start with your Google selection. You can change visibility and reminders independently below. Your primary writable calendar is selected for new events by default."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
     }
@@ -623,14 +625,14 @@ Column {
       }
     }
     Row {
-      spacing: Style.space(8)
-      Button {
+      spacing: MailStyle.space(8)
+      Widgets.Button {
         text: root.controller && root.controller.savingSource ? "Saving..." : "Save calendar selection"
         foreground: root.textColor
         enabled: !!root.controller && !root.controller.savingSource
         onClicked: root.controller.confirmDiscovery()
       }
-      Button {
+      Widgets.Button {
         text: "Cancel"
         foreground: root.textColor
         onClicked: root.controller.discoveryChoices = null
@@ -641,13 +643,13 @@ Column {
   Column {
     width: root.width
     visible: root.otherSources.length > 0
-    spacing: Style.space(2)
+    spacing: MailStyle.space(2)
     Text {
       text: "Other calendars"
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
-      bottomPadding: Style.space(4)
+      font.pixelSize: MailStyle.caption
+      bottomPadding: MailStyle.space(4)
     }
     Repeater {
       model: root.otherSources
@@ -677,45 +679,45 @@ Column {
   Column {
     width: parent.width
     visible: root.adding
-    spacing: Style.space(6)
+    spacing: MailStyle.space(6)
 
-    TextField {
+    Widgets.TextField {
       id: calendarName
       width: parent.width
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       placeholderText: "Calendar name"
     }
-    TextField {
+    Widgets.TextField {
       id: calendarUrl
       width: parent.width
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       placeholderText: "CalDAV URL"
     }
-    TextField {
+    Widgets.TextField {
       id: calendarUsername
       width: parent.width
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       placeholderText: "Username"
     }
-    TextField {
+    Widgets.TextField {
       id: calendarPassword
       width: parent.width
       password: true
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       placeholderText: "Password or app password"
       onAccepted: root.saveCalendar()
     }
 
     Row {
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
       IconTextButton {
         text: root.controller && root.controller.savingSource ? "Adding" : "Add calendar"
         foreground: root.textColor
@@ -744,7 +746,7 @@ Column {
     visible: text !== ""
     color: ok ? root.dimColor : root.urgentColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     wrapMode: Text.WordWrap
     textFormat: Text.PlainText
   }
@@ -762,7 +764,7 @@ Column {
     }
   }
 
-  Button {
+  Widgets.Button {
     objectName: "calendar-open-after-setup"
     visible: root.setupComplete
     text: "Open calendar"
@@ -777,8 +779,8 @@ Column {
   Column {
     width: parent.width
     visible: root.defaultChoices.length > 0
-    spacing: Style.space(2)
-    SectionHeading { text: "NEW EVENTS"; bottomPadding: Style.space(2) }
+    spacing: MailStyle.space(2)
+    SectionHeading { text: "NEW EVENTS"; bottomPadding: MailStyle.space(2) }
     Repeater {
       id: defaultGroups
       model: root.defaultChoices
@@ -787,9 +789,9 @@ Column {
         required property var modelData
         title: "Default calendar"
         detail: defaultGroup.modelData.accountLabel
-        Dropdown {
+        Widgets.Dropdown {
           objectName: "calendar-default-picker"
-          width: Style.space(200)
+          width: MailStyle.space(200)
           showLabel: false
           options: defaultGroup.modelData.calendars.map(function(source) {
             return { value: source.id, label: root.displayName(source) }
@@ -813,13 +815,13 @@ Column {
 
   Column {
     width: parent.width
-    spacing: Style.space(2)
+    spacing: MailStyle.space(2)
     visible: !!root.service && root.service.backendCanGoogleCalendars === true
       && root.reminderSources.length > 0
-    SectionHeading { text: "REMINDERS"; bottomPadding: Style.space(2) }
+    SectionHeading { text: "REMINDERS"; bottomPadding: MailStyle.space(2) }
     SettingRow {
       title: "Desktop reminders"
-      detail: "Shown while Omamail is running, even with its window closed. Google calendars only."
+      detail: "Shown while Magpie is running, even with its window closed. Google calendars only."
       ToggleSwitch {
         objectName: "calendar-reminders-enabled"
         checked: !!root.service && root.service.calendarRemindersEnabled === true
@@ -832,7 +834,7 @@ Column {
       visible: !!root.service && root.service.calendarRemindersEnabled === true
       title: "Snooze"
       detail: "How long Snooze puts a reminder off."
-      NumberField {
+      Widgets.NumberField {
         objectName: "calendar-snooze-minutes"
         label: "Minutes"
         from: 1
@@ -842,7 +844,7 @@ Column {
         foreground: root.textColor
         accent: root.accentColor
         fontFamily: root.panelFontFamily
-        fontSize: Style.font.bodySmall
+        fontSize: MailStyle.bodySmall
         onModified: function(next) { root.service.persistSetting("calendarSnoozeMinutes", next) }
       }
     }
@@ -853,7 +855,7 @@ Column {
         required property var modelData
         title: root.displayName(modelData)
         detail: root.accountLabel(modelData) + (modelData.enabled === false ? " · Hidden, still reminds" : "")
-        NumberField {
+        Widgets.NumberField {
           objectName: "calendar-reminder-minutes"
           anchors.verticalCenter: parent.verticalCenter
           visible: root.reminderMode(reminderRow.modelData) === "custom"
@@ -865,14 +867,14 @@ Column {
           foreground: root.textColor
           accent: root.accentColor
           fontFamily: root.panelFontFamily
-          fontSize: Style.font.bodySmall
+          fontSize: MailStyle.bodySmall
           enabled: !!root.controller && !root.controller.savingSource
           onModified: function(next) { root.controller.setReminderPolicy(reminderRow.modelData.id, true, next) }
         }
-        Dropdown {
+        Widgets.Dropdown {
           objectName: "calendar-reminder-mode"
           anchors.verticalCenter: parent.verticalCenter
-          width: Style.space(200)
+          width: MailStyle.space(200)
           showLabel: false
           value: root.reminderMode(reminderRow.modelData)
           options: [{ value: "off", label: "Off" }, { value: "google", label: "Google event reminders" },
@@ -892,21 +894,21 @@ Column {
     Text {
       width: parent.width
       visible: text !== ""
-      topPadding: Style.space(4)
+      topPadding: MailStyle.space(4)
       text: String(root.service && root.service.calendarReminderError || "")
       textFormat: Text.PlainText
       wrapMode: Text.WordWrap
       color: root.urgentColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
     }
   }
 
-  Button {
+  Widgets.Button {
     text: "Advanced Google setup..."
     foreground: root.dimColor
     fontFamily: root.panelFontFamily
-    fontSize: Style.font.caption
+    fontSize: MailStyle.caption
     onClicked: root.clientSetupRequested()
   }
 

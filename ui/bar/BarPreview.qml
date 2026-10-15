@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../components"
@@ -25,8 +26,8 @@ Column {
     return Direction.isRightToLeft(direction) ? Text.AlignRight : Text.AlignLeft
   }
 
-  width: Style.space(360)
-  spacing: Style.space(5)
+  width: MailStyle.space(360)
+  spacing: MailStyle.space(5)
 
   signal messageRequested(string accountId, string messageId)
   signal callRequested(string url)
@@ -36,7 +37,7 @@ Column {
     text: "LATEST MAIL"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.bold: true
     textFormat: Text.PlainText
   }
@@ -47,7 +48,7 @@ Column {
       id: mailRow
       required property var modelData
       width: root.width
-      height: Style.space(66)
+      height: MailStyle.space(66)
       radius: Style.cornerRadius
       color: mailMouse.containsMouse
         ? Style.hoverFillFor(root.textColor, root.accentColor) : "transparent"
@@ -56,15 +57,15 @@ Column {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        anchors.leftMargin: Style.space(8)
-        anchors.rightMargin: Style.space(8)
-        spacing: Style.space(2)
+        anchors.leftMargin: MailStyle.space(8)
+        anchors.rightMargin: MailStyle.space(8)
+        spacing: MailStyle.space(2)
         Text {
           width: parent.width
           text: mailRow.modelData.subject || "(no subject)"
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           font.bold: mailRow.modelData.unread === true
           elide: Text.ElideRight
           textFormat: Text.PlainText
@@ -79,7 +80,7 @@ Column {
             + "  ·  " + mailRow.modelData.sourceLabel
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           elide: Text.ElideRight
           textFormat: Text.PlainText
           horizontalAlignment: root.textAlignment
@@ -89,7 +90,7 @@ Column {
           text: mailRow.modelData.receivedLabel || ""
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           elide: Text.ElideRight
           textFormat: Text.PlainText
           horizontalAlignment: root.textAlignment
@@ -111,7 +112,7 @@ Column {
     text: "No unread messages"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: MailStyle.bodySmall
     textFormat: Text.PlainText
   }
 
@@ -125,7 +126,7 @@ Column {
     text: "UP NEXT"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.bold: true
     textFormat: Text.PlainText
   }
@@ -136,7 +137,7 @@ Column {
       id: eventRow
       required property var modelData
       width: root.width
-      height: Style.space(58)
+      height: MailStyle.space(58)
       radius: Style.cornerRadius
       color: callMouse.containsMouse
         ? Style.hoverFillFor(root.textColor, root.accentColor) : "transparent"
@@ -147,15 +148,15 @@ Column {
         anchors.left: parent.left
         anchors.right: callIcon.visible ? callIcon.left : parent.right
         anchors.verticalCenter: parent.verticalCenter
-        anchors.leftMargin: Style.space(8)
-        anchors.rightMargin: Style.space(8)
-        spacing: Style.space(2)
+        anchors.leftMargin: MailStyle.space(8)
+        anchors.rightMargin: MailStyle.space(8)
+        spacing: MailStyle.space(2)
         Text {
           width: parent.width
           text: eventRow.modelData.summary || "Untitled event"
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           font.bold: true
           elide: Text.ElideRight
           textFormat: Text.PlainText
@@ -167,7 +168,7 @@ Column {
             + "  ·  " + eventRow.modelData.sourceLabel
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           elide: Text.ElideRight
           textFormat: Text.PlainText
         }
@@ -177,7 +178,7 @@ Column {
         id: callIcon
         visible: eventRow.modelData.callUrl !== ""
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(10)
+        anchors.rightMargin: MailStyle.space(10)
         anchors.verticalCenter: parent.verticalCenter
         name: "video"
         color: root.accentColor
@@ -202,7 +203,7 @@ Column {
     text: "No events in the next 31 days"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: MailStyle.bodySmall
     textFormat: Text.PlainText
   }
 

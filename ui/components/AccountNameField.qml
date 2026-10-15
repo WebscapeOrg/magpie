@@ -1,4 +1,5 @@
 import QtQuick
+import "../controls" as Widgets
 import qs.Commons
 import qs.Ui
 
@@ -6,13 +7,13 @@ import qs.Ui
 // rather than only in the settings list afterwards. Optional: two mailboxes
 // that differ only in their domain are told apart by a name, and one on its
 // own has no need of one. Empty is not a name and puts the address back.
-TextField {
+Widgets.TextField {
   id: root
 
   property var service: null
 
   objectName: "account-name-field"
-  placeholderText: "Mailbox name (optional) — how it is listed in Omamail, e.g. Work"
+  placeholderText: "Mailbox name (optional) — how it is listed in Magpie, e.g. Work"
 
   function syncFromStore() { text = service ? String(service.accountName || "") : "" }
   function value() { return String(text || "").trim() }

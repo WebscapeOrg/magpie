@@ -1,3 +1,5 @@
+import qs.Commons
+import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
@@ -136,6 +138,7 @@ Item {
     }
 
     function init() {
+      mailService.setDisplayPreference("layout", "Split view")
       record.reset()
       mailService.setUnifiedMailboxes(false)
       app.checkedIds = []
@@ -253,10 +256,10 @@ Item {
       account.selectedMessage = account.messages[0]
       app.open()
       app.pushEntry("reader", { id: account.selectedId })
-      var window = having(app, function(item) { return item.title === "Omamail" })
+      var window = having(app, function(item) { return item.title === "🐦 Magpie" })
       var reader = having(app, function(item) { return item.forceRichAnyway !== undefined })
       verify(window !== null && reader !== null)
-      window.width = 980
+      window.width = MailStyle.space(980)
       mailService.setSidebarCollapsed(data.collapsed)
       app.sidebarWidth = 0
       app.listWidth = 0
@@ -282,7 +285,7 @@ Item {
         verify(reader.width >= 200, "reader survives resize to " + window.width + ": " + reader.width)
       }
       app.close()
-      window.width = 980
+      window.width = MailStyle.space(980)
       mailService.setSidebarCollapsed(false)
       app.sidebarWidth = 0
       app.listWidth = 0
@@ -400,9 +403,9 @@ Item {
       account.selectedId = data.outside ? "3:INBOX" : "1:INBOX"
       account.selectedMessage = messages[data.outside ? 2 : 0]
       app.open()
-      var window = having(app, function(item) { return item.title === "Omamail" })
+      var window = having(app, function(item) { return item.title === "🐦 Magpie" })
       verify(window !== null)
-      window.width = data.compact ? 600 : 980
+      window.width = Style.space(data.compact ? 600 : 980)
       app.pushEntry("reader", { id: account.selectedId })
       if (data.checked) {
         verify(app.toggleCheck("1:INBOX"))
@@ -424,7 +427,7 @@ Item {
         compare(account.messages[j].starred, changed ? !data.starred : data.starred)
       }
       app.close()
-      window.width = 980
+      window.width = MailStyle.space(980)
     }
 
     // Ada and Bob both hold 42:INBOX. Ticked in Ada's list, the id must not

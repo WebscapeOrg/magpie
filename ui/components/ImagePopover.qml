@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -53,7 +54,7 @@ Item {
     modal: true
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
-    padding: Style.space(8)
+    padding: MailStyle.space(8)
     x: Math.round((root.width - width) / 2)
     y: Math.round((root.height - height) / 2)
     width: frame.implicitWidth + padding * 2
@@ -74,7 +75,7 @@ Item {
 
     Column {
       id: frame
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
 
       // Sized from the image's own dimensions, bounded by the window. Bounding
       // it against the popup instead would be a loop: the popup is sized from
@@ -85,15 +86,15 @@ Item {
         asynchronous: true
         cache: false
         fillMode: Image.PreserveAspectFit
-        width: Math.max(Style.space(120),
-          Math.min(implicitWidth, root.width - Style.space(80)))
+        width: Math.max(MailStyle.space(120),
+          Math.min(implicitWidth, root.width - MailStyle.space(80)))
         height: status === Image.Ready
-          ? Math.min(implicitHeight, root.height - Style.space(120))
-          : Style.space(120)
+          ? Math.min(implicitHeight, root.height - MailStyle.space(120))
+          : MailStyle.space(120)
 
         Text {
           anchors.centerIn: parent
-          width: picture.width - Style.space(20)
+          width: picture.width - MailStyle.space(20)
           horizontalAlignment: Text.AlignHCenter
           wrapMode: Text.WordWrap
           visible: root.refused || picture.status !== Image.Ready
@@ -102,7 +103,7 @@ Item {
             : (picture.status === Image.Error ? "That image could not be loaded" : "Loading")
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
         }
       }
 
@@ -111,7 +112,7 @@ Item {
         text: root.requested
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         // The sender wrote this. Left as AutoText, a src with a tag in it is
         // markup Qt would lay out — and an <img> in it a fetch it would make.
         textFormat: Text.PlainText

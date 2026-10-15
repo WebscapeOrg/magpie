@@ -8,9 +8,10 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-runner = shutil.which("qmltestrunner6") or shutil.which("qmltestrunner")
+runner = shutil.which("qmltestrunner6")
 if not runner and Path("/usr/lib/qt6/bin/qmltestrunner").exists():
     runner = "/usr/lib/qt6/bin/qmltestrunner"
+runner = runner or shutil.which("qmltestrunner")
 clipboard = shutil.which("wl-copy")
 if not runner or not clipboard:
     print("Clipboard transport regression SKIP: requires QML test tooling and wl-copy")

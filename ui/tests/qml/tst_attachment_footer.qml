@@ -1,3 +1,4 @@
+import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Omamail
@@ -137,8 +138,8 @@ Item {
     }
 
     function init() {
-      reader.width = 380
-      reader.height = 360
+      reader.width = MailStyle.space(380)
+      reader.height = MailStyle.space(360)
       mailService.selectedId = "message-4"
       mailService.selectedAttachments = []
       mailService.savingFor = ""
@@ -184,14 +185,14 @@ Item {
       verify(list.height > 0 && list.height <= 160)
       verify(list.contentHeight > list.height)
       verify(body.height >= 100, "expanded attachments still leave reading space")
-      reader.height = 280
-      reader.width = 300
+      reader.height = MailStyle.space(280)
+      reader.width = MailStyle.space(300)
       // The footer Column positions its resized children on the next polish.
       tryVerify(function() { return body.height >= 60 }, 5000,
         "short narrow readers must retain body space")
       verify(list.height > 0 && list.height < 160)
-      reader.height = 360
-      reader.width = 380
+      reader.height = MailStyle.space(360)
+      reader.width = MailStyle.space(380)
       for (var i = 0; i < 3; i++) {
         toggle()
         compare(list.visible, false)
@@ -240,7 +241,7 @@ Item {
       compare(list.contentY, 0)
       toggle()
       compare(list.visible, true)
-      verify(list.height >= 40 && list.height <= 60, "few files use only their natural height")
+      verify(list.height >= MailStyle.space(40) && list.height <= MailStyle.space(60), "few files use only their natural height")
       show(0)
       compare(list.visible, false)
     }

@@ -1,4 +1,5 @@
 import QtQuick
+import "../controls" as Widgets
 import qs.Commons
 import qs.Ui
 
@@ -6,7 +7,7 @@ import qs.Ui
 // mailbox is set up so its first message is not sent nameless. Only on the
 // pages for mailboxes whose server does not name the sender
 // (`Accounts.namesSender`), and only on a backend that writes it.
-TextField {
+Widgets.TextField {
   id: root
 
   property var service: null

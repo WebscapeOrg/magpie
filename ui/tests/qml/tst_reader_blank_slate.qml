@@ -1,3 +1,4 @@
+import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 
@@ -99,8 +100,8 @@ Item {
     function init() {
       mailService.pluginName = "Omamail"
       mailService.version = "0.7.0"
-      blankSlateLoader.width = 400
-      blankSlateLoader.height = 400
+      blankSlateLoader.width = MailStyle.space(400)
+      blankSlateLoader.height = MailStyle.space(400)
     }
 
     function test_names_the_running_version() {
@@ -116,7 +117,7 @@ Item {
 
     function test_outlasts_the_shortcut_legend() {
       var label = version()
-      resize(200, 240)
+      resize(MailStyle.space(200), MailStyle.space(240))
       verify(!slate().showLegend,
         "this pane must be too small for the legend, or the test proves nothing")
       verify(label.visible, "the version outlives the legend it is not part of")

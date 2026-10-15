@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls
 import qs.Commons
 import "../account/Model.js" as Model
@@ -41,7 +42,7 @@ Item {
 
   // About two hundred pixels: wide enough for a date, a name and a mailbox
   // under it, narrow enough that the reading measure beside it survives.
-  implicitWidth: Style.space(200)
+  implicitWidth: MailStyle.space(200)
 
   // One animation for every skeleton on the rail, for the reason
   // `ReaderSkeleton` has one for the whole reader: a timer per bar puts a dozen
@@ -95,7 +96,7 @@ Item {
     var bounds = boundsFor(id)
     if (!bounds) return
     railFlick.contentY = Model.contentYToReveal(railFlick.contentY, railFlick.height,
-      bounds.y, bounds.height, railFlick.contentHeight, Style.space(8))
+      bounds.y, bounds.height, railFlick.contentHeight, MailStyle.space(8))
   }
 
   // The rule separating the rail from the message, the full height of the pane.
@@ -117,16 +118,16 @@ Item {
     anchors.top: parent.top
     anchors.left: edge.right
     anchors.right: parent.right
-    anchors.leftMargin: Style.space(12)
-    anchors.rightMargin: Style.space(10)
-    anchors.topMargin: Style.space(14)
+    anchors.leftMargin: MailStyle.space(12)
+    anchors.rightMargin: MailStyle.space(10)
+    anchors.topMargin: MailStyle.space(14)
     // Generated here out of a count, not written by a sender — but the rule is
     // cheap and the file it sits in draws senders two lines down.
     textFormat: Text.PlainText
     text: root.caption
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     elide: Text.ElideRight
   }
 
@@ -134,12 +135,12 @@ Item {
     id: railFlick
     objectName: "conversationRailFlick"
     anchors.top: captionText.bottom
-    anchors.topMargin: Style.space(8)
+    anchors.topMargin: MailStyle.space(8)
     anchors.left: edge.right
     anchors.right: parent.right
     anchors.bottom: parent.bottom
     contentWidth: width
-    contentHeight: stopColumn.implicitHeight + Style.space(16)
+    contentHeight: stopColumn.implicitHeight + MailStyle.space(16)
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -181,12 +182,12 @@ Item {
     // line that broke at the open message. The circle and the segment are
     // both centred on this instead, and the segment lands on a whole pixel so
     // it is one pixel wide rather than two half-shaded ones.
-    readonly property real axis: Style.space(10) + Style.space(11) / 2
-    readonly property real lineWidth: Math.max(1, Style.space(1))
+    readonly property real axis: MailStyle.space(10) + MailStyle.space(11) / 2
+    readonly property real lineWidth: Math.max(1, MailStyle.space(1))
     readonly property real lineX: Math.round(axis - lineWidth / 2)
 
     width: stopColumn.width
-    implicitHeight: stopBody.implicitHeight + Style.space(14)
+    implicitHeight: stopBody.implicitHeight + MailStyle.space(14)
     height: implicitHeight
     radius: Style.cornerRadius
     color: modelData.open
@@ -232,23 +233,23 @@ Item {
     Rectangle {
       id: node
       x: stop.axis - width / 2
-      y: Style.space(13)
-      width: modelData.open ? Style.space(11) : Style.space(9)
+      y: MailStyle.space(13)
+      width: modelData.open ? MailStyle.space(11) : MailStyle.space(9)
       height: width
       radius: width / 2
       color: modelData.unread ? root.accentColor : root.backgroundColor
-      border.width: modelData.unread ? 0 : Math.max(1, Style.space(modelData.open ? 2 : 1))
+      border.width: modelData.unread ? 0 : Math.max(1, MailStyle.space(modelData.open ? 2 : 1))
       border.color: modelData.open ? root.textColor : root.dimColor
     }
 
     Column {
       id: stopBody
       anchors.left: parent.left
-      anchors.leftMargin: node.x + Style.space(22)
+      anchors.leftMargin: node.x + MailStyle.space(22)
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       // The date leads, because the rail is a timeline and the date is where a
       // stop sits on it. The flag rides beside it: it belongs to the message
@@ -271,7 +272,7 @@ Item {
           text: stop.modelData.time
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
         }
 
         Bar {
@@ -280,14 +281,14 @@ Item {
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
           width: Math.max(1, parent.width * 0.34)
-          height: Style.space(8)
+          height: MailStyle.space(8)
         }
 
         ActionIcon {
           id: flagIcon
           visible: stop.modelData.flagged
           anchors.left: stop.modelData.known ? dateText.right : dateBar.right
-          anchors.leftMargin: Style.space(5)
+          anchors.leftMargin: MailStyle.space(5)
           anchors.verticalCenter: parent.verticalCenter
           name: "star"
           filled: true
@@ -305,7 +306,7 @@ Item {
           visible: stop.modelData.mailbox !== ""
           anchors.left: flagIcon.visible ? flagIcon.right
             : (stop.modelData.known ? dateText.right : dateBar.right)
-          anchors.leftMargin: Style.space(8)
+          anchors.leftMargin: MailStyle.space(8)
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
           horizontalAlignment: Text.AlignRight
@@ -313,7 +314,7 @@ Item {
           text: stop.modelData.mailbox
           color: root.dimmerColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           elide: Text.ElideRight
         }
       }
@@ -327,7 +328,7 @@ Item {
           visible: stop.modelData.known
           anchors.left: parent.left
           anchors.right: openMark.visible ? openMark.left : parent.right
-          anchors.rightMargin: openMark.visible ? Style.space(5) : 0
+          anchors.rightMargin: openMark.visible ? MailStyle.space(5) : 0
           // A stranger wrote this name. AutoText would promote anything
           // tag-shaped in it to rich text, and Qt's rich text engine fetches an
           // <img src> for real.
@@ -335,7 +336,7 @@ Item {
           text: stop.modelData.sender
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           font.bold: stop.modelData.unread
           elide: Text.ElideRight
         }
@@ -346,7 +347,7 @@ Item {
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
           width: Math.max(1, parent.width * 0.62)
-          height: Style.space(9)
+          height: MailStyle.space(9)
         }
 
         // The word, not only the fill: a theme whose selected surface is faint
@@ -361,7 +362,7 @@ Item {
           text: "open"
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
         }
       }
     }

@@ -30,6 +30,12 @@ QtObject {
 
   // "light", "dark", or "" to follow the desktop. Set by the standalone
   // window from its appearance setting; an Omarchy theme overrides both.
+  readonly property QtObject tooltip: QtObject {
+    readonly property color text: root.popups.text
+    readonly property color background: root.popups.background
+    readonly property color border: root.popups.border
+  }
+
   property string preferredAppearance: ""
   onPreferredAppearanceChanged: applySystemAppearance(fallbackAppearance())
 

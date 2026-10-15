@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../providers/Outlook.js" as Outlook
@@ -34,7 +36,7 @@ Column {
   property int connectionSerial: 0
   readonly property bool connectionAvailable: !!service && service.backendCanCheckMicrosoftConnection === true
 
-  spacing: Style.space(16)
+  spacing: MailStyle.space(16)
 
   function validatedAddress() {
     var address = addressField.text.trim()
@@ -151,7 +153,7 @@ Column {
     width: parent.width
     providerId: "outlook"
     title: "Add an Outlook mailbox"
-    detail: "Outlook.com and Hotmail use Microsoft sign-in. Omamail never sees your password."
+    detail: "Outlook.com and Hotmail use Microsoft sign-in. Magpie never sees your password."
     textColor: root.textColor
     dimColor: root.dimColor
     panelFontFamily: root.panelFontFamily
@@ -161,7 +163,7 @@ Column {
   Rectangle {
     width: parent.width
     visible: root.toolsMissing
-    implicitHeight: missingText.implicitHeight + Style.space(20)
+    implicitHeight: missingText.implicitHeight + MailStyle.space(20)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
     border.width: 1
@@ -171,21 +173,21 @@ Column {
       id: missingText
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.margins: Style.space(12)
+      anchors.margins: MailStyle.space(12)
       anchors.verticalCenter: parent.verticalCenter
       text: root.auth
         ? "Install " + root.auth.missingTools.join(", ") + " before signing in."
         : ""
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
 
   Column {
     width: parent.width
-    spacing: Style.space(10)
+    spacing: MailStyle.space(10)
 
     SenderNameField {
       id: senderField
@@ -193,29 +195,29 @@ Column {
       width: parent.width
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       onAccepted: addressField.forceActiveFocus()
     }
 
-    TextField {
+    Widgets.TextField {
       id: addressField
       objectName: "outlook-address-field"
       width: parent.width
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       placeholderText: "Outlook, Hotmail or Microsoft 365 address"
       onAccepted: if (!root.usingBuiltinClient) clientIdField.forceActiveFocus()
     }
 
-    TextField {
+    Widgets.TextField {
       id: clientIdField
       objectName: "outlook-client-id-field"
       width: parent.width
       visible: !root.usingBuiltinClient
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       placeholderText: "Microsoft Application (client) ID"
       onAccepted: root.signIn()
     }
@@ -225,7 +227,7 @@ Column {
     // the tenant has switched authenticated SMTP off, through Graph.
     Row {
       width: parent.width
-      spacing: Style.space(10)
+      spacing: MailStyle.space(10)
 
       ToggleSwitch {
         id: workSwitch
@@ -241,7 +243,7 @@ Column {
         text: "Work or school account (Microsoft 365)"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
 
       // The slider alone does not say which way is on.
@@ -250,13 +252,13 @@ Column {
         text: workSwitch.checked ? "On" : "Off"
         color: workSwitch.checked ? root.accentColor : root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
     }
 
     Row {
       width: parent.width
-      spacing: Style.space(10)
+      spacing: MailStyle.space(10)
       visible: workSwitch.checked
 
       ToggleSwitch {
@@ -273,9 +275,9 @@ Column {
         text: "Send through Microsoft Graph (the tenant has SMTP switched off)"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         wrapMode: Text.WordWrap
-        width: parent.width - graphSwitch.width - graphState.width - Style.space(20)
+        width: parent.width - graphSwitch.width - graphState.width - MailStyle.space(20)
       }
 
       Text {
@@ -284,7 +286,7 @@ Column {
         text: graphSwitch.checked ? "On" : "Off"
         color: graphSwitch.checked ? root.accentColor : root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
     }
 
@@ -297,7 +299,7 @@ Column {
       text: ""
       color: root.dangerColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
 
@@ -311,7 +313,7 @@ Column {
         !!root.auth && Microsoft.isWorkTenant(root.auth.tenant)) : ""
       color: Microsoft.connectionReady(root.connectionReport) ? root.textColor : root.dangerColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
@@ -319,14 +321,14 @@ Column {
   Column {
     width: parent.width
     visible: !root.signedIn
-    spacing: Style.space(6)
+    spacing: MailStyle.space(6)
 
     Text {
       width: parent.width
       text: "Enable IMAP in Outlook.com before signing in. Under Settings > Mail > Forwarding and IMAP, turn on Let devices and apps use IMAP, then save."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
 
@@ -334,7 +336,7 @@ Column {
       text: "Open Outlook IMAP help..."
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       tooltipText: "https://support.microsoft.com/en-us/outlook/pop-imap-and-smtp-settings-for-outlook-com"
       onActivated: if (root.service && typeof root.service.openExternal === "function")
         root.service.openExternal(tooltipText)
@@ -344,23 +346,23 @@ Column {
   Column {
     width: parent.width
     visible: !root.usingBuiltinClient && !root.signedIn
-    spacing: Style.space(6)
+    spacing: MailStyle.space(6)
 
     Text {
       width: parent.width
       text: "One-time Microsoft app setup"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       font.bold: true
     }
 
     Text {
       width: parent.width
-      text: "1. Register an app for personal Microsoft accounts. 2. Under Authentication, enable public client flows. 3. Copy its Application (client) ID above. Omamail requests only IMAP, SMTP and offline access when you sign in."
+      text: "1. Register an app for personal Microsoft accounts. 2. Under Authentication, enable public client flows. 3. Copy its Application (client) ID above. Magpie requests only IMAP, SMTP and offline access when you sign in."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
 
@@ -368,7 +370,7 @@ Column {
       text: "Open Microsoft Entra app registrations..."
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       tooltipText: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
       onActivated: if (root.service && typeof root.service.openExternal === "function")
         root.service.openExternal(tooltipText)
@@ -378,7 +380,7 @@ Column {
   Rectangle {
     width: parent.width
     visible: root.busy && root.auth && root.auth.userCode !== ""
-    implicitHeight: deviceColumn.implicitHeight + Style.space(20)
+    implicitHeight: deviceColumn.implicitHeight + MailStyle.space(20)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
     border.width: 1
@@ -388,9 +390,9 @@ Column {
       id: deviceColumn
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.margins: Style.space(12)
+      anchors.margins: MailStyle.space(12)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(8)
+      spacing: MailStyle.space(8)
 
       Text {
         width: parent.width
@@ -399,24 +401,24 @@ Column {
           : "Enter this code on the Microsoft page opened in your browser:"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
 
-      TextField {
+      Widgets.TextField {
         width: parent.width
         readOnly: true
         text: root.auth && root.auth.userCode !== undefined ? root.auth.userCode : ""
         foreground: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.body
+        font.pixelSize: MailStyle.body
       }
 
       LinkLabel {
         text: "Open Microsoft sign-in again..."
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         tooltipText: root.auth && root.auth.verificationUri !== undefined ? root.auth.verificationUri : ""
         onActivated: if (root.service && typeof root.service.openExternal === "function")
           root.service.openExternal(tooltipText)
@@ -424,7 +426,7 @@ Column {
     }
   }
 
-  Button {
+  Widgets.Button {
     objectName: "outlook-check-connection"
     focusable: true
     visible: root.signedIn && root.connectionAvailable
@@ -432,14 +434,14 @@ Column {
     enabled: !root.connectionBusy && !root.busy && !(root.auth && root.auth.refreshBusy === true)
     foreground: root.textColor
     bordered: true
-    fontSize: Style.font.bodySmall
+    fontSize: MailStyle.bodySmall
     onClicked: root.checkConnection()
   }
 
   Row {
-    spacing: Style.space(8)
+    spacing: MailStyle.space(8)
 
-    Button {
+    Widgets.Button {
       objectName: "outlook-sign-in"
       visible: !root.signedIn || root.graphConsentNeeded
       text: root.graphConsentNeeded ? "Allow Microsoft Graph..." : "Sign in with Microsoft..."
@@ -448,44 +450,44 @@ Column {
         && (root.usingBuiltinClient || clientIdField.text.trim() !== "")
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.signIn()
     }
 
-    Button {
+    Widgets.Button {
       objectName: "outlook-cancel-sign-in"
       visible: root.busy
       text: "Cancel"
       foreground: root.dimColor
       bordered: false
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: if (root.service) root.service.cancelSignIn()
     }
 
-    Button {
+    Widgets.Button {
       visible: root.signedIn
       text: "Save changes"
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.save()
     }
 
-    Button {
+    Widgets.Button {
       visible: root.signedIn
       text: "Sign out"
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: if (root.service) root.service.signOut()
     }
 
-    Button {
+    Widgets.Button {
       visible: root.accountCount > 1
       text: "Remove account"
       foreground: root.dangerColor
       bordered: false
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.removeRequested()
     }
   }

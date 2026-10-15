@@ -1,4 +1,5 @@
 import QtQuick
+import "../controls" as Widgets
 import qs.Commons
 import qs.Ui
 
@@ -29,7 +30,7 @@ Text {
     onTapped: root.activated()
   }
 
-  PanelToolTip {
+  Widgets.PanelToolTip {
     text: root.tooltipText
     visible: hover.hovered && root.tooltipText !== ""
   }

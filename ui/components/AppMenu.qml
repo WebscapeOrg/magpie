@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -85,11 +87,11 @@ Item {
   signal quitRequested()
 
   anchors.fill: root.showTrigger ? undefined : parent
-  implicitWidth: root.showTrigger ? Style.space(24) : 0
-  implicitHeight: root.showTrigger ? Style.space(24) : 0
+  implicitWidth: root.showTrigger ? MailStyle.space(24) : 0
+  implicitHeight: root.showTrigger ? MailStyle.space(24) : 0
   z: 40
 
-  Button {
+  Widgets.Button {
     id: menuButton
     visible: root.showTrigger
     anchors.fill: parent
@@ -101,9 +103,9 @@ Item {
 
   QQC.Popup {
     id: menu
-    width: Style.space(210)
-    implicitHeight: menuItems.implicitHeight + Style.space(8)
-    padding: Style.space(4)
+    width: MailStyle.space(210)
+    implicitHeight: menuItems.implicitHeight + MailStyle.space(8)
+    padding: MailStyle.space(4)
     modal: false
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
@@ -125,7 +127,7 @@ Item {
     }
     contentItem: Column {
       id: menuItems
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       focus: true
       Keys.onPressed: function(event) {

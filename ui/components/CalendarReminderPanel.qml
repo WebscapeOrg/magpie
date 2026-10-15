@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls
 import qs.Commons
 import "../calendar/Calendar.js" as Calendar
@@ -19,7 +20,7 @@ Column {
     return root.eventKey === "" || record.sourceId + "\n" + record.eventId === root.eventKey
   }) : []
   visible: records.length > 0
-  spacing: Style.space(6)
+  spacing: MailStyle.space(6)
 
   Text {
     text: "Reminders"
@@ -27,12 +28,12 @@ Column {
     color: root.textColor
     font.family: root.panelFontFamily
     font.bold: true
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: MailStyle.bodySmall
   }
   Flickable {
     id: reminderScroll
     width: parent.width
-    height: Math.min(entries.implicitHeight, Style.space(180))
+    height: Math.min(entries.implicitHeight, MailStyle.space(180))
     contentHeight: entries.implicitHeight
     contentWidth: width
     clip: true
@@ -42,22 +43,22 @@ Column {
     Column {
       id: entries
       width: parent.width
-      spacing: Style.space(6)
+      spacing: MailStyle.space(6)
       Repeater {
         model: root.records
         delegate: Rectangle {
           id: entry
           required property var modelData
           width: parent.width
-          height: entryContent.implicitHeight + Style.space(16)
+          height: entryContent.implicitHeight + MailStyle.space(16)
           color: Qt.alpha(root.accentColor, 0.08)
           readonly property bool pending: root.reminders.pendingKeys.indexOf(modelData.key) >= 0
           Column {
             id: entryContent
-            x: Style.space(8)
-            y: Style.space(8)
-            width: parent.width - Style.space(16)
-            spacing: Style.space(6)
+            x: MailStyle.space(8)
+            y: MailStyle.space(8)
+            width: parent.width - MailStyle.space(16)
+            spacing: MailStyle.space(6)
             Text {
               width: parent.width
               text: String(entry.modelData.title || "Event") + " · "
@@ -66,11 +67,11 @@ Column {
               wrapMode: Text.Wrap
               color: root.textColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: MailStyle.bodySmall
             }
             Flow {
               width: parent.width
-              spacing: Style.space(6)
+              spacing: MailStyle.space(6)
               IconTextButton {
                 visible: root.eventKey === ""
                 text: "Open event..."
@@ -111,6 +112,6 @@ Column {
     textFormat: Text.PlainText
     wrapMode: Text.Wrap
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
   }
 }

@@ -30,7 +30,7 @@ def main(args):
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     # A new path per palette also prevents image caches retaining the old theme.
     path = directory / (foreground[1:] + '-' + accent[1:] + '.svg')
-    svg = ET.parse(Path(__file__).resolve().parents[1] / 'ui/assets/omamail.svg')
+    svg = ET.parse(Path(__file__).resolve().parents[1] / 'ui/assets/magpie.svg')
     paint(svg.getroot()[0], foreground)
     paint(svg.getroot()[1], accent)
     # Atomic publication: concurrent accounts must never see a partial image.
@@ -50,7 +50,7 @@ def main(args):
     body = escape(body, quote=False)
     actions = (['--action=default=Open event...', '--action=snooze=Snooze', '--action=dismiss=Dismiss']
                if calendar else ['--action=default=Read...'])
-    os.execvp('notify-send', ['notify-send', '-a', 'Omamail', '-i', str(path)]
+    os.execvp('notify-send', ['notify-send', '-a', 'Magpie', '-i', str(path)]
               + actions + ['--', title, body])
 
 

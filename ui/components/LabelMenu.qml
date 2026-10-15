@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -76,9 +77,9 @@ Item {
   // the path with its last segment taken off by whoever handles the signal.
   QQC.Popup {
     id: menu
-    width: Style.space(220)
-    implicitHeight: rows.implicitHeight + Style.space(8)
-    padding: Style.space(4)
+    width: MailStyle.space(220)
+    implicitHeight: rows.implicitHeight + MailStyle.space(8)
+    padding: MailStyle.space(4)
     modal: false
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
@@ -96,7 +97,7 @@ Item {
 
     contentItem: Column {
       id: rows
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       focus: true
       Keys.onPressed: function(event) {
@@ -113,14 +114,14 @@ Item {
       // The label's name, so the menu says which one it is about.
       Text {
         width: menu.width - menu.leftPadding - menu.rightPadding
-        leftPadding: Style.space(9)
-        topPadding: Style.space(4)
-        bottomPadding: Style.space(6)
+        leftPadding: MailStyle.space(9)
+        topPadding: MailStyle.space(4)
+        bottomPadding: MailStyle.space(6)
         textFormat: Text.PlainText
         text: root.labelPath
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         elide: Text.ElideMiddle
       }
 

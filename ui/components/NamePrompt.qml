@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -53,8 +55,8 @@ Item {
   QQC.Popup {
     id: dialog
     anchors.centerIn: parent
-    width: Math.min(Style.space(360), parent.width - Style.space(32))
-    padding: Style.space(18)
+    width: Math.min(MailStyle.space(360), parent.width - MailStyle.space(32))
+    padding: MailStyle.space(18)
     modal: true
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
@@ -70,7 +72,7 @@ Item {
     }
 
     contentItem: Column {
-      spacing: Style.space(10)
+      spacing: MailStyle.space(10)
 
       Text {
         width: parent.width
@@ -78,19 +80,19 @@ Item {
         text: root.title
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         font.bold: true
         wrapMode: Text.WordWrap
       }
 
-      TextField {
+      Widgets.TextField {
         id: field
         objectName: "name-prompt-field"
         width: parent.width
         foreground: root.textColor
         accent: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         onAccepted: root.submit()
       }
 
@@ -101,31 +103,31 @@ Item {
         text: root.hint
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
 
       Row {
         anchors.right: parent.right
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
-        Button {
+        Widgets.Button {
           text: "Cancel"
           foreground: root.dimColor
           bordered: false
           fontFamily: root.panelFontFamily
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           onClicked: dialog.close()
         }
 
-        Button {
+        Widgets.Button {
           objectName: "name-prompt-ok"
           text: "OK"
           foreground: root.textColor
           bordered: true
           accent: root.accentColor
           fontFamily: root.panelFontFamily
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           enabled: String(field.text || "").trim() !== ""
           onClicked: root.submit()
         }

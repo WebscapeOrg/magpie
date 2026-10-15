@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Commons as Commons
 import "Icons.js" as Icons
@@ -18,7 +19,7 @@ Item {
 
   property string name: ""
   property color color: Commons.Color.foreground
-  // Omamail keeps the envelope in the foreground and gives its M the active
+  // Magpie keeps the envelope in the foreground and gives its M the active
   // theme accent. Provider artwork uses ProviderLogo instead of this mark.
   property color markColor: color
   property bool brand: false
@@ -30,7 +31,7 @@ Item {
   // keeps native text metrics, but supplies the same Nerd Font symbol range
   // through Style.font.iconFamily so these private-use codepoints never fall
   // through to a platform-dependent fallback face.
-  property string fontFamily: Style.font["iconFamily"] || Style.font.family
+  property string fontFamily: Style.font["iconFamily"] || MailStyle.family
   // Stroke weight of the drawn mark only, relative to its 16-unit grid.
   property real strokeScale: 1.4
 

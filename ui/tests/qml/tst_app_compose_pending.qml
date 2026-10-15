@@ -1,6 +1,8 @@
 import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
+import "../../settings/Display.js" as Display
+import "../../settings"
 
 Item {
   width: 900
@@ -54,6 +56,8 @@ Item {
     }
     function agentSelectionJob(ids, owner) { return null }
     function refreshAgentJobs() {}
+    property var displayPreferences: Display.normalize({})
+    function setDisplayPreference(key, value) { displayPreferences = Display.changed(displayPreferences, key, value) }
     property bool ready: true
     property bool anyAccountReady: true
     property bool sendPending: true
@@ -228,6 +232,44 @@ Item {
     }
 
     SignalSpy { id: shortcutSpy; signalName: "triggered" }
+
+    function test_single_pane_click_enter_back_and_layout_switch() {
+      mailService.sendPending = false
+      mailService.displayPreferences = Display.normalize({})
+      app.open("{}")
+      var reader = typed(app, "MessageReader_")
+      var list = typed(app, "MessageList_")
+      compare(app.singlePane, true)
+      compare(list.visible, true)
+      compare(reader.visible, false)
+      app.openMessage("message-1")
+      compare(app.currentView, "reader")
+      compare(list.visible, false)
+      compare(reader.visible, true)
+      app.backToList()
+      compare(list.visible, true)
+      compare(reader.visible, false)
+      app.cursorId = "message-1"
+      app.runShortcut("open")
+      compare(reader.visible, true)
+      compare(list.visible, false)
+      app.runShortcut("backToList")
+      compare(list.visible, true)
+      var toggle = named(app, "layout-toggle")
+      toggle.clicked()
+      compare(mailService.displayPreferences.layout, "Split view")
+      compare(app.singlePane, false)
+      // A sufficiently wide window shows the list and reader together.
+      app.openMessage("message-1")
+      verify(!app.compact)
+      compare(list.visible, true)
+      compare(reader.visible, true)
+      toggle.clicked()
+      compare(app.singlePane, true)
+      compare(list.visible, false)
+      app.backToList()
+      compare(list.visible, true)
+    }
 
     function test_readiness_changes_keep_the_open_draft_and_keyboard_together() {
       var compose = composeView()

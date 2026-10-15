@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 
@@ -13,11 +15,11 @@ Column {
   property bool diagnosisAvailable: false
   property bool diagnosing: false
   signal diagnosisRequested()
-  spacing: Style.space(12)
+  spacing: MailStyle.space(12)
   onVisibleChanged: {
     if (visible && runtime && !runtime.busy && typeof runtime.refresh === "function") runtime.refresh()
   }
-  OmamailLogo {
+  MagpieLogo {
     foreground: root.dimColor
     accent: root.accentColor
   }
@@ -25,12 +27,12 @@ Column {
     text: "Mail backend"
     color: root.textColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.heading
+    font.pixelSize: MailStyle.heading
   }
   Row {
     width: parent.width
     height: Math.max(versionLabel.height, checkButton.height)
-    spacing: Style.space(8)
+    spacing: MailStyle.space(8)
     Text {
       id: versionLabel
       objectName: "backend-version-label"
@@ -43,13 +45,13 @@ Column {
           ? "Bundled backend " + root.runtime.installedVersion + " is ready."
           : "Backend " + root.runtime.installedVersion + " is installed.")
         : root.runtime.bundled ? "The bundled mail backend could not start."
-        : "Omamail needs backend " + (root.runtime.requiredVersion || "matching this plugin")
+        : "Magpie needs backend " + (root.runtime.requiredVersion || "matching this plugin")
           + (root.runtime.installedVersion ? ". Installed: " + root.runtime.installedVersion : ". It is not installed yet.")
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.body
+      font.pixelSize: MailStyle.body
     }
-    Button {
+    Widgets.Button {
       id: checkButton
       objectName: "backend-refresh"
       y: (parent.height - height) / 2
@@ -72,7 +74,7 @@ Column {
       : "Required for the app’s mail features. The backend is installed and managed inside this plugin."
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.body
+    font.pixelSize: MailStyle.body
   }
   Text {
     width: parent.width
@@ -81,12 +83,12 @@ Column {
     text: root.runtime && root.runtime.error ? root.runtime.error : root.backendError
     color: root.textColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.body
+    font.pixelSize: MailStyle.body
   }
   Flow {
     width: parent.width
-    spacing: Style.space(8)
-    Button {
+    spacing: MailStyle.space(8)
+    Widgets.Button {
       bordered: true
       accent: root.accentColor
       fontFamily: root.panelFontFamily
@@ -104,7 +106,7 @@ Column {
       enabled: !root.diagnosing
       iconName: "agent"
       iconSize: Style.font.iconSmall
-      size: Style.space(24)
+      size: MailStyle.space(24)
       tooltipText: "Diagnose with AI..."
       Accessible.role: Accessible.Button
       Accessible.name: "Diagnose with AI..."
@@ -116,17 +118,17 @@ Column {
   }
   Column {
     width: parent.width
-    spacing: Style.space(8)
+    spacing: MailStyle.space(8)
     visible: !!root.runtime && !root.runtime.bundled && !root.runtime.development
       && root.runtime.state === "ready"
     Text {
       text: "CLI command"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.body
+      font.pixelSize: MailStyle.body
       font.bold: true
     }
-    Button {
+    Widgets.Button {
       id: installCli
       objectName: "backend-install-cli"
       visible: !!root.runtime && !root.runtime.bundled && !root.runtime.development
@@ -152,7 +154,7 @@ Column {
         : "Optional. Links the installed backend to ~/.local/bin/omamail on your PATH for use in the terminal."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
     }
   }
 }

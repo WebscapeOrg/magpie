@@ -14,7 +14,7 @@ TestCase {
   when: windowShown
   visible: true
   width: 640
-  height: 480
+  height: 720
 
   HostFixture { id: host }
 

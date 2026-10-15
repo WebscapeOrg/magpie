@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls
 import qs.Commons
 import qs.Ui
@@ -61,17 +63,17 @@ Item {
     anchors.top: parent.top
     anchors.bottom: footer.top
     contentWidth: width
-    contentHeight: column.implicitHeight + Style.space(12)
+    contentHeight: column.implicitHeight + MailStyle.space(12)
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
     Column {
       id: column
-      x: Style.space(6)
-      y: Style.space(6)
-      width: flick.width - Style.space(12)
-      spacing: Style.space(1)
+      x: MailStyle.space(6)
+      y: MailStyle.space(6)
+      width: flick.width - MailStyle.space(12)
+      spacing: MailStyle.space(1)
 
       Repeater {
         // The account's own list. A provider with no All mail must not be
@@ -98,7 +100,7 @@ Item {
 
       Item {
         width: parent.width
-        implicitHeight: Style.space(12)
+        implicitHeight: MailStyle.space(12)
         visible: root.userLabels.length > 0
 
         PanelSeparator {
@@ -108,10 +110,10 @@ Item {
         }
       }
 
-      PanelSectionHeader {
+      Widgets.PanelSectionHeader {
         visible: root.userLabels.length > 0 && !root.collapsed
-        leftPadding: Style.space(8)
-        bottomPadding: Style.space(3)
+        leftPadding: MailStyle.space(8)
+        bottomPadding: MailStyle.space(3)
         text: "LABELS"
         foreground: root.textColor
         fontFamily: root.panelFontFamily
@@ -163,7 +165,7 @@ Item {
     anchors.bottom: parent.bottom
 
     Entry {
-      x: Style.space(6)
+      x: MailStyle.space(6)
       label: "Calendar"
       icon: "calendar"
       selected: root.calendarSelected
@@ -172,7 +174,7 @@ Item {
 
     Item {
       width: parent.width
-      height: Style.space(6)
+      height: MailStyle.space(6)
     }
 
   }
@@ -207,7 +209,7 @@ Item {
     readonly property string numberText: String(slotNumber)
 
     width: column.width
-    implicitHeight: Style.space(28)
+    implicitHeight: MailStyle.space(28)
     radius: Style.cornerRadius
     color: entry.selected
       ? Style.selectedFillFor(root.textColor, root.accentColor)
@@ -217,7 +219,7 @@ Item {
       id: glyph
       anchors.left: parent.left
       anchors.leftMargin: root.collapsed
-        ? (parent.width - width) / 2 : Style.space(8) + entry.depth * Style.space(12)
+        ? (parent.width - width) / 2 : MailStyle.space(8) + entry.depth * MailStyle.space(12)
       anchors.verticalCenter: parent.verticalCenter
       name: entry.icon
       iconSize: Style.font.icon
@@ -234,10 +236,10 @@ Item {
       objectName: "fold"
       visible: entry.foldable && !root.collapsed && !entry.showsNumber
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(4)
+      anchors.rightMargin: MailStyle.space(4)
       anchors.verticalCenter: parent.verticalCenter
-      width: Style.space(18)
-      height: Style.space(22)
+      width: MailStyle.space(18)
+      height: MailStyle.space(22)
 
       ActionIcon {
         anchors.centerIn: parent
@@ -257,10 +259,10 @@ Item {
       visible: entry.showsNumber
       anchors.verticalCenter: root.collapsed ? undefined : parent.verticalCenter
       anchors.top: root.collapsed ? parent.top : undefined
-      anchors.topMargin: Style.space(1)
+      anchors.topMargin: MailStyle.space(1)
       anchors.right: parent.right
-      anchors.rightMargin: root.collapsed ? Style.space(1) : Style.space(6)
-      width: Style.space(root.collapsed ? 10 : 16)
+      anchors.rightMargin: root.collapsed ? MailStyle.space(1) : MailStyle.space(6)
+      width: MailStyle.space(root.collapsed ? 10 : 16)
       height: width
       radius: Style.cornerRadius
       // This names a shortcut; it is not another selected state layered over
@@ -273,7 +275,7 @@ Item {
         text: entry.numberText
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: root.collapsed ? Style.font.caption * 0.8 : Style.font.caption
+        font.pixelSize: root.collapsed ? MailStyle.caption * 0.8 : MailStyle.caption
         font.bold: true
       }
     }
@@ -281,10 +283,10 @@ Item {
     Text {
       visible: !root.collapsed
       anchors.left: glyph.right
-      anchors.leftMargin: Style.space(9)
+      anchors.leftMargin: MailStyle.space(9)
       anchors.right: slotChip.visible ? slotChip.left
         : (badge.visible ? badge.left : (fold.visible ? fold.left : parent.right))
-      anchors.rightMargin: Style.space(6)
+      anchors.rightMargin: MailStyle.space(6)
       anchors.verticalCenter: parent.verticalCenter
       textFormat: Text.PlainText
       text: entry.label
@@ -292,7 +294,7 @@ Item {
         : (entry.selectable ? root.dimColor
           : Qt.rgba(root.dimColor.r, root.dimColor.g, root.dimColor.b, root.dimColor.a * 0.6))
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       font.bold: entry.selected
       elide: Text.ElideRight
     }
@@ -301,22 +303,22 @@ Item {
       id: badge
       visible: entry.count > 0 && !root.collapsed && !entry.showsNumber
       anchors.right: fold.visible ? fold.left : parent.right
-      anchors.rightMargin: fold.visible ? Style.space(2) : Style.space(8)
+      anchors.rightMargin: fold.visible ? MailStyle.space(2) : MailStyle.space(8)
       anchors.verticalCenter: parent.verticalCenter
       text: Model.badgeText(entry.count, 999)
       color: root.accentColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       font.bold: true
     }
 
     Rectangle {
       visible: entry.count > 0 && root.collapsed && !entry.showsNumber
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(3)
+      anchors.rightMargin: MailStyle.space(3)
       anchors.top: parent.top
-      anchors.topMargin: Style.space(4)
-      width: Style.space(5)
+      anchors.topMargin: MailStyle.space(4)
+      width: MailStyle.space(5)
       height: width
       radius: width / 2
       color: root.accentColor
@@ -344,7 +346,7 @@ Item {
 
     // The tooltip is how the rail stays usable while collapsed, and it carries
     // the count too, which the dot can only hint at.
-    PanelToolTip {
+    Widgets.PanelToolTip {
       objectName: "label-tooltip"
       visible: hover.hovered
       text: (entry.fullPath !== "" ? entry.fullPath : entry.label)

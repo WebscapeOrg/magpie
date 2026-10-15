@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../providers/ImapProtocol.js" as Imap
@@ -37,7 +39,7 @@ Column {
   // fields — never to override something already typed into them.
   readonly property var suggestion: Imap.suggestedSettings(addressField.text)
 
-  spacing: Style.space(16)
+  spacing: MailStyle.space(16)
 
   function currentSettings() {
     return Imap.setupSettings({
@@ -166,14 +168,14 @@ Column {
 
   Column {
     width: parent.width
-    spacing: Style.space(4)
+    spacing: MailStyle.space(4)
 
     Text {
       width: parent.width
       text: "Add a mailbox"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.heading
+      font.pixelSize: MailStyle.heading
       font.bold: true
     }
 
@@ -182,7 +184,7 @@ Column {
       text: "Any mailbox that speaks IMAP — Fastmail, iCloud, Zoho, a server of your own. The address is usually all it takes."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       wrapMode: Text.WordWrap
     }
   }
@@ -190,7 +192,7 @@ Column {
   Rectangle {
     width: parent.width
     visible: root.toolsMissing
-    implicitHeight: missingText.implicitHeight + Style.space(20)
+    implicitHeight: missingText.implicitHeight + MailStyle.space(20)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
     border.width: 1
@@ -200,7 +202,7 @@ Column {
       id: missingText
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.margins: Style.space(12)
+      anchors.margins: MailStyle.space(12)
       anchors.verticalCenter: parent.verticalCenter
       text: root.auth
         ? "Install " + root.auth.missingTools.join(", ")
@@ -208,7 +210,7 @@ Column {
         : ""
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
@@ -217,7 +219,7 @@ Column {
 
   Column {
     width: parent.width
-    spacing: Style.space(10)
+    spacing: MailStyle.space(10)
 
     AccountNameField {
       id: nameField
@@ -225,7 +227,7 @@ Column {
       width: parent.width
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       onAccepted: (senderField.available ? senderField : addressField).forceActiveFocus()
     }
 
@@ -235,17 +237,17 @@ Column {
       width: parent.width
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       onAccepted: addressField.forceActiveFocus()
     }
 
-    TextField {
+    Widgets.TextField {
       id: addressField
       objectName: "imap-address-field"
       width: parent.width
       foreground: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       placeholderText: "Email address — you@example.com"
       onTextChanged: root.applySuggestion()
       onAccepted: passwordField.forceActiveFocus()
@@ -261,7 +263,7 @@ Column {
     Rectangle {
       width: parent.width
       visible: root.suggestion.note !== ""
-      implicitHeight: noteColumn.implicitHeight + Style.space(20)
+      implicitHeight: noteColumn.implicitHeight + MailStyle.space(20)
       radius: Style.cornerRadius
       color: Style.normalFillFor(root.textColor, root.accentColor)
       border.width: 1
@@ -271,9 +273,9 @@ Column {
         id: noteColumn
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.margins: Style.space(12)
+        anchors.margins: MailStyle.space(12)
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(6)
+        spacing: MailStyle.space(6)
 
         Text {
           width: parent.width
@@ -281,7 +283,7 @@ Column {
           text: root.suggestion.note
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           wrapMode: Text.WordWrap
         }
 
@@ -291,7 +293,7 @@ Column {
           text: root.suggestion.guideLabel + "..."
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           tooltipText: root.suggestion.guideUrl
           onActivated: if (root.service && typeof root.service.openExternal === "function")
             root.service.openExternal(root.suggestion.guideUrl)
@@ -303,7 +305,7 @@ Column {
       width: parent.width
       implicitHeight: passwordField.implicitHeight
 
-      TextField {
+      Widgets.TextField {
         id: passwordField
         anchors.left: parent.left
         anchors.right: parent.right
@@ -311,17 +313,17 @@ Column {
         // demand, because an app password is a 16-character string nobody can
         // check by memory.
         password: !root.passwordVisible
-        rightPadding: horizontalPadding + Style.space(26)
+        rightPadding: horizontalPadding + MailStyle.space(26)
         foreground: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Password, or app password"
         onAccepted: root.signIn()
       }
 
       IconButton {
         anchors.right: parent.right
-        anchors.rightMargin: Style.space(4)
+        anchors.rightMargin: MailStyle.space(4)
         anchors.verticalCenter: passwordField.verticalCenter
         visible: passwordField.text !== ""
         iconName: root.passwordVisible ? "eyeOff" : "eye"
@@ -329,7 +331,7 @@ Column {
         foreground: root.dimColor
         hoverColor: root.textColor
         iconSize: Style.font.iconSmall
-        size: Style.space(22)
+        size: MailStyle.space(22)
         fontFamily: root.panelFontFamily
         onClicked: root.passwordVisible = !root.passwordVisible
       }
@@ -343,7 +345,7 @@ Column {
       text: ""
       color: root.dangerColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
@@ -355,42 +357,42 @@ Column {
 
   Column {
     width: parent.width
-    spacing: Style.space(10)
+    spacing: MailStyle.space(10)
 
     IconTextButton {
       iconName: root.serversVisible ? "chevronDown" : "chevronRight"
       text: root.serversVisible ? "Hide the server settings" : "Server settings"
       foreground: root.dimColor
       fontFamily: root.panelFontFamily
-      fontSize: Style.font.caption
+      fontSize: MailStyle.caption
       onClicked: root.serversVisible = !root.serversVisible
     }
 
     Column {
       width: parent.width
       visible: root.serversVisible
-      spacing: Style.space(8)
+      spacing: MailStyle.space(8)
 
       Row {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
-        TextField {
+        Widgets.TextField {
           id: imapHostField
           width: parent.width - imapPortField.width - parent.spacing
           foreground: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           placeholderText: "IMAP server"
           onTextEdited: root.serversTouched = true
         }
 
-        TextField {
+        Widgets.TextField {
           id: imapPortField
-          width: Style.space(90)
+          width: MailStyle.space(90)
           foreground: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           placeholderText: "IMAP port"
           onTextEdited: root.serversTouched = true
         }
@@ -398,24 +400,24 @@ Column {
 
       Row {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
-        TextField {
+        Widgets.TextField {
           id: smtpHostField
           width: parent.width - smtpPortField.width - parent.spacing
           foreground: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           placeholderText: "SMTP server — leave empty to read only"
           onTextEdited: root.serversTouched = true
         }
 
-        TextField {
+        Widgets.TextField {
           id: smtpPortField
-          width: Style.space(90)
+          width: MailStyle.space(90)
           foreground: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           placeholderText: "SMTP port"
           onTextEdited: root.serversTouched = true
         }
@@ -424,22 +426,22 @@ Column {
       // Only for the servers where the login name is not the address, which is
       // common enough on self-hosted mail to be worth a field and rare enough
       // to keep out of the way.
-      TextField {
+      Widgets.TextField {
         id: usernameField
         width: parent.width
         foreground: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Username — only if it is not the address"
       }
 
-      TextField {
+      Widgets.TextField {
         id: aliasesField
         objectName: "imap-aliases-field"
         width: parent.width
         foreground: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Send-as aliases — comma-separated (e.g. alias@icloud.com (default))"
       }
     }
@@ -450,48 +452,48 @@ Column {
       text: "TLS on connect, or a required STARTTLS upgrade on ports 143, 25 and 587. Plain text is refused unless the server is on this machine."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
 
   Row {
-    spacing: Style.space(8)
+    spacing: MailStyle.space(8)
 
-    Button {
+    Widgets.Button {
       visible: !root.signedIn
       text: root.busy ? "Checking" : "Connect the mailbox"
       enabled: !root.busy && addressField.text.trim() !== "" && passwordField.text !== ""
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.signIn()
     }
 
-    Button {
+    Widgets.Button {
       visible: root.signedIn
       text: "Save changes"
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.save()
     }
 
-    Button {
+    Widgets.Button {
       visible: root.signedIn
       text: "Sign out"
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: if (root.service) root.service.signOut()
     }
 
-    Button {
+    Widgets.Button {
       visible: root.accountCount > 1
       text: "Remove account"
       foreground: root.dangerColor
       bordered: false
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.removeRequested()
     }
   }

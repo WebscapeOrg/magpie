@@ -31,6 +31,11 @@ QtObject {
   // standalone tooltip the same pause, including controls that use the
   // platform style directly.
   readonly property int tooltipDelay: 400
+  function hoverStateColor(foreground, accent) { return selectedStateColor(foreground, accent) }
+  function controlFill(focused, hot, foreground, accent) {
+    return focused ? focusFillFor(foreground, accent)
+      : (hot ? hoverFillFor(foreground, accent) : normalFillFor(foreground, accent))
+  }
   readonly property color normalBorderColor: normalBorderFor(Commons.Color.foreground, Commons.Color.accent)
   readonly property color selectedAccentFill: selectedFillFor(Commons.Color.foreground, Commons.Color.accent)
   readonly property var font: ({
@@ -55,6 +60,8 @@ QtObject {
     lg: spacingToken("lg", 8), xl: spacingToken("xl", 10),
     xxl: spacingToken("xxl", 12), xxxl: spacingToken("xxxl", 14),
     huge: spacingToken("huge", 18),
+    tooltipPaddingX: spacingToken("tooltip-padding-x", 8),
+    tooltipPaddingY: spacingToken("tooltip-padding-y", 6),
     controlPaddingX: spacingToken("control-padding-x", 10),
     controlPaddingY: spacingToken("control-padding-y", 6),
     inputPaddingY: spacingToken("input-padding-y", 7),

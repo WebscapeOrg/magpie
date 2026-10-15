@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 
 Rectangle {
@@ -38,7 +39,7 @@ Rectangle {
   }
 
   visible: contacts.length > 0
-  implicitHeight: Math.min(suggestions.contentHeight, Style.space(210)) + Style.space(4)
+  implicitHeight: Math.min(suggestions.contentHeight, MailStyle.space(210)) + MailStyle.space(4)
   height: implicitHeight
   radius: Style.cornerRadius
   // Theme popup colors may carry transparency for floating shell panels.
@@ -52,7 +53,7 @@ Rectangle {
 
     WheelScroller { view: suggestions }
     anchors.fill: parent
-    anchors.margins: Style.space(2)
+    anchors.margins: MailStyle.space(2)
     clip: true
     model: root.contacts
 
@@ -62,7 +63,7 @@ Rectangle {
       required property int index
 
       width: suggestions.width
-      height: Style.space(40)
+      height: MailStyle.space(40)
       radius: Style.cornerRadius
       color: root.currentIndex === suggestion.index
         ? Style.selectedFillFor(root.textColor, root.accentColor)
@@ -72,10 +73,10 @@ Rectangle {
       Column {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.leftMargin: Style.space(9)
-        anchors.rightMargin: Style.space(9)
+        anchors.leftMargin: MailStyle.space(9)
+        anchors.rightMargin: MailStyle.space(9)
         anchors.verticalCenter: parent.verticalCenter
-        spacing: Style.space(1)
+        spacing: MailStyle.space(1)
 
         Text {
           width: parent.width
@@ -83,7 +84,7 @@ Rectangle {
           text: String(suggestion.modelData.name || suggestion.modelData.email || "")
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           elide: Text.ElideRight
         }
 
@@ -94,7 +95,7 @@ Rectangle {
           text: String(suggestion.modelData.email || "")
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           elide: Text.ElideMiddle
         }
       }

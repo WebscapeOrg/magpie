@@ -1,3 +1,4 @@
+import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 import qs.Commons
@@ -8,8 +9,8 @@ import "../.." as Omamail
 // what the window closes on. These are the rules `App.qml` applies on top of
 // `account/Navigation.js`, run against the real views with a fake service.
 Item {
-  width: 900
-  height: 600
+  width: 1700
+  height: 1300
 
   QtObject {
     id: fakeShell
@@ -52,6 +53,7 @@ Item {
     property int diagnosisCalls: 0
     function diagnoseError() { diagnosisCalls++; diagnosing = true }
 
+    property var displayPreferences: ({layout: "Split view"})
     property bool ready: true
     property bool anyAccountReady: true
     property bool hasSavedAccounts: true

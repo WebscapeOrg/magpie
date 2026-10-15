@@ -1,11 +1,11 @@
 QMLLINT := /usr/lib/qt6/bin/qmllint
 .DEFAULT_GOAL := test
-QML_FILES := ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryController.qml ui/compose/PendingCompose.qml \
+QML_FILES := ui/tests/qml/tst_display_settings.qml ui/controls/Dropdown.qml ui/controls/NumberField.qml ui/controls/Button.qml ui/controls/TextField.qml ui/controls/PanelToolTip.qml ui/controls/PanelSectionHeader.qml ui/controls/PanelActionButton.qml ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryController.qml ui/compose/PendingCompose.qml \
 	ui/tests/compatibility/tst_published_agent.qml \
 	ui/tests/qml/tst_unified_batch.qml ui/tests/qml/tst_clipboard_arguments.qml \
 	ui/tests/qml/tst_reader_subject_menu.qml \
 	ui/backend/Backend.qml ui/backend/Runtime.qml ui/diagnostics/Diagnostics.qml \
-	ui/components/BackendSetup.qml ui/components/OmamailLogo.qml \
+	ui/components/BackendSetup.qml ui/components/MagpieLogo.qml ui/components/DisplaySettings.qml ui/settings/MailStyle.qml \
 	ui/account/MailAccount.qml ui/account/BackendSync.qml ui/account/SendQueue.qml ui/account/Intents.qml ui/account/BatchAction.qml ui/account/UnifiedBatchAction.qml ui/account/UnifiedBatchSelection.qml ui/account/Rsvp.qml ui/account/LabelActions.qml ui/account/Unsubscribe.qml ui/account/NewMailNotification.qml \
 	ui/cache/CacheStore.qml ui/cache/BodyCache.qml \
 	ui/providers/AuthManager.qml ui/providers/GmailApiClient.qml \
@@ -18,7 +18,6 @@ QML_FILES := ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryContr
 	ui/components/JmapSetupPage.qml \
 	ui/components/HeySetupPage.qml \
 	ui/components/ProviderPicker.qml \
-	ui/components/GmailIcon.qml \
 	ui/components/ProviderLogo.qml \
 	ui/components/ProviderHero.qml \
 	ui/components/LinkLabel.qml \
@@ -117,6 +116,7 @@ backend:
 # The parsing, formatting, and decision rules live in plain JS precisely so
 # they can be tested without a compositor. These run anywhere node does.
 test-js:
+	node ui/tests/test_display.js
 	node app/tests/test_theme.js
 	node app/tests/test_shell_theme.js
 	node ui/tests/test_bar_bridge.js

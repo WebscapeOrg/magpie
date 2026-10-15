@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
@@ -404,12 +406,12 @@ FocusScope {
     Column {
       id: content
       anchors.fill: parent
-      anchors.margins: Style.space(12)
-      spacing: Style.space(8)
+      anchors.margins: MailStyle.space(12)
+      spacing: MailStyle.space(8)
       Row {
         id: header
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
         BackBar {
           id: historyBack
           objectName: "agent-history-back"
@@ -430,7 +432,7 @@ FocusScope {
             : "AI · " + (root.subject || "Message")
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           font.bold: true
           elide: Text.ElideRight
         }
@@ -440,7 +442,7 @@ FocusScope {
         objectName: "agent-transcript-scroll"
         visible: !root.historyMode
         width: parent.width
-        height: Math.max(Style.space(32), content.height - y - controls.implicitHeight - pendingRows.implicitHeight - (pendingRows.visible ? Style.space(8) : 0) - requestRow.implicitHeight - statusText.implicitHeight - Style.space(8) * (controls.implicitHeight > 0 ? 3 : 2))
+        height: Math.max(MailStyle.space(32), content.height - y - controls.implicitHeight - pendingRows.implicitHeight - (pendingRows.visible ? MailStyle.space(8) : 0) - requestRow.implicitHeight - statusText.implicitHeight - MailStyle.space(8) * (controls.implicitHeight > 0 ? 3 : 2))
         contentWidth: width
         contentHeight: Math.max(height, chat.implicitHeight)
         property bool followEnd: true
@@ -450,7 +452,7 @@ FocusScope {
           if (contentY < lastContentY) followEnd = false
           if (atYEnd) followEnd = true
           lastContentY = contentY
-          if (upward && contentY <= Style.space(24) && !root.restoringEarlier) root.loadEarlier()
+          if (upward && contentY <= MailStyle.space(24) && !root.restoringEarlier) root.loadEarlier()
         }
         onMovementStarted: followEnd = atYEnd
         onMovementEnded: followEnd = atYEnd
@@ -465,8 +467,8 @@ FocusScope {
           id: chat
           y: Math.max(0, answerFlick.height - implicitHeight)
           width: answerFlick.width
-          spacing: Style.space(12)
-          Button {
+          spacing: MailStyle.space(12)
+          Widgets.Button {
             objectName: "agent-earlier-messages"
             text: "Earlier messages"
             visible: !!root.service && root.service.agentHasEarlier === true
@@ -483,7 +485,7 @@ FocusScope {
               required property int index
               readonly property bool userMessage: entryRole === "user"
               width: chat.width
-               height: entryRole === "proposal" ? draftLoader.height : entry.implicitHeight + (userMessage ? Style.space(16) : 0)
+               height: entryRole === "proposal" ? draftLoader.height : entry.implicitHeight + (userMessage ? MailStyle.space(16) : 0)
               Loader {
                 id: draftLoader
                 width: parent.width
@@ -502,21 +504,21 @@ FocusScope {
               }
               Text {
                 visible: parent.userMessage
-                x: Style.space(8)
-                y: Style.space(8)
+                x: MailStyle.space(8)
+                y: MailStyle.space(8)
                 text: "›"
                 textFormat: Text.PlainText
                 color: root.dimColor
                 font.family: root.panelFontFamily
-                font.pixelSize: Style.font.bodySmall
+                font.pixelSize: MailStyle.bodySmall
               }
               TextEdit {
                 id: entry
                 visible: entryRole !== "proposal"
                 objectName: entryRole === "assistant" ? "agent-result" : "agent-chat-entry"
-                x: parent.userMessage ? Style.space(22) : 0
-                y: parent.userMessage ? Style.space(8) : 0
-                width: parent.width - x - (parent.userMessage ? Style.space(8) : 0)
+                x: parent.userMessage ? MailStyle.space(22) : 0
+                y: parent.userMessage ? MailStyle.space(8) : 0
+                width: parent.width - x - (parent.userMessage ? MailStyle.space(8) : 0)
                 textFormat: entryRole === "assistant" ? TextEdit.RichText : TextEdit.PlainText
                 text: entryRole === "assistant" ? ChatText.render(entryText) : entryText
                 readOnly: true
@@ -526,7 +528,7 @@ FocusScope {
                 selectionColor: root.accentColor
                 selectedTextColor: root.popupBackgroundColor
                 font.family: root.panelFontFamily
-                font.pixelSize: entryRole === "status" ? Style.font.caption : Style.font.bodySmall
+                font.pixelSize: entryRole === "status" ? MailStyle.caption : MailStyle.bodySmall
                 wrapMode: TextEdit.Wrap
                 Accessible.name: entryRole === "assistant" ? "AI reply" : entryRole
               }
@@ -547,15 +549,15 @@ FocusScope {
               readonly property bool submitted: delivery !== "" || !!root.sentProposals[modelData.id]
               Component.onCompleted: if (queue) queue.watchDelivery(sendId)
               width: parent.width
-              height: proposalContent.implicitHeight + Style.space(24)
+              height: proposalContent.implicitHeight + MailStyle.space(24)
               color: Style.normalFillFor(root.textColor, root.accentColor)
               border.color: root.popupBorderColor
-              radius: Style.space(6)
+              radius: MailStyle.space(6)
               Column {
                 id: proposalContent
-                x: Style.space(12); y: Style.space(12)
-                width: parent.width - Style.space(24)
-                spacing: Style.space(8)
+                x: MailStyle.space(12); y: MailStyle.space(12)
+                width: parent.width - MailStyle.space(24)
+                spacing: MailStyle.space(8)
                 Text {
                   objectName: "agent-proposal-recipients"
                   width: parent.width
@@ -569,7 +571,7 @@ FocusScope {
                   wrapMode: Text.Wrap
                   color: root.dimColor
                   font.family: root.panelFontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: MailStyle.caption
                 }
                 Text {
                   width: parent.width
@@ -588,7 +590,7 @@ FocusScope {
                   readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap
                   color: root.textColor
                   font.family: root.panelFontFamily
-                  font.pixelSize: Style.font.bodySmall
+                  font.pixelSize: MailStyle.bodySmall
                 }
                 Text {
                   width: parent.width
@@ -598,12 +600,12 @@ FocusScope {
                   wrapMode: Text.Wrap
                   color: root.dimColor
                   font.family: root.panelFontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: MailStyle.caption
                 }
                 Flow {
                   width: parent.width
-                  spacing: Style.space(8)
-                  Button {
+                  spacing: MailStyle.space(8)
+                  Widgets.Button {
                     objectName: "agent-apply-draft"
                     text: root.composer ? "Use this version" : "Edit draft..."
                     foreground: root.textColor; accent: root.accentColor
@@ -611,7 +613,7 @@ FocusScope {
                     enabled: !!proposalCard.envelope && proposalCard.modelData.applicable && (!proposalCard.submitted || ["failed", "cancelled", "unknown"].indexOf(proposalCard.delivery) >= 0)
                     onClicked: root.useProposal(proposalCard.modelData, false)
                   }
-                  Button {
+                  Widgets.Button {
                     objectName: "agent-send-email"
                     text: ({queued:"Queued for sending", sending:"Sending...", sent:"Sent", failed:"Send failed", cancelled:"Send undone", unknown:"Check Sent — delivery unknown"})[proposalCard.delivery]
                       || (proposalCard.submitted ? "Checking send status..." : "Send email")
@@ -630,7 +632,7 @@ FocusScope {
                   wrapMode: Text.Wrap
                   color: root.dimColor
                   font.family: root.panelFontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: MailStyle.caption
                 }
               }
             }
@@ -642,7 +644,7 @@ FocusScope {
             textFormat: Text.PlainText
             color: root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: MailStyle.bodySmall
             wrapMode: Text.WordWrap
           }
         }
@@ -651,8 +653,8 @@ FocusScope {
         id: controls
         visible: !root.historyMode
         width: parent.width
-        spacing: Style.space(6)
-        Button {
+        spacing: MailStyle.space(6)
+        Widgets.Button {
           objectName: "agent-restart-chat"
           text: "New chat"
           visible: !!root.job && !root.canContinue && !root.working
@@ -661,7 +663,7 @@ FocusScope {
           fontFamily: root.panelFontFamily
           onClicked: root.newChat(true)
         }
-        Button {
+        Widgets.Button {
           objectName: "agent-insert"
           text: "Insert at cursor"
           visible: !!root.composer && root.answer !== "" && !(root.service && root.service.backendCanAgentProposals)
@@ -669,11 +671,11 @@ FocusScope {
           accent: root.accentColor
           bordered: true
           fontFamily: root.panelFontFamily
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           focusable: true
           onClicked: root.applyAnswer(false)
         }
-        Button {
+        Widgets.Button {
           objectName: "agent-replace"
           text: "Replace body"
           visible: !!root.composer && root.answer !== "" && !(root.service && root.service.backendCanAgentProposals)
@@ -681,7 +683,7 @@ FocusScope {
           accent: root.accentColor
           bordered: true
           fontFamily: root.panelFontFamily
-          fontSize: Style.font.caption
+          fontSize: MailStyle.caption
           focusable: true
           onClicked: root.applyAnswer(true)
         }
@@ -691,7 +693,7 @@ FocusScope {
         objectName: "agent-pending-messages"
         visible: pending.busy && pending.visibleHere && !root.historyMode
         width: parent.width
-        implicitHeight: visible ? Math.min(Style.space(100), pendingContent.implicitHeight) : 0
+        implicitHeight: visible ? Math.min(MailStyle.space(100), pendingContent.implicitHeight) : 0
         contentHeight: pendingContent.implicitHeight
         contentWidth: width
         clip: true
@@ -701,20 +703,20 @@ FocusScope {
         Column {
           id: pendingContent
           width: pendingRows.width
-          spacing: Style.space(4)
+          spacing: MailStyle.space(4)
         Repeater {
           model: pending.visibleHere ? pending.messages : []
           Row {
             required property string modelData
             required property int index
             width: pendingRows.width
-            spacing: Style.space(4)
+            spacing: MailStyle.space(4)
             QQC.AbstractButton {
               id: pendingMessageButton
               text: (pending.dispatching && parent.index === 0 ? "Sending · " : (pending.paused ? "Paused · " : "Pending · ")) + parent.modelData
               width: parent.width - removePending.width - parent.spacing
               height: Style.spacing.popupRowHeight
-              padding: Style.space(6)
+              padding: MailStyle.space(6)
               hoverEnabled: true
               focusPolicy: Qt.StrongFocus
               enabled: !(pending.dispatching && parent.index === 0)
@@ -723,26 +725,26 @@ FocusScope {
                 textFormat: Text.PlainText
                 color: pendingMessageButton.hovered || pendingMessageButton.activeFocus ? root.textColor : root.dimColor
                 font.family: root.panelFontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: MailStyle.caption
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
               }
               background: Rectangle { color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.04) }
-              PanelToolTip { visible: pendingMessageButton.hovered; text: "Edit pending message"; fontFamily: root.panelFontFamily }
+              Widgets.PanelToolTip { visible: pendingMessageButton.hovered; text: "Edit pending message"; fontFamily: root.panelFontFamily }
               onClicked: {
                 if (field.text !== "") { root.localError = "Finish the current input before editing a pending message."; return }
                 field.text = pending.remove(parent.index)
                 root.takeFocus()
               }
             }
-            Button {
+            Widgets.Button {
               id: removePending
               text: "×"
-              width: Style.space(20)
+              width: MailStyle.space(20)
               foreground: root.dimColor
               accent: root.accentColor
               fontFamily: root.panelFontFamily
-              fontSize: Style.font.caption
+              fontSize: MailStyle.caption
               enabled: !(pending.dispatching && parent.index === 0)
               tooltipText: "Remove pending message"
               onClicked: pending.remove(parent.index)
@@ -763,7 +765,7 @@ FocusScope {
             : (root.job ? Agent.stateLabel(root.job) : "Ask your system AI about this mail.")))
         color: root.errorText !== "" ? root.urgentColor : root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
       Item {
@@ -774,7 +776,7 @@ FocusScope {
         QQC.ScrollView {
           id: inputScroll
           width: parent.width
-          height: Math.min(Style.space(140), Math.max(Style.space(28), field.contentHeight + field.topPadding + field.bottomPadding))
+          height: Math.min(MailStyle.space(140), Math.max(MailStyle.space(28), field.contentHeight + field.topPadding + field.bottomPadding))
           contentWidth: availableWidth
           clip: true
           QQC.TextArea {
@@ -784,7 +786,7 @@ FocusScope {
             Keys.onPressed: function(event) { root.keyPressed(event) }
             width: inputScroll.availableWidth
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: MailStyle.bodySmall
             color: root.textColor
             placeholderText: root.job ? "Message AI · / for commands" : "Ask about this mail · / for commands"
             placeholderTextColor: root.dimColor
@@ -792,9 +794,9 @@ FocusScope {
             selectedTextColor: root.popupBackgroundColor
             selectByMouse: true
             wrapMode: TextEdit.Wrap
-            padding: Style.space(8)
-            leftPadding: Style.space(22)
-            rightPadding: root.working ? Style.space(36) : Style.space(8)
+            padding: MailStyle.space(8)
+            leftPadding: MailStyle.space(22)
+            rightPadding: root.working ? MailStyle.space(36) : MailStyle.space(8)
             Accessible.name: "Message AI"
             background: Rectangle {
               color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.06)
@@ -817,21 +819,21 @@ FocusScope {
           }
         }
         Text {
-          x: Style.space(8)
-          y: Style.space(8)
+          x: MailStyle.space(8)
+          y: MailStyle.space(8)
           text: "›"
           textFormat: Text.PlainText
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
         }
-        Button {
+        Widgets.Button {
           objectName: "agent-stop-button"
           anchors.right: parent.right
           anchors.bottom: parent.bottom
-          anchors.margins: Style.space(4)
-          width: Style.space(24)
-          height: Style.space(24)
+          anchors.margins: MailStyle.space(4)
+          width: MailStyle.space(24)
+          height: MailStyle.space(24)
           visible: root.working && !!root.job
           foreground: root.dimColor
           accent: root.accentColor
@@ -854,19 +856,19 @@ FocusScope {
       clip: true
       model: root.historyJobs
       keyNavigationEnabled: true
-      spacing: Style.space(4)
+      spacing: MailStyle.space(4)
       QQC.ScrollBar.vertical: QQC.ScrollBar {}
       footer: Flow {
         width: historyList.width
-        spacing: Style.space(8)
-        Button {
+        spacing: MailStyle.space(8)
+        Widgets.Button {
           text: "Newer chats"
           visible: !!root.service && root.service.agentHasNewerChats === true
           foreground: root.textColor; accent: root.accentColor
           fontFamily: root.panelFontFamily
           onClicked: root.service.pageAgentChats(false)
         }
-        Button {
+        Widgets.Button {
           text: "Older chats"
           visible: !!root.service && root.service.agentHasOlderChats === true
           foreground: root.textColor; accent: root.accentColor
@@ -884,7 +886,7 @@ FocusScope {
           wrapMode: Text.WordWrap
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
         }
         background: Rectangle { color: parent.hovered || (historyList.activeFocus && parent.index === historyList.currentIndex) ? Style.hoverFillFor(root.textColor, root.accentColor) : Style.normalFillFor(root.textColor, root.accentColor) }
         onClicked: root.selectHistory(modelData.id)
@@ -895,7 +897,7 @@ FocusScope {
         textFormat: Text.PlainText
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
     }
     Rectangle {
@@ -903,15 +905,15 @@ FocusScope {
       visible: root.commandsOpen
       z: 80
       x: content.x
-      y: Math.max(content.y, content.y + requestRow.y - height - Style.space(8))
+      y: Math.max(content.y, content.y + requestRow.y - height - MailStyle.space(8))
       width: inputScroll.width
-      height: commandRows.implicitHeight + Style.space(8)
+      height: commandRows.implicitHeight + MailStyle.space(8)
       color: root.popupBackgroundColor
       border.color: root.popupBorderColor
       Column {
         id: commandRows
-        x: Style.space(4); y: Style.space(4)
-        width: parent.width - Style.space(8)
+        x: MailStyle.space(4); y: MailStyle.space(4)
+        width: parent.width - MailStyle.space(8)
         Repeater {
           model: root.commandMatches
           QQC.ItemDelegate {
@@ -926,7 +928,7 @@ FocusScope {
               textFormat: Text.PlainText
               color: root.textColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: MailStyle.bodySmall
               elide: Text.ElideRight
             }
             background: Rectangle { color: index === root.commandIndex ? Style.selectedFillFor(root.textColor, root.accentColor) : Style.normalFillFor(root.textColor, root.accentColor) }

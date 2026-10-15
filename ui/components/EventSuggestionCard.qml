@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../agent/Agent.js" as Agent
@@ -30,7 +31,7 @@ Rectangle {
   readonly property string lookId: rows.length > 0 ? String(rows[0].jobId || "") : ""
   onLookIdChanged: expanded = false
   visible: rows.length > 0
-  implicitHeight: visible ? column.implicitHeight + Style.space(24) : 0
+  implicitHeight: visible ? column.implicitHeight + MailStyle.space(24) : 0
   height: implicitHeight
   radius: Style.cornerRadius
   color: Style.hoverFillFor(root.textColor, root.accentColor)
@@ -39,10 +40,10 @@ Rectangle {
 
   Column {
     id: column
-    x: Style.space(14)
-    y: Style.space(12)
-    width: parent.width - Style.space(28)
-    spacing: Style.space(8)
+    x: MailStyle.space(14)
+    y: MailStyle.space(12)
+    width: parent.width - MailStyle.space(28)
+    spacing: MailStyle.space(8)
 
     Item {
       objectName: "suggestionHeader"
@@ -50,7 +51,7 @@ Rectangle {
       implicitHeight: Math.max(heading.implicitHeight, Style.font.icon)
 
       Row {
-        spacing: Style.space(6)
+        spacing: MailStyle.space(6)
         anchors.verticalCenter: parent.verticalCenter
         ActionIcon {
           name: "calendar"
@@ -65,7 +66,7 @@ Rectangle {
             : "The agent found " + root.rows.length + " events in this message"
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           textFormat: Text.PlainText
           anchors.verticalCenter: parent.verticalCenter
         }
@@ -89,7 +90,7 @@ Rectangle {
         required property var modelData
         objectName: "suggestion"
         width: column.width
-        spacing: Style.space(2)
+        spacing: MailStyle.space(2)
 
         Text {
           objectName: "suggestionTitle"
@@ -97,7 +98,7 @@ Rectangle {
           text: modelData.title
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: MailStyle.body
           font.weight: Font.DemiBold
           elide: Text.ElideRight
           textFormat: Text.PlainText
@@ -108,7 +109,7 @@ Rectangle {
           text: Agent.suggestionWhen(modelData, Date.now())
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           elide: Text.ElideRight
           textFormat: Text.PlainText
         }
@@ -119,7 +120,7 @@ Rectangle {
           text: modelData.location
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           elide: Text.ElideRight
           textFormat: Text.PlainText
         }
@@ -130,15 +131,15 @@ Rectangle {
           text: modelData.notes
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
           wrapMode: Text.WordWrap
           maximumLineCount: 3
           elide: Text.ElideRight
           textFormat: Text.PlainText
         }
         Row {
-          spacing: Style.space(8)
-          topPadding: Style.space(2)
+          spacing: MailStyle.space(8)
+          topPadding: MailStyle.space(2)
           IconTextButton {
             objectName: "suggestionAdd"
             iconName: "plus"
@@ -147,7 +148,7 @@ Rectangle {
             foreground: root.textColor
             accent: root.accentColor
             fontFamily: root.panelFontFamily
-            fontSize: Style.font.caption
+            fontSize: MailStyle.caption
             onClicked: root.addRequested(modelData)
           }
           IconTextButton {
@@ -157,7 +158,7 @@ Rectangle {
             foreground: root.dimColor
             accent: root.accentColor
             fontFamily: root.panelFontFamily
-            fontSize: Style.font.caption
+            fontSize: MailStyle.caption
             onClicked: root.dismissRequested(String(modelData.key || ""))
           }
         }

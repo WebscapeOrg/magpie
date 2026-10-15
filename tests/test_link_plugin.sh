@@ -23,7 +23,13 @@ for entry in service:ui/Service.qml barWidget:ui/BarWidget.qml panel:ui/App.qml;
 done
 
 [ -x scripts/link-plugin.sh ] || fail "scripts/link-plugin.sh must be executable"
-grep -q 'plugin-backups' scripts/link-plugin.sh || fail "backups must not land inside the plugins directory"
+installer_home=$(mktemp -d)
+mkdir -p "$installer_home/code/enterprise/omarchy"
+printf '#!/bin/sh\nprintf delegated > "$HOME/delegated"\n' > "$installer_home/code/enterprise/omarchy/install.sh"
+chmod +x "$installer_home/code/enterprise/omarchy/install.sh"
+HOME="$installer_home" bash scripts/link-plugin.sh --no-restart
+[ -f "$installer_home/delegated" ] || fail "Magpie must delegate to Enterprise's guarded copy installer"
+rm -rf "$installer_home"
 
 test_root=$(mktemp -d)
 trap 'rm -rf "$test_root"' EXIT
@@ -92,7 +98,7 @@ grep -q '^MimeType=x-scheme-handler/mailto;$' "$desktop" \
   || fail "omamail.desktop must claim mailto"
 grep -q "^Exec=$(pwd)/scripts/mailto.sh %u$" "$desktop" \
   || fail "omamail.desktop Exec must be the plugin mailto handler"
-grep -q "^Icon=$(pwd)/ui/assets/omamail.svg$" "$desktop" \
+grep -q "^Icon=$(pwd)/ui/assets/magpie.svg$" "$desktop" \
   || fail "omamail.desktop must use the Omamail mark"
 # A second run with the file already there must not require --claim-default
 # just to keep the desktop file current.

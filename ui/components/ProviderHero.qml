@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../providers/Registry.js" as Provider
@@ -43,7 +45,7 @@ Item {
     id: logo
     anchors.left: parent.left
     anchors.top: parent.top
-    anchors.topMargin: Style.space(2)
+    anchors.topMargin: MailStyle.space(2)
     logo: Provider.logo(root.providerId)
 
     HoverHandler {
@@ -57,7 +59,7 @@ Item {
       onTapped: root.websiteRequested()
     }
 
-    PanelToolTip {
+    Widgets.PanelToolTip {
       text: "Open " + Provider.badge(root.providerId) + " in your browser"
       visible: logoHover.hovered
     }
@@ -66,10 +68,10 @@ Item {
   Column {
     id: heroText
     anchors.left: logo.right
-    anchors.leftMargin: Style.space(14)
+    anchors.leftMargin: MailStyle.space(14)
     anchors.right: parent.right
     anchors.top: parent.top
-    spacing: Style.space(4)
+    spacing: MailStyle.space(4)
 
     // No spacing: the gaps around the brand word are the ones the sentence
     // already had, and a Row that added its own would space "Add a HEY mailbox"
@@ -83,7 +85,7 @@ Item {
         text: root.parts.before
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.heading
+        font.pixelSize: MailStyle.heading
         font.bold: true
       }
 
@@ -93,7 +95,7 @@ Item {
         text: root.parts.brand
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.heading
+        font.pixelSize: MailStyle.heading
         font.bold: true
         tooltipText: "Open " + Provider.badge(root.providerId) + " in your browser"
         onActivated: root.websiteRequested()
@@ -106,7 +108,7 @@ Item {
         text: root.parts.brand
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.heading
+        font.pixelSize: MailStyle.heading
         font.bold: true
       }
 
@@ -116,7 +118,7 @@ Item {
         text: root.parts.after
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.heading
+        font.pixelSize: MailStyle.heading
         font.bold: true
       }
     }
@@ -127,7 +129,7 @@ Item {
       text: root.detail
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
       wrapMode: Text.WordWrap
     }
   }

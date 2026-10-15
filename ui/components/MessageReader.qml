@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls
 import qs.Commons
 import qs.Ui
@@ -120,7 +122,7 @@ Item {
   function scrollBy(steps) {
     var maximum = Math.max(0, bodyFlick.contentHeight - bodyFlick.height)
     bodyFlick.contentY = Math.max(0, Math.min(maximum,
-      bodyFlick.contentY + steps * Style.space(20)))
+      bodyFlick.contentY + steps * MailStyle.space(20)))
   }
 
   readonly property var summary: service ? service.selectedMessage : null
@@ -242,19 +244,19 @@ Item {
   // sender's horizontal padding is stripped as well. Keyed off the flickable's
   // width rather than the text's, so the inset cannot feed back into itself.
   readonly property bool narrowBody: bodyFlick.width > 0
-    && bodyFlick.width < Style.space(420)
+    && bodyFlick.width < MailStyle.space(420)
   // One inset for the whole page. Giving the body a narrower one bought a few
   // pixels and cost the alignment: the message text started to the left of the
   // subject above it and the toolbar below, which reads as a mistake long
   // before it reads as extra room. The space is reclaimed from the sender's own
   // padding instead, which is where it was being wasted.
-  readonly property int pageInset: narrowBody ? Style.space(8) : Style.space(14)
+  readonly property int pageInset: narrowBody ? MailStyle.space(8) : MailStyle.space(14)
   readonly property int bodyInset: pageInset
   readonly property int bodyWidth: Math.max(80, bodyFlick.width - bodyInset * 2)
   // Zoom changes the message type without changing the surrounding chrome.
-  readonly property int bodyFontSize: Math.max(7, Math.round(Style.font.body * root.zoom))
+  readonly property int bodyFontSize: Math.max(7, Math.round(MailStyle.messageSize * root.zoom))
   // All three modes share the same maximum; narrow panels use what fits.
-  readonly property int contentWidthLimit: Html.readingColumnWidth(root.bodyWidth, Style.space(800))
+  readonly property int contentWidthLimit: Html.readingColumnWidth(root.bodyWidth, MailStyle.space(800))
   readonly property int preferredBodyWidth: root.shownMode === "original"
     ? Html.preferredContentWidth(root.bodyDocument, root.contentWidthLimit)
     : root.contentWidthLimit
@@ -314,7 +316,7 @@ Item {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.margins: root.pageInset
-    implicitHeight: (backBar.visible ? backBar.implicitHeight + Style.space(14) : 0)
+    implicitHeight: (backBar.visible ? backBar.implicitHeight + MailStyle.space(14) : 0)
       + headerColumn.implicitHeight
 
     BackBar {
@@ -333,7 +335,7 @@ Item {
       objectName: "reader-continue-draft-button"
       anchors.right: parent.right
       anchors.top: backBar.visible ? backBar.bottom : parent.top
-      anchors.topMargin: backBar.visible ? Style.space(10) : 0
+      anchors.topMargin: backBar.visible ? MailStyle.space(10) : 0
       visible: root.isDraft
       iconName: "edit"
       text: "Continue editing"
@@ -349,7 +351,7 @@ Item {
       objectName: "reader-star-button"
       anchors.right: parent.right
       anchors.top: backBar.visible ? backBar.bottom : parent.top
-      anchors.topMargin: backBar.visible ? Style.space(10) : 0
+      anchors.topMargin: backBar.visible ? MailStyle.space(10) : 0
       visible: !root.isDraft
       iconName: "star"
       filled: !!root.summary && root.summary.starred
@@ -364,10 +366,10 @@ Item {
       id: headerColumn
       anchors.left: parent.left
       anchors.right: root.isDraft ? continueDraftButton.left : starButton.left
-      anchors.rightMargin: Style.space(8)
+      anchors.rightMargin: MailStyle.space(8)
       anchors.top: backBar.visible ? backBar.bottom : parent.top
-      anchors.topMargin: backBar.visible ? Style.space(14) : 0
-      spacing: Style.space(4)
+      anchors.topMargin: backBar.visible ? MailStyle.space(14) : 0
+      spacing: MailStyle.space(4)
 
       Item {
         width: parent.width
@@ -390,7 +392,7 @@ Item {
           text: root.summary ? root.summary.subject : ""
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.subtitle
+          font.pixelSize: MailStyle.subtitle
           font.bold: true
           wrapMode: Text.WordWrap
           horizontalAlignment: root.subjectAlignment
@@ -418,7 +420,7 @@ Item {
           : ""
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         elide: Text.ElideRight
         horizontalAlignment: root.headerAlignment
 
@@ -442,7 +444,7 @@ Item {
           : ""
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         elide: Text.ElideRight
         horizontalAlignment: root.headerAlignment
 
@@ -467,7 +469,7 @@ Item {
   // already replaced the list, and the fallback if this proves too tight is the
   // prototype's variant A — lines under the header — rather than a rail three
   // words wide. Until then the rail simply goes, and nothing else moves.
-  readonly property bool fitsRail: width >= rail.implicitWidth + Style.space(260)
+  readonly property bool fitsRail: width >= rail.implicitWidth + MailStyle.space(260)
 
   // From the header's bottom edge to the footer, its own scroll owner beside
   // the body — the way the list is beside the reader. It takes width and never
@@ -478,7 +480,7 @@ Item {
     objectName: "conversationRail"
     visible: !!root.summary && root.showsRail && root.fitsRail
     anchors.top: headerBlock.bottom
-    anchors.topMargin: Style.space(10)
+    anchors.topMargin: MailStyle.space(10)
     anchors.right: parent.right
     anchors.bottom: footerBackdrop.visible ? footerBackdrop.top : parent.bottom
     width: visible ? implicitWidth : 0
@@ -512,8 +514,8 @@ Item {
     anchors.rightMargin: root.pageInset
     // No gap where there is nothing to separate. An empty Column is zero high,
     // and a margin above it would still push the message down.
-    anchors.topMargin: height > 0 ? Style.space(8) : 0
-    spacing: Style.space(6)
+    anchors.topMargin: height > 0 ? MailStyle.space(8) : 0
+    spacing: MailStyle.space(6)
 
     ReaderNotice {
       width: parent.width
@@ -616,7 +618,7 @@ Item {
     anchors.right: rail.visible ? rail.left : parent.right
     anchors.bottom: footerBackdrop.visible ? footerBackdrop.top : parent.bottom
     contentWidth: width
-    contentHeight: bodyText.y + bodyText.implicitHeight + Style.space(28)
+    contentHeight: bodyText.y + bodyText.implicitHeight + MailStyle.space(28)
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     visible: !!root.summary
@@ -633,7 +635,7 @@ Item {
       // the sender's HTML. Reader mode narrows the mail below it, while this
       // card keeps the panel's full content width in every mode.
       x: root.bodyInset
-      y: Style.space(24)
+      y: MailStyle.space(24)
       width: root.bodyWidth
       invite: root.service ? root.service.selectedInvite : null
       response: root.service ? root.service.selectedResponse : ""
@@ -661,7 +663,7 @@ Item {
       id: suggestionCard
       objectName: "eventSuggestions"
       x: root.bodyInset
-      y: inviteCard.visible ? inviteCard.y + inviteCard.height + Style.space(14) : Style.space(24)
+      y: inviteCard.visible ? inviteCard.y + inviteCard.height + MailStyle.space(14) : MailStyle.space(24)
       width: root.bodyWidth
       suggestions: root.service && root.service.eventSuggestions ? root.service.eventSuggestions : []
       textColor: root.textColor
@@ -677,10 +679,10 @@ Item {
       id: bodyText
       x: root.bodyInset + root.bodyOffset
       y: suggestionCard.visible
-        ? suggestionCard.y + suggestionCard.height + Style.space(14)
+        ? suggestionCard.y + suggestionCard.height + MailStyle.space(14)
         : (inviteCard.visible
-          ? inviteCard.y + inviteCard.height + Style.space(14)
-          : Style.space(24))
+          ? inviteCard.y + inviteCard.height + MailStyle.space(14)
+          : MailStyle.space(24))
       width: root.preferredBodyWidth
       readOnly: true
       selectByMouse: true
@@ -725,7 +727,7 @@ Item {
       color: root.textColor
       selectionColor: Style.selectionFillFor(root.textColor, root.accentColor)
       selectedTextColor: root.textColor
-      font.family: root.panelFontFamily
+      font.family: MailStyle.messageFamily
       // Body text, where the chrome around it is bodySmall: this is the one
       // long-form thing in the window and the only one that is read rather than
       // scanned. At bodySmall it was 11px against the 9pt — twelve — of the
@@ -783,7 +785,7 @@ Item {
     anchors.leftMargin: -root.leadingBoundaryOverlap
     anchors.right: parent.right
     anchors.bottom: parent.bottom
-    height: footer.implicitHeight + Style.space(10)
+    height: footer.implicitHeight + MailStyle.space(10)
     color: root.backgroundColor
     visible: footer.visible
 
@@ -805,16 +807,16 @@ Item {
     // Control frames share the status bar's eight-pixel chrome inset. The
     // page content keeps its wider reading inset; applying that to buttons as
     // well made their glyphs sit visibly farther inward than the chrome below.
-    anchors.leftMargin: Style.space(8)
-    anchors.rightMargin: Style.space(8)
-    anchors.bottomMargin: Style.space(4)
-    spacing: Style.space(4)
+    anchors.leftMargin: MailStyle.space(8)
+    anchors.rightMargin: MailStyle.space(8)
+    anchors.bottomMargin: MailStyle.space(4)
+    spacing: MailStyle.space(4)
     visible: !!root.summary
 
     // The count is always one row. Expanding files must not let their number
     // take the body away again: they scroll separately and use at most 40% of
     // the space left below the header, capped at a short list on tall windows.
-    Button {
+    Widgets.Button {
       id: attachmentToggle
       objectName: "attachment-toggle"
       visible: root.attachments.length > 0
@@ -823,9 +825,9 @@ Item {
       foreground: root.textColor
       accent: root.accentColor
       fontFamily: root.panelFontFamily
-      fontSize: Style.font.caption
-      horizontalPadding: Style.space(6)
-      verticalPadding: Style.space(3)
+      fontSize: MailStyle.caption
+      horizontalPadding: MailStyle.space(6)
+      verticalPadding: MailStyle.space(3)
       selected: root.attachmentsExpanded
       onClicked: root.attachmentsExpanded = !root.attachmentsExpanded
     }
@@ -835,9 +837,9 @@ Item {
       objectName: "attachment-scroller"
       width: parent.width
       visible: attachmentToggle.visible && root.attachmentsExpanded
-      height: visible ? Math.min(contentHeight, Style.space(160), Math.max(0,
+      height: visible ? Math.min(contentHeight, MailStyle.space(160), Math.max(0,
         root.height - bodyFlick.y - actionsRow.implicitHeight
-          - attachmentToggle.height - Style.space(18)) * 0.4) : 0
+          - attachmentToggle.height - MailStyle.space(18)) * 0.4) : 0
       contentWidth: width
       contentHeight: attachmentRows.implicitHeight
       clip: true
@@ -850,8 +852,8 @@ Item {
         id: attachmentRows
         // Keep the last action clear of the scrollbar's pointer target.
         width: parent.width - (attachmentScrollBar.visible
-          ? attachmentScrollBar.width + Style.space(4) : 0)
-        spacing: Style.space(4)
+          ? attachmentScrollBar.width + MailStyle.space(4) : 0)
+        spacing: MailStyle.space(4)
 
         Repeater {
           model: root.attachments
@@ -900,15 +902,15 @@ Item {
       // controls is worse than a taller toolbar, and the reader can be as
       // narrow as its own minimum beside the list.
       readonly property bool stacked: messageActions.visible && messageActions.implicitWidth
-        + viewTools.implicitWidth + Style.space(24) > width
+        + viewTools.implicitWidth + MailStyle.space(24) > width
       implicitHeight: stacked
-        ? messageActions.implicitHeight + Style.space(4) + viewTools.implicitHeight
+        ? messageActions.implicitHeight + MailStyle.space(4) + viewTools.implicitHeight
         : messageActions.implicitHeight
 
       Item {
         id: messageActions
         visible: !root.isDraft
-        readonly property int gap: Style.space(2)
+        readonly property int gap: MailStyle.space(2)
         implicitWidth: trashButton.x + trashButton.width
         implicitHeight: Math.max(replyButton.height, replyAllButton.height,
           forwardButton.height, archiveButton.visible ? archiveButton.height : 0,
@@ -952,7 +954,7 @@ Item {
         Item {
           id: actionGap
           x: forwardButton.x + forwardButton.width + messageActions.gap
-          implicitWidth: Style.space(28)
+          implicitWidth: MailStyle.space(28)
           implicitHeight: replyButton.implicitHeight
           width: implicitWidth
           height: parent.height
@@ -960,7 +962,7 @@ Item {
           PanelSeparator {
             anchors.centerIn: parent
             width: 1
-            height: Style.space(15)
+            height: MailStyle.space(15)
             foreground: root.dimColor
           }
         }
@@ -1023,9 +1025,9 @@ Item {
         id: viewTools
         objectName: "readerViewTools"
         anchors.right: parent.right
-        y: actionsRow.stacked ? messageActions.height + Style.space(4) : 0
+        y: actionsRow.stacked ? messageActions.height + MailStyle.space(4) : 0
         implicitWidth: modeTrack.width
-          + (openWebButton.visible ? Style.space(6) + openWebButton.width : 0)
+          + (openWebButton.visible ? MailStyle.space(6) + openWebButton.width : 0)
         implicitHeight: Math.max(modeTrack.height,
           openWebButton.visible ? openWebButton.height : 0)
         width: implicitWidth
@@ -1078,7 +1080,7 @@ Item {
           id: openWebButton
           objectName: "openWebButton"
           visible: !root.service || root.service.canOpenOnWeb
-          x: modeTrack.width + Style.space(6)
+          x: modeTrack.width + MailStyle.space(6)
           y: modeTrack.y
           height: modeTrack.height
           iconName: "browser"; tooltipText: "Open in browser"
@@ -1095,7 +1097,7 @@ Item {
   // chosen way says so in its own notice, and a picker that quietly moved to
   // the mode it fell back to would leave nothing saying the choice still
   // stands for the next message.
-  component ModeButton: Button {
+  component ModeButton: Widgets.Button {
     required property string mode
     property bool firstSegment: false
     // Nothing to choose between where there is no markup: the text is then the
@@ -1106,9 +1108,9 @@ Item {
     foreground: selected ? root.textColor : root.dimColor
     accent: root.accentColor
     fontFamily: root.panelFontFamily
-    fontSize: Style.font.caption
-    horizontalPadding: Style.space(7)
-    verticalPadding: Style.space(3)
+    fontSize: MailStyle.caption
+    horizontalPadding: MailStyle.space(7)
+    verticalPadding: MailStyle.space(3)
     onClicked: root.bodyModeRequested(mode)
 
     Rectangle {

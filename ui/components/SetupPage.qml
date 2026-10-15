@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../providers/Registry.js" as Provider
@@ -39,7 +41,7 @@ Column {
     && !!service && service.accountEmail === ""
   readonly property bool toolsMissing: !!auth && auth.toolsChecked && auth.missingTools.length > 0
 
-  spacing: Style.space(16)
+  spacing: MailStyle.space(16)
 
   // The fields show what is on disk, so the page always says what the app is
   // actually using rather than going blank after a save.
@@ -113,7 +115,7 @@ Column {
     width: parent.width
     foreground: root.textColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: MailStyle.bodySmall
   }
 
   // Missing dependencies come first: neither step below can finish without
@@ -121,7 +123,7 @@ Column {
   Rectangle {
     width: parent.width
     visible: root.toolsMissing
-    implicitHeight: missingText.implicitHeight + Style.space(20)
+    implicitHeight: missingText.implicitHeight + MailStyle.space(20)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
     border.width: 1
@@ -131,7 +133,7 @@ Column {
       id: missingText
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.margins: Style.space(12)
+      anchors.margins: MailStyle.space(12)
       anchors.verticalCenter: parent.verticalCenter
       text: root.auth
         ? "Install " + root.auth.missingTools.join(", ")
@@ -139,7 +141,7 @@ Column {
         : ""
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
@@ -155,43 +157,43 @@ Column {
 
     Column {
       width: parent.width
-      spacing: Style.space(10)
+      spacing: MailStyle.space(10)
 
       Text {
         width: parent.width
         text: "Create an OAuth client with application type Desktop app, and enable the Gmail API on the same project."
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
 
       Row {
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
-        Button {
+        Widgets.Button {
           text: "Open Google Cloud..."
           foreground: root.textColor
           bordered: true
-          fontSize: Style.font.bodySmall
+          fontSize: MailStyle.bodySmall
           onClicked: root.service.openCloudConsole()
         }
 
-        Button {
+        Widgets.Button {
           text: "Enable Gmail API..."
           foreground: root.textColor
           bordered: true
-          fontSize: Style.font.bodySmall
+          fontSize: MailStyle.bodySmall
           onClicked: root.service.openGmailApiPage()
         }
       }
 
-      TextField {
+      Widgets.TextField {
         id: clientIdField
         width: parent.width
         foreground: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         placeholderText: "Client ID — 000000-xxxx.apps.googleusercontent.com"
         onAccepted: clientSecretField.forceActiveFocus()
       }
@@ -200,7 +202,7 @@ Column {
         width: parent.width
         implicitHeight: clientSecretField.implicitHeight
 
-        TextField {
+        Widgets.TextField {
           id: clientSecretField
           anchors.left: parent.left
           anchors.right: parent.right
@@ -208,17 +210,17 @@ Column {
           // window is a worse default — but readable on demand, so it can be
           // checked against the console.
           password: !root.secretVisible
-          rightPadding: horizontalPadding + Style.space(26)
+          rightPadding: horizontalPadding + MailStyle.space(26)
           foreground: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           placeholderText: "Client secret — optional"
           onAccepted: root.save()
         }
 
         IconButton {
           anchors.right: parent.right
-          anchors.rightMargin: Style.space(4)
+          anchors.rightMargin: MailStyle.space(4)
           anchors.verticalCenter: clientSecretField.verticalCenter
           visible: clientSecretField.text !== ""
           iconName: root.secretVisible ? "eyeOff" : "eye"
@@ -226,17 +228,17 @@ Column {
           foreground: root.dimColor
           hoverColor: root.textColor
           iconSize: Style.font.iconSmall
-          size: Style.space(22)
+          size: MailStyle.space(22)
           fontFamily: root.panelFontFamily
           onClicked: root.secretVisible = !root.secretVisible
         }
       }
 
-      Button {
+      Widgets.Button {
         text: "Save client"
         foreground: root.textColor
         bordered: true
-        fontSize: Style.font.bodySmall
+        fontSize: MailStyle.bodySmall
         enabled: !!root.auth && !root.auth.credentialsWriteBusy
         onClicked: root.save()
       }
@@ -254,7 +256,7 @@ Column {
 
     Column {
       width: parent.width
-      spacing: Style.space(10)
+      spacing: MailStyle.space(10)
 
       // The one piece of the walkthrough that cannot be hidden: a project left
       // in Testing is issued seven-day refresh tokens, so the app would sign
@@ -264,36 +266,36 @@ Column {
         text: "Press \"Publish app\" on your project first, or Google expires the session every seven days. An \"unverified app\" warning is expected — you are the developer."
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
 
       Row {
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
-        Button {
+        Widgets.Button {
           text: "Sign in with Google..."
           foreground: root.textColor
           bordered: true
-          fontSize: Style.font.bodySmall
+          fontSize: MailStyle.bodySmall
           enabled: !!root.auth && !root.auth.loginBusy
           onClicked: root.signInNamed()
         }
 
-        Button {
+        Widgets.Button {
           text: "Consent screen..."
           foreground: root.dimColor
           bordered: false
-          fontSize: Style.font.bodySmall
+          fontSize: MailStyle.bodySmall
           onClicked: root.service.openConsentScreen()
         }
 
-        Button {
+        Widgets.Button {
           visible: !!root.auth && root.auth.loginBusy
           text: "Cancel"
           foreground: root.dimColor
           bordered: false
-          fontSize: Style.font.bodySmall
+          fontSize: MailStyle.bodySmall
           onClicked: root.service.cancelSignIn()
         }
       }
@@ -304,7 +306,7 @@ Column {
         text: root.service ? root.service.signInProgress : ""
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
     }
@@ -312,7 +314,7 @@ Column {
 
   Row {
     visible: root.signedIn || root.accountCount > 1
-    spacing: Style.space(8)
+    spacing: MailStyle.space(8)
     // An unbordered button carries its padding inside an invisible box, so
     // standing first in the row it looks indented. Pulled left by that much
     // whenever it is first, so its text sits on the content edge like
@@ -320,23 +322,23 @@ Column {
     anchors.left: parent.left
     anchors.leftMargin: signOutButton.visible ? 0 : -removeButton.horizontalPadding
 
-    Button {
+    Widgets.Button {
       id: signOutButton
       visible: root.signedIn
       text: "Sign out"
       foreground: root.textColor
       bordered: true
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: if (root.service) root.service.signOut()
     }
 
-    Button {
+    Widgets.Button {
       id: removeButton
       visible: root.accountCount > 1
       text: "Remove account"
       foreground: root.dangerColor
       bordered: false
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onClicked: root.removeRequested()
     }
   }
@@ -352,7 +354,7 @@ Column {
     text: root.auth ? root.auth.lastError : ""
     color: root.dangerColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     wrapMode: Text.WordWrap
   }
 
@@ -364,7 +366,7 @@ Column {
   // Padding kept — without it the hover box hugs the text — and the button
   // pulled left by the same amount, so the text still sits on the content
   // edge with the paragraphs above it.
-  Button {
+  Widgets.Button {
     id: detailToggle
     text: root.detailVisible ? "Hide the details" : "Need more detail?"
     foreground: root.dimColor
@@ -372,7 +374,7 @@ Column {
     leftAlign: true
     anchors.left: parent.left
     anchors.leftMargin: -detailToggle.horizontalPadding
-    fontSize: Style.font.caption
+    fontSize: MailStyle.caption
     onClicked: root.detailVisible = !root.detailVisible
   }
 
@@ -389,7 +391,7 @@ Column {
       + "The refresh token goes to GNOME Keyring; the access token never leaves memory."
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     wrapMode: Text.WordWrap
   }
 
@@ -416,8 +418,8 @@ Column {
       id: marker
       anchors.left: parent.left
       anchors.top: parent.top
-      width: Style.space(20)
-      implicitHeight: Style.space(18)
+      width: MailStyle.space(20)
+      implicitHeight: MailStyle.space(18)
 
       Text {
         anchors.left: parent.left
@@ -426,7 +428,7 @@ Column {
         text: step.number
         color: step.active ? root.accentColor : root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         font.bold: step.active
       }
 
@@ -435,12 +437,12 @@ Column {
         anchors.top: parent.top
         visible: step.done
         name: "check"
-        iconSize: Style.font.bodySmall
+        iconSize: MailStyle.bodySmall
         color: root.accentColor
       }
     }
 
-    Button {
+    Widgets.Button {
       id: reopen
       anchors.right: parent.right
       anchors.top: parent.top
@@ -448,7 +450,7 @@ Column {
       text: "Change..."
       foreground: root.dimColor
       bordered: false
-      fontSize: Style.font.caption
+      fontSize: MailStyle.caption
       onClicked: root.clientStepReopened = true
     }
 
@@ -457,14 +459,14 @@ Column {
       anchors.left: marker.right
       anchors.right: reopen.visible ? reopen.left : parent.right
       anchors.top: parent.top
-      spacing: Style.space(8)
+      spacing: MailStyle.space(8)
 
       Text {
         width: parent.width
         text: step.done && step.doneSummary !== "" ? step.doneSummary : step.title
         color: step.done ? root.dimColor : root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         font.bold: !step.done
         elide: Text.ElideRight
       }

@@ -1,4 +1,5 @@
 import QtQuick
+import "settings"
 import Quickshell
 import qs.Commons
 import qs.Commons as Commons
@@ -13,10 +14,10 @@ import "bar/Bridge.js" as BarBridge
 BarWidget {
   id: root
 
-  moduleName: "omamail"
+  moduleName: "magpie"
 
   readonly property var directService: bar && bar.shell
-    ? bar.shell.serviceFor("omamail") : null
+    ? bar.shell.serviceFor("magpie") : null
   readonly property var gmail: directService
     || (bridgeApi && bridgeState ? bridgedStatus : null)
   property var bridgeApi: null
@@ -43,7 +44,7 @@ BarWidget {
     readonly property bool windowOpen: !!root.bridgeState && root.bridgeState.windowOpen
     readonly property bool showBarIcon: !root.bridgeState || root.bridgeState.showBarIcon
     readonly property int unreadTotal: root.bridgeState ? root.bridgeState.unreadTotal : 0
-    readonly property string barTooltip: root.bridgeState ? root.bridgeState.barTooltip : "Omamail"
+    readonly property string barTooltip: root.bridgeState ? root.bridgeState.barTooltip : "Magpie"
     readonly property string contentDirection: root.bridgeState ? root.bridgeState.contentDirection : ""
     readonly property var barMessages: root.bridgeState ? root.bridgeState.barMessages : []
     readonly property var barEvents: root.bridgeState ? root.bridgeState.barEvents : []
@@ -104,16 +105,16 @@ BarWidget {
   function openWindow() {
     close()
     if (!bar || !bar.shell) return
-    if (typeof bar.shell.toggle === "function") bar.shell.toggle("omamail", "{}")
-    else if (typeof bar.shell.summon === "function") bar.shell.summon("omamail", "{}")
+    if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie", "{}")
+    else if (typeof bar.shell.summon === "function") bar.shell.summon("magpie", "{}")
   }
 
   function openMessage(accountId, messageId) {
     close()
     if (!bar || !bar.shell) return
     var payload = JSON.stringify({ accountId: accountId, messageId: messageId })
-    if (typeof bar.shell.summon === "function") bar.shell.summon("omamail", payload)
-    else if (typeof bar.shell.toggle === "function") bar.shell.toggle("omamail", payload)
+    if (typeof bar.shell.summon === "function") bar.shell.summon("magpie", payload)
+    else if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie", payload)
   }
 
   function openEvent(eventData) {
@@ -124,8 +125,8 @@ BarWidget {
       view: "calendar", eventId: String(event.uid || ""),
       eventStart: event.start ? Number(event.start.ms) : 0
     })
-    if (typeof bar.shell.summon === "function") bar.shell.summon("omamail", payload)
-    else if (typeof bar.shell.toggle === "function") bar.shell.toggle("omamail", payload)
+    if (typeof bar.shell.summon === "function") bar.shell.summon("magpie", payload)
+    else if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie", payload)
   }
 
   // Whether this draws anything. The widget itself stays: it is the only thing
@@ -147,7 +148,7 @@ BarWidget {
     visible: root.drawsIcon
     anchors.fill: parent
     bar: root.bar
-    tooltipText: root.gmail ? root.gmail.barTooltip : "Omamail"
+    tooltipText: root.gmail ? root.gmail.barTooltip : "Magpie"
 
     // Read from inside `iconComponent`. Both BarIconButton and GmailIcon name
     // their own root object `root`, so nothing inside a Component declared
@@ -165,25 +166,31 @@ BarWidget {
 
     iconComponent: Component {
       Item {
-        GmailIcon {
+        Text {
+          id: bird
+          readonly property bool crossed: !button.connected
+          readonly property bool dot: button.hasUnread
           anchors.centerIn: parent
-          iconSize: Style.space(12)
-          color: button.glyphColor
-          markColor: Commons.Color.accent
-          // The dot is simply whether unread mail is waiting. It used to mean
-          // "something arrived since you last looked", which was a different
-          // question from the one anyone asks of a mail icon, and it could not
-          // be answered honestly while the count included every categorised
-          // message. Now that the count is Primary-scoped it reaches zero, so
-          // the dot can just follow it.
-          dot: button.hasUnread
-          crossed: !button.connected
+          text: crossed ? "🐦×" : "🐦"
+          font.family: "Noto Color Emoji"
+          font.pixelSize: Style.font.iconLarge
+          opacity: button.connected ? 1 : 0.5
+          Accessible.name: "Magpie"
+        }
+        Rectangle {
+          anchors.right: parent.right
+          anchors.top: parent.top
+          width: Style.space(4)
+          height: width
+          radius: width / 2
+          visible: bird.dot
+          color: Commons.Color.accent
         }
       }
     }
 
     onPressed: function(buttonCode) {
-      // The primary action stays opening Omamail. The preview is an extra view,
+      // The primary action stays opening Magpie. The preview is an extra view,
       // so it lives on the secondary button instead of replacing the only way
       // to reach the application window. Middle-click still checks for mail.
       if (buttonCode === Qt.LeftButton) {
@@ -198,7 +205,7 @@ BarWidget {
     }
   }
 
-  // The shell draws this same accent line for its own open popouts. Omamail's
+  // The shell draws this same accent line for its own open popouts. Magpie's
   // application window is routed separately, so the widget mirrors that mark
   // at the bar's inner edge instead of inventing a different selected shape.
   Rectangle {
@@ -207,15 +214,15 @@ BarWidget {
     visible: button.windowOpen
     color: Commons.Color.accent
     radius: Math.min(width, height) / 2
-    width: vertical ? Style.space(2) : Style.space(10)
-    height: vertical ? Style.space(10) : Style.space(2)
+    width: vertical ? MailStyle.space(2) : MailStyle.space(10)
+    height: vertical ? MailStyle.space(10) : MailStyle.space(2)
     x: vertical
-      ? (root.bar.position === "left" ? root.width - width - Style.space(2) : Style.space(2))
+      ? (root.bar.position === "left" ? root.width - width - MailStyle.space(2) : MailStyle.space(2))
       : Math.round((root.width - width) / 2)
     y: vertical
       ? Math.round((root.height - height) / 2)
       : (root.bar && root.bar.position === "top"
-        ? root.height - height - Style.space(2) : Style.space(2))
+        ? root.height - height - MailStyle.space(2) : MailStyle.space(2))
   }
 
   KeyboardPanel {
@@ -224,8 +231,8 @@ BarWidget {
     owner: root
     bar: root.bar
     open: root.previewOpen
-    contentWidth: fittedContentWidth(Style.space(360))
-    contentHeight: fittedContentHeight(preview.implicitHeight, Style.space(540))
+    contentWidth: fittedContentWidth(MailStyle.space(360))
+    contentHeight: fittedContentHeight(preview.implicitHeight, MailStyle.space(540))
 
     BarPreview {
       id: preview
@@ -237,7 +244,7 @@ BarWidget {
       accentColor: Commons.Color.accent
       dimColor: Qt.rgba(Commons.Color.popups.text.r, Commons.Color.popups.text.g,
         Commons.Color.popups.text.b, 0.62)
-      panelFontFamily: Style.font.family
+      panelFontFamily: MailStyle.family
       contentDirection: root.gmail ? root.gmail.contentDirection : ""
       onMessageRequested: function(accountId, messageId) {
         root.openMessage(accountId, messageId)

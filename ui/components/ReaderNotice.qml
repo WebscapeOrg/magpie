@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import QtQuick.Controls
 import qs.Commons
 import qs.Ui
@@ -26,7 +28,7 @@ Rectangle {
 
   signal activated()
 
-  implicitHeight: Style.space(30)
+  implicitHeight: MailStyle.space(30)
   radius: Style.cornerRadius
   color: Style.normalFillFor(root.textColor, root.accentColor)
   border.width: 1
@@ -34,9 +36,9 @@ Rectangle {
 
   Text {
     anchors.left: parent.left
-    anchors.leftMargin: Style.space(10)
+    anchors.leftMargin: MailStyle.space(10)
     anchors.right: action.visible ? action.left : parent.right
-    anchors.rightMargin: Style.space(6)
+    anchors.rightMargin: MailStyle.space(6)
     anchors.verticalCenter: parent.verticalCenter
     // A stranger's mail decides when this shows but never what it says, so the
     // string is this app's own — plain text all the same, because the rule
@@ -46,25 +48,25 @@ Rectangle {
     text: root.text
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     elide: Text.ElideRight
   }
 
-  Button {
+  Widgets.Button {
     id: action
     visible: root.actionLabel !== ""
     enabled: !root.busy
     anchors.right: parent.right
-    anchors.rightMargin: Style.space(8)
+    anchors.rightMargin: MailStyle.space(8)
     anchors.verticalCenter: parent.verticalCenter
     width: implicitWidth
     height: implicitHeight
     text: root.busy && root.busyLabel !== "" ? root.busyLabel : root.actionLabel
     foreground: root.textColor
     bordered: false
-    fontSize: Style.font.caption
-    horizontalPadding: Style.space(8)
-    verticalPadding: Style.space(2)
+    fontSize: MailStyle.caption
+    horizontalPadding: MailStyle.space(8)
+    verticalPadding: MailStyle.space(2)
     focusable: true
     onClicked: root.activated()
   }

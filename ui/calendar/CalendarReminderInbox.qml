@@ -46,7 +46,7 @@ QtObject {
   function open(record) {
     if (!record || !current(record.key, record.noticeId)) return
     if (service.shell && typeof service.shell.summon === "function")
-      service.shell.summon("omamail", JSON.stringify({ view: "calendar",
+      service.shell.summon(service.pluginId, JSON.stringify({ view: "calendar",
         accountId: record.accountId, eventId: record.sourceId + "\n" + record.eventId,
         eventStart: record.start }))
   }

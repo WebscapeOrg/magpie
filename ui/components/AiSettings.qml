@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import qs.Commons
 import qs.Ui
 import "../agent/Options.js" as Options
@@ -11,7 +13,7 @@ Column {
   required property color accentColor
   required property string panelFontFamily
   property string error: ""
-  spacing: Style.space(6)
+  spacing: MailStyle.space(6)
   readonly property bool available: !!service && service.backendCanChooseAgent === true
 
   function saveModel() {
@@ -29,16 +31,16 @@ Column {
     text: "AI"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.letterSpacing: 1
   }
   Text {
     text: "Agent"
     color: root.textColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: MailStyle.bodySmall
   }
-  Dropdown {
+  Widgets.Dropdown {
     objectName: "settings-ai-agent"
     width: parent.width
     showLabel: false
@@ -54,9 +56,9 @@ Column {
     text: "Model (optional)"
     color: root.textColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: MailStyle.bodySmall
   }
-  TextField {
+  Widgets.TextField {
     id: modelEdit
     objectName: "settings-ai-model"
     width: parent.width
@@ -66,7 +68,7 @@ Column {
     foreground: root.textColor
     accent: root.accentColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: MailStyle.bodySmall
     onActiveFocusChanged: if (!activeFocus) root.saveModel()
     onAccepted: root.saveModel()
   }
@@ -79,7 +81,7 @@ Column {
         + "Changing the agent or model starts fresh chats. Previous chats remain read-only in History."
     color: !root.available || root.error !== "" ? root.accentColor : root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     wrapMode: Text.WordWrap
   }
 }

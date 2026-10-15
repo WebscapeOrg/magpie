@@ -1,4 +1,6 @@
 import QtQuick
+import "../controls" as Widgets
+import "../settings"
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -44,7 +46,7 @@ Column {
   // below it in the rail's map as well as on screen. The calendars section
   // is a component with its own heading, so its top stands in.
   readonly property var sections: {
-    var values = [{ key: "backend", title: "Mail backend", y: backendSetup.y }]
+    var values = [{ key: "display", title: "Layout and fonts", y: displaySettings.y }, { key: "backend", title: "Mail backend", y: backendSetup.y }]
     if (!root.service || root.service.hasTray !== false)
       values.push({ key: "bar", title: "Bar", y: barHeading.y })
     if (root.service && root.service.hasMailto === true)
@@ -279,7 +281,16 @@ Column {
     ensureNameAccount()
   }
 
-  spacing: Style.space(16)
+  spacing: MailStyle.space(16)
+
+  DisplaySettings {
+    id: displaySettings
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+  }
 
   BackendSetup {
     id: backendSetup
@@ -300,7 +311,7 @@ Column {
     text: "Settings"
     color: root.textColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.heading
+    font.pixelSize: MailStyle.heading
     font.bold: true
   }
 
@@ -315,7 +326,7 @@ Column {
     text: "APPEARANCE"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.letterSpacing: 1
   }
 
@@ -324,25 +335,25 @@ Column {
     visible: !!root.service && root.service.hasAppearance === true
     width: parent.width
     implicitHeight: Math.max(appearanceText.implicitHeight, appearanceTrack.implicitHeight)
-      + Style.space(16)
+      + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
 
     Column {
       id: appearanceText
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(12)
+      anchors.leftMargin: MailStyle.space(12)
       anchors.right: appearanceTrack.left
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       Text {
         width: parent.width
         text: "Theme"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
 
       Text {
@@ -350,7 +361,7 @@ Column {
         text: "System follows the desktop's light or dark setting."
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
     }
@@ -359,7 +370,7 @@ Column {
       id: appearanceTrack
       objectName: "appearanceTrack"
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
       width: appearanceSegments.implicitWidth
       height: appearanceSegments.implicitHeight
@@ -387,7 +398,7 @@ Column {
     text: "BAR"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.letterSpacing: 1
   }
 
@@ -396,25 +407,25 @@ Column {
     visible: !root.service || root.service.hasTray !== false
     width: parent.width
     implicitHeight: Math.max(barIconText.implicitHeight, barIconSwitch.implicitHeight)
-      + Style.space(16)
+      + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
 
     Column {
       id: barIconText
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(12)
+      anchors.leftMargin: MailStyle.space(12)
       anchors.right: barIconSwitch.left
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       Text {
         width: parent.width
         text: "Show the icon in the bar"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         textFormat: Text.PlainText
       }
 
@@ -429,18 +440,18 @@ Column {
           + "nowhere else, so bind a key before turning this off:"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
       }
 
       Text {
         width: parent.width
-        text: "o.bind(\"SUPER + SHIFT + G\", \"Omamail\", "
+        text: "o.bind(\"SUPER + SHIFT + G\", \"Magpie\", "
           + "\"omarchy shell shell toggle omamail '\{}'\")"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WrapAnywhere
         textFormat: Text.PlainText
       }
@@ -450,7 +461,7 @@ Column {
       id: barIconSwitch
       objectName: "showBarIconSwitch"
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
       checked: !root.service || root.service.showBarIcon !== false
       foreground: root.textColor
@@ -471,7 +482,7 @@ Column {
     text: "DEFAULT MAIL CLIENT"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.letterSpacing: 1
   }
 
@@ -481,7 +492,7 @@ Column {
     visible: !!root.service && root.service.hasMailto === true
     width: parent.width
     implicitHeight: Math.max(mailClientText.implicitHeight, mailClientButton.implicitHeight)
-      + Style.space(16)
+      + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
 
@@ -491,20 +502,20 @@ Column {
     Column {
       id: mailClientText
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(12)
+      anchors.leftMargin: MailStyle.space(12)
       anchors.right: mailClientButton.left
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       Text {
         width: parent.width
         text: mailClientRow.isDefault
-          ? "Omamail is the default mail client"
-          : "Set up Omamail as the default mail client"
+          ? "Magpie is the default mail client"
+          : "Set up Magpie as the default mail client"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
       }
@@ -514,7 +525,7 @@ Column {
         text: "Opens mailto: links, SUPER+SHIFT+E, and SUPER+SHIFT+ALT+E for a new message."
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
       }
@@ -525,7 +536,7 @@ Column {
         text: root.service ? String(root.service.defaultMailClientError || "") : ""
         color: root.urgentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
       }
@@ -535,14 +546,14 @@ Column {
       id: mailClientButton
       objectName: "defaultMailClientButton"
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
       enabled: !!root.service && !root.service.defaultMailClientBusy
         && root.service.defaultMailClient !== ""
       text: mailClientRow.isDefault ? "Undo" : "Set as default"
       tooltipText: mailClientRow.isDefault
         ? "Give SUPER+SHIFT+E back to Omarchy's own email binding"
-        : "Make Omamail open mailto: links and SUPER+SHIFT+E"
+        : "Make Magpie open mailto: links and SUPER+SHIFT+E"
       foreground: root.textColor
       fontFamily: root.panelFontFamily
       onClicked: root.service.setDefaultMailClient(!mailClientRow.isDefault)
@@ -556,32 +567,32 @@ Column {
     text: "READING"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.letterSpacing: 1
   }
 
   Rectangle {
     width: parent.width
     implicitHeight: Math.max(imagesText.implicitHeight, imagesSwitch.implicitHeight)
-      + Style.space(16)
+      + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
 
     Column {
       id: imagesText
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(12)
+      anchors.leftMargin: MailStyle.space(12)
       anchors.right: imagesSwitch.left
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       Text {
         width: parent.width
         text: "Always show remote images"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
 
       Text {
@@ -592,7 +603,7 @@ Column {
           + "message, and when"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
     }
@@ -600,7 +611,7 @@ Column {
     ToggleSwitch {
       id: imagesSwitch
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
       checked: !!root.service && root.service.alwaysShowImages
       foreground: root.textColor
@@ -614,25 +625,25 @@ Column {
   Rectangle {
     width: parent.width
     implicitHeight: Math.max(heavyText.implicitHeight, heavySwitch.implicitHeight)
-      + Style.space(16)
+      + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
 
     Column {
       id: heavyText
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(12)
+      anchors.leftMargin: MailStyle.space(12)
       anchors.right: heavySwitch.left
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       Text {
         width: parent.width
         text: "Always render heavy messages"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
 
       Text {
@@ -640,7 +651,7 @@ Column {
         text: "Renders without falling back first; layout can stall the shell while it works"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
     }
@@ -648,7 +659,7 @@ Column {
     ToggleSwitch {
       id: heavySwitch
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
       checked: !!root.service && root.service.alwaysRenderHeavyMessages
       foreground: root.textColor
@@ -661,25 +672,25 @@ Column {
   Rectangle {
     width: parent.width
     implicitHeight: Math.max(directionText.implicitHeight, directionTrack.implicitHeight)
-      + Style.space(16)
+      + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
 
     Column {
       id: directionText
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(12)
+      anchors.leftMargin: MailStyle.space(12)
       anchors.right: directionTrack.left
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       Text {
         width: parent.width
         text: "Message direction"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
 
       Text {
@@ -690,7 +701,7 @@ Column {
         text: "Auto reads it from the message's own text. The interface is unaffected."
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
     }
@@ -701,7 +712,7 @@ Column {
       id: directionTrack
       objectName: "contentDirectionTrack"
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
       width: directionSegments.implicitWidth
       height: directionSegments.implicitHeight
@@ -745,25 +756,25 @@ Column {
     visible: !!root.service && root.service.hasAgent !== false
     width: parent.width
     implicitHeight: Math.max(suggestText.implicitHeight, suggestSwitch.implicitHeight)
-      + Style.space(16)
+      + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
 
     Column {
       id: suggestText
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(12)
+      anchors.leftMargin: MailStyle.space(12)
       anchors.right: suggestState.left
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       Text {
         width: parent.width
         text: "Suggest calendar events from mail"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         textFormat: Text.PlainText
       }
 
@@ -774,7 +785,7 @@ Column {
           + "newsletters and lists are skipped. Nothing is written until you Add."
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
       }
@@ -787,7 +798,7 @@ Column {
         text: "Install or update the backend to use this feature."
         color: root.accentColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
       }
@@ -797,19 +808,19 @@ Column {
       id: suggestState
       objectName: "suggestEventsState"
       anchors.right: suggestSwitch.left
-      anchors.rightMargin: Style.space(8)
+      anchors.rightMargin: MailStyle.space(8)
       anchors.verticalCenter: parent.verticalCenter
       text: suggestSwitch.checked ? "On" : "Off"
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
     }
 
     ToggleSwitch {
       id: suggestSwitch
       objectName: "suggestEventsSwitch"
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
       checked: !!root.service && root.service.suggestEvents === true
       enabled: !!root.service && root.service.backendCanSuggestEvents
@@ -829,7 +840,7 @@ Column {
     text: "NOTIFICATIONS"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.letterSpacing: 1
   }
 
@@ -838,25 +849,25 @@ Column {
     visible: !root.service || root.service.hasNotifications !== false
     width: parent.width
     implicitHeight: Math.max(notifyText.implicitHeight, notifySwitch.implicitHeight)
-      + Style.space(16)
+      + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
 
     Column {
       id: notifyText
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(12)
+      anchors.leftMargin: MailStyle.space(12)
       anchors.right: notifySwitch.left
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       Text {
         width: parent.width
         text: "New mail notifications"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
 
       Text {
@@ -864,7 +875,7 @@ Column {
         text: "Send a desktop notification when new mail arrives in your inbox"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
     }
@@ -872,7 +883,7 @@ Column {
     ToggleSwitch {
       id: notifySwitch
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
       checked: !!root.service && root.service.notifyNewMail
       foreground: root.textColor
@@ -889,7 +900,7 @@ Column {
     text: root.service ? String(root.service.notificationError || "") : ""
     color: root.urgentColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     wrapMode: Text.WordWrap
     textFormat: Text.PlainText
   }
@@ -901,48 +912,48 @@ Column {
     text: "WRITING"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.letterSpacing: 1
   }
 
   Rectangle {
     width: parent.width
     implicitHeight: Math.max(undoText.implicitHeight, undoSeconds.implicitHeight)
-      + Style.space(16)
+      + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
 
     Column {
       id: undoText
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(12)
+      anchors.leftMargin: MailStyle.space(12)
       anchors.right: undoSeconds.left
-      anchors.rightMargin: Style.space(16)
+      anchors.rightMargin: MailStyle.space(16)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       Text {
         width: parent.width
         text: "Undo send window"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
 
       Text {
         width: parent.width
-        text: "Omamail waits before delivery. Press alt+z or select Undo to cancel. Set 0 to send now."
+        text: "Magpie waits before delivery. Press alt+z or select Undo to cancel. Set 0 to send now."
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
     }
 
-    NumberField {
+    Widgets.NumberField {
       id: undoSeconds
       anchors.right: parent.right
-      anchors.rightMargin: Style.space(12)
+      anchors.rightMargin: MailStyle.space(12)
       anchors.verticalCenter: parent.verticalCenter
       label: "Seconds"
       from: 0
@@ -952,7 +963,7 @@ Column {
       foreground: root.textColor
       accent: root.accentColor
       fontFamily: root.panelFontFamily
-      fontSize: Style.font.bodySmall
+      fontSize: MailStyle.bodySmall
       onModified: function(next) {
         if (root.service) root.service.setUndoSendSeconds(next)
       }
@@ -965,7 +976,7 @@ Column {
   Column {
     objectName: "settings-signature-section"
     width: parent.width
-    spacing: Style.space(2)
+    spacing: MailStyle.space(2)
     // The heading and the note below belong to the fields. With no mailbox
     // signed in there are none, and first run would otherwise show an
     // explanation with nothing between it and the heading.
@@ -975,11 +986,11 @@ Column {
       text: "Signature"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
-      bottomPadding: Style.space(4)
+      font.pixelSize: MailStyle.bodySmall
+      bottomPadding: MailStyle.space(4)
     }
 
-    Dropdown {
+    Widgets.Dropdown {
       objectName: "settings-signature-account-picker"
       visible: root.signatureAccounts.length > 1
       width: parent.width
@@ -994,8 +1005,8 @@ Column {
 
     Rectangle {
       width: parent.width
-      implicitHeight: Math.max(signatureEdit.implicitHeight, Style.space(56))
-        + Style.space(20)
+      implicitHeight: Math.max(signatureEdit.implicitHeight, MailStyle.space(56))
+        + MailStyle.space(20)
       radius: Style.cornerRadius
       color: Style.normalFillFor(root.textColor, root.accentColor)
 
@@ -1011,7 +1022,7 @@ Column {
         id: signatureEdit
         objectName: "settings-signature-editor"
         anchors.fill: parent
-        anchors.margins: Style.space(10)
+        anchors.margins: MailStyle.space(10)
         activeFocusOnTab: true
         selectByMouse: true
         wrapMode: TextEdit.Wrap
@@ -1020,7 +1031,7 @@ Column {
         selectionColor: Style.selectionFillFor(root.textColor, root.accentColor)
         selectedTextColor: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
 
         // The editor survives account-list updates and routine mailbox polls.
         // Its text changes only when the selected identity changes.
@@ -1035,7 +1046,7 @@ Column {
         text: "No signature"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
       }
     }
 
@@ -1046,9 +1057,9 @@ Column {
     // shown. The words go into the plain editor above for text-only clients.
     Row {
       width: parent.width
-      spacing: Style.space(8)
+      spacing: MailStyle.space(8)
 
-      Button {
+      Widgets.Button {
         objectName: "settings-signature-import"
         text: root.importing ? "Importing" : "Import from file..."
         tooltipText: "A PNG, JPEG, GIF or WebP picture, or an HTML file"
@@ -1056,19 +1067,19 @@ Column {
         bordered: true
         accent: root.accentColor
         fontFamily: root.panelFontFamily
-        fontSize: Style.font.caption
+        fontSize: MailStyle.caption
         enabled: !root.importing && root.selectedSignatureAccountId !== ""
         onClicked: root.importSignature()
       }
 
-      Button {
+      Widgets.Button {
         objectName: "settings-signature-remove-html"
         visible: root.selectedSignatureHtml !== ""
         text: "Remove imported markup"
         foreground: root.dimColor
         bordered: false
         fontFamily: root.panelFontFamily
-        fontSize: Style.font.caption
+        fontSize: MailStyle.caption
         onClicked: {
           if (root.service) root.service.setAccountSignatureHtml(root.selectedSignatureAccountId, "")
           root.importNote = ""
@@ -1083,7 +1094,7 @@ Column {
       text: root.importNote
       color: root.importFailed ? root.urgentColor : root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
 
@@ -1091,7 +1102,7 @@ Column {
       objectName: "settings-signature-preview"
       width: parent.width
       visible: root.selectedSignatureHtml !== ""
-      implicitHeight: Math.min(Style.space(220), signaturePreview.implicitHeight + Style.space(20))
+      implicitHeight: Math.min(MailStyle.space(220), signaturePreview.implicitHeight + MailStyle.space(20))
       radius: Style.cornerRadius
       color: Style.normalFillFor(root.textColor, root.accentColor)
       clip: true
@@ -1101,14 +1112,14 @@ Column {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: Style.space(10)
+        anchors.margins: MailStyle.space(10)
         readOnly: true
         selectByMouse: false
         wrapMode: TextEdit.Wrap
         textFormat: TextEdit.RichText
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         // The stored markup, and nothing else: the same string that is sent.
         text: root.selectedSignatureDocument ? Html.documentFor(root.selectedSignatureDocument, {
           foreground: root.textColor, background: "transparent", link: root.accentColor }) : ""
@@ -1121,7 +1132,7 @@ Column {
         + "Sent as written — no separator line is added in front of it."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
 
@@ -1135,7 +1146,7 @@ Column {
     text: "MAILBOXES"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.letterSpacing: 1
   }
 
@@ -1150,7 +1161,7 @@ Column {
   // This is the same reason the signature editor is shaped this way.
   Column {
     width: parent.width
-    spacing: Style.space(6)
+    spacing: MailStyle.space(6)
     visible: root.signatureAccounts.length > 0
 
     // Two questions, one under the other, each with its own label: which
@@ -1163,10 +1174,10 @@ Column {
       text: "Mailbox"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
     }
 
-    Dropdown {
+    Widgets.Dropdown {
       objectName: "settings-name-account-picker"
       visible: root.signatureAccounts.length > 1
       width: parent.width
@@ -1181,7 +1192,7 @@ Column {
 
     Item {
       width: parent.width
-      implicitHeight: Style.space(4)
+      implicitHeight: MailStyle.space(4)
       visible: root.signatureAccounts.length > 1
     }
 
@@ -1190,7 +1201,7 @@ Column {
       text: "Mailbox name"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
     }
 
     // The kit's own single-line input, which is what every other field on
@@ -1198,14 +1209,14 @@ Column {
     // real placeholder, and it takes a click without one being arranged for
     // it. A hand-built Rectangle around a bare TextInput drew the same box
     // and could not be typed into.
-    TextField {
+    Widgets.TextField {
       id: nameEdit
       objectName: "settings-name-editor"
       width: parent.width
       foreground: root.textColor
       accent: root.accentColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
 
       // Saved on the way out rather than on every keystroke, so the account
       // file is written once per edit and the field is never rebuilt from
@@ -1217,18 +1228,18 @@ Column {
     Text {
       width: parent.width
       textFormat: Text.PlainText
-      text: "What this mailbox is called in Omamail — in the switcher, in this "
+      text: "What this mailbox is called in Magpie — in the switcher, in this "
         + "list, and beside every message in a combined view. Leave it empty "
         + "to use the address. It is not sent to anyone."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
 
     Item {
       width: parent.width
-      implicitHeight: Style.space(4)
+      implicitHeight: MailStyle.space(4)
       visible: root.senderNameEditable
     }
 
@@ -1238,10 +1249,10 @@ Column {
       text: "Your name"
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
     }
 
-    TextField {
+    Widgets.TextField {
       id: senderNameEdit
       objectName: "settings-sender-name-editor"
       visible: root.senderNameEditable
@@ -1249,7 +1260,7 @@ Column {
       foreground: root.textColor
       accent: root.accentColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: MailStyle.bodySmall
 
       onActiveFocusChanged: if (!activeFocus) root.saveSenderName()
       onAccepted: root.saveSenderName()
@@ -1263,14 +1274,14 @@ Column {
         + "address. Leave it empty to send the address alone."
       color: root.dimColor
       font.family: root.panelFontFamily
-      font.pixelSize: Style.font.caption
+      font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
   }
 
   Column {
     width: parent.width
-    spacing: Style.space(2)
+    spacing: MailStyle.space(2)
 
     Repeater {
       model: root.accounts
@@ -1282,7 +1293,7 @@ Column {
 
         width: parent.width
         implicitHeight: Math.max(rowText.implicitHeight, rowActions.implicitHeight)
-          + Style.space(16)
+          + MailStyle.space(16)
         radius: Style.cornerRadius
         // Which mailbox the window is showing is not a fact about this page.
         // Nothing here acts on it — `Edit...` acts on its own row, and the
@@ -1294,11 +1305,11 @@ Column {
         Column {
           id: rowText
           anchors.left: parent.left
-          anchors.leftMargin: Style.space(12)
+          anchors.leftMargin: MailStyle.space(12)
           anchors.right: rowActions.left
-          anchors.rightMargin: Style.space(10)
+          anchors.rightMargin: MailStyle.space(10)
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(2)
+          spacing: MailStyle.space(2)
 
           Text {
             width: parent.width
@@ -1314,7 +1325,7 @@ Column {
             }
             color: root.textColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: MailStyle.bodySmall
             elide: Text.ElideMiddle
           }
 
@@ -1340,7 +1351,7 @@ Column {
             color: row.modelData.error !== undefined && row.modelData.error !== ""
               ? root.urgentColor : root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             elide: Text.ElideRight
           }
 
@@ -1354,7 +1365,7 @@ Column {
             text: row.modelData.detail !== undefined ? row.modelData.detail : ""
             color: root.dimColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
             elide: Text.ElideRight
           }
         }
@@ -1362,9 +1373,9 @@ Column {
         Row {
           id: rowActions
           anchors.right: parent.right
-          anchors.rightMargin: Style.space(10)
+          anchors.rightMargin: MailStyle.space(10)
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(6)
+          spacing: MailStyle.space(6)
 
           IconTextButton {
             text: "Edit..."
@@ -1424,7 +1435,7 @@ Column {
     text: "GOOGLE OAUTH CLIENT"
     color: root.dimColor
     font.family: root.panelFontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: MailStyle.caption
     font.letterSpacing: 1
   }
 
@@ -1436,9 +1447,9 @@ Column {
       id: clientText
       anchors.left: parent.left
       anchors.right: clientButton.left
-      anchors.rightMargin: Style.space(10)
+      anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(2)
+      spacing: MailStyle.space(2)
 
       Text {
         width: parent.width
@@ -1446,7 +1457,7 @@ Column {
           ? "Google client configured" : "Google client setup required"
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: MailStyle.bodySmall
         elide: Text.ElideMiddle
       }
 
@@ -1457,7 +1468,7 @@ Column {
         text: "Advanced setup · shared by Gmail and Google Calendar accounts"
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
         wrapMode: Text.WordWrap
       }
     }
@@ -1474,7 +1485,7 @@ Column {
   }
 
   // One of the three palettes the standalone window can draw with.
-  component AppearanceButton: Button {
+  component AppearanceButton: Widgets.Button {
     required property string mode
     property bool firstSegment: false
     objectName: "appearance-" + mode.toLowerCase()
@@ -1483,9 +1494,9 @@ Column {
     foreground: selected ? root.textColor : root.dimColor
     accent: root.accentColor
     fontFamily: root.panelFontFamily
-    fontSize: Style.font.caption
-    horizontalPadding: Style.space(7)
-    verticalPadding: Style.space(3)
+    fontSize: MailStyle.caption
+    horizontalPadding: MailStyle.space(7)
+    verticalPadding: MailStyle.space(3)
     onClicked: if (root.service) root.service.setAppearance(mode)
 
     Rectangle {
@@ -1497,7 +1508,7 @@ Column {
   }
 
   // One of the three ways a message's direction is arrived at.
-  component DirectionButton: Button {
+  component DirectionButton: Widgets.Button {
     required property string mode
     property bool firstSegment: false
     selected: !!root.service && root.service.contentDirection === mode
@@ -1505,9 +1516,9 @@ Column {
     foreground: selected ? root.textColor : root.dimColor
     accent: root.accentColor
     fontFamily: root.panelFontFamily
-    fontSize: Style.font.caption
-    horizontalPadding: Style.space(7)
-    verticalPadding: Style.space(3)
+    fontSize: MailStyle.caption
+    horizontalPadding: MailStyle.space(7)
+    verticalPadding: MailStyle.space(3)
     onClicked: if (root.service) root.service.setContentDirection(mode)
 
     Rectangle {

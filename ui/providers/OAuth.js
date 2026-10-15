@@ -347,7 +347,7 @@ function httpResponse(statusLine, body) {
 
 function successResponse(theme) {
   return httpResponse("200 OK", themedPage(theme, {
-    title: "Omamail",
+    title: "Magpie",
     heading: "Mailbox connected",
     failed: false,
     body: "<p>Omamail can read this mailbox now. "

@@ -71,6 +71,7 @@ Item {
   QtObject {
     id: mailService
 
+    property var displayPreferences: ({layout: "Split view"})
     property bool ready: true
     property bool anyAccountReady: true
     property bool hasSavedAccounts: true

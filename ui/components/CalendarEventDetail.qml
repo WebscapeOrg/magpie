@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls
 import Quickshell
 import qs.Commons
@@ -111,9 +112,9 @@ Rectangle {
     WheelScroller { view: detailFlick }
 
     anchors.fill: parent
-    anchors.margins: Style.space(18)
+    anchors.margins: MailStyle.space(18)
     contentWidth: width
-    contentHeight: content.implicitHeight + Style.space(18)
+    contentHeight: content.implicitHeight + MailStyle.space(18)
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -121,8 +122,8 @@ Rectangle {
     Column {
       id: content
       anchors.horizontalCenter: parent.horizontalCenter
-      width: Math.min(parent.width, Style.space(720))
-      spacing: Style.space(14)
+      width: Math.min(parent.width, MailStyle.space(720))
+      spacing: MailStyle.space(14)
 
       BackBar {
         label: "Calendar"
@@ -148,7 +149,7 @@ Rectangle {
         text: String(root.event && root.event.summary || "Untitled event")
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.title
+        font.pixelSize: MailStyle.title
         font.bold: true
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
@@ -159,18 +160,18 @@ Rectangle {
         text: root.dateSummary()
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.body
+        font.pixelSize: MailStyle.body
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
       }
 
       Row {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
         Rectangle {
           anchors.verticalCenter: parent.verticalCenter
-          width: Style.space(10)
+          width: MailStyle.space(10)
           height: width
           radius: width / 2
           color: root.eventColor
@@ -182,14 +183,14 @@ Rectangle {
             ? String(root.source.name || root.source.id || "Calendar") : "Calendar"
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           textFormat: Text.PlainText
         }
       }
 
       Flow {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
         IconTextButton {
           visible: root.meetingLink !== ""
           text: "Join meeting..."
@@ -213,7 +214,7 @@ Rectangle {
       Row {
         visible: String(root.event && root.event.location || "") !== ""
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
 
         ActionIcon {
           anchors.verticalCenter: parent.verticalCenter
@@ -223,11 +224,11 @@ Rectangle {
         }
 
         Text {
-          width: parent.width - Style.space(28)
+          width: parent.width - MailStyle.space(28)
           text: String(root.event && root.event.location || "")
           color: root.textColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.bodySmall
+          font.pixelSize: MailStyle.bodySmall
           wrapMode: Text.WrapAnywhere
           textFormat: Text.PlainText
         }
@@ -241,23 +242,23 @@ Rectangle {
         wrapMode: Text.Wrap
         color: root.refreshError !== "" ? root.urgentColor : root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: MailStyle.caption
       }
 
       Column {
         width: parent.width
-        spacing: Style.space(6)
+        spacing: MailStyle.space(6)
         visible: root.meetingLink !== ""
         Text {
           text: "Meeting link"
           textFormat: Text.PlainText
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
         }
         Row {
           width: parent.width
-          spacing: Style.space(10)
+          spacing: MailStyle.space(10)
           AbstractButton {
             objectName: "event-meeting-link"
             width: Math.max(0, Math.min(contentItem.implicitWidth,
@@ -273,7 +274,7 @@ Rectangle {
               verticalAlignment: Text.AlignVCenter
               color: root.accentColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.body
+              font.pixelSize: MailStyle.body
               font.underline: true
             }
             onClicked: if (root.controller) root.controller.openExternal(root.meetingLink)
@@ -302,7 +303,7 @@ Rectangle {
             textFormat: Text.PlainText
             color: root.accentColor
             font.family: root.panelFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: MailStyle.caption
           }
         }
       }
@@ -315,7 +316,7 @@ Rectangle {
         wrapMode: Text.Wrap
         color: root.dimColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.body
+        font.pixelSize: MailStyle.body
       }
 
       Text {
@@ -324,7 +325,7 @@ Rectangle {
         text: String(root.event && root.event.description || "")
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: Style.font.body
+        font.pixelSize: MailStyle.body
         lineHeight: 1.35
         wrapMode: Text.Wrap
         textFormat: Text.PlainText
@@ -332,7 +333,7 @@ Rectangle {
 
       Column {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: MailStyle.space(8)
         visible: attendeeList.count > 0
         Text {
           text: "Guests · " + attendeeList.count
@@ -340,7 +341,7 @@ Rectangle {
           color: root.textColor
           font.family: root.panelFontFamily
           font.bold: true
-          font.pixelSize: Style.font.body
+          font.pixelSize: MailStyle.body
         }
         Repeater {
           id: attendeeList
@@ -348,26 +349,26 @@ Rectangle {
           delegate: Rectangle {
             required property var modelData
             width: parent.width
-            height: guestInfo.implicitHeight + Style.space(16)
+            height: guestInfo.implicitHeight + MailStyle.space(16)
             radius: Style.cornerRadius
             color: Qt.alpha(root.textColor, 0.04)
             Row {
               id: guestInfo
-              x: Style.space(10)
-              y: Style.space(8)
-              width: parent.width - Style.space(20)
-              spacing: Style.space(10)
+              x: MailStyle.space(10)
+              y: MailStyle.space(8)
+              width: parent.width - MailStyle.space(20)
+              spacing: MailStyle.space(10)
               Text {
-                width: Style.space(20)
+                width: MailStyle.space(20)
                 text: modelData.symbol
                 textFormat: Text.PlainText
                 color: root.textColor
                 font.family: root.panelFontFamily
-                font.pixelSize: Style.font.body
+                font.pixelSize: MailStyle.body
               }
               Column {
-                width: parent.width - Style.space(30)
-                spacing: Style.space(3)
+                width: parent.width - MailStyle.space(30)
+                spacing: MailStyle.space(3)
                 Text {
                   width: parent.width
                   text: modelData.name + (modelData.self ? " (you)" : "")
@@ -375,7 +376,7 @@ Rectangle {
                   wrapMode: Text.Wrap
                   color: root.textColor
                   font.family: root.panelFontFamily
-                  font.pixelSize: Style.font.bodySmall
+                  font.pixelSize: MailStyle.bodySmall
                 }
                 Text {
                   width: parent.width
@@ -385,7 +386,7 @@ Rectangle {
                   wrapMode: Text.Wrap
                   color: root.dimColor
                   font.family: root.panelFontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: MailStyle.caption
                 }
               }
             }
@@ -408,7 +409,7 @@ Rectangle {
         visible: root.meetingLink !== "" || root.locationLink !== ""
            || root.providerLink !== "" || root.canDelete || root.locationText !== ""
         width: parent.width
-        spacing: Style.space(7)
+        spacing: MailStyle.space(7)
 
         IconTextButton {
           visible: root.locationLink !== "" && root.locationLink !== root.meetingLink

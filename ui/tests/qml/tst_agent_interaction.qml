@@ -1,3 +1,4 @@
+import "../../settings"
 import QtQuick
 import QtTest
 import "../../components" as C
@@ -343,7 +344,7 @@ Item {
       compare(findChild(popup, "agent-ask-button"), null)
       verify(field.width > popup.width - 40)
       var bottom = popup.height - field.mapToItem(popup, 0, field.height).y
-      verify(bottom >= 10 && bottom <= 14, "bottom gap " + bottom)
+      verify(bottom >= MailStyle.space(10) && bottom <= MailStyle.space(14), "bottom gap " + bottom)
       compare(findChild(popup, "agent-more-button"), null)
       compare(popup.opened, true)
     }

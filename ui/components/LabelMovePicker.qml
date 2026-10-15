@@ -1,4 +1,5 @@
 import QtQuick
+import "../settings"
 import QtQuick.Controls
 import QtQuick.Controls as QQC
 import qs.Commons
@@ -57,9 +58,9 @@ Item {
   QQC.Popup {
     id: menu
     anchors.centerIn: parent
-    width: Math.min(Style.space(320), parent.width - Style.space(32))
-    implicitHeight: Math.min(parent.height - Style.space(64), list.implicitHeight + Style.space(24))
-    padding: Style.space(8)
+    width: Math.min(MailStyle.space(320), parent.width - MailStyle.space(32))
+    implicitHeight: Math.min(parent.height - MailStyle.space(64), list.implicitHeight + MailStyle.space(24))
+    padding: MailStyle.space(8)
     modal: true
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
@@ -94,16 +95,16 @@ Item {
       Column {
         id: list
         width: flick.width
-        spacing: Style.space(2)
+        spacing: MailStyle.space(2)
 
         Text {
           width: parent.width
-          leftPadding: Style.space(9)
-          bottomPadding: Style.space(4)
+          leftPadding: MailStyle.space(9)
+          bottomPadding: MailStyle.space(4)
           text: "Move under"
           color: root.dimColor
           font.family: root.panelFontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: MailStyle.caption
         }
 
         Repeater {
@@ -126,7 +127,7 @@ Item {
             ActionIcon {
               id: rowIcon
               anchors.left: parent.left
-              anchors.leftMargin: Style.space(8)
+              anchors.leftMargin: MailStyle.space(8)
               anchors.verticalCenter: parent.verticalCenter
               name: row.modelData.path === "" ? "inbox" : "label"
               iconSize: Style.font.iconSmall
@@ -135,15 +136,15 @@ Item {
 
             Text {
               anchors.left: rowIcon.right
-              anchors.leftMargin: Style.space(8)
+              anchors.leftMargin: MailStyle.space(8)
               anchors.right: parent.right
-              anchors.rightMargin: Style.space(8)
+              anchors.rightMargin: MailStyle.space(8)
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
               text: row.modelData.name
               color: root.textColor
               font.family: root.panelFontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: MailStyle.bodySmall
               elide: Text.ElideMiddle
             }
 

@@ -166,16 +166,26 @@ BarWidget {
 
     iconComponent: Component {
       Item {
-        Text {
+        MagpieLogo {
           id: bird
           readonly property bool crossed: !button.connected
-          readonly property bool dot: button.hasUnread
+          readonly property bool dot: button.connected && button.hasUnread
           anchors.centerIn: parent
-          text: crossed ? "🐦×" : "🐦"
-          font.family: "Noto Color Emoji"
-          font.pixelSize: Style.font.iconLarge
+          width: Style.font.iconLarge
+          height: width
+          foreground: button.glyphColor
+          accent: button.glyphColor
           opacity: button.connected ? 1 : 0.5
-          Accessible.name: "Magpie"
+        }
+        Text {
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          visible: !button.connected
+          textFormat: Text.PlainText
+          text: "×"
+          color: button.foreground
+          font.pixelSize: Style.font.iconSmall
+          Accessible.name: "Mail offline"
         }
         Rectangle {
           anchors.right: parent.right

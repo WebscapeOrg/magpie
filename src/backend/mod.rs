@@ -9,6 +9,7 @@ pub mod upload;
 use crate::{account, message};
 
 pub struct Session {
+    inbox: crate::inbox::Inbox,
     uploads: std::sync::Mutex<upload::Uploads>,
     reader: std::sync::Arc<std::sync::Mutex<reader::ReaderStore>>,
     #[cfg(all(feature = "agent", unix))]
@@ -37,6 +38,7 @@ impl Default for Session {
         }));
         let queries = std::sync::Arc::new(crate::cache::query::QueryCache::default());
         Self {
+            inbox: Default::default(),
             uploads: Default::default(),
             reader: Default::default(),
             #[cfg(all(feature = "agent", unix))]
@@ -62,6 +64,9 @@ impl Session {
         #[cfg(not(all(feature = "agent", unix)))]
         if method.starts_with("agent.") {
             return Err("unknown_method");
+        }
+        if method.starts_with("inbox.") {
+            return self.inbox.call(method, params, self.gmail.clone()).await;
         }
         if matches!(method, "mail.list" | "mail.read" | "mail.act" | "mail.send") {
             return Box::pin(self.mail_call(method, params)).await;
@@ -202,7 +207,13 @@ impl Session {
             return Ok(json!({"access_token":token,"expires_in":60}));
         }
         if method.starts_with("auth.") {
-            return Box::pin(self.auth.call(method, params)).await;
+            let value = Box::pin(self.auth.call(method, params)).await?;
+            if method == "auth.poll" {
+                if let Some(account) = value["profile"]["emailAddress"].as_str() {
+                    self.gmail.call("gmail.invalidate", &json!({"accountId":account})).await?;
+                }
+            }
+            return Ok(value);
         }
         if method.starts_with("jmap.") {
             return Box::pin(self.jmap.call(method, params)).await;
@@ -479,7 +490,7 @@ pub fn dispatch(method: &str, params: &Value) -> Result<Value, &'static str> {
     match method {
         "system.info" => Ok(json!({
             "name": "omamail", "version": env!("CARGO_PKG_VERSION"),
-            "protocol": 1, "apiVersion": 7, "methods": methods::available(),
+            "protocol": 1, "apiVersion": 8, "methods": methods::available(),
             "capabilities": {"agent": cfg!(all(feature = "agent", unix))}
         })),
         "system.quit" => Ok(json!({"quitReady": true})),

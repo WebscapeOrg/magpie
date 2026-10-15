@@ -454,7 +454,7 @@ Item {
       // A user can untick individual permissions on Google's consent screen.
       // The resulting token works for reading and fails at the first archive,
       // which is a far worse experience than saying so now.
-      var missing = OAuth.missingScopes(result.scope, root.scopes)
+      var missing = OAuth.missingScopes(result.scope, OAuth.requiredScopes(root.scopes))
       if (missing.length > 0) {
         root.resetMemorySession()
         root.sessionChecked = true

@@ -8,6 +8,7 @@ import qs.Commons as Commons
 import "account"
 import "calendar"
 import "agent"
+import "inbox"
 import "backend"
 import "diagnostics"
 import "agent/Agent.js" as Agent
@@ -31,6 +32,9 @@ import "settings/Display.js" as Display
 // All accounts poll unread counts; only the active account loads lists/bodies.
 Item {
   id: root
+  readonly property var inboxTools: inboxController
+  InboxTools { id: inboxController; service: root }
+
 
   visible: false
   width: 0
@@ -1259,6 +1263,7 @@ Item {
   property int restoreAttempts: 0
 
   function applyWindowPrefs(raw) {
+    inboxController.paused = Display.readWindow(raw).overviewPaused === true
     displayPreferences = Display.fromWindow(raw)
     var prefs = Model.windowPrefs(raw)
     sidebarCollapsed = prefs.sidebarCollapsed
@@ -1301,6 +1306,7 @@ Item {
     windowPrefsSettling.stop()
     windowWritePayload = JSON.stringify({
       display: displayPreferences,
+      overviewPaused: inboxController.paused,
       sidebarCollapsed: sidebarCollapsed,
       sidebarWidth: sidebarWidth,
       listWidth: listWidth,

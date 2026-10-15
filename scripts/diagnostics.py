@@ -18,7 +18,8 @@ LIMIT = 65536
 # An exact, reviewed vocabulary, never a pattern that could admit a credential or
 # server text. tests/test_diagnostics.py flags new static backend identifiers;
 # review their source before adding them here, never derive this set at runtime.
-MESSAGES = set('''accounts_busy accounts_conflict accounts_invalid accounts_setup_replacement accounts_too_large
+MESSAGES = set('''permission_required contacts_invalid contacts_permission_required contacts_response_limit contacts_unavailable inbox_gmail_required inbox_storage_invalid inbox_storage_unavailable inbox_unavailable overview_ai_unavailable overview_input_invalid overview_invalid_response overview_start_failed overview_unsupported_claim snooze_invalid_folder snooze_invalid_thread snooze_invalid_time snooze_limit snooze_missing snooze_pending_retry
+accounts_busy accounts_conflict accounts_invalid accounts_setup_replacement accounts_too_large
 accounts_unexpected_removal accounts_unreadable accounts_version_unsupported accounts_write_failed
 agent_active_limit agent_cancel_failed agent_choose_claude
 agent_config_invalid agent_config_unavailable agent_context_owner_mismatch agent_conversation_busy

@@ -120,6 +120,10 @@ Each call advances at most four scan or page-verification folders, with at most 
 
 Search includes aggregate All Mail destinations and excludes Trash/Junk membership from aggregate results. Cross-folder copies are collapsed using server-provided `EMAILID`/`X-GM-MSGID`. A generic server that advertises `\All` but no server identity is searched through its `\All` mailbox alone, because RFC 6154 defines it as every message in the store; scanning physical folders as well would only add copies that cannot be matched without reading them. Its Message-ID header and RFC822.SIZE nominate possible overlaps between All and Trash/Junk, then SHA-256 of complete message bytes verifies those candidates before excluding any aggregate result. Verification reads at most 64 candidates and 8 MiB per folder step with `BODY.PEEK[]` and retains only digests; a candidate larger than 8 MiB is not read and stays in the results. A server with neither `\All` nor a server identity preserves folder/UID copies, so overlapping folders may produce duplicate rows. A sender-written Message-ID, headers or size alone never suppress a result. Copies within one physical folder remain distinct. `mail.list` follows search continuations for at most 120 seconds; other IMAP listings still accept one continuation.
 
+## Magpie API 8 inbox features
+
+`inbox.snapshot`, `inbox.overviews`, `inbox.avatar`, `inbox.snooze`, `inbox.wake` and `inbox.tick` provide account-bound background overviews, cached raster avatars and durable Gmail snooze. UI callers require a connected API revision of at least 8. Overviews return admission immediately and are observed through snapshots; their isolated worker has no mail-action tools. Snooze writes a pending schedule before archiving and retains it on an unknown mutation outcome. Due wakes skip messages moved to Trash or Spam. The feature behavior and Enterprise installation are described in [the Magpie guide](../MAGPIE.md#inbox).
+
 ## Released and unreleased: one step ahead of the pin
 
 Backends ship in batches, not per merge, so `main` may implement an API the pinned

@@ -4,7 +4,7 @@ Magpie is Dave's MIT-licensed fork of [Omamail](https://github.com/huacnlee/omam
 
 Open a message with a click or Enter. **Back**, Escape, or Left returns to the list. The toolbar's **Split view / Single pane** button changes layouts. The first launch uses single pane; the choice is saved.
 
-Open **Settings → Layout and fonts** with **Ctrl+,**. Interface, message list, and message body each have their own font chooser, size in points, and preview. Settings save automatically. Initial values are **Chillax Light, 17 pt** in all three regions. Choose **System UI font** to follow the desktop's proportional `sans-serif` fontconfig alias. This does not change Omarchy's bar or terminal fonts. Message zoom remains available with Ctrl++ / Ctrl+- / Ctrl+0 on top of the configured message size. Original-format messages may retain their sender's explicit styling; Reading and Plain text use your message font.
+Open **Settings → Layout and fonts** with **Ctrl+,**. Interface, message list, and message body each have their own font chooser, size in points, and preview. Settings save automatically. Initial values are **Chillax Light, 17 pt** in all three regions. Choose **System UI font** to follow the desktop's proportional `sans-serif` fontconfig alias. This does not change Omarchy's bar or terminal fonts. An inherited Omamail message zoom is reset to 100% when Magpie first creates its font preferences. Later zoom choices are retained. Message zoom remains available with Ctrl++ / Ctrl+- / Ctrl+0 on top of the configured message size. Original-format messages may retain their sender's explicit styling; Reading and Plain text use your message font.
 
 ## Enterprise installation
 

@@ -32,8 +32,15 @@ function changed(raw, key, value) {
   return normalize(result)
 }
 
+function readWindow(raw) {
+  try { return JSON.parse(String(raw || "{}")) || {} } catch (error) { return {} }
+}
+
 function fromWindow(raw) {
-  var parsed = {}
-  try { parsed = JSON.parse(String(raw || "{}")) } catch (error) {}
-  return normalize(parsed && parsed.display)
+  return normalize(readWindow(raw).display)
+}
+
+function zoomForWindow(raw, savedZoom) {
+  var display = readWindow(raw).display
+  return display && typeof display === "object" && !Array.isArray(display) ? savedZoom : 1
 }

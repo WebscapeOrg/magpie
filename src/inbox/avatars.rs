@@ -134,7 +134,7 @@ pub async fn get(
     refresh_id: &str,
 ) -> Result<Value, &'static str> {
     let domain = address.split_once('@').ok_or("invalid_params")?.1;
-    let name = format!("avatar-{}", store::key(&["avatar", account, address]));
+    let name = format!("avatar-{}", store::key(&["avatar-v2", account, address]));
     if let Some(saved) = store::read(&name)? {
         if refresh_id.is_empty() && now() - saved["updated"].as_i64().unwrap_or(0) < 7 * 86_400_000
         {
@@ -153,9 +153,17 @@ pub async fn get(
         }
     }
     if image.is_empty() && !consumer(domain) {
+        if let Some(url) = organization_artwork(domain) {
+            if let Ok(data) = crate::public_http::image(url).await {
+                image = data;
+                source = "organization";
+            }
+        }
+    }
+    if image.is_empty() && !consumer(domain) {
         // Query only a domain, never a mailbox address or sender-controlled image URL.
         let url = format!(
-            "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https%3A%2F%2F{domain}&size=128"
+            "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https%3A%2F%2F{domain}&size=256"
         );
         if let Ok(data) = crate::public_http::image(&url).await {
             image = data;
@@ -166,9 +174,40 @@ pub async fn get(
     store::cache(&name, &value)?;
     Ok(value)
 }
+fn organization_artwork(domain: &str) -> Option<&'static str> {
+    match domain {
+        "linkedin.com" => Some(
+            "https://static.licdn.com/scds/common/u/images/logos/linkedin/logo-in-win8-tile-144_v1.png",
+        ),
+        "xneelo.co.za" | "xneelo.com" => {
+            Some("https://xneelo.co.za/wp-content/uploads/2020/12/cropped-favicon-300x300.png")
+        }
+        _ => None,
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn artwork_uses_exact_domains_and_official_high_resolution_sources() {
+        assert!(
+            organization_artwork("linkedin.com")
+                .unwrap()
+                .contains("144")
+        );
+        assert!(
+            organization_artwork("xneelo.co.za")
+                .unwrap()
+                .contains("300x300")
+        );
+        for domain in [
+            "linkedin.com.evil.test",
+            "evil.linkedin.com",
+            "xneelo.co.za/evil",
+        ] {
+            assert_eq!(organization_artwork(domain), None);
+        }
+    }
     #[test]
     fn hostile_addresses_never_form_requests() {
         for value in [

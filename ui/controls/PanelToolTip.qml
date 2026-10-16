@@ -25,6 +25,8 @@ ToolTip {
   property color panelBorder: Color.tooltip.border
   property string fontFamily: MailStyle.family
   property real fontSize: MailStyle.bodySmall
+  property real maximumWidth: Infinity
+  implicitWidth: Math.min(contentItem.implicitWidth, maximumWidth)
 
   readonly property var panelBorderSpec: Border.localOrSurfaceSpec("tooltip", "border", panelBorder, Color.tooltip.border, Style.normalBorderWidth)
 
@@ -39,6 +41,7 @@ ToolTip {
 
   contentItem: Text {
 
+    wrapMode: Text.WordWrap
     textFormat: Text.PlainText
     text: root.text
     color: root.panelForeground

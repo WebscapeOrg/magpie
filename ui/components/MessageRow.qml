@@ -57,6 +57,7 @@ Rectangle {
   property string avatarData: ""
   property string overview: ""
   property string overviewState: ""
+  property string overviewReason: ""
   signal unreadRequested()
   signal snoozeRequested(real sceneX, real sceneY)
   signal starToggled()
@@ -176,8 +177,7 @@ Rectangle {
         id: sender
         objectName: "message-sender"
         anchors.left: parent.left
-        anchors.right: source.visible ? source.left
-          : (count.visible ? count.left : time.left)
+        anchors.right: count.visible ? count.left : time.left
         anchors.rightMargin: (source.visible || count.visible) ? MailStyle.space(4) : MailStyle.space(8)
         textFormat: Text.PlainText
         text: root.summary.from ? root.summary.from.display : ""
@@ -197,8 +197,7 @@ Rectangle {
       ActionIcon {
         id: source
         objectName: "message-source"
-        anchors.right: count.visible ? count.left : time.left
-        anchors.rightMargin: MailStyle.space(8)
+        anchors.right: parent.right
         anchors.verticalCenter: sender.verticalCenter
         visible: root.sourceLabel !== ""
         name: Identity.icon(root.sourceLabel)
@@ -234,7 +233,8 @@ Rectangle {
       Text {
         id: time
         objectName: "message-time"
-        anchors.right: parent.right
+        anchors.right: source.visible ? source.left : parent.right
+        anchors.rightMargin: source.visible ? MailStyle.space(8) : 0
         anchors.baseline: sender.baseline
         textFormat: Text.PlainText
         text: root.summary.time
@@ -260,15 +260,18 @@ Rectangle {
     }
 
     Text {
+      id: description
       objectName: "message-description"
       width: Math.max(0, Math.min(subject.width, parent.width - time.width - MailStyle.space(16)))
       visible: true
       textFormat: Text.PlainText
-      text: root.overview || (root.overviewState === "failed" ? "Overview unavailable · retry from Menu" : root.overviewState === "paused" ? "Overviews paused" : root.overviewState === "running" ? "Creating overview" : root.overviewState === "unavailable" ? "AI overview unavailable" : "Overview queued")
+      text: root.overview || (root.overviewState === "failed" ? "Overview unavailable · " + (root.overviewReason || "previous attempt saved no reason; retry from Menu") : root.overviewState === "paused" ? "Overviews paused" : root.overviewState === "running" ? "Creating overview" : root.overviewState === "unavailable" ? "Overview unavailable · " + (root.overviewReason || "mail backend is disconnected") : "Overview queued")
       color: root.dimColor
       font.family: root.panelFontFamily
       font.pixelSize: MailStyle.listSize
       elide: Text.ElideRight
+      Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && (description.truncated || root.overviewState === "failed"); text: description.text; fontFamily: root.panelFontFamily }
+      HoverHandler { id: overviewHover }
       maximumLineCount: 1
       horizontalAlignment: root.textAlignment
     }
@@ -283,7 +286,7 @@ Rectangle {
     anchors.right: parent.right
     anchors.rightMargin: MailStyle.space(6)
     y: body.y + subject.y + (body.height - subject.y - height) / 2
-    spacing: 0
+    spacing: Math.max(MailStyle.space(24), Style.font.iconSmall * 2.5 + MailStyle.space(8)) * 0.15
     visible: root.hot || root.selectionMode || root.snoozeOpen
 
     IconButton {

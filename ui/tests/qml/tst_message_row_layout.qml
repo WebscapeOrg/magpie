@@ -17,6 +17,38 @@ Item {
   TestCase {
     name: "MessageRowLayout"
     when: windowShown
+    function test_long_failure_tooltip_fits_a_narrow_row() {
+      row.width=360;row.hasCursor=false
+      row.overview="";row.overviewState="failed"
+      row.overviewReason="AI response could not be verified against the mail; retry from Menu"
+      waitForRendering(row)
+      var description=findChild(row,"message-description")
+      mouseMove(description,5,5)
+      var tip=findChild(row,"overview-tooltip")
+      tryCompare(tip,"visible",true)
+      verify(tip.width<=row.width)
+      compare(tip.contentItem.textFormat,Text.PlainText)
+      compare(tip.contentItem.wrapMode,Text.WordWrap)
+      verify(tip.contentItem.height>tip.fontSize*1.5)
+      mouseMove(row,-20,-20)
+      row.overviewState="";row.overviewReason=""
+    }
+    function test_phase_four_tools_and_failure_detail() {
+      row.hasCursor=true
+      row.overview=""
+      row.overviewState="failed"
+      row.overviewReason="AI response could not be verified against the mail; retry from Menu"
+      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",sourceLabel:"Personal"}
+      waitForRendering(row)
+      var source=findChild(row,"message-source")
+      var time=findChild(row,"message-time")
+      verify(source.mapToItem(row,0,0).x > time.mapToItem(row,time.width,0).x)
+      var actions=findChild(row,"message-actions")
+      var unread=findChild(row,"message-mark-unread")
+      compare(actions.spacing,unread.width*0.15)
+      verify(findChild(row,"message-description").text.indexOf(row.overviewReason)>=0)
+      row.overviewState="";row.overviewReason="";row.hasCursor=false
+    }
     function test_time_stays_fixed_when_actions_appear() {
       row.hasCursor=false
       row.checked=false
@@ -77,7 +109,9 @@ Item {
       var trash=findChild(row,"message-trash")
       if(trash.visible) verify(trash.iconSize>25,"tools use enlarged icons")
       if(!actions.visible) {
-        compare(Math.round(timePoint.x+time.width),Math.round(subjectPoint.x+subject.width))
+        var source=findChild(row,"message-source")
+        var edge=source.visible ? source.mapToItem(row,source.width,0).x : timePoint.x+time.width
+        compare(Math.round(edge),Math.round(subjectPoint.x+subject.width))
         verify(descriptionPoint.x+description.width<=timePoint.x-8,"overview stops before the date")
       }
       verify(sender.width>0)

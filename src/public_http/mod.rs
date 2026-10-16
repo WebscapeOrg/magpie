@@ -126,6 +126,7 @@ fn parse_url(raw: &str, https_only: bool) -> Result<Url, &'static str> {
 
 fn client_builder() -> reqwest::ClientBuilder {
     Client::builder()
+        .user_agent("Magpie/0.11")
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .dns_resolver(Arc::new(PublicResolver))

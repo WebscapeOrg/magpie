@@ -153,6 +153,7 @@ async fn connection_is_pinned_and_original_host_is_preserved() {
     let request = server.await.unwrap();
     assert!(request.to_lowercase().contains("host: sender.example\r\n"));
     assert!(!request.to_lowercase().contains("authorization:"));
+    assert!(request.to_lowercase().contains("user-agent: magpie/0.11\r\n"));
 }
 
 #[tokio::test]

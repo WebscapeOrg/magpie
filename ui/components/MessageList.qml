@@ -78,6 +78,7 @@ Column {
       snoozeOpen: root.snoozeId === modelData.id
       avatarData: root.service.inboxTools ? root.service.inboxTools.avatarFor(modelData) : ""
       overview: root.service.inboxTools ? String(root.service.inboxTools.overviewFor(modelData).text || "") : ""
+      overviewReason: root.service.inboxTools ? (root.service.inboxTools.available === false ? (!root.service.backend || !root.service.backend.ready ? "mail backend is disconnected" : "backend update required") : String(root.service.inboxTools.overviewFor(modelData).reason || "")) : ""
       overviewState: root.service.inboxTools ? (root.service.inboxTools.available === false ? "unavailable" : root.service.inboxTools.paused === true ? "paused" : String(root.service.inboxTools.overviewFor(modelData).state || "")) : ""
       onUnreadRequested: root.rowActionRequested(modelData.id, "markUnread")
       onSnoozeRequested: function(x,y) { root.snoozeRequested(modelData.id,x,y) }

@@ -29,3 +29,11 @@ The upstream release remains the fallback pin in `backend-version`. Phase 2 requ
 Keep `upstream` pointing at huacnlee/omamail and `origin` at dreinecke/magpie. Changes go through a branch and PR in this fork. `make validate` runs the inherited backend, UI, and packaging checks. Magpie's behavior tests are `ui/tests/test_display.js`, `ui/tests/qml/tst_display_settings.qml`, and the single-pane navigation test in `tst_app_compose_pending.qml`.
 
 The font-aware primitives in `ui/controls` are copies of the installed Omarchy Quattro toolkit with local typography bindings. Their upstream MIT notice is in `ui/controls/LICENSE`. They keep Omarchy's theme and interaction conventions while letting Magpie's interface size differ from the rest of the shell.
+
+### List view refinements
+
+The list header keeps Search, Folder, Compose and the account selector; the Magpie name and bird appear at the top of Menu. The content frame uses equal insets on all four edges. Mailbox house/tree symbols follow the date, and row action centers are 15% farther apart. Icons use scalable Material Design font outlines at the display scale.
+
+Sender artwork preserves its aspect ratio and fits completely inside the circular background. LinkedIn uses its official 144 px tile and xneelo its official 300 px site icon; other organizations request up to 256 px through the existing domain-only logo service, whose available resolution varies. The avatar cache revision refreshes older low-resolution entries automatically. Sources: [LinkedIn brand site](https://brand.linkedin.com/) and [xneelo](https://xneelo.co.za/).
+
+Unavailable overviews show a specific safe reason for worker startup, AI response, format/length, evidence validation or mail preparation failures, followed by the retry action. Older cached failures explicitly say no reason was saved. Hovering an elided overview reveals the full explanation. Paused, queued and running states remain distinct. This uses the unreleased API 8 snapshot contract; backend disconnection or an older backend has its own explanation.

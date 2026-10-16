@@ -239,8 +239,10 @@ fi
 #    `foreground` is the fixed theme value and does not follow that switch.
 grep -q 'bar ? bar\.barForeground' BarWidget.qml \
   || fail "the bar icon must follow bar.barForeground in transparent mode"
-grep -q 'MagpieLogo {' App.qml \
-  || fail "the header must use Magpie's identity"
+grep -q 'MagpieLogo {' components/AppMenu.qml \
+  || fail "the app menu must carry Magpie's identity"
+! grep -q 'MagpieLogo {' App.qml \
+  || fail "the list header must leave branding in the menu"
 grep -q 'color: Commons.Color.accent' BarWidget.qml \
   || fail "the unread marker must use the active theme accent"
 

@@ -65,7 +65,12 @@ Item {
       requesting = true
       service.backend.call("inbox.overviews", {accountId:account,ids:chosen,retry:retryFailed}, function(result,failure) {
         root.requesting = false
-        if (failure) root.error = "AI overviews could not start. Check the Claude login, then choose Menu → Retry AI overviews."
+        if (failure) {
+          root.error = "AI overviews could not start. Check the Claude login, then choose Menu → Retry AI overviews."
+          var next = Object.assign({},root.overviews)
+          for (var i=0;i<chosen.length;i++) next[root.key(account,chosen[i])] = {state:"failed",reason:"AI request could not start; retry from Menu",updated:Date.now()}
+          root.overviews = next
+        }
         root.retryFailed = false
       })
     }

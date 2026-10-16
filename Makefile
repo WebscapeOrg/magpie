@@ -31,6 +31,7 @@ QML_FILES := ui/tests/qml/tst_inbox_tools.qml  ui/tests/qml/tst_snooze_picker.qm
 	ui/components/KeyRouter.qml \
 	ui/components/WheelScroller.qml \
 	ui/components/ActionIcon.qml \
+	ui/tests/qml/tst_action_icon.qml \
 	ui/components/IconButton.qml \
 	ui/components/IconTextButton.qml \
 	ui/components/ImagePopover.qml \

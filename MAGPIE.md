@@ -34,7 +34,7 @@ The font-aware primitives in `ui/controls` are copies of the installed Omarchy Q
 
 The list header keeps Search, Folder, Compose and the account selector; the Magpie name and bird appear at the top of Menu. The content frame uses equal insets on all four edges. Mailbox house/tree symbols follow the date, and row action centers are 15% farther apart. Icons use scalable Material Design font outlines at the display scale.
 
-In the single-column message reader, Back sits beside the menu in the top toolbar and uses the same outlined button style as Compose. Escape keeps its existing navigation behavior. Folder and the mailbox selector share the outlined toolbar style; the menu glyph is twice its former size.
+In the list view, the mailbox selector sits beside the menu in the position used by Back when reading a message. In the single-column message reader, ← Back sits beside the menu in the top toolbar and uses the same outlined button style as Compose. Escape keeps its existing navigation behavior. Folder and the mailbox selector share the outlined toolbar style; the menu glyph is twice its former size.
 
 Sender artwork preserves its aspect ratio and fits inside the circular background with at least 30% radial clearance, including at square logo corners. LinkedIn uses its official 144 px tile and xneelo its official 300 px site icon; other organizations request up to 256 px through the existing domain-only logo service, whose available resolution varies. The avatar cache revision refreshes older low-resolution entries automatically. Sources: [LinkedIn brand site](https://brand.linkedin.com/) and [xneelo](https://xneelo.co.za/).
 

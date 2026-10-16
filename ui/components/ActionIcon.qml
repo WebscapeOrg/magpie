@@ -4,16 +4,6 @@ import qs.Commons
 import qs.Commons as Commons
 import "Icons.js" as Icons
 
-// One of the app's icons, by name.
-//
-// Every functional icon is a Nerd Font glyph from the Material Design Icons
-// range, the range the Omarchy shell draws its own bar and panel icons from,
-// so the window's verbs look like the desktop's. `Icons.js` is the map from
-// a name to a glyph; this only draws the one it is given, the way the
-// shell's `OpticalGlyph` does — centred on the ink rather than on the cell.
-//
-// The one drawing left is the brand mark: an envelope whose M carries the
-// theme accent. A glyph is one colour, so the two-colour mark stays a Canvas.
 Item {
   id: root
 
@@ -25,50 +15,27 @@ Item {
   property bool brand: false
   property bool filled: false
   property real iconSize: Style.font.icon
-  // Bound to the shell's family rather than fixed, so the icons follow
-  // `omarchy font set` with everything else; the tests pass a Nerd Font in.
-  // The shell uses one configured Nerd Font for text and icons. Standalone
-  // keeps native text metrics, but supplies the same Nerd Font symbol range
-  // through Style.font.iconFamily so these private-use codepoints never fall
-  // through to a platform-dependent fallback face.
-  property string fontFamily: Style.font["iconFamily"] || MailStyle.family
+  property string fontFamily: MailStyle.family
   // Stroke weight of the drawn mark only, relative to its 16-unit grid.
   property real strokeScale: 1.4
 
   readonly property bool drawsMark: brand && name === "gmail"
-  readonly property string glyphText: drawsMark ? "" : Icons.glyph(name, filled)
+  readonly property string imageSource: drawsMark ? "" : Icons.source(name, color, filled)
 
   width: iconSize
   height: iconSize
   implicitWidth: iconSize
   implicitHeight: iconSize
 
-  TextMetrics {
-    id: metrics
-    font.family: root.fontFamily
-    font.pixelSize: Math.max(1, Math.round(root.iconSize))
-    text: root.glyphText
-  }
-
-  Text {
-    id: glyph
-    visible: root.glyphText !== ""
-    textFormat: Text.PlainText
-    text: root.glyphText
-    color: root.color
-    font.family: root.fontFamily
-    font.pixelSize: metrics.font.pixelSize
-    // A Nerd Font glyph sits in a cell wider than its ink, and its ink sits
-    // at its own height in the line. Centring the cell leaves a column of
-    // icons visibly uneven — an envelope low, a tray high — so both axes
-    // centre the painted bounds instead. The shell's bar corrects only
-    // horizontally, to keep one baseline with the text beside its glyphs;
-    // here every icon has its own row, and its row is what it centres in.
-    // The tight rect is measured from the baseline, which is where the
-    // Text's `baselineOffset` puts it.
-    x: (root.width - metrics.tightBoundingRect.width) / 2 - metrics.tightBoundingRect.x
-    y: (root.height - metrics.tightBoundingRect.height) / 2
-      - (glyph.baselineOffset + metrics.tightBoundingRect.y)
+  Image {
+    anchors.fill: parent
+    visible: root.imageSource !== ""
+    source: root.imageSource
+    sourceSize.width: Math.max(1, Math.ceil(root.iconSize * 2))
+    sourceSize.height: Math.max(1, Math.ceil(root.iconSize * 2))
+    fillMode: Image.PreserveAspectFit
+    smooth: true
+    mipmap: true
   }
 
   Canvas {

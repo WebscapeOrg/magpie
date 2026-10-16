@@ -6,7 +6,7 @@ import qs.Commons as Commons
 import qs.Ui
 
 // A drawn icon on the kit's shared hover/cursor surface. qs.Ui's
-// PanelActionButton takes a font glyph, and this app's icons are Canvas paths,
+// PanelActionButton takes a font glyph, and this app's icons are vector images,
 // so this is that button with the glyph swapped for an ActionIcon.
 Item {
   id: root

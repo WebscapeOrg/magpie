@@ -8,8 +8,7 @@ import qs.Ui
 // A bordered button carrying a drawn icon beside its label.
 //
 // qs.Ui's Button takes a font glyph for its icon, and this app's icons are
-// Canvas paths — a monospace face has no envelope or paper plane that lines up
-// with them. This is that button with the glyph slot replaced, using the same
+// vector images. This is that button with the glyph slot replaced, using the same
 // state fills, border, padding and height as the rest of the kit.
 Rectangle {
   id: root

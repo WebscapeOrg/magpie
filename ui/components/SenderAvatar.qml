@@ -24,8 +24,8 @@ Rectangle {
   Image {
     id: picture
     anchors.centerIn: parent
-    width: parent.width * Math.SQRT1_2 * 0.70
-    height: parent.height * Math.SQRT1_2 * 0.70
+    width: parent.width
+    height: parent.height
     source: root.safeImage
     fillMode: Image.PreserveAspectFit
     smooth: true

@@ -1,3 +1,4 @@
+mod artwork;
 use super::{now, store};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -134,7 +135,7 @@ pub async fn get(
     refresh_id: &str,
 ) -> Result<Value, &'static str> {
     let domain = address.split_once('@').ok_or("invalid_params")?.1;
-    let name = format!("avatar-{}", store::key(&["avatar-v2", account, address]));
+    let name = format!("avatar-{}", store::key(&["avatar-v3", account, address]));
     if let Some(saved) = store::read(&name)? {
         if refresh_id.is_empty() && now() - saved["updated"].as_i64().unwrap_or(0) < 7 * 86_400_000
         {
@@ -168,6 +169,17 @@ pub async fn get(
         if let Ok(data) = crate::public_http::image(&url).await {
             image = data;
             source = "organization";
+        }
+    }
+    if !image.is_empty() {
+        let organization = source == "organization";
+        image = tokio::task::spawn_blocking(move || artwork::prepare(&image, organization))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
+        if image.is_empty() {
+            source = "initial";
         }
     }
     let value = json!({"data":image,"source":source,"updated":now()});

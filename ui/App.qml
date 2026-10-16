@@ -1589,6 +1589,8 @@ Item {
 
           IconButton {
             id: menuButton
+            objectName: "app-menu-button"
+            iconSize: Style.font.icon * 2
             anchors.verticalCenter: parent.verticalCenter
             iconName: "menu"
             tooltipText: "Menu"
@@ -1691,6 +1693,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             visible: !root.showPage && !root.composing && !root.calendarVisible
             text: "Folder"
+            bordered: true
             tooltipText: root.foldersVisible ? "Hide folders" : "Show folders"
             foreground: root.dim
             accent: root.accent
@@ -1725,7 +1728,8 @@ Item {
             text: root.service && root.service.unified ? "All" : ""
             width: Math.max(implicitWidth, headerComposeButton.implicitHeight)
             height: headerComposeButton.implicitHeight
-            foreground: root.foreground
+            foreground: root.dim
+            bordered: true
             accent: root.accent
             fontFamily: root.fontFamily
             fontSize: MailStyle.caption

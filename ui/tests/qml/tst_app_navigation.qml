@@ -258,6 +258,7 @@ Item {
       // A test that failed part way through its scales must not leave the next
       // one measuring at somebody else's.
       Style.spacingScale = 1
+      mailService.displayPreferences = ({layout: "Split view"})
       mailService.log = []
       mailService.lastSavedDraft = null
       mailService.refuseMove = false
@@ -541,6 +542,28 @@ Item {
       app.runShortcut("calendarDay")
       compare(selector.currentText, "Day (d)")
     }
+    function test_reader_toolbar_back_returns_to_list() {
+      mailService.displayPreferences = ({layout: "Single pane"})
+      var back = named(app, "reader-back-button")
+      verify(back && !back.visible)
+      app.openMessage("m1")
+      waitForRendering(app)
+      verify(back.visible)
+      var compose = named(app, "compose-button")
+      compare(back.height, compose.height)
+      compare(back.bordered, compose.bordered)
+      compare(back.fontSize, compose.fontSize)
+      var search = named(app, "app-title-bar")
+      verify(back.mapToItem(search, 0, 0).y >= 0)
+      back.clicked()
+      compare(kinds(), "list")
+      verify(!back.visible)
+      mailService.displayPreferences = ({layout: "Split view"})
+      app.openMessage("m1")
+      waitForRendering(app)
+      verify(!back.visible)
+    }
+
     function test_status_error_opens_external_diagnosis_once() {
       mailService.lastError = "Could not confirm AI started. Check the conversation before retrying."
       mailService.actionStatus = ""

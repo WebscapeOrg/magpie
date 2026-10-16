@@ -1601,6 +1601,22 @@ Item {
               appMenu.openAt(scene.x, scene.y)
             }
           }
+
+          Widgets.Button {
+            objectName: "reader-back-button"
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.singleContent && root.currentView === "reader"
+              && !root.showPage && !root.composing && !root.calendarVisible
+            text: "Back"
+            tooltipText: "Back · esc"
+            foreground: root.dim
+            bordered: true
+            accent: root.accent
+            fontFamily: root.fontFamily
+            fontSize: MailStyle.caption
+            focusable: true
+            onClicked: root.back()
+          }
         }
 
         // The slot is whatever the two clusters leave, so the field shrinks with
@@ -1996,7 +2012,6 @@ Item {
           leadingBoundaryOverlap: listSplitter.visible ? listSplitter.width : 0
           panelFontFamily: root.fontFamily
           zoom: root.bodyZoom
-          showBack: root.singleContent
           bodyMode: root.bodyMode
           alwaysRenderHeavyMessages: !!root.service && root.service.alwaysRenderHeavyMessages
           contentDirection: root.service ? root.service.contentDirection : ""
@@ -2005,7 +2020,6 @@ Item {
           }
           onZoomRequested: function(step) { root.zoomBy(step) }
           onZoomResetRequested: if (root.service) root.service.setBodyZoom(1.0)
-          onBackRequested: root.back()
           onMemberRequested: function(id) { root.openMember(id) }
           onMemberMenuRequested: function(id, sceneX, sceneY) {
             rowMenu.openForMember(id, sceneX, sceneY)

@@ -111,10 +111,17 @@ Item {
     id: menuButton
     visible: root.showTrigger
     anchors.fill: parent
-    text: "⋮"
     foreground: root.textColor
     bordered: false
     onClicked: menu.opened ? menu.close() : menu.open()
+    Accessible.role: Accessible.Button
+    Accessible.name: "Menu"
+    ActionIcon {
+      anchors.centerIn: parent
+      name: "more"
+      color: menuButton.foreground
+      iconSize: Style.font.icon
+    }
   }
 
   QQC.Popup {

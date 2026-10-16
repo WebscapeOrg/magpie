@@ -133,11 +133,18 @@ Item {
     anchors.rightMargin: MailStyle.space(4)
     anchors.verticalCenter: parent.verticalCenter
     visible: field.text !== ""
-    iconText: "×"
     tooltipText: "Clear search · esc"
     foreground: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.55)
     hoverColor: root.textColor
     fontSize: MailStyle.body
     onClicked: root.clear()
+    Accessible.role: Accessible.Button
+    Accessible.name: "Clear search"
+    ActionIcon {
+      anchors.centerIn: parent
+      name: "close"
+      color: clearButton._hot ? clearButton.hoverColor : clearButton.foreground
+      iconSize: clearButton.fontSize
+    }
   }
 }

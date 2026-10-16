@@ -4,30 +4,33 @@ const path = require("path")
 const { load } = require("./load")
 
 const icons = load("components/Icons.js")
-
-// Every name resolves to exactly one character from the Nerd Font range that
-// holds the Material Design Icons — the range the Omarchy shell draws from.
-for (const name of icons.names()) {
-  const text = icons.glyph(name)
-  assert.strictEqual([...text].length, 1, `${name} is one glyph`)
-  const code = text.codePointAt(0)
-  assert.ok(code >= icons.RANGE_FIRST && code <= icons.RANGE_LAST, `${name} is in the nf-md range`)
+const foreground = { r: 0.2, g: 0.4, b: 0.6, a: 0.75 }
+function drawing(name, filled) {
+  return decodeURIComponent(icons.source(name, foreground, filled).split(",").slice(1).join(","))
 }
-assert.strictEqual(icons.glyph("nope"), "", "an unknown name draws nothing, visibly")
-assert.strictEqual(icons.glyph(""), "")
-assert.strictEqual(icons.glyph(null), "")
 
-// A state has its own form only where one exists.
-assert.notStrictEqual(icons.glyph("star", true), icons.glyph("star", false), "a set star is filled")
-assert.strictEqual(icons.glyph("unread", true), icons.glyph("unread", false), "nothing else changes with filled")
-
-// Two names that must not be confused with each other, because they sit in
-// the same row: the mail-forward arrow is not "next".
-assert.notStrictEqual(icons.glyph("forward"), icons.glyph("chevronRight"))
-assert.strictEqual(icons.glyph("sent").codePointAt(0), 0xF10DD,
-  "the Sent mailbox uses the balanced email-send-outline glyph")
-
-assert.strictEqual(icons.glyph("snooze").codePointAt(0), 0xF0150, "snooze uses the conventional clock outline");
+for (const name of icons.names()) {
+  const source = icons.source(name, foreground)
+  assert.ok(source.startsWith("data:image/svg+xml,"), `${name} is bundled vector artwork`)
+  const svg = drawing(name)
+  assert.ok(svg.includes('viewBox="0 0 24 24"'), `${name} preserves Lucide's coordinates`)
+  assert.ok(svg.includes('stroke="rgb(51,102,153)"'), `${name} follows the theme`)
+  assert.ok(svg.includes('opacity="0.75"'), `${name} preserves theme opacity`)
+  assert.ok(/<(?:path|rect|circle|line|polyline|polygon|ellipse) /.test(svg), `${name} has artwork`)
+  assert.ok(!/<(?:script|image|use|foreignObject|style)\b|\b(?:href|src|on[a-z]+)=|url\(/i.test(svg), `${name} has no external resources or executable content`)
+}
+for (const name of ["nope", "", null, "__proto__", "constructor", "https://example.org/track.svg", '<image href="https://example.org/"/>']) {
+  assert.strictEqual(icons.source(name, foreground), "", "unknown names cannot supply an image source")
+}
+assert.ok(drawing("star", true).includes('fill="rgb(51,102,153)"'), "a set star is filled")
+assert.ok(drawing("star", false).includes('fill="none"'), "an unset star is outlined")
+assert.strictEqual(drawing("unread", true), drawing("unread", false), "other icons remain outlined")
+assert.notStrictEqual(drawing("forward"), drawing("chevronRight"), "forward is distinct from next")
+assert.notStrictEqual(drawing("sent"), drawing("mail"), "Sent has a send symbol")
+assert.strictEqual(icons.LUCIDE.snooze, "clock-3", "snooze keeps the conventional clock")
+const hostileColor = { r: '" href="https://example.org/', g: Infinity, b: -1, a: NaN }
+const bounded = decodeURIComponent(icons.source("mail", hostileColor))
+assert.ok(!bounded.includes("example.org") && !bounded.includes("NaN") && !bounded.includes("Infinity"), "only bounded numeric color channels reach SVG")
 
 // Every icon a view asks for by name is defined. Scans the QML for the
 // literal names handed to ActionIcon, IconButton, IconTextButton and

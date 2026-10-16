@@ -355,11 +355,11 @@ grep -q 'setUndoSendSeconds' components/SettingsPage.qml \
   || fail "the in-app settings page must save the undo window"
 
 # The IMAP server disclosure always reserves an icon slot. Both names selected
-# by its state must have a glyph, or the slot is blank in one or both states.
+# by its state must have artwork, or the slot is blank in one or both states.
 # (tests/test_icons.js checks every name the views use; this is the pair a
 # state machine selects at runtime, which a literal scan cannot see.)
 for icon in chevronLeft chevronRight chevronDown mail; do
-  if ! grep -qE "^  $icon: 0x" components/Icons.js; then
+  if ! grep -qE "^  $icon: \"[a-z-]+\"" components/Icons.js; then
     fail "Icons.js does not define the $icon icon"
   fi
 done

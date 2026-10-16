@@ -739,7 +739,7 @@ FocusScope {
             }
             Widgets.Button {
               id: removePending
-              text: "×"
+              implicitHeight: Math.ceil(removeMetrics.height) + verticalPadding * 2 + _reservedBorderTop + _reservedBorderBottom
               width: MailStyle.space(20)
               foreground: root.dimColor
               accent: root.accentColor
@@ -748,6 +748,20 @@ FocusScope {
               enabled: !(pending.dispatching && parent.index === 0)
               tooltipText: "Remove pending message"
               onClicked: pending.remove(parent.index)
+              Accessible.role: Accessible.Button
+              Accessible.name: "Remove pending message"
+              FontMetrics {
+                id: removeMetrics
+                font.family: removePending.fontFamily
+                font.pixelSize: removePending.fontSize
+              }
+              ActionIcon {
+                anchors.centerIn: parent
+                name: "close"
+                color: removePending.foreground
+                opacity: removePending.enabled ? 1 : 0.4
+                iconSize: removePending.fontSize
+              }
             }
           }
         }

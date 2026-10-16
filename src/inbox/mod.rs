@@ -124,7 +124,9 @@ impl Inbox {
                                     Some(text) => {
                                         json!({"state":"ready","text":text,"version":1,"updated":now()})
                                     }
-                                    None => json!({"state":"failed","updated":now(),"version":1}),
+                                    None => {
+                                        json!({"state":"failed","reason":overview_failure(result.as_ref().err().copied()),"updated":now(),"version":1})
+                                    }
                                 };
                             }
                             // Overviews are replaceable; keep a bounded recent working set.
@@ -225,4 +227,33 @@ async fn overview_batch(
         messages.push(json!({"id":id,"from":summary["from"],"subject":summary["subject"],"date":summary["fullTime"],"body":body,"attachments":prepared["attachments"]}));
     }
     crate::agent::overview::generate(&json!(messages)).await
+}
+
+fn overview_failure(error: Option<&str>) -> &'static str {
+    match error {
+        Some("overview_start_failed") => "AI worker could not start; retry from Menu",
+        Some("overview_ai_unavailable") => "AI service did not respond; retry from Menu",
+        Some("overview_invalid_response") => {
+            "AI response failed format or length checks; retry from Menu"
+        }
+        Some("overview_unsupported_claim") => {
+            "AI response could not be verified against the mail; retry from Menu"
+        }
+        None => "AI response omitted this message; retry from Menu",
+        _ => "Mail could not be prepared for AI; retry from Menu",
+    }
+}
+
+#[cfg(test)]
+mod overview_failure_tests {
+    use super::overview_failure;
+    #[test]
+    fn failure_reasons_are_specific_and_never_echo_external_errors() {
+        assert!(overview_failure(Some("overview_unsupported_claim")).contains("verified"));
+        assert!(overview_failure(Some("overview_invalid_response")).contains("format or length"));
+        assert!(overview_failure(Some("overview_start_failed")).contains("start"));
+        assert!(overview_failure(Some("overview_ai_unavailable")).contains("respond"));
+        assert!(!overview_failure(Some("secret mail or credential")).contains("secret"));
+        assert!(overview_failure(None).contains("omitted"));
+    }
 }

@@ -337,6 +337,17 @@ def main():
             if os.name != 'nt':
                 sentinel.parent.chmod(0o700)
             sentinel.write_bytes(b'preserve existing user state\n')
+        import hashlib
+        digest = hashlib.sha256()
+        for part in ('overviews', 'contract@example.org'):
+            encoded = part.encode()
+            digest.update(len(encoded).to_bytes(8, 'little'))
+            digest.update(encoded)
+        inbox = state_root / 'omamail/inbox'
+        inbox.mkdir(mode=0o700)
+        overview = inbox / (digest.hexdigest() + '.json')
+        overview.write_text(json.dumps({'cached': {'state': 'failed', 'reason': 'AI response could not be verified against the mail; retry from Menu', 'version': 1, 'updated': 1}}))
+        overview.chmod(0o600)
         helpers = home / 'bin'
         helpers.mkdir()
         credential_helper = helpers / 'secret-tool'

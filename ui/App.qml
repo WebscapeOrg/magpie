@@ -1481,6 +1481,7 @@ Item {
       id: focusScope
       enabled: !root.backendUnavailable
       anchors.fill: parent
+      anchors.margins: MailStyle.space(6)
       focus: true
 
       // Where the window is, and the only thing that says what a key means.
@@ -1586,26 +1587,6 @@ Item {
           anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (MailStyle.space(48) - header.height) / 2 : 0
           spacing: MailStyle.space(8)
 
-          MagpieLogo {
-            anchors.verticalCenter: parent.verticalCenter
-            width: Style.font.iconLarge * 1.6
-            height: width
-            foreground: root.foreground
-            accent: root.accent
-          }
-
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            visible: !root.compact
-            text: "Magpie"
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: MailStyle.title
-          }
-
-          // Next to the mark: this is the window's own menu, not an action on
-          // the mailbox. Anchored to the button's own edge so it lands in the
-          // same place however the control was pressed.
           IconButton {
             id: menuButton
             anchors.verticalCenter: parent.verticalCenter

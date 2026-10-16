@@ -1352,6 +1352,16 @@
         "refreshId": "images-bad\n"
       },
       "errorCode": -32602
+    },
+    {
+      "name": "Inbox snapshot preserves safe overview failure reason",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "overviews.cached.reason": "AI response could not be verified against the mail; retry from Menu"
+      }
     }
   ],
   "unreleased": {
@@ -1369,7 +1379,8 @@
       "Inbox snapshot returns private account working state",
       "Inbox avatar rejects address controls before a request",
       "Inbox overview admission rejects empty message selection",
-      "Inbox avatar rejects refresh controls before any request"
+      "Inbox avatar rejects refresh controls before any request",
+      "Inbox snapshot preserves safe overview failure reason"
     ]
   }
 }

@@ -25,6 +25,16 @@ Item {
     when: windowShown
     function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.snapshotsPending=({});tools.requesting=false }
     function cleanup() { backend.ready=false }
+    function test_admission_failure_explains_each_affected_row_without_leaking_error() {
+      backend.apiVersion=8;backend.ready=true
+      var job=backend.calls.filter(function(v){return v.method==="inbox.overviews"})[0]
+      verify(job)
+      job.done(null,{message:"secret credential"})
+      var overview=tools.overviewFor(service.messages[0])
+      compare(overview.state,"failed")
+      compare(overview.reason,"AI request could not start; retry from Menu")
+      verify(JSON.stringify(overview).indexOf("secret")<0)
+    }
     function test_fixed_api_gate_prevents_new_requests_on_old_backend() {
       backend.ready=true;tools.refresh()
       compare(tools.available,false)

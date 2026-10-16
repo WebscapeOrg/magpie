@@ -152,6 +152,29 @@ Item {
       width: menuScroll.width
       spacing: MailStyle.space(2)
 
+      Row {
+        width: parent.width
+        height: MailStyle.space(44)
+        spacing: MailStyle.space(8)
+        leftPadding: MailStyle.space(10)
+        MagpieLogo {
+          anchors.verticalCenter: parent.verticalCenter
+          width: MailStyle.space(26)
+          height: width
+          foreground: root.textColor
+          accent: root.textColor
+        }
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Magpie"
+          textFormat: Text.PlainText
+          color: root.textColor
+          font.family: root.panelFontFamily
+          font.pixelSize: MailStyle.title
+        }
+      }
+      MenuSeparatorLine { width: parent.width; lineColor: root.textColor }
+
       focus: true
       Keys.onPressed: function(event) {
         if (event.key === Qt.Key_J || event.key === Qt.Key_Down) {

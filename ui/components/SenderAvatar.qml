@@ -21,32 +21,15 @@ Rectangle {
     font.family: root.fontFamily
     font.pixelSize: root.height * 0.5
   }
-  Canvas {
+  Image {
     id: picture
-    anchors.fill: parent
-    property bool loaded: root.safeImage !== "" && isImageLoaded(root.safeImage)
-    onImageLoaded: { loaded = root.safeImage !== "" && isImageLoaded(root.safeImage); requestPaint() }
-    onWidthChanged: requestPaint()
-    onHeightChanged: requestPaint()
-    Connections {
-      target: root
-      function onSafeImageChanged() {
-        picture.loaded = false
-        if (root.safeImage !== "") picture.loadImage(root.safeImage)
-        picture.requestPaint()
-      }
-    }
-    Component.onCompleted: if (root.safeImage !== "") loadImage(root.safeImage)
-    onPaint: {
-      var context = getContext("2d")
-      context.reset()
-      if (!loaded || root.safeImage === "") return
-      context.save()
-      context.beginPath()
-      context.arc(width / 2, height / 2, width / 2, 0, 2 * Math.PI)
-      context.clip()
-      context.drawImage(root.safeImage, 0, 0, width, height)
-      context.restore()
-    }
+    anchors.centerIn: parent
+    width: parent.width * Math.SQRT1_2
+    height: parent.height * Math.SQRT1_2
+    source: root.safeImage
+    fillMode: Image.PreserveAspectFit
+    smooth: true
+    mipmap: true
+    readonly property bool loaded: status === Image.Ready
   }
 }

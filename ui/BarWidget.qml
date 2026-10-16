@@ -177,14 +177,13 @@ BarWidget {
           accent: button.glyphColor
           opacity: button.connected ? 1 : 0.5
         }
-        Text {
+        ActionIcon {
           anchors.right: parent.right
           anchors.bottom: parent.bottom
           visible: !button.connected
-          textFormat: Text.PlainText
-          text: "×"
+          name: "close"
           color: button.foreground
-          font.pixelSize: Style.font.iconSmall
+          iconSize: Style.font.iconSmall
           Accessible.name: "Mail offline"
         }
         Rectangle {

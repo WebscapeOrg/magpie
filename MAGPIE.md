@@ -32,7 +32,7 @@ The font-aware primitives in `ui/controls` are copies of the installed Omarchy Q
 
 ### List view refinements
 
-The list header keeps Search, Folder, Compose and the account selector; the Magpie name and bird appear at the top of Menu. The content frame uses equal insets on all four edges. Mailbox house/tree symbols follow the date, and row action centers are 15% farther apart. Icons use scalable Material Design font outlines at the display scale.
+The list header keeps Search, Folder, Compose and the account selector; the Magpie name and bird appear at the top of Menu. The content frame uses equal insets on all four edges. Mailbox house/tree symbols follow the date, and row action centers are 15% farther apart. Interface icons use bundled [Lucide vectors](ui/assets/lucide/README.md), with theme colors and a filled star for starred mail. Provider artwork and the Magpie bird retain their own designs.
 
 In the list view, the mailbox selector sits beside the menu in the position used by Back when reading a message. In the single-column message reader, ← Back sits beside the menu in the top toolbar and uses the same outlined button style as Compose. Escape keeps its existing navigation behavior. Folder and the mailbox selector share the outlined toolbar style; the menu glyph is twice its former size.
 

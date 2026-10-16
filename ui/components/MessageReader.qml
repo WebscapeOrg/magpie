@@ -36,15 +36,10 @@ Item {
   // How the direction of a message's own text is arrived at: read off the text,
   // or fixed by the reader. Not the direction itself — that is per message.
   property string contentDirection: Direction.MODE_DEFAULT
-  // A way back only means something when something is behind it. At desktop
-  // width the list is on screen and clicking another row is the navigation;
-  // in a single column the reader has replaced the list, so it needs one.
-  property bool showBack: false
   // Set by the reader itself when a document is too heavy to lay out, and
   // cleared by the user asking for it anyway.
   property bool forceRichAnyway: false
 
-  signal backRequested()
   signal memberRequested(string id)
   signal memberMenuRequested(string id, real sceneX, real sceneY)
   signal bodyModeRequested(string mode)
@@ -317,26 +312,13 @@ Item {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.margins: root.pageInset
-    implicitHeight: (backBar.visible ? backBar.implicitHeight + MailStyle.space(14) : 0)
-      + headerColumn.implicitHeight
-
-    BackBar {
-      id: backBar
-      visible: root.showBack
-      anchors.left: parent.left
-      anchors.top: parent.top
-      textColor: root.textColor
-      dimColor: root.dimColor
-      panelFontFamily: root.panelFontFamily
-      onActivated: root.backRequested()
-    }
+    implicitHeight: headerColumn.implicitHeight
 
     IconTextButton {
       id: continueDraftButton
       objectName: "reader-continue-draft-button"
       anchors.right: parent.right
-      anchors.top: backBar.visible ? backBar.bottom : parent.top
-      anchors.topMargin: backBar.visible ? MailStyle.space(10) : 0
+      anchors.top: parent.top
       visible: root.isDraft
       iconName: "edit"
       text: "Continue editing"
@@ -350,8 +332,7 @@ Item {
     Row {
       id: readerTriage
       anchors.right: parent.right
-      anchors.top: backBar.visible ? backBar.bottom : parent.top
-      anchors.topMargin: backBar.visible ? MailStyle.space(10) : 0
+      anchors.top: parent.top
       visible: !root.isDraft
       IconButton {
         objectName: "reader-mark-unread"
@@ -376,8 +357,7 @@ Item {
       anchors.left: parent.left
       anchors.right: root.isDraft ? continueDraftButton.left : readerTriage.left
       anchors.rightMargin: MailStyle.space(8)
-      anchors.top: backBar.visible ? backBar.bottom : parent.top
-      anchors.topMargin: backBar.visible ? MailStyle.space(14) : 0
+      anchors.top: parent.top
       spacing: MailStyle.space(4)
 
       Item {

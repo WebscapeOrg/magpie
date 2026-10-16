@@ -36,6 +36,7 @@ toml_edit = "0.25"
 json5 = "0.4"
 rustls-native-certs = "0.8"
 zeroize = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }

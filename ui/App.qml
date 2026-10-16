@@ -1609,7 +1609,8 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             visible: root.singleContent && root.currentView === "reader"
               && !root.showPage && !root.composing && !root.calendarVisible
-            text: "Back"
+            text: "← Back"
+            Accessible.name: "Back"
             tooltipText: "Back · esc"
             foreground: root.dim
             bordered: true
@@ -1722,6 +1723,7 @@ Item {
 
           Widgets.Button {
             id: headerAccountButton
+            parent: !root.calendarVisible && root.currentView === "list" ? headerLeft : headerRight
             objectName: "header-account-button"
             anchors.verticalCenter: parent.verticalCenter
             visible: !root.showPage && !root.composing

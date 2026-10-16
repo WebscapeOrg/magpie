@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "magpie",
   "name": "🐦 Magpie",
-  "version": "0.11.0",
+  "version": "1.0.0",
   "author": "dreinecke (fork of huacnlee/omamail)",
   "license": "MIT",
   "homepage": "https://github.com/dreinecke/magpie",

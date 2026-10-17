@@ -8,6 +8,8 @@ import "../message/Direction.js" as Direction
 import "../message/Html.js" as Html
 import "../message/Message.js" as Mail
 import "../message/Mailto.js" as Mailto
+import "../message/AttachmentPreview.js" as Preview
+import "../account/Model.js" as Model
 
 // The right column. The body goes through Qt's own rich text engine — a real
 // HTML renderer, not a browser — after Html.sanitize has removed what Qt would
@@ -133,15 +135,79 @@ Item {
   readonly property string selectedId: service ? String(service.selectedId || "") : ""
 
   readonly property var attachments: service ? service.selectedAttachments || [] : []
-  property bool attachmentsExpanded: false
+  property var attachmentPreviews: ({})
+  property var attachmentPreviewStates: ({})
+  property var attachmentPreviewQueue: []
+  property var attachmentPreviewHandle: null
+  property int attachmentPreviewSerial: 0
+  property bool attachmentPreviewBusy: false
+  property int attachmentPreviewBytes: 0
   onSelectedIdChanged: resetAttachments()
   onServiceChanged: resetAttachments()
-  onAttachmentsChanged: if (attachments.length === 0) resetAttachments()
+  onAttachmentsChanged: resetAttachments()
 
   function resetAttachments() {
-    attachmentsExpanded = false
+    attachmentPreviewSerial++
+    if (attachmentPreviewHandle && typeof attachmentPreviewHandle.cancel === "function")
+      attachmentPreviewHandle.cancel()
+    attachmentPreviewHandle = null
+    attachmentPreviewQueue = []
+    attachmentPreviewBusy = false
+    attachmentPreviews = ({})
+    attachmentPreviewStates = ({})
+    attachmentPreviewBytes = 0
     attachmentFlick.cancelFlick()
-    attachmentFlick.contentY = 0
+    attachmentFlick.contentX = 0
+  }
+
+  function queueAttachmentPreview(attachment) {
+    var key = "part:" + String(attachment && attachment.attachmentId || "")
+    if (!Preview.supported(attachment) || attachmentPreviewStates[key]) return
+    var states = Object.assign({}, attachmentPreviewStates)
+    var bytes = Math.max(1, Number(attachment.size) || 8 * 1024 * 1024)
+    if (attachmentPreviewBytes + bytes > 16 * 1024 * 1024) {
+      states[key] = "unavailable"
+      attachmentPreviewStates = states
+      return
+    }
+    attachmentPreviewBytes += bytes
+    states[key] = "loading"
+    attachmentPreviewStates = states
+    attachmentPreviewQueue = attachmentPreviewQueue.concat([attachment])
+    fetchNextAttachmentPreview()
+  }
+
+  function fetchNextAttachmentPreview() {
+    if (attachmentPreviewBusy || attachmentPreviewQueue.length === 0) return
+    var queue = attachmentPreviewQueue.slice()
+    var attachment = queue.shift()
+    attachmentPreviewQueue = queue
+    var key = "part:" + String(attachment.attachmentId)
+    var serial = attachmentPreviewSerial
+    attachmentPreviewBusy = true
+    function done(data) {
+      if (!root || serial !== root.attachmentPreviewSerial) return
+      var source = Preview.rasterSource(data)
+      var sources = Object.assign({}, root.attachmentPreviews)
+      sources[key] = source
+      root.attachmentPreviews = sources
+      var states = Object.assign({}, root.attachmentPreviewStates)
+      states[key] = source === "" ? "unavailable" : "ready"
+      root.attachmentPreviewStates = states
+      root.attachmentPreviewBusy = false
+      root.attachmentPreviewHandle = null
+      Qt.callLater(root.fetchNextAttachmentPreview)
+    }
+    if (!service || typeof service.previewAttachment !== "function") { done(""); return }
+    var handle = service.previewAttachment(selectedId, attachment, done)
+    if (attachmentPreviewBusy && serial === attachmentPreviewSerial) attachmentPreviewHandle = handle
+  }
+
+  function revealAttachment(card) {
+    var right = card.x + card.width
+    if (card.x < attachmentFlick.contentX) attachmentFlick.contentX = card.x
+    else if (right > attachmentFlick.contentX + attachmentFlick.width)
+      attachmentFlick.contentX = Math.max(0, right - attachmentFlick.width)
   }
 
   // Which way this message runs.
@@ -802,72 +868,74 @@ Item {
     spacing: MailStyle.space(4)
     visible: !!root.summary
 
-    // The count is always one row. Expanding files must not let their number
-    // take the body away again: they scroll separately and use at most 40% of
-    // the space left below the header, capped at a short list on tall windows.
-    Widgets.Button {
-      id: attachmentToggle
-      objectName: "attachment-toggle"
-      visible: root.attachments.length > 0
-      text: root.attachments.length + (root.attachments.length === 1
-        ? " attachment" : " attachments") + (root.attachmentsExpanded ? " · Hide" : " · Show")
-      foreground: root.textColor
-      accent: root.accentColor
-      fontFamily: root.panelFontFamily
-      fontSize: MailStyle.caption
-      horizontalPadding: MailStyle.space(6)
-      verticalPadding: MailStyle.space(3)
-      selected: root.attachmentsExpanded
-      onClicked: root.attachmentsExpanded = !root.attachmentsExpanded
-    }
-
     Flickable {
       id: attachmentFlick
       objectName: "attachment-scroller"
       width: parent.width
-      visible: attachmentToggle.visible && root.attachmentsExpanded
-      height: visible ? Math.min(contentHeight, MailStyle.space(160), Math.max(0,
-        root.height - bodyFlick.y - actionsRow.implicitHeight
-          - attachmentToggle.height - MailStyle.space(18)) * 0.4) : 0
-      contentWidth: width
-      contentHeight: attachmentRows.implicitHeight
+      visible: root.attachments.length > 0
+      height: visible ? Math.min(MailStyle.space(112), Math.max(0,
+        root.height - bodyFlick.y - actionsRow.implicitHeight - MailStyle.space(18)) * 0.4) : 0
+      contentWidth: attachmentCards.implicitWidth
+      contentHeight: height
       clip: true
       boundsBehavior: Flickable.StopAtBounds
-      flickableDirection: Flickable.VerticalFlick
-      WheelScroller { view: attachmentFlick }
-      ScrollBar.vertical: ScrollBar { id: attachmentScrollBar; policy: ScrollBar.AsNeeded }
+      flickableDirection: Flickable.HorizontalFlick
+      ScrollBar.horizontal: ScrollBar { id: attachmentScrollBar; policy: ScrollBar.AsNeeded }
 
-      Column {
-        id: attachmentRows
-        // Keep the last action clear of the scrollbar's pointer target.
-        width: parent.width - (attachmentScrollBar.visible
-          ? attachmentScrollBar.width + MailStyle.space(4) : 0)
-        spacing: MailStyle.space(4)
+      function wheelScroll(event, horizontal) {
+        var pixels = horizontal ? event.pixelDelta.x : event.pixelDelta.y
+        var angle = horizontal ? event.angleDelta.x : event.angleDelta.y
+        contentX = Model.wheelScrollByPixels(contentX, Model.wheelPixels(angle, pixels),
+          contentWidth, width, originX, leftMargin, rightMargin)
+        cancelFlick()
+      }
+      WheelHandler {
+        orientation: Qt.Vertical
+        acceptedDevices: PointerDevice.AllDevices
+        blocking: true
+        onWheel: function(event) { attachmentFlick.wheelScroll(event, false) }
+      }
+      WheelHandler {
+        orientation: Qt.Horizontal
+        acceptedDevices: PointerDevice.AllDevices
+        blocking: true
+        onWheel: function(event) { attachmentFlick.wheelScroll(event, true) }
+      }
+
+      Row {
+        id: attachmentCards
+        spacing: MailStyle.space(8)
+        height: attachmentFlick.height - (attachmentScrollBar.visible
+          ? attachmentScrollBar.height + MailStyle.space(4) : MailStyle.space(2))
 
         Repeater {
           model: root.attachments
 
-          AttachmentRow {
+          AttachmentCard {
+            id: card
             required property var modelData
-            width: attachmentRows.width
+            readonly property string previewKey: "part:" + String(modelData && modelData.attachmentId || "")
+            width: Math.min(implicitWidth, attachmentFlick.width)
+            height: attachmentCards.height
             attachment: modelData
-            // Asked of the service by message and attachment rather than looked up
-            // by attachment alone: in a merged list the key is the mailbox's as
-            // well, and a bare id found nothing, so the row never went busy.
+            previewSource: root.attachmentPreviews[previewKey] || ""
+            previewState: root.attachmentPreviewStates[previewKey] || ""
+            previewActive: attachmentFlick.visible && x + width > attachmentFlick.contentX
+              && x < attachmentFlick.contentX + attachmentFlick.width
+            onPreviewRequested: root.queueAttachmentPreview(modelData)
+            onControlFocusedChanged: if (controlFocused) root.revealAttachment(card)
             saving: !!root.service && root.service.attachmentIsSaving(root.selectedId,
               modelData && modelData.attachmentId ? modelData.attachmentId : "")
             textColor: root.textColor
             dimColor: root.dimColor
             dimmerColor: root.dimmerColor
+            accent: root.accentColor
             panelFontFamily: root.panelFontFamily
             onOpenRequested: function(attachment) {
               if (root.service && root.summary)
                 root.service.openAttachment(root.selectedId, attachment)
             }
             onSaveRequested: function(attachment) {
-              // `selectedId`, like every other action on this message: `summary.id`
-              // is the id the owning account issued, which reaches no mailbox in a
-              // merged list and so saved from whichever one was active.
               if (root.service && root.summary)
                 root.service.saveAttachment(root.selectedId, attachment)
             }

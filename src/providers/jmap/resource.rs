@@ -18,6 +18,7 @@ pub(super) const LIST_PROPERTIES: &[&str] = &[
     "cc",
     "subject",
     "preview",
+    "hasAttachment",
     "messageId",
     "inReplyTo",
     "references",
@@ -341,7 +342,7 @@ pub(super) fn to_message(email: &Value, roles: &Value, full: bool) -> Value {
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;");
-    json!({"id":trim(&email["id"]),"threadId":trim(&email["threadId"]),"labelIds":label_ids(email,roles),"internalDate":date,"sizeEstimate":count(&email["size"]),"payload":payload,"snippet":preview})
+    json!({"id":trim(&email["id"]),"threadId":trim(&email["threadId"]),"labelIds":label_ids(email,roles),"internalDate":date,"sizeEstimate":count(&email["size"]),"hasAttachments":email["hasAttachment"]==true,"payload":payload,"snippet":preview})
 }
 
 pub(super) fn to_part(part: &Value, values: &Value, depth: usize) -> Value {

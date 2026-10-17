@@ -55,6 +55,16 @@ Item {
       attachmentId: "att-7"
     })]
 
+    property var previewCalls: []
+    property bool deferPreviews: false
+    property int cancelledPreviews: 0
+    property int routedKeys: 0
+    function previewAttachment(messageId, attachment, callback) {
+      var call = {messageId:messageId, attachment:attachment, done:callback, cancelled:false}
+      previewCalls = previewCalls.concat([call])
+      if (!deferPreviews) callback("")
+      return {cancel:function(){call.cancelled=true;mailService.cancelledPreviews++}}
+    }
     property int saveCalls: 0
     property string savedMessageId: ""
     property var savedAttachment: null
@@ -102,6 +112,8 @@ Item {
     panelFontFamily: "monospace"
   }
 
+  Omamail.KeyRouter { context: "reader"; onTriggered: mailService.routedKeys++ }
+
   TestCase {
     name: "AttachmentFooter"
     when: windowShown
@@ -126,145 +138,150 @@ Item {
 
     function show(count) {
       mailService.selectedAttachments = attachments(count)
-      wait(0)
+      waitForRendering(reader)
     }
 
-    function toggle() {
-      var button = named(reader, "attachment-toggle")
-      verify(button && button.visible, "attachments have a visible disclosure control")
-      waitForRendering(reader)
-      mouseClick(button, button.width / 2, button.height / 2)
-      waitForRendering(reader)
+    function cards() {
+      var list = named(reader, "attachment-scroller")
+      var children = list.contentItem.children[0].children
+      var result = []
+      for (var i=0;i<children.length;i++) if(children[i].attachment) result.push(children[i])
+      return result
     }
 
     function init() {
       reader.width = MailStyle.space(380)
       reader.height = MailStyle.space(360)
-      mailService.selectedId = "message-4"
       mailService.selectedAttachments = []
+      mailService.selectedId = "message-4"
       mailService.savingFor = ""
       mailService.saveCalls = 0
       mailService.openedMessageId = ""
       mailService.savedMessageId = ""
+      mailService.previewCalls = []
+      mailService.deferPreviews = false
+      mailService.cancelledPreviews = 0
+      mailService.routedKeys = 0
       wait(0)
     }
 
-    function test_many_real_attachments_leave_a_readable_body() {
-      show(40)
-      var body = named(reader, "messageBodyScroller")
-      verify(body.height >= 120, "40 genuine files must not consume the message body: " + body.height)
-      verify(body.y >= 0 && body.y + body.height <= reader.height)
-    }
-
-    function test_count_is_collapsed_and_zero_files_take_no_space() {
+    function test_files_are_individually_visible_without_a_disclosure() {
       show(0)
       var body = named(reader, "messageBodyScroller")
       var emptyHeight = body.height
-      var button = named(reader, "attachment-toggle")
-      verify(button)
-      compare(button.visible, false)
-      show(40)
-      compare(button.visible, true)
-      verify(button.text.indexOf("40 attachments") >= 0)
       var list = named(reader, "attachment-scroller")
-      verify(list)
       compare(list.visible, false)
-      verify(emptyHeight - body.height <= button.height + MailStyle.space(12), "the collapsed count costs only one control row")
+      show(40)
+      compare(list.visible, true)
+      compare(cards().length, 40)
+      compare(named(reader,"attachment-toggle"), null)
+      verify(list.contentWidth > list.width)
+      verify(list.height > 0 && list.height <= MailStyle.space(112))
+      verify(body.height >= 100, "many attachments leave readable body space: " + body.height)
       show(1)
-      verify(button.text.indexOf("1 attachment") >= 0)
-      verify(button.text.indexOf("1 attachments") < 0)
+      compare(cards()[0].filename, "Report 1.pdf")
+      show(0)
+      tryCompare(body, "height", emptyHeight)
     }
 
-    function test_expanded_list_is_bounded_after_resize_and_repeated_toggles() {
+    function test_short_readers_keep_body_and_all_actions() {
       show(40)
-      var body = named(reader, "messageBodyScroller")
-      var collapsedHeight = body.height
-      toggle()
-      var list = named(reader, "attachment-scroller")
-      compare(list.visible, true)
-      verify(list.height > 0 && list.height <= 160)
-      verify(list.contentHeight > list.height)
-      verify(body.height >= 100, "expanded attachments still leave reading space")
       reader.height = MailStyle.space(280)
       reader.width = MailStyle.space(300)
-      // The footer Column positions its resized children on the next polish.
-      tryVerify(function() { return body.height >= 60 }, 5000,
-        "short narrow readers must retain body space")
-      verify(list.height > 0 && list.height < 160)
-      reader.height = MailStyle.space(360)
-      reader.width = MailStyle.space(380)
-      for (var i = 0; i < 3; i++) {
-        toggle()
-        compare(list.visible, false)
-        compare(body.height, collapsedHeight)
-        toggle()
-        compare(list.visible, true)
-        verify(body.height >= 100)
-      }
+      var body = named(reader, "messageBodyScroller")
+      var list = named(reader, "attachment-scroller")
+      tryVerify(function() {return body.height >= 60})
+      verify(list.height > 0 && list.height < MailStyle.space(112))
+      var card = cards()[0]
+      var save = named(card,"attachment-save-button")
+      var point = save.mapToItem(list,0,0)
+      verify(point.y >= 0 && point.y+save.height <= list.height+1,
+        "the save target stays inside even a short shelf")
     }
 
     function test_scroll_to_last_file_and_route_both_actions() {
       show(40)
       mailService.selectedId = "mailbox-b message-4"
-      toggle()
       var list = named(reader, "attachment-scroller")
       waitForRendering(reader)
-      mouseWheel(list, list.width / 2, list.height / 2, 0, -12000)
-      tryVerify(function() { return list.atYEnd })
-      var rows = list.contentItem.children[0].children
-      var last = null
-      for (var i = 0; i < rows.length; i++)
-        if (rows[i].attachment && rows[i].attachment.attachmentId === "att-39") last = rows[i]
-      verify(last, "the final file is still present")
-      var link = named(last, "attachment-open-link")
-      var save = named(last, "attachment-save-button")
-      var point = save.mapToItem(list, 0, 0)
-      verify(point.y >= 0 && point.y + save.height <= list.height + 1,
-        "the final save control is fully inside the clipped viewport")
-      verify(point.x >= 0 && point.x + save.width <= list.width)
-      mouseClick(link, 10, link.height / 2)
-      compare(mailService.openedMessageId, "mailbox-b message-4")
-      compare(mailService.openedAttachment.attachmentId, "att-39")
-      mouseClick(save, save.width / 2, save.height / 2)
-      compare(mailService.savedMessageId, "mailbox-b message-4")
-      compare(mailService.savedAttachment.attachmentId, "att-39")
+      mouseWheel(list, list.width/2, list.height/2, 0, -120000)
+      tryVerify(function(){return list.atXEnd})
+      var last = cards()[39]
+      var save = named(last,"attachment-save-button")
+      var point = save.mapToItem(list,0,0)
+      verify(point.y >= 0 && point.y+save.height <= list.height+1)
+      verify(point.x >= 0 && point.x+save.width <= list.width+1)
+      mouseClick(last, last.width/2, 5)
+      compare(mailService.openedMessageId,"mailbox-b message-4")
+      compare(mailService.openedAttachment.attachmentId,"att-39")
+      mouseClick(save,save.width/2,save.height/2)
+      compare(mailService.savedMessageId,"mailbox-b message-4")
+      compare(mailService.savedAttachment.attachmentId,"att-39")
     }
 
-    function test_switching_messages_resets_disclosure_and_scroll() {
+    function test_keyboard_focus_reveals_each_file_and_keeps_open_and_save_distinct() {
       show(40)
-      toggle()
-      var list = named(reader, "attachment-scroller")
-      list.contentY = list.contentHeight - list.height
+      var last = cards()[39]
+      last.forceActiveFocus()
+      var list = named(reader,"attachment-scroller")
+      tryVerify(function(){return list.atXEnd})
+      keyClick(Qt.Key_Return)
+      compare(mailService.openedAttachment.attachmentId,"att-39")
+      compare(mailService.saveCalls,0)
+      var save = named(last,"attachment-save-button")
+      save.forceActiveFocus()
+      keyClick(Qt.Key_Space)
+      compare(mailService.saveCalls,1)
+      compare(mailService.savedAttachment.attachmentId,"att-39")
+      compare(mailService.routedKeys,0,"Enter and Space reach attachment controls before mailbox shortcuts")
+    }
+
+    function test_switching_messages_cancels_previews_and_discards_late_results() {
+      mailService.deferPreviews = true
+      show(40)
+      tryVerify(function(){return mailService.previewCalls.length === 1})
+      var old = mailService.previewCalls[0]
+      var list = named(reader,"attachment-scroller")
+      list.contentX = list.contentWidth-list.width
       mailService.selectedId = "message-5"
       show(2)
-      compare(list.visible, false)
-      compare(list.contentY, 0)
-      toggle()
-      compare(list.visible, true)
-      verify(list.height >= MailStyle.space(40) && list.height <= MailStyle.space(60), "few files use only their natural height")
-      show(0)
-      compare(list.visible, false)
+      tryCompare(list,"contentX",0)
+      verify(mailService.cancelledPreviews>0)
+      old.done("http://127.0.0.1/forbidden")
+      compare(Object.keys(reader.attachmentPreviews).length,0)
+      tryVerify(function(){return mailService.previewCalls.length === 2})
+      compare(mailService.previewCalls[1].messageId,"message-5")
     }
 
-    function test_busy_state_survives_disclosure_and_filenames_remain_plain_text() {
-      mailService.selectedAttachments = [{filename: '<img src="https://example.invalid/tracker">',
-        attachmentId: "att-7", mimeType: "application/pdf", size: 128}]
-      mailService.selectedId = "mailbox-b message-4"
-      mailService.savingFor = "mailbox-b message-4"
-      wait(0)
-      toggle()
-      var save = named(reader, "attachment-save-button")
-      compare(save.busy, true)
-      mouseClick(save, save.width / 2, save.height / 2)
-      compare(mailService.saveCalls, 0)
-      toggle()
-      toggle()
-      compare(save.busy, true)
-      mailService.savingFor = ""
-      compare(save.busy, false)
-      mouseClick(save, save.width / 2, save.height / 2)
-      compare(mailService.saveCalls, 1)
-      compare(named(reader, "attachment-open-link").textFormat, Text.PlainText)
+    function test_only_visible_supported_files_are_previewed_with_a_budget() {
+      show(40)
+      tryVerify(function(){return mailService.previewCalls.length>0})
+      wait(100)
+      verify(mailService.previewCalls.length<5,"the entire shelf is not downloaded at once")
+      mailService.previewCalls=[]
+      mailService.selectedAttachments=[{filename:"huge.pdf",mimeType:"application/pdf",size:9000000,attachmentId:"large"},
+        {filename:"unknown.bin",mimeType:"application/octet-stream",size:20,attachmentId:"unknown"}]
+      wait(100)
+      compare(mailService.previewCalls.length,0)
+      compare(cards().length,2,"unpreviewable files remain individually available")
+    }
+
+    function test_busy_state_and_plain_text_filenames() {
+      mailService.selectedAttachments=[{filename:'<img src="https://example.invalid/tracker">',attachmentId:"att-7",mimeType:"application/pdf",size:128}]
+      mailService.selectedId="mailbox-b message-4"
+      mailService.savingFor="mailbox-b message-4"
+      waitForRendering(reader)
+      var card=cards()[0]
+      var save=named(card,"attachment-save-button")
+      compare(save.busy,true)
+      mouseClick(save,save.width/2,save.height/2)
+      compare(mailService.saveCalls,0)
+      mailService.savingFor=""
+      compare(save.busy,false)
+      mouseClick(save,save.width/2,save.height/2)
+      compare(mailService.saveCalls,1)
+      compare(named(card,"attachment-filename").textFormat,Text.PlainText)
+      compare(String(named(card,"attachment-thumbnail").source),"")
     }
   }
 }

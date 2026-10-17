@@ -1,5 +1,13 @@
 use serde_json::{Value, json};
 
+pub(super) fn list_fields() -> String {
+    let mut part = "partId,mimeType,filename,headers,body(attachmentId,size)".to_owned();
+    for _ in 0..12 {
+        part = format!("partId,mimeType,filename,headers,body(attachmentId,size),parts({part})");
+    }
+    format!("id,threadId,labelIds,snippet,historyId,internalDate,sizeEstimate,payload({part})")
+}
+
 fn text(value: &Value) -> &str {
     value.as_str().unwrap_or("")
 }
@@ -61,6 +69,16 @@ pub(super) fn normalize(method: &str, answer: Value) -> Value {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn list_fields_include_mime_metadata_without_message_or_attachment_octets() {
+        let fields = list_fields();
+        assert_eq!(fields.matches("parts(").count(), 12);
+        assert!(fields.contains("headers,body(attachmentId,size)"));
+        assert!(!fields.contains("data") && !fields.contains("raw"));
+        assert!(fields.len() < 2048);
+        assert_eq!(fields.matches('(').count(), fields.matches(')').count());
+    }
 
     #[test]
     fn labels_keep_display_names_raw_names_and_nonnegative_counts() {

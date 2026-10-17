@@ -1721,10 +1721,10 @@ function labelCounts(mailbox) {
 // The three `header:…:asRaw` values are asked for by name because JMAP's parsed
 // fields do not carry them: the unsubscribe path reads the two `List-` lines
 // verbatim, and a `Date` header is what a reply quotes. Nothing is asked for
-// that no row reads — `hasAttachment` was, for a badge nothing drew.
+// that no row reads. `hasAttachment` identifies the list's paperclip.
 var LIST_PROPERTIES = [
   "id", "blobId", "threadId", "mailboxIds", "keywords", "size", "receivedAt",
-  "from", "to", "cc", "subject", "preview",
+  "from", "to", "cc", "subject", "preview", "hasAttachment",
   "messageId", "inReplyTo", "references",
   "header:List-Unsubscribe:asRaw", "header:List-Unsubscribe-Post:asRaw",
   "header:Date:asRaw"
@@ -1928,6 +1928,7 @@ function toMessage(email, roles, full) {
     labelIds: labelIdsFor(source, roles),
     internalDate: receivedMillis(source.receivedAt),
     sizeEstimate: countOf(source.size),
+    hasAttachments: source.hasAttachment === true,
     payload: payload,
     // The preview again, never rebuilt from the body: a reader that recomputed
     // it would show a different snippet from the row it was opened out of.

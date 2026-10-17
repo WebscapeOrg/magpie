@@ -448,12 +448,10 @@ impl Session {
                 };
                 query.push((
                     "format".into(),
-                    if full { "full" } else { "metadata" }.into(),
+                    "full".into(),
                 ));
                 if !full {
-                    for header in ["From", "To", "Subject", "Date", "List-Unsubscribe"] {
-                        query.push(("metadataHeaders".into(), header.into()));
-                    }
+                    query.push(("fields".into(), resources::list_fields()));
                 }
                 vec!["messages", field(params, "id", true)?]
             }

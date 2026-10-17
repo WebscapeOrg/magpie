@@ -236,7 +236,6 @@ impl Session {
                 http: plan.method,
                 path: plan.path,
                 body: plan.body,
-                cost: quota_cost(method),
             },
         )
     }
@@ -263,14 +262,15 @@ impl Session {
         if let Some(message) = plan.draft_message {
             let found = resolve_draft(&message, |cursor| async {
                 session.check()?;
-                session.pace(quota_cost("gmail.listDrafts")).await?;
-                gmail_http::get(
+                gmail_http::get_paced(
                     &["drafts"],
                     &[
                         ("maxResults".into(), "500".into()),
                         ("pageToken".into(), cursor),
                     ],
                     &token.value,
+                    &session.budget,
+                    gmail_http::Lane::Interactive,
                 )
                 .await
             })
@@ -285,10 +285,16 @@ impl Session {
             plan.path = vec!["drafts".into(), id];
         }
         session.check()?;
-        session.pace(quota_cost(method)).await?;
-        session.check()?;
         let path: Vec<&str> = plan.path.iter().map(String::as_str).collect();
-        let answer = gmail_http::write(plan.method, &path, plan.body.as_ref(), &token.value).await;
+        let answer = gmail_http::write_paced(
+            plan.method,
+            &path,
+            plan.body.as_ref(),
+            &token.value,
+            &session.budget,
+            gmail_http::Lane::Interactive,
+        )
+        .await;
         if answer == Err("gmail_unauthorized") {
             session.reject(&token).await?;
         }

@@ -208,7 +208,7 @@ impl Sync {
                     let query = query.clone();
                     async move {
                         gmail
-                            .call(
+                            .poll_call(
                                 "gmail.list",
                                 &json!({
                                     "accountId":account,"query":query,
@@ -224,10 +224,7 @@ impl Sync {
                     let account = &account;
                     async move {
                         gmail
-                            .call(
-                                "gmail.read",
-                                &json!({"accountId":account,"id":id,"full":false}),
-                            )
+                            .poll_message(account, id.as_str().ok_or("gmail_invalid_response")?)
                             .await
                     }
                 }))

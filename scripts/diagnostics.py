@@ -166,6 +166,49 @@ def clean(event, existing=False):
             'message': message if isinstance(message, str) and message in MESSAGES else 'unknown_error'}
 
 
+GMAIL_OPERATIONS = set('''getProfile labels.list labels.get settings.sendAs.list
+messages.list messages.get.full messages.get.metadata messages.attachments.get
+threads.get.full threads.get.metadata drafts.list messages.send messages.batchModify
+messages.modify messages.trash messages.untrash labels.create labels.update labels.delete
+drafts.create drafts.update drafts.delete oauth.refresh gmail.request'''.split())
+GMAIL_REASONS = {'unknown', 'localBudget', 'rateLimitExceeded', 'userRateLimitExceeded',
+                 'dailyLimitExceeded', 'insufficientPermissions', 'domainPolicy', 'authError', 'sessionInvalidated'}
+
+
+def clean_gmail(event):
+    if not isinstance(event, dict):
+        return None
+    result = {}
+    vocabularies = {'operation': GMAIL_OPERATIONS,
+                    'reason': GMAIL_REASONS,
+                    'lane': {'interactive', 'background', 'poll', 'queue', 'auth'},
+                    'outcome': {'ok', 'gmail_rate_limited', 'gmail_unauthorized',
+                                'gmail_forbidden', 'gmail_length_required', 'gmail_http_failed',
+                                'gmail_timeout', 'gmail_response_too_large', 'gmail_invalid_response', 'gmail_session_invalidated'}}
+    for key, allowed in vocabularies.items():
+        value = event.get(key)
+        if not isinstance(value, str) or value not in allowed:
+            return None
+        result[key] = value
+    timestamp = event.get('time')
+    if not isinstance(timestamp, str) or not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', timestamp):
+        return None
+    result['time'] = timestamp
+    for key, maximum in {'process': 2**32 - 1, 'session': 2**64 - 1,
+                         'request': 2**64 - 1, 'cost': 120, 'attempt': 4,
+                         'waitMs': 86400000, 'elapsedMs': 86400000}.items():
+        value = event.get(key)
+        if type(value) is not int or not 0 <= value <= maximum:
+            return None
+        result[key] = value
+    for key, maximum in {'status': 599, 'retryAfterMs': 86400000}.items():
+        value = event.get(key)
+        if value is not None and (type(value) is not int or not 0 <= value <= maximum):
+            return None
+        result[key] = value
+    return result
+
+
 def check(fd, directory=False):
     info = os.fstat(fd)
     if (info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != (0o700 if directory else 0o600)
@@ -266,6 +309,23 @@ def main(mode):
         report += 'API revision: ' + str(json.loads((ROOT / 'backend-api.json').read_text())['apiVersion']) + '\n'
         report += '\nRecent backend errors (only known error identifiers are retained):\n'
         report += '\n'.join(json.dumps(event, ensure_ascii=True) for event in entries) or '(none recorded)'
+        try:
+            gmail = json.loads(read(fd, 'gmail.json') or b'[]')
+        except (ValueError, OSError):
+            gmail = []
+        if isinstance(gmail, list):
+            gmail = [safe for event in gmail[-200:] if (safe := clean_gmail(event)) is not None]
+            if gmail:
+                report += '\n\nRecent Gmail attempts (session numbers are process-local, not addresses):\n'
+                report += '\n'.join(json.dumps(event, ensure_ascii=True) for event in gmail)
+        # Preserve the existing bounded report when the transport history is full.
+        while len(report.encode('utf-8')) + 1 > LIMIT:
+            lines = report.splitlines()
+            first = next((i for i, line in enumerate(lines) if line.startswith('{')), None)
+            if first is None:
+                break
+            del lines[first]
+            report = '\n'.join(lines)
         write(fd, 'report.txt', report + '\n')
     prompt = ('Diagnose an Omamail error using the local report at ' + str(folder / 'report.txt')
               + '. Start with read-only investigation. Explain the cause and propose a fix. '

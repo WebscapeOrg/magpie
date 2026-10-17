@@ -531,6 +531,252 @@ async fn rate_limited_requests_back_off_and_resend_within_the_deadline() {
     );
 }
 
+#[test]
+fn prepared_requests_charge_current_endpoint_and_format_costs() {
+    for (path, format, cost) in [
+        (vec!["messages"], "", 5),
+        (vec!["messages", "synthetic-id"], "full", 60),
+        (vec!["messages", "synthetic-id"], "raw", 60),
+        (vec!["messages", "synthetic-id"], "metadata", 20),
+        (vec!["messages", "synthetic-id"], "minimal", 20),
+        (vec!["messages", "id", "attachments", "attachment"], "", 20),
+        (vec!["threads", "id"], "full", 120),
+        (vec!["threads", "id"], "metadata", 40),
+        (vec!["profile"], "", 1),
+        (vec!["labels"], "", 1),
+        (vec!["labels", "id"], "", 1),
+        (vec!["settings", "sendAs"], "", 1),
+        (vec!["drafts"], "", 5),
+    ] {
+        let request = prepare_get(
+            &path,
+            &[
+                ("format".into(), format.into()),
+                ("fields".into(), "id".into()),
+            ],
+            "synthetic-token",
+        )
+        .unwrap();
+        assert_eq!(
+            request.cost, cost,
+            "{path:?}, {format}: fields do not discount quota"
+        );
+    }
+    for (method, path, cost) in [
+        ("POST", vec!["messages", "id", "trash"], 20),
+        ("POST", vec!["messages", "id", "untrash"], 5),
+        ("POST", vec!["messages", "id", "modify"], 5),
+        ("POST", vec!["messages", "batchModify"], 50),
+        ("POST", vec!["messages", "send"], 100),
+        ("POST", vec!["drafts"], 10),
+        ("PUT", vec!["drafts", "id"], 15),
+        ("DELETE", vec!["drafts", "id"], 10),
+        ("POST", vec!["labels"], 5),
+        ("PATCH", vec!["labels", "id"], 5),
+        ("DELETE", vec!["labels", "id"], 5),
+    ] {
+        assert_eq!(
+            prepare_write(method.parse().unwrap(), &path, None, "synthetic-token")
+                .unwrap()
+                .cost,
+            cost
+        );
+    }
+}
+
+#[tokio::test]
+async fn server_cooldown_prevents_retries_and_sibling_network_requests() {
+    let client = client_builder().https_only(false).build().unwrap();
+    let peer = server(
+        b"HTTP/1.1 429 Limited\r\nRetry-After: 90\r\nContent-Length: 2\r\n\r\n{}".to_vec(),
+        Duration::ZERO,
+    )
+    .await;
+    let budget = Arc::new(Budget::default());
+    let mut request = local(&peer, get_request());
+    request.budget = Some((budget, Lane::Interactive));
+    let before = std::time::Instant::now();
+    assert_eq!(
+        execute(&client, request.clone(), Duration::from_secs(1)).await,
+        Err("gmail_rate_limited")
+    );
+    assert_eq!(
+        execute(&client, request, Duration::from_secs(1)).await,
+        Err("gmail_rate_limited")
+    );
+    assert!(before.elapsed() < Duration::from_secs(1));
+    assert_eq!(
+        peer.requests.lock().unwrap().len(),
+        1,
+        "neither a retry nor a sibling may bypass the shared server cooldown"
+    );
+}
+
+#[tokio::test]
+async fn every_retry_spends_quota_before_contacting_the_server() {
+    let client = client_builder().https_only(false).build().unwrap();
+    let peer = server_sequence(
+        vec![
+            b"HTTP/1.1 429 Limited\r\nContent-Length: 2\r\n\r\n{}".to_vec(),
+            ok(),
+        ],
+        Duration::ZERO,
+    )
+    .await;
+    let budget = Arc::new(Budget::default());
+    drop(
+        budget
+            .acquire(
+                1140,
+                Lane::Interactive,
+                tokio::time::Instant::now() + Duration::from_secs(1),
+            )
+            .await
+            .unwrap(),
+    );
+    let mut request = local(&peer, get_request());
+    request.budget = Some((budget, Lane::Interactive));
+    let before = std::time::Instant::now();
+    assert!(
+        execute_with_backoff(&client, request, DEADLINE, Duration::from_millis(1))
+            .await
+            .is_ok()
+    );
+    assert!(
+        before.elapsed() >= Duration::from_millis(790),
+        "the second 60-unit attempt must wait for replenishment"
+    );
+    assert_eq!(peer.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn invalidation_while_waiting_for_quota_prevents_the_network_request() {
+    let peer = server(ok(), Duration::ZERO).await;
+    let client = client_builder().https_only(false).build().unwrap();
+    let valid = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let budget = Arc::new(Budget::new(Arc::clone(&valid)));
+    drop(
+        budget
+            .acquire(
+                1200,
+                Lane::Interactive,
+                tokio::time::Instant::now() + Duration::from_secs(1),
+            )
+            .await
+            .unwrap(),
+    );
+    let mut request = local(&peer, get_request());
+    request.budget = Some((budget, Lane::Interactive));
+    let (answer, ()) = tokio::join!(execute(&client, request, DEADLINE), async {
+        tokio::task::yield_now().await;
+        valid.store(false, Ordering::Release);
+    });
+    assert_eq!(answer, Err("gmail_session_invalidated"));
+    assert_eq!(
+        peer.requests.lock().unwrap().len(),
+        0,
+        "logout must prevent the waiting credential-bearing request"
+    );
+}
+
+#[tokio::test]
+async fn a_parallel_burst_uses_at_most_four_account_connections() {
+    let peer = server(ok(), Duration::from_millis(30)).await;
+    let client = client_builder().https_only(false).build().unwrap();
+    let budget = Arc::new(Budget::default());
+    let pending = (0..16).map(|_| {
+        let mut request = local(&peer, get_request());
+        request.budget = Some((Arc::clone(&budget), Lane::Interactive));
+        execute(&client, request, DEADLINE)
+    });
+    let before = std::time::Instant::now();
+    let answers = futures_util::future::join_all(pending).await;
+    assert!(answers.iter().all(Result::is_ok));
+    assert!(before.elapsed() >= Duration::from_millis(120));
+    assert!(peer.connections.load(Ordering::SeqCst) <= 4);
+    assert_eq!(peer.requests.lock().unwrap().len(), 16);
+}
+
+#[test]
+fn retry_hints_are_numeric_bounded_and_never_preserve_server_text() {
+    assert_eq!(retry_after("90"), Some(Duration::from_secs(90)));
+    assert_eq!(retry_after("9999999999999999999999999"), None);
+    for invalid in ["-1", "nan", "1\r\nsecret", "secret", "1.5"] {
+        assert_eq!(retry_after(invalid), None);
+    }
+    let date = (chrono::Utc::now() + chrono::Duration::seconds(90))
+        .format("%a, %d %b %Y %H:%M:%S GMT")
+        .to_string();
+    assert!(retry_after(&date).unwrap() >= Duration::from_secs(88));
+    let time = (chrono::Utc::now() + chrono::Duration::seconds(90))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let body = serde_json::json!({"error":{"message":format!("private mail address. Retry after {time}"), "details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo", "retryDelay":"120.5s"}]}});
+    assert_eq!(body_retry_after(&body), Some(Duration::from_millis(120500)));
+    assert_eq!(
+        body_retry_after(&serde_json::json!({"error":{"message":format!("Retry after {time}")}}))
+            .unwrap()
+            .as_secs(),
+        89
+    );
+}
+
+#[tokio::test]
+async fn diagnostics_store_safe_transport_fields_without_credentials_or_mail() {
+    use crate::mail::tests::{account_fixture, isolated};
+    use serde_json::json;
+    if isolated() {
+        return;
+    }
+    let fixture = account_fixture(json!({"version":1,"accounts":[]}));
+    let client = client_builder().https_only(false).build().unwrap();
+    let body = json!({"error":{"message":"synthetic-private-body alice@example.org", "errors":[{"reason":"insufficientPermissions", "message":"synthetic-private-subject"}], "secret":"synthetic-client-secret"}}).to_string();
+    let peer = server(format!("HTTP/1.1 403 Forbidden\r\nRetry-After: 90\r\nX-Private: synthetic-private-header\r\nContent-Length: {}\r\n\r\n{body}", body.len()).into_bytes(), Duration::ZERO).await;
+    let mut request = prepare_get(
+        &["messages", "synthetic-private-id"],
+        &[("q".into(), "synthetic-private-query".into())],
+        "synthetic-access-token",
+    )
+    .unwrap();
+    request = local(&peer, request);
+    request.budget = Some((Arc::new(Budget::default()), Lane::Interactive));
+    diagnostics::ENABLED
+        .scope((), async {
+            assert_eq!(
+                execute(&client, request.clone(), DEADLINE).await,
+                Err("gmail_forbidden")
+            );
+            let budget = &request.budget.as_ref().unwrap().0;
+            budget.cool_down(Duration::from_secs(90)).await;
+            assert_eq!(
+                execute(&client, request, Duration::from_secs(1)).await,
+                Err("gmail_rate_limited")
+            );
+        })
+        .await;
+    assert_eq!(peer.requests.lock().unwrap().len(), 1);
+    let saved =
+        std::fs::read_to_string(fixture.state.join("omamail/diagnostics/gmail.json")).unwrap();
+    for forbidden in [
+        "synthetic-private",
+        "alice@example.org",
+        "synthetic-client-secret",
+        "synthetic-access-token",
+        "http://",
+        "https://",
+        "Bearer",
+    ] {
+        assert!(!saved.contains(forbidden), "diagnostics leaked {forbidden}");
+    }
+    let rows: Value = serde_json::from_str(&saved).unwrap();
+    assert_eq!(rows[0]["status"], 403);
+    assert_eq!(rows[0]["reason"], "insufficientPermissions");
+    assert_eq!(rows[0]["retryAfterMs"], 90000);
+    assert_eq!(rows[0]["operation"], "messages.get.full");
+    assert_eq!(rows[0]["cost"], 60);
+    assert!(rows[1]["status"].is_null());
+    assert_eq!(rows[1]["reason"], "localBudget");
+}
+
 #[tokio::test]
 async fn invalid_bytes_are_refused_before_network() {
     let target = server(ok(), Duration::ZERO).await;
@@ -880,13 +1126,20 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
             secret: crate::credentials::Secret::new(b"synthetic-refresh-token".to_vec()).unwrap(),
         });
 
-    let message=json!({"id":"abc","threadId":"thread","labelIds":["INBOX","UNREAD"],"payload":{"headers":[{"name":"Subject","value":"Synthetic meeting"}]}});
-    let second=json!({"id":"def","threadId":"thread","labelIds":["INBOX"]});
-    let response=|body:Value| {let body=body.to_string();format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",body.len()).into_bytes()};
-    let grant=json!({"access_token":"synthetic-access-token","expires_in":3600});
+    let message = json!({"id":"abc","threadId":"thread","labelIds":["INBOX","UNREAD"],"payload":{"headers":[{"name":"Subject","value":"Synthetic meeting"}]}});
+    let second = json!({"id":"def","threadId":"thread","labelIds":["INBOX"]});
+    let response = |body: Value| {
+        let body = body.to_string();
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes()
+    };
+    let grant = json!({"access_token":"synthetic-access-token","expires_in":3600});
     let peer=server_sequence(vec![response(grant.clone()),response(message.clone()),response(json!({"messages":[message.clone(),second]})),ok(),response(grant),response(json!({"messages":[{"id":"abc","labelIds":["UNREAD"]},{"id":"def","labelIds":["TRASH"]}]})),ok()],Duration::ZERO).await;
-    let transport=client_builder().https_only(false).build().unwrap();
-    let origin=peer.url.strip_suffix("/messages/abc").unwrap().to_owned();
+    let transport = client_builder().https_only(false).build().unwrap();
+    let origin = peer.url.strip_suffix("/messages/abc").unwrap().to_owned();
     with_test_transport(transport,origin,async {
         let session=crate::backend::Session::default();
         assert!(session.dispatch("inbox.snooze",&json!({"accountId":"snooze@example.org","id":"abc","until":0})).await.is_err());
@@ -909,14 +1162,23 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
         assert_eq!(result["failures"],0);
         assert!(restarted.dispatch("inbox.snapshot",&json!({"accountId":"snooze@example.org"})).await.unwrap()["snoozes"].as_array().unwrap().is_empty());
     }).await;
-    let requests=peer.requests.lock().unwrap();
-    let writes:Vec<_>=requests.iter().filter(|r|r.starts_with("POST /gmail/v1/users/me/messages/batchModify ")).collect();
-    assert_eq!(writes.len(),2);
-    let body=|request:&&String|serde_json::from_str::<Value>(request.split_once("\r\n\r\n").unwrap().1).unwrap();
-    let archive=body(&writes[0]);
-    assert_eq!(archive["removeLabelIds"],json!(["INBOX"]));
-    assert_eq!(archive["ids"],json!(["abc","def"]));
-    let wake=body(&writes[1]);
-    assert_eq!(wake["ids"],json!(["abc"]),"the message trashed after snoozing must never return");
-    assert_eq!(wake["addLabelIds"],json!(["INBOX","UNREAD"]));
+    let requests = peer.requests.lock().unwrap();
+    let writes: Vec<_> = requests
+        .iter()
+        .filter(|r| r.starts_with("POST /gmail/v1/users/me/messages/batchModify "))
+        .collect();
+    assert_eq!(writes.len(), 2);
+    let body = |request: &&String| {
+        serde_json::from_str::<Value>(request.split_once("\r\n\r\n").unwrap().1).unwrap()
+    };
+    let archive = body(&writes[0]);
+    assert_eq!(archive["removeLabelIds"], json!(["INBOX"]));
+    assert_eq!(archive["ids"], json!(["abc", "def"]));
+    let wake = body(&writes[1]);
+    assert_eq!(
+        wake["ids"],
+        json!(["abc"]),
+        "the message trashed after snoozing must never return"
+    );
+    assert_eq!(wake["addLabelIds"], json!(["INBOX", "UNREAD"]));
 }

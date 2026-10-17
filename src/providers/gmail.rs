@@ -25,69 +25,20 @@ struct Token {
     expires: Instant,
 }
 
-// Gmail meters each user at 250 quota units per second, a moving average
-// that tolerates short bursts. Every call is paced below that line here so a
-// screen of trashed conversations — one 5-unit call per message — reaches
-// Google as a stream rather than a burst it answers with 403 rateLimitExceeded.
-// The margin leaves room for another omamail process on the same account.
-const QUOTA_UNITS_PER_SECOND: f64 = 200.0;
-const QUOTA_BURST: f64 = 200.0;
-// A call whose turn would come after the IPC deadline fails now, as rate
-// limited, instead of timing out as a mutation of unknown outcome.
-const QUOTA_MAX_WAIT: Duration = Duration::from_secs(15);
-
-struct Quota {
-    units: f64,
-    refilled: Instant,
-}
-
 struct AccountSession {
-    valid: AtomicBool,
+    valid: Arc<AtomicBool>,
     token: tokio::sync::Mutex<Option<Arc<Token>>>,
-    quota: tokio::sync::Mutex<Quota>,
+    budget: Arc<gmail_http::Budget>,
 }
 
 impl AccountSession {
     fn new() -> Self {
+        let valid = Arc::new(AtomicBool::new(true));
         AccountSession {
-            valid: AtomicBool::new(true),
+            valid: Arc::clone(&valid),
             token: tokio::sync::Mutex::new(None),
-            quota: tokio::sync::Mutex::new(Quota {
-                units: QUOTA_BURST,
-                refilled: Instant::now(),
-            }),
+            budget: Arc::new(gmail_http::Budget::new(valid)),
         }
-    }
-
-    /// Spends `cost` quota units, waiting for its turn when the bucket is in
-    /// debt. The debt is booked under the lock and slept off outside it, so
-    /// each caller's wait is its position in the whole queue, not just its
-    /// own deficit — which is what lets a hopeless tail fail now.
-    async fn pace(&self, cost: u32) -> Result<(), &'static str> {
-        self.pace_within(cost, QUOTA_MAX_WAIT).await
-    }
-
-    /// The queue drainer has no request deadline to protect and waits it out.
-    async fn pace_within(&self, cost: u32, max_wait: Duration) -> Result<(), &'static str> {
-        let cost = f64::from(cost).min(QUOTA_BURST);
-        let wait = {
-            let mut quota = self.quota.lock().await;
-            let now = Instant::now();
-            let refill = now.duration_since(quota.refilled).as_secs_f64() * QUOTA_UNITS_PER_SECOND;
-            quota.units = (quota.units + refill).min(QUOTA_BURST);
-            quota.refilled = now;
-            let debt = cost - quota.units;
-            let wait = Duration::from_secs_f64(debt.max(0.0) / QUOTA_UNITS_PER_SECOND);
-            if wait > max_wait {
-                return Err("gmail_rate_limited");
-            }
-            quota.units -= cost;
-            wait
-        };
-        if !wait.is_zero() {
-            tokio::time::sleep(wait).await;
-        }
-        Ok(())
     }
 
     fn check(&self) -> Result<(), &'static str> {
@@ -183,10 +134,16 @@ async fn send_job(
         .token_with(|| refresh_grant(account.to_owned()))
         .await?;
     for retry in [true, false] {
-        session.pace_within(job.cost, Duration::MAX).await?;
         session.check()?;
-        let answer =
-            gmail_http::write(job.http.clone(), &path, job.body.as_ref(), &token.value).await;
+        let answer = gmail_http::write_paced(
+            job.http.clone(),
+            &path,
+            job.body.as_ref(),
+            &token.value,
+            &session.budget,
+            gmail_http::Lane::Queue,
+        )
+        .await;
         session.check()?;
         if answer != Err("gmail_unauthorized") {
             return answer;
@@ -221,18 +178,6 @@ fn validate_field(value: &str, required: bool) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Quota units Google charges per call, from the Gmail API usage limits.
-fn quota_cost(method: &str) -> u32 {
-    match method {
-        "gmail.labels" | "gmail.labelCounts" | "gmail.profile" => 1,
-        "gmail.batchModify" => 50,
-        "gmail.send" => 100,
-        "gmail.saveDraft" | "gmail.deleteDraft" => 10,
-        "gmail.updateDraft" => 15,
-        _ => 5,
-    }
-}
-
 pub(crate) fn validate_message_id(id: &str) -> Result<(), &'static str> {
     validate_field(id, true)?;
     super::gmail_http::validate_path_part(id).map_err(|_| "invalid_params")
@@ -262,18 +207,23 @@ impl Session {
         }) {
             return Err("gmail_account_unknown");
         }
-        self.account(account)?.pace(10).await?;
+        let budget = Arc::clone(&self.account(account)?.budget);
         let answer = self
             .get_with(
                 account,
                 || refresh_grant(account.to_owned()),
-                |token| async move {
-                    gmail_http::get(
-                        &["threads", id],
-                        &[("format".into(), "full".into())],
-                        &token,
-                    )
-                    .await
+                |token| {
+                    let budget = Arc::clone(&budget);
+                    async move {
+                        gmail_http::get_paced(
+                            &["threads", id],
+                            &[("format".into(), "full".into())],
+                            &token,
+                            &budget,
+                            gmail_http::Lane::Interactive,
+                        )
+                        .await
+                    }
                 },
             )
             .await?;
@@ -378,6 +328,49 @@ impl Session {
     }
 
     pub async fn call(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        self.call_in_lane(method, params, gmail_http::Lane::Interactive, false)
+            .await
+    }
+
+    pub(crate) async fn background_call(
+        &self,
+        method: &str,
+        params: &Value,
+    ) -> Result<Value, &'static str> {
+        self.call_in_lane(method, params, gmail_http::Lane::Background, false)
+            .await
+    }
+
+    pub(crate) async fn poll_call(
+        &self,
+        method: &str,
+        params: &Value,
+    ) -> Result<Value, &'static str> {
+        self.call_in_lane(method, params, gmail_http::Lane::Poll, false)
+            .await
+    }
+
+    pub(crate) async fn poll_message(
+        &self,
+        account: &str,
+        id: &str,
+    ) -> Result<Value, &'static str> {
+        self.call_in_lane(
+            "gmail.read",
+            &json!({"accountId":account,"id":id,"full":false}),
+            gmail_http::Lane::Poll,
+            true,
+        )
+        .await
+    }
+
+    async fn call_in_lane(
+        &self,
+        method: &str,
+        params: &Value,
+        lane: gmail_http::Lane,
+        metadata: bool,
+    ) -> Result<Value, &'static str> {
         if queue::queued(method) {
             let (ticket, _outcome) = self.enqueue_write(method, params).await?;
             return Ok(json!({"queued":true,"ticket":ticket.to_string()}));
@@ -448,9 +441,9 @@ impl Session {
                 };
                 query.push((
                     "format".into(),
-                    "full".into(),
+                    if metadata { "metadata" } else { "full" }.into(),
                 ));
-                if !full {
+                if !full && !metadata {
                     query.push(("fields".into(), resources::list_fields()));
                 }
                 vec!["messages", field(params, "id", true)?]
@@ -473,7 +466,7 @@ impl Session {
         }) {
             return Err("gmail_account_unknown");
         }
-        self.account(&account)?.pace(quota_cost(method)).await?;
+        let budget = Arc::clone(&self.account(&account)?.budget);
         let answer = self
             .get_with(
                 &account,
@@ -481,7 +474,8 @@ impl Session {
                 |token| {
                     let path = &path;
                     let query = &query;
-                    async move { gmail_http::get(path, query, &token).await }
+                    let budget = Arc::clone(&budget);
+                    async move { gmail_http::get_paced(path, query, &token, &budget, lane).await }
                 },
             )
             .await?;

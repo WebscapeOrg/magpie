@@ -449,8 +449,8 @@ impl Session {
                     .ok_or("gmail_invalid_response")
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let messages = futures_util::future::try_join_all(ids.iter().map(|id| {
-            let id = id.clone();
+        use futures_util::{StreamExt, TryStreamExt};
+        let pending = ids.iter().cloned().map(|id| {
             async move {
                 self.gmail
                     .call(
@@ -459,8 +459,11 @@ impl Session {
                     )
                     .await
             }
-        }))
-        .await?;
+        }).collect::<Vec<_>>();
+        let messages = futures_util::stream::iter(pending)
+            .buffered(4)
+            .try_collect::<Vec<_>>()
+            .await?;
         Ok(json!({
             "ids":ids,
             "messages":summaries(&messages)?,

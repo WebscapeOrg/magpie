@@ -161,7 +161,10 @@ mod tests {
     }
     #[test]
     fn private_bounded_storage_refuses_links_without_touching_the_target() {
-        let root = std::env::temp_dir().join(format!("gmail-diagnostics-{}", std::process::id()));
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("gmail-diagnostics-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         for _ in 0..205 {
             write(&root, event()).unwrap();

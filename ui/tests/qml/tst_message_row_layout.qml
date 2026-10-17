@@ -17,6 +17,44 @@ Item {
   TestCase {
     name: "MessageRowLayout"
     when: windowShown
+    function init() {
+      mouseMove(row,-20,-20)
+      row.width=600;row.hasCursor=false;row.checked=false;row.conversations=false
+      row.attachmentIndicatorEnabled=true;row.overview="";row.overviewState="";row.overviewReason=""
+      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",unread:false,starred:false}
+      waitForRendering(row)
+    }
+    function test_attachment_indicator_keeps_line_height_and_text_gap_data() {
+      return [{tag:"wide",width:600,actions:false},{tag:"narrow-actions",width:360,actions:true}]
+    }
+    function test_attachment_indicator_keeps_line_height_and_text_gap(data) {
+      row.width=data.width;row.hasCursor=data.actions;row.checked=false
+      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",hasAttachments:false}
+      waitForRendering(row)
+      var description=findChild(row,"message-description")
+      var glyph=findChild(row,"message-attachment-indicator")
+      var before=description.mapToItem(row,0,0)
+      var height=row.height
+      var lineHeight=description.height
+      var subject=findChild(row,"message-subject").mapToItem(row,0,0)
+      compare(glyph.visible,false)
+      row.summary=Object.assign({},row.summary,{hasAttachments:true})
+      waitForRendering(row)
+      compare(glyph.visible,true)
+      compare(row.height,height)
+      compare(description.height,lineHeight)
+      compare(description.mapToItem(row,0,0).y,before.y)
+      compare(findChild(row,"message-subject").mapToItem(row,0,0).y,subject.y)
+      verify(glyph.height<=description.height)
+      verify(glyph.height<=description.font.pixelSize)
+      verify(description.x-glyph.x-glyph.width>=4,"the paperclip has right-hand breathing room")
+      verify(Math.abs(glyph.mapToItem(row,0,glyph.height/2).y
+        - description.mapToItem(row,0,description.height/2).y) < 0.01)
+      row.attachmentIndicatorEnabled=false
+      compare(glyph.visible,false)
+      compare(description.mapToItem(row,0,0).x,before.x)
+      row.attachmentIndicatorEnabled=true
+    }
     function test_long_failure_tooltip_fits_a_narrow_row() {
       row.width=360;row.hasCursor=false
       row.overview="";row.overviewState="failed"

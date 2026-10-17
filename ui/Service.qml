@@ -2402,6 +2402,13 @@ Item {
     if (host) host.openAttachment(sourceIdFor(messageId), attachment)
   }
 
+  function previewAttachment(messageId, attachment, callback) {
+    var host = hostForId(messageId)
+    if (host) return host.previewAttachment(sourceIdFor(messageId), attachment, callback)
+    if (typeof callback === "function") callback("")
+    return null
+  }
+
   function saveAttachment(messageId, attachment) {
     var host = hostForId(messageId)
     if (host) host.saveAttachment(sourceIdFor(messageId), attachment)

@@ -183,6 +183,8 @@ The delayed-send toast does not create a keyboard context. The current screen ke
 
 Back and `Escape` close an untouched composition immediately without saving, including a prefilled reply, forward, or existing provider draft. After a user edit, they open a modal with Cancel, Discard, and Save draft. Save draft initially has focus; Tab and Shift+Tab cycle through the buttons, and Enter activates the focused choice. Escape inside the popup cancels and returns to composing. A failed save restores the changed draft. The composer's bottom Discard button exits immediately.
 
+The attachment shelf reveals a card when Tab reaches its Open or Save control. Enter or Space activates the focused control. Those controls accept Qt’s shortcut override for their activation keys so the reader’s Open and selection shortcuts do not intercept them. Escape keeps the reader’s normal Back behavior.
+
 The event and label delete confirmation initially focuses Delete. Tab and Shift+Tab cycle between Delete and Cancel; Return or Enter activates the focused button. Escape cancels.
 
 ## Why the rail is numbered and not chorded

@@ -9,9 +9,9 @@ import "../../components" as Omamail
 // is the mistake worth a test.
 Item {
   width: 500
-  height: 80
+  height: 240
 
-  Omamail.AttachmentRow {
+  Omamail.AttachmentCard {
     id: row
     width: parent.width
     attachment: ({ filename: "statement.pdf", mimeType: "application/pdf",
@@ -57,7 +57,7 @@ Item {
     }
 
     function test_the_row_offers_both_verbs() {
-      verify(find("attachment-open-link"), "the filename opens it")
+      verify(find("attachment-open-button"), "the filename opens it")
       var save = find("attachment-save-button")
       verify(save, "and there is somewhere to click to keep it")
       verify(save.width > 0 && save.height > 0)
@@ -74,7 +74,7 @@ Item {
     }
 
     function test_the_filename_still_opens_it() {
-      var link = find("attachment-open-link")
+      var link = find("attachment-open-button")
       mouseClick(link, 10, link.height / 2)
 
       compare(openSpy.count, 1)

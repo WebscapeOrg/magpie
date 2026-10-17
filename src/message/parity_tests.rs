@@ -2,7 +2,7 @@ use super::*;
 use serde_json::{Value, json};
 use std::io::Write;
 fn oracle(operation: &str, input: &Value) -> Value {
-    let script = r#"const L=require('./benchmarks/mail/baseline/ui/tests/load.js'); const M=L.load('message/Message.js');const D=L.load('message/Direction.js'); const x=JSON.parse(require('fs').readFileSync(0,'utf8'));let r; if(process.argv[1]==='compose')r=M.buildSendPayload(x);else r={summary:M.summarize(x.message,new Date(x.now)),body:M.extractBody(x.message.payload),html:M.extractHtml(x.message.payload),attachments:M.attachments(x.message.payload)};if(process.argv[1]!=='compose'){r.summary.subjectDirection=D.resolveSubject(r.summary.subject,D.AUTO);r.body.bodyDirection=D.resolveBody(r.body.text,D.AUTO);}process.stdout.write(JSON.stringify(r));"#;
+    let script = r#"const L=require('./benchmarks/mail/baseline/ui/tests/load.js'); const M=L.load('message/Message.js');const D=L.load('message/Direction.js'); const x=JSON.parse(require('fs').readFileSync(0,'utf8'));let r; if(process.argv[1]==='compose')r=M.buildSendPayload(x);else r={summary:M.summarize(x.message,new Date(x.now)),body:M.extractBody(x.message.payload),html:M.extractHtml(x.message.payload),attachments:M.attachments(x.message.payload)};if(process.argv[1]!=='compose'){r.summary.hasAttachments=require('./ui/tests/load').load('message/Message.js').hasAttachments(x.message);r.summary.subjectDirection=D.resolveSubject(r.summary.subject,D.AUTO);r.body.bodyDirection=D.resolveBody(r.body.text,D.AUTO);}process.stdout.write(JSON.stringify(r));"#;
     let mut child = std::process::Command::new("node")
         .args(["-e", script, operation])
         .stdin(std::process::Stdio::piped())

@@ -867,6 +867,19 @@ function normalizeThread(block, fallbackId) {
   }
 }
 
+function hasAttachments(message) {
+  var budget = 4000
+  function walk(part, depth) {
+    if (!part || depth > 12 || budget <= 0) return false
+    budget--
+    if (isAttachment(part)) return true
+    var parts = Array.isArray(part.parts) ? part.parts : []
+    for (var i = 0; i < parts.length; i++) if (walk(parts[i], depth + 1)) return true
+    return false
+  }
+  return !!message && (message.hasAttachments === true || walk(message.payload, 0))
+}
+
 function summarize(message, now) {
   var from = parseAddress(headerValue(message, "From"))
   var date = messageDate(message)
@@ -906,6 +919,7 @@ function summarize(message, now) {
     isSent: hasLabel(message, "SENT"),
     isDraft: hasLabel(message, "DRAFT"),
     labelIds: labelIds(message).slice(),
+    hasAttachments: hasAttachments(message),
     sizeEstimate: Math.max(0, Math.floor(Number(message && message.sizeEstimate) || 0))
   }
 }

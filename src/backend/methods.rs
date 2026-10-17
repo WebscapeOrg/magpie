@@ -43,6 +43,7 @@ pub const ALL: &[&str] = &[
     "message.signatureImport",
     "message.signatureInline",
     "attachment.forget",
+    "attachment.thumbnail",
     "outbox.enqueue",
     "outbox.snapshot",
     "outbox.undo",

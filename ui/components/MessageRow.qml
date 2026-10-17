@@ -20,6 +20,7 @@ Rectangle {
   property color urgentColor: accentColor
   required property string panelFontFamily
   property bool canArchive: true
+  property bool attachmentIndicatorEnabled: true
   // Whether this row stands for a conversation rather than for one message.
   // Grouping is a panel rule gated on the provider's `conversations`
   // capability; a row is told, and asks nobody.
@@ -227,21 +228,41 @@ Rectangle {
       horizontalAlignment: root.subjectAlignment
     }
 
-    Text {
-      id: description
-      objectName: "message-description"
+    Item {
       width: Math.max(0, Math.min(subject.width, parent.width - time.width - MailStyle.space(16)))
-      visible: true
-      textFormat: Text.PlainText
-      text: root.overview || (root.overviewState === "failed" ? "Overview unavailable · " + (root.overviewReason || "previous attempt saved no reason; retry from Menu") : root.overviewState === "paused" ? "Overviews paused" : root.overviewState === "running" ? "Creating overview" : root.overviewState === "unavailable" ? "Overview unavailable · " + (root.overviewReason || "mail backend is disconnected") : "Overview queued")
-      color: root.dimColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.listSize
-      elide: Text.ElideRight
-      Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && (description.truncated || root.overviewState === "failed"); text: description.text; fontFamily: root.panelFontFamily }
-      HoverHandler { id: overviewHover }
-      maximumLineCount: 1
-      horizontalAlignment: root.textAlignment
+      implicitHeight: description.implicitHeight
+
+      ActionIcon {
+        id: attachmentIndicator
+        objectName: "message-attachment-indicator"
+        visible: root.attachmentIndicatorEnabled && root.summary.hasAttachments === true
+        anchors.left: parent.left
+        y: description.y + (description.height - height) / 2
+        name: "attachment"
+        iconSize: Math.min(MailStyle.listSize, description.implicitHeight)
+        color: root.dimColor
+        Accessible.role: Accessible.Graphic
+        Accessible.name: "Has attachments"
+      }
+
+      Text {
+        id: description
+        objectName: "message-description"
+        anchors.left: attachmentIndicator.visible ? attachmentIndicator.right : parent.left
+        anchors.leftMargin: attachmentIndicator.visible ? MailStyle.space(6) : 0
+        anchors.right: parent.right
+        visible: true
+        textFormat: Text.PlainText
+        text: root.overview || (root.overviewState === "failed" ? "Overview unavailable · " + (root.overviewReason || "previous attempt saved no reason; retry from Menu") : root.overviewState === "paused" ? "Overviews paused" : root.overviewState === "running" ? "Creating overview" : root.overviewState === "unavailable" ? "Overview unavailable · " + (root.overviewReason || "mail backend is disconnected") : "Overview queued")
+        color: root.dimColor
+        font.family: root.panelFontFamily
+        font.pixelSize: MailStyle.listSize
+        elide: Text.ElideRight
+        Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && (description.truncated || root.overviewState === "failed"); text: description.text; fontFamily: root.panelFontFamily }
+        HoverHandler { id: overviewHover }
+        maximumLineCount: 1
+        horizontalAlignment: root.textAlignment
+      }
     }
   }
 

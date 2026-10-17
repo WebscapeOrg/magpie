@@ -111,12 +111,12 @@ Item {
     }
 
     function test_attachment_filename_routes_the_message_and_part_to_the_service() {
-      var link = named(reader, "attachment-open-link")
+      var link = named(reader, "attachment-open-button")
       verify(link, "the message reader must present an attachment control")
 
       mailService.openedMessageId = ""
       mailService.openedAttachment = null
-      link.activated()
+      link.clicked()
       compare(mailService.openedMessageId, "message-4")
       compare(mailService.openedAttachment.attachmentId, "att-7")
     }
@@ -129,9 +129,9 @@ Item {
       mailService.selectedId = "b@example.net message-4"
 
       mailService.openedMessageId = ""
-      var link = named(reader, "attachment-open-link")
+      var link = named(reader, "attachment-open-button")
       verify(link)
-      link.activated()
+      link.clicked()
       compare(mailService.openedMessageId, "b@example.net message-4")
 
       var web = named(reader, "openWebButton")
@@ -164,7 +164,7 @@ Item {
     // through the whole save.
     function test_the_row_goes_busy_for_the_mailbox_that_owns_it() {
       mailService.selectedId = "b@example.net message-4"
-      var row = named(reader, "attachment-save-button").parent
+      var row = named(reader, "attachment-open-button")
       verify(row, "the save control sits in the row it belongs to")
 
       mailService.savingFor = ""

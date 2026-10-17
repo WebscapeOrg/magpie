@@ -56,7 +56,7 @@ Item {
       api.backend.notification("gmail.settled", { accountId: "queue@example.org", ticket: "8", method: "gmail.trash", ok: false, error: "gmail_rate_limited" })
       compare(outcomes.length, 1)
       compare(outcomes[0].payload, null)
-      verify(outcomes[0].error.indexOf("rate limiting") >= 0, outcomes[0].error)
+      verify(outcomes[0].error.indexOf("temporarily limited") >= 0, outcomes[0].error)
       api.backend.notification("gmail.settled", { accountId: "queue@example.org", ticket: "7", method: "gmail.trash", ok: true, error: "" })
       compare(outcomes.length, 2)
       compare(outcomes[1].error, "")
@@ -89,6 +89,41 @@ Item {
       api.abortRequest(handle)
       api.backend.notification("gmail.settled", { ticket: "1", ok: true, error: "" })
       compare(outcomes.length, 0)
+      compare(api.inFlight, 0)
+    }
+    function test_page_reads_are_bounded_and_keep_order_after_partial_failure() {
+      var api = client()
+      var outcomes = []
+      var progress = []
+      api.getMessages(["a", "b", "c", "d", "e", "f"], false,
+        function(payload, error) { outcomes.push({ payload: payload, error: error }) }, null,
+        function(rows) { progress = progress.concat(rows) })
+      compare(api.backend.calls.length, 4)
+      api.backend.answer(2, { id: "c" })
+      compare(api.backend.calls.length, 5)
+      tryVerify(function() { return progress.length === 1 })
+      compare(progress[0].id, "c", "rows appear while the page is still loading")
+      compare(outcomes.length, 0)
+      compare(api.inFlight, 4)
+      api.backend.calls[0].callback(null, { message: "gmail_forbidden" })
+      compare(api.backend.calls.length, 6)
+      api.backend.answer(5, { id: "f" })
+      api.backend.answer(4, { id: "e" })
+      api.backend.answer(3, { id: "d" })
+      compare(outcomes.length, 0)
+      api.backend.answer(1, { id: "b" })
+      compare(outcomes.length, 1)
+      compare(outcomes[0].payload.map(function(row) { return row.id }), ["b", "c", "d", "e", "f"])
+      verify(outcomes[0].error.indexOf("403") >= 0)
+      compare(api.inFlight, 0)
+    }
+    function test_cancelled_page_does_not_schedule_remaining_reads() {
+      var api = client()
+      var handle = api.getMessages(["a", "b", "c", "d", "e", "f"], false,
+        function() { fail("aborted page delivered") })
+      api.abortRequest(handle)
+      for (var i = 0; i < 4; i++) api.backend.answer(i, { id: "ignored" })
+      compare(api.backend.calls.length, 4)
       compare(api.inFlight, 0)
     }
   }

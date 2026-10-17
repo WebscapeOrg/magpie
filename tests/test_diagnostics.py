@@ -64,6 +64,43 @@ class Diagnostics(unittest.TestCase):
             self.assertIn(code, data)
         self.assertNotIn('unknown_error', data)
 
+    def test_gmail_report_preserves_transport_facts_and_discards_private_values(self):
+        self.call('record', [self.event('gmail_rate_limited')])
+        event = {'time': '2026-10-17T14:02:38Z', 'process': 123, 'session': 4,
+                 'request': 5, 'operation': 'messages.get.full', 'lane': 'interactive',
+                 'cost': 60, 'attempt': 2, 'status': 429, 'reason': 'userRateLimitExceeded',
+                 'retryAfterMs': 90000, 'waitMs': 800, 'elapsedMs': 950,
+                 'outcome': 'gmail_rate_limited', 'private': 'SECRET-body'}
+        rows = [event, dict(event, status=None, reason='localBudget')]
+        for key in ['time', 'operation', 'lane', 'reason', 'outcome', 'status', 'retryAfterMs', 'cost']:
+            rows.append(dict(event, **{key: 'SECRET-token\r\n\x00日本語'}))
+        path = self.folder / 'gmail.json'
+        path.write_text(json.dumps(rows))
+        path.chmod(0o600)
+        self.call('open')
+        report = (self.folder / 'report.txt').read_text()
+        self.assertIn('userRateLimitExceeded', report)
+        self.assertIn('localBudget', report)
+        self.assertIn('"retryAfterMs": 90000', report)
+        self.assertIn('"cost": 60', report)
+        self.assertNotIn('SECRET', report)
+        self.assertNotIn('SECRET', (self.root / 'state/launched').read_text())
+
+    def test_gmail_report_ignores_unsafe_storage_and_stays_bounded(self):
+        self.call('record', [])
+        target = self.root / 'private'
+        target.write_text('SECRET-unrelated-file')
+        path = self.folder / 'gmail.json'
+        path.symlink_to(target)
+        self.call('open')
+        self.assertNotIn('SECRET', (self.folder / 'report.txt').read_text())
+        self.assertEqual(target.read_text(), 'SECRET-unrelated-file')
+        path.unlink()
+        path.write_text('[' + ' ' * 65536 + ']')
+        path.chmod(0o600)
+        self.call('open')
+        self.assertLessEqual((self.folder / 'report.txt').stat().st_size, 65536)
+
     def test_static_backend_error_vocabulary_does_not_drift(self):
         spec = importlib.util.spec_from_file_location('diagnostics', SCRIPT)
         module = importlib.util.module_from_spec(spec)

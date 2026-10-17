@@ -33,7 +33,6 @@ pub(super) struct Job {
     pub http: reqwest::Method,
     pub path: Vec<String>,
     pub body: Option<Value>,
-    pub cost: u32,
 }
 
 pub(super) type Outcome = Result<Value, &'static str>;
@@ -240,7 +239,6 @@ mod tests {
             http: reqwest::Method::POST,
             path: vec!["messages".into(), id.into(), "trash".into()],
             body: None,
-            cost: 5,
         }
     }
 

@@ -154,7 +154,7 @@ impl Provider {
             } else if account.starts_with("imap:") || account.starts_with("outlook:") {
                 crate::providers::imap::call(method, &params).await
             } else {
-                self.gmail.call(method, &params).await
+                self.gmail.background_call(method, &params).await
             }
         })
         .await

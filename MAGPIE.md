@@ -8,7 +8,7 @@ Open **Settings → Layout and fonts** with **Ctrl+,**. Interface, message list,
 
 ## Inbox
 
-Unread subjects are bold. Each row has a circular sender avatar: an available Google contact photo, an organization logo cached by sender domain, or one initial. The Personal mailbox uses a house and Webscape uses a tree. The top-right **All / house / tree** button switches accounts or opens the unified inbox. **Folder** shows or hides folder navigation; it starts hidden. Layout, refresh and AI tools live in the main menu. The monochrome bird is shared by the window and bar.
+Unread subjects are bold. Each row has a circular sender avatar: an available Google contact photo, an organization logo cached by sender domain, or one initial. The **All / house / tree** account selector switches accounts or opens the unified inbox; Personal uses a house and Webscape uses a tree. Message rows show the date without mailbox symbols. **Folder** shows or hides folder navigation; it starts hidden. Layout, refresh and AI tools live in the main menu. The monochrome bird is shared by the window and bar.
 
 Hover a row or move to it with the keyboard for **Mark unread**, **Snooze**, **Archive**, and **Trash**. Snooze offers tomorrow, the next Saturday and the next Monday at 08:00 in the local timezone, plus a custom future date and time. It archives the conversation and saves the schedule before changing Gmail. The persistent shell service returns due messages to Inbox as unread, catches up after resume, and leaves later Trash or Spam moves intact. **Menu → Snoozed mail…** returns a conversation early. Snooze currently requires Gmail and Enterprise to be awake to run on time.
 
@@ -32,7 +32,7 @@ The font-aware primitives in `ui/controls` are copies of the installed Omarchy Q
 
 ### List view refinements
 
-The list header keeps Search, Folder, Compose and the account selector; the Magpie name and bird appear at the top of Menu. The content frame uses equal insets on all four edges. Mailbox house/tree symbols follow the date, and row action centers are 15% farther apart. Interface icons use bundled [Lucide vectors](ui/assets/lucide/README.md), with theme colors and a filled star for starred mail. Provider artwork and the Magpie bird retain their own designs.
+The list header keeps Search, Folder, Compose and the account selector; the Magpie name and bird appear at the top of Menu. The content frame uses equal insets on all four edges. Dates occupy the right edge of message rows without mailbox symbols, and row action centers are 15% farther apart. Interface icons use bundled [Lucide vectors](ui/assets/lucide/README.md), with theme colors and a filled star for starred mail. Provider artwork and the Magpie bird retain their own designs.
 
 In the list view, the mailbox selector sits beside the menu in the position used by Back when reading a message. In the single-column message reader, ← Back sits beside the menu in the top toolbar and uses the same outlined button style as Compose. Escape keeps its existing navigation behavior. Folder and the mailbox selector share the outlined toolbar style; the menu glyph is twice its former size.
 

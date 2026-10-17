@@ -40,9 +40,9 @@ Item {
       row.overviewReason="AI response could not be verified against the mail; retry from Menu"
       row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",sourceLabel:"Personal"}
       waitForRendering(row)
-      var source=findChild(row,"message-source")
       var time=findChild(row,"message-time")
-      verify(source.mapToItem(row,0,0).x > time.mapToItem(row,time.width,0).x)
+      compare(findChild(row,"message-source"),null)
+      compare(Math.round(time.x+time.width),Math.round(time.parent.width))
       var actions=findChild(row,"message-actions")
       var unread=findChild(row,"message-mark-unread")
       compare(actions.spacing,unread.width*0.15)
@@ -77,7 +77,7 @@ Item {
     }
     function test_sender_and_time_lead_title_and_description_data() {
       return [{tag:"normal",width:600,actions:false,source:"",conversation:false},
-        {tag:"actions",width:360,actions:true,source:"",conversation:false},
+        {tag:"actions",width:360,actions:true,source:"Webscape",conversation:false},
         {tag:"unified-conversation",width:360,actions:true,source:"Personal mailbox with a long name",conversation:true},
         {tag:"selected",width:360,actions:true,source:"",conversation:false,checked:true},
         {tag:"rtl",width:360,actions:false,source:"",conversation:false,rtl:true}]
@@ -109,9 +109,7 @@ Item {
       var trash=findChild(row,"message-trash")
       if(trash.visible) verify(trash.iconSize>25,"tools use enlarged icons")
       if(!actions.visible) {
-        var source=findChild(row,"message-source")
-        var edge=source.visible ? source.mapToItem(row,source.width,0).x : timePoint.x+time.width
-        compare(Math.round(edge),Math.round(subjectPoint.x+subject.width))
+        compare(Math.round(timePoint.x+time.width),Math.round(subjectPoint.x+subject.width))
         verify(descriptionPoint.x+description.width<=timePoint.x-8,"overview stops before the date")
       }
       verify(sender.width>0)
@@ -119,9 +117,8 @@ Item {
       compare(subject.font.bold,true,"unread emphasis survives reordering")
       compare(subject.textFormat,Text.PlainText)
       compare(subject.effectiveHorizontalAlignment,data.rtl?Text.AlignRight:Text.AlignLeft)
-      compare(findChild(row,"message-source").visible,data.source!=="")
+      compare(findChild(row,"message-source"),null)
       compare(findChild(row,"message-conversation-count").visible,data.conversation)
-      if(data.source!=="")verify(findChild(row,"message-source").width<=row.width/3)
     }
   }
 }

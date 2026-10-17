@@ -5,7 +5,6 @@ import qs.Commons
 import qs.Ui
 import "../message/Direction.js" as Direction
 import "../account/Model.js" as Model
-import "MailboxIdentity.js" as Identity
 import "../keys/Keymap.js" as Keymap
 
 // One message in the list. Unread is carried by weight and by the dot on the
@@ -20,12 +19,6 @@ Rectangle {
   required property color dimColor
   property color urgentColor: accentColor
   required property string panelFontFamily
-  // Passed down rather than read off a service: a row draws one message and
-  // has no other use for one.
-  // Which mailbox this row came from, present only on a merged summary.
-  readonly property string sourceLabel: root.summary && root.summary.sourceLabel !== undefined
-    ? String(root.summary.sourceLabel) : ""
-
   property bool canArchive: true
   // Whether this row stands for a conversation rather than for one message.
   // Grouping is a panel rule gated on the provider's `conversations`
@@ -164,11 +157,8 @@ Rectangle {
     anchors.verticalCenter: parent.verticalCenter
     spacing: MailStyle.space(2)
 
-    // The sender, the mailbox it arrived in where the list is made of several,
-    // and how long the conversation is. Both of the last two are optional and
-    // the sender takes what they leave: only a merged row carries
-    // `sourceLabel`, so a single-mailbox list is unchanged rather than gaining
-    // an empty column — naming the only mailbox there is says nothing.
+    // The sender and optional conversation count share the first line with
+    // the date, which keeps the full row edge while actions appear below.
     Item {
       width: parent.width
       implicitHeight: Math.max(sender.implicitHeight, time.implicitHeight)
@@ -178,7 +168,7 @@ Rectangle {
         objectName: "message-sender"
         anchors.left: parent.left
         anchors.right: count.visible ? count.left : time.left
-        anchors.rightMargin: (source.visible || count.visible) ? MailStyle.space(4) : MailStyle.space(8)
+        anchors.rightMargin: count.visible ? MailStyle.space(4) : MailStyle.space(8)
         textFormat: Text.PlainText
         text: root.summary.from ? root.summary.from.display : ""
         color: root.dimColor
@@ -186,27 +176,6 @@ Rectangle {
         font.pixelSize: MailStyle.listSize
         elide: Text.ElideRight
         horizontalAlignment: root.textAlignment
-      }
-
-      // Never colour alone: the mailbox is named in words, because a theme
-      // can put the accent close enough to the foreground that a tint says
-      // nothing at all.
-      //
-      // A third of the row at most. Nothing limits the length of a name a user
-      // can set, and a long one squeezed the sender to nothing.
-      ActionIcon {
-        id: source
-        objectName: "message-source"
-        anchors.right: parent.right
-        anchors.verticalCenter: sender.verticalCenter
-        visible: root.sourceLabel !== ""
-        name: Identity.icon(root.sourceLabel)
-        iconSize: MailStyle.listSize
-        color: root.textColor
-        Accessible.role: Accessible.Graphic
-        Accessible.name: root.sourceLabel
-        Widgets.PanelToolTip { visible: sourceHover.hovered; text: root.sourceLabel; fontFamily: root.panelFontFamily }
-        HoverHandler { id: sourceHover }
       }
 
       // How long the conversation is, beside who wrote it — where Gmail puts
@@ -233,8 +202,7 @@ Rectangle {
       Text {
         id: time
         objectName: "message-time"
-        anchors.right: source.visible ? source.left : parent.right
-        anchors.rightMargin: source.visible ? MailStyle.space(8) : 0
+        anchors.right: parent.right
         anchors.baseline: sender.baseline
         textFormat: Text.PlainText
         text: root.summary.time

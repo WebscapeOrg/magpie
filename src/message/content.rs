@@ -345,8 +345,17 @@ pub fn summarize(message: &Value, now: i64) -> Result<Value> {
     let labels = message["labelIds"].as_array().cloned().unwrap_or_default();
     let has = |s: &str| labels.iter().any(|v| v == s);
     Ok(
-        json!({"id":text(&message["id"]),"threadId":text(&message["threadId"]),"from":address(&header(message,"From")),"replyTo":address(&header(message,"Reply-To")),"messageId":header(message,"Message-ID"),"to":addresses(&header(message,"To")),"cc":addresses(&header(message,"Cc")),"bcc":addresses(&header(message,"Bcc")),"inReplyTo":header(message,"In-Reply-To"),"subjectDirection":super::direction::resolve_subject(if subject.is_empty(){"(no subject)"}else{&subject}, super::direction::AUTO),"subject":if subject.is_empty(){"(no subject)"}else{&subject},"snippet":collapse(&html_to_text(text(&message["snippet"]))),"date":date.as_ref().map(|d|d.with_timezone(&Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis,true)),"time":relative(date.as_ref(),now),"fullTime":date.as_ref().map(|d|format!("{} {}, {} {:02}:{:02}",d.format("%b"),d.day(),d.year(),d.hour(),d.minute())).unwrap_or_default(),"thread":thread,"unread":has("UNREAD")||thread["unread"]==true,"starred":has("STARRED")||thread["flagged"]==true,"important":has("IMPORTANT"),"inInbox":has("INBOX"),"inTrash":has("TRASH"),"inSpam":has("SPAM"),"isSent":has("SENT"),"isDraft":has("DRAFT"),"labelIds":labels,"sizeEstimate":number(&message["sizeEstimate"]).floor().max(0.0) as u64}),
+        json!({"id":text(&message["id"]),"threadId":text(&message["threadId"]),"from":address(&header(message,"From")),"replyTo":address(&header(message,"Reply-To")),"messageId":header(message,"Message-ID"),"to":addresses(&header(message,"To")),"cc":addresses(&header(message,"Cc")),"bcc":addresses(&header(message,"Bcc")),"inReplyTo":header(message,"In-Reply-To"),"subjectDirection":super::direction::resolve_subject(if subject.is_empty(){"(no subject)"}else{&subject}, super::direction::AUTO),"subject":if subject.is_empty(){"(no subject)"}else{&subject},"snippet":collapse(&html_to_text(text(&message["snippet"]))),"date":date.as_ref().map(|d|d.with_timezone(&Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis,true)),"time":relative(date.as_ref(),now),"fullTime":date.as_ref().map(|d|format!("{} {}, {} {:02}:{:02}",d.format("%b"),d.day(),d.year(),d.hour(),d.minute())).unwrap_or_default(),"thread":thread,"unread":has("UNREAD")||thread["unread"]==true,"starred":has("STARRED")||thread["flagged"]==true,"important":has("IMPORTANT"),"inInbox":has("INBOX"),"inTrash":has("TRASH"),"inSpam":has("SPAM"),"isSent":has("SENT"),"isDraft":has("DRAFT"),"labelIds":labels,"hasAttachments":has_attachments(message),"sizeEstimate":number(&message["sizeEstimate"]).floor().max(0.0) as u64}),
     )
+}
+fn has_attachments(message: &Value) -> bool {
+    fn walk(part: &Value, depth: usize, budget: &mut usize) -> bool {
+        if depth > 12 || *budget == 0 { return false; }
+        *budget -= 1;
+        attachment(part) || part["parts"].as_array().is_some_and(|parts|
+            parts.iter().any(|part| walk(part, depth + 1, budget)))
+    }
+    message["hasAttachments"] == true || walk(&message["payload"], 0, &mut 4000)
 }
 fn disposition(part: &Value) -> String {
     part_header(part, "Content-Disposition")

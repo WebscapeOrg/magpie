@@ -227,6 +227,9 @@ impl Session {
         if method == "outlook.connectionCheck" {
             return Box::pin(crate::providers::outlook::connection_check(params)).await;
         }
+        if method == "attachment.thumbnail" {
+            return crate::attachment::thumbnail::prepare(params).await;
+        }
         if method == "attachment.read" {
             let params = params.clone();
             return tokio::task::spawn_blocking(move || crate::attachment::read(&params))

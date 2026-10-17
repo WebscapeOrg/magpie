@@ -1,3 +1,4 @@
+import "../message/AttachmentPreview.js" as AttachmentPreview
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -2068,6 +2069,39 @@ Item {
       })(i)
     }
     return handles
+  }
+
+  function previewAttachment(messageId, attachment, callback) {
+    var done = typeof callback === "function" ? callback : function() {}
+    var id = String(messageId || "")
+    var source = null
+    for (var i = 0; i < selectedAttachments.length; i++) {
+      if (attachment && selectedAttachments[i].attachmentId === attachment.attachmentId)
+        source = selectedAttachments[i]
+    }
+    if (!ready || id !== selectedId || !source || !AttachmentPreview.supported(source) || !backend || !backend.ready
+      || Number(backend.apiVersion) < 8) { done(""); return null }
+    var serial = detailSerial
+    var account = accountId
+    var cancelled = false
+    var previewRequest = null
+    var request = api.getAttachment(id, String(source.attachmentId), function(data, error) {
+      if (cancelled || !root) return
+      if (account !== root.accountId || id !== root.selectedId || serial !== root.detailSerial) { done(""); return }
+      if (error || !data || data.length > 11200000) { done(""); return }
+      previewRequest = root.backend.call("attachment.thumbnail", {
+        data: String(data), mimeType: String(source.mimeType || "").toLowerCase()
+      }, function(result, failure) {
+        if (cancelled || !root) return
+        if (account !== root.accountId || id !== root.selectedId || serial !== root.detailSerial) { done(""); return }
+        done(failure || !result ? "" : String(result.data || ""))
+      })
+    })
+    return {cancel: function() {
+      cancelled = true
+      if (root) root.abortRequest(request)
+      if (previewRequest && typeof previewRequest.cancel === "function") previewRequest.cancel()
+    }}
   }
 
   // Opens only after the user asks. The provider hands back base64url bytes;

@@ -1,6 +1,6 @@
 QMLLINT := /usr/lib/qt6/bin/qmllint
 .DEFAULT_GOAL := test
-QML_FILES := ui/tests/qml/tst_inbox_tools.qml  ui/tests/qml/tst_snooze_picker.qml  ui/inbox/InboxTools.qml ui/components/SnoozePicker.qml ui/components/SenderAvatar.qml  ui/tests/qml/tst_display_settings.qml ui/controls/Dropdown.qml ui/controls/NumberField.qml ui/controls/Button.qml ui/controls/TextField.qml ui/controls/PanelToolTip.qml ui/controls/PanelSectionHeader.qml ui/controls/PanelActionButton.qml ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryController.qml ui/compose/PendingCompose.qml \
+QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tools.qml  ui/tests/qml/tst_snooze_picker.qml  ui/inbox/InboxTools.qml ui/components/SnoozePicker.qml ui/components/SenderAvatar.qml  ui/tests/qml/tst_display_settings.qml ui/controls/Dropdown.qml ui/controls/NumberField.qml ui/controls/Button.qml ui/controls/TextField.qml ui/controls/PanelToolTip.qml ui/controls/PanelSectionHeader.qml ui/controls/PanelActionButton.qml ui/Service.qml ui/BarWidget.qml ui/App.qml ui/compose/RecoveryController.qml ui/compose/PendingCompose.qml \
 	ui/tests/compatibility/tst_published_agent.qml \
 	ui/tests/qml/tst_unified_batch.qml ui/tests/qml/tst_clipboard_arguments.qml \
 	ui/tests/qml/tst_reader_subject_menu.qml \
@@ -35,7 +35,7 @@ QML_FILES := ui/tests/qml/tst_inbox_tools.qml  ui/tests/qml/tst_snooze_picker.qm
 	ui/components/IconButton.qml \
 	ui/components/IconTextButton.qml \
 	ui/components/ImagePopover.qml \
-	ui/components/AttachmentRow.qml \
+	ui/components/AttachmentCard.qml \
 	ui/components/MessageReader.qml \
 	ui/components/ConversationRail.qml \
 	ui/components/ReaderNotice.qml \
@@ -160,6 +160,7 @@ test-js:
 	node ui/tests/test_render_cache.js
 	node ui/tests/test_model.js
 	node ui/tests/test_icons.js
+	node ui/tests/test_attachment_preview.js
 	node ui/tests/test_navigation.js
 	node ui/tests/test_conversation.js
 	node tests/test_reader_pipeline.js
@@ -257,6 +258,7 @@ test-qml:
 	python3 tests/run_qml_native.py "$(QMLTESTRUNNER)" -input ui/tests/qml
 	python3 tests/test_outlook_http.py "$(QMLTESTRUNNER)"
 	python3 tests/test_sidebar_text.py "$(QMLTESTRUNNER)"
+	python3 tests/test_attachment_resources.py "$(QMLTESTRUNNER)"
 	QMLTESTRUNNER="$(QMLTESTRUNNER)" cargo test --locked --lib message::html::tests::native_output_cannot_trigger_qt_resource_requests -- --ignored
 
 test-app-qml:

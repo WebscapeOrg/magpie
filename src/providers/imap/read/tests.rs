@@ -218,7 +218,7 @@ async fn native_metadata_fetch_and_mime_parse_stay_in_backend() {
         let mut w: Wire = BufReader::new(Box::new(stream));
         greeting(&mut w).await;
         select(&mut w).await;
-        assert_eq!(line(&mut w).await.unwrap(),b"O1 UID FETCH 7,8 (UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID REPLY-TO LIST-UNSUBSCRIBE)])\r\n");
+        assert_eq!(line(&mut w).await.unwrap(),b"O1 UID FETCH 7,8 (UID FLAGS INTERNALDATE RFC822.SIZE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID REPLY-TO LIST-UNSUBSCRIBE)])\r\n");
         for uid in [8, 7] {
             let raw = format!("From: Test <test@example.org>\r\nSubject: Message {uid}\r\n\r\n");
             write(&mut w,format!("* {uid} FETCH (UID {uid} FLAGS (\\Flagged) RFC822.SIZE 88 BODY[HEADER.FIELDS (FROM SUBJECT)] {{{}}}\r\n{raw})\r\n",raw.len()).as_bytes()).await.unwrap();
@@ -357,4 +357,18 @@ async fn a_command_that_is_never_answered_ends_the_call() {
         Err("request_timed_out")
     );
     peer.abort();
+}
+#[test]
+fn bodystructure_distinguishes_real_files_from_inline_logos_without_reading_body_octets() {
+    for (raw, expected) in [
+        (r#"("APPLICATION" "PDF" ("NAME" "report.pdf") NIL NIL "BASE64" 100 NIL ("ATTACHMENT" ("FILENAME" "report.pdf")))"#, true),
+        (r#"("IMAGE" "PNG" ("NAME" "logo.png") "<logo>" NIL "BASE64" 100 NIL ("INLINE" NIL))"#, false),
+        (r#"("IMAGE" "PNG" ("NAME" "photo.png") "<photo>" NIL "BASE64" 100 NIL ("ATTACHMENT" NIL))"#, true),
+        (r#"("TEXT" "PLAIN" NIL NIL NIL "7BIT" 100 3 NIL NIL)"#, false),
+        (r#"("TEXT" "PLAIN" NIL NIL NIL "7BIT" 100 3 NIL ("ATTACHMENT" ("FILENAME" "notes.txt")))"#, true),
+        (r#"(("TEXT" "PLAIN" NIL NIL NIL "7BIT" 100 3 NIL NIL)("APPLICATION" "PDF" NIL NIL NIL "BASE64" 100 NIL ("ATTACHMENT" NIL))"MIXED")"#, true),
+    ] {
+        let parsed = nodes(raw.as_bytes()).unwrap();
+        assert_eq!(structure_has_attachments(&parsed[0][0], 0, &mut 4000), expected, "{raw}");
+    }
 }

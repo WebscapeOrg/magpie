@@ -14,6 +14,7 @@ for (const name of icons.names()) {
   assert.ok(source.startsWith("data:image/svg+xml,"), `${name} is bundled vector artwork`)
   const svg = drawing(name)
   assert.ok(svg.includes('viewBox="0 0 24 24"'), `${name} preserves Lucide's coordinates`)
+  assert.ok(svg.includes('stroke-width="1"'), `${name} uses the requested light stroke`)
   assert.ok(svg.includes('stroke="rgb(51,102,153)"'), `${name} follows the theme`)
   assert.ok(svg.includes('opacity="0.75"'), `${name} preserves theme opacity`)
   assert.ok(/<(?:path|rect|circle|line|polyline|polygon|ellipse) /.test(svg), `${name} has artwork`)

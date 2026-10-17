@@ -75,6 +75,8 @@ Column {
       // empty row rather than throwing on every field.
       readonly property var modelData: root.service.messages[index] || ({})
 
+      attachmentIndicatorEnabled: !!root.service.backend && root.service.backend.ready
+        && Number(root.service.backend.apiVersion) >= 8
       snoozeOpen: root.snoozeId === modelData.id
       avatarData: root.service.inboxTools ? root.service.inboxTools.avatarFor(modelData) : ""
       overview: root.service.inboxTools ? String(root.service.inboxTools.overviewFor(modelData).text || "") : ""

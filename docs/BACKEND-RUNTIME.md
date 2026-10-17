@@ -124,6 +124,12 @@ Search includes aggregate All Mail destinations and excludes Trash/Junk membersh
 
 `inbox.snapshot`, `inbox.overviews`, `inbox.avatar`, `inbox.snooze`, `inbox.wake` and `inbox.tick` provide account-bound background overviews, cached raster avatars and durable Gmail snooze. UI callers require a connected API revision of at least 8. Overviews return admission immediately and are observed through snapshots; their isolated worker has no mail-action tools. Snooze writes a pending schedule before archiving and retains it on an unknown mutation outcome. Due wakes skip messages moved to Trash or Spam. The feature behavior and Enterprise installation are described in [the Magpie guide](../MAGPIE.md#inbox).
 
+## Attachment indicators and thumbnails (API 8)
+
+`message.summarize`, `message.summaries` and reader summaries carry `hasAttachments`. Gmail list reads request MIME metadata through a partial response without body data; IMAP/Outlook request BODYSTRUCTURE alongside header-only PEEK reads; JMAP requests its attachment flag. The shared classifier excludes inline/CID sender images. The list indicator requires a connected API 8 backend.
+
+`attachment.thumbnail` accepts attachment bytes and a supported MIME type and returns prepared PNG data only. The reader fetches visible attachments through their owning account, serializes preview requests, limits each input to 8 MiB and reserves at most 16 MiB per selected message. Raster decoding is bounded to 4096×4096 and 64 MiB; output fits a 384-pixel square and 512 KiB. On Linux, optional `/usr/bin/bwrap`, `/usr/bin/prlimit` and `/usr/bin/pdftoppm` render the first PDF page with no host home or network access, a read-only system mount, CPU/memory/output limits and a six-second deadline. No unsandboxed PDF fallback runs. Other hosts and missing/refused workers retain the file tile; raster previews and Open/Save remain available. QML gates previews on connected API 8 and refuses remote, local-file, SVG and non-PNG preview sources at the image consumer. This is part of the unreleased API step; it does not change the binary release pin.
+
 ## Released and unreleased: one step ahead of the pin
 
 Backends ship in batches, not per merge, so `main` may implement an API the pinned

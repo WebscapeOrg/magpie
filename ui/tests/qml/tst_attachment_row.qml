@@ -3,13 +3,13 @@ import QtTest 1.3
 
 Item {
   width: 500
-  height: 100
+  height: 240
 
   Loader {
     id: attachmentLoader
     anchors.left: parent.left
     anchors.right: parent.right
-    Component.onCompleted: setSource("../../components/AttachmentRow.qml", ({
+    Component.onCompleted: setSource("../../components/AttachmentCard.qml", ({
       textColor: Qt.rgba(1, 1, 1, 1),
       dimColor: Qt.rgba(0.67, 0.67, 0.67, 1),
       dimmerColor: Qt.rgba(0.47, 0.47, 0.47, 1),
@@ -32,7 +32,7 @@ Item {
   }
 
   TestCase {
-    name: "AttachmentRow"
+    name: "AttachmentCard"
     when: windowShown
 
     function named(item, objectName) {
@@ -48,7 +48,7 @@ Item {
 
     function test_filename_opens_the_listed_attachment() {
       tryCompare(attachmentLoader, "status", Loader.Ready)
-      var link = named(attachmentLoader.item, "attachment-open-link")
+      var link = named(attachmentLoader.item, "attachment-open-button")
       verify(link, "the attachment filename must be an identifiable control")
 
       openSpy.clear()

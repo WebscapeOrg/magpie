@@ -46,6 +46,7 @@
     "message.signatureImport",
     "message.signatureInline",
     "attachment.forget",
+    "attachment.thumbnail",
     "outbox.enqueue",
     "outbox.snapshot",
     "outbox.undo",
@@ -1362,6 +1363,75 @@
       "equals": {
         "overviews.cached.reason": "AI response could not be verified against the mail; retry from Menu"
       }
+    },
+    {
+      "name": "Attachment thumbnail rejects resource URLs before rendering",
+      "method": "attachment.thumbnail",
+      "params": {
+        "data": "https://example.invalid/tracker",
+        "mimeType": "image/png"
+      },
+      "errorCode": -32000,
+      "equals": {
+        "message": "attachment_data_invalid"
+      }
+    },
+    {
+      "name": "Attachment thumbnail prepares only raster PNG data",
+      "method": "attachment.thumbnail",
+      "params": {
+        "data": "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAECAIAAAA8r+mnAAAAFElEQVR4nGN0T4liwAaYsIqSJQEAZcsBDVbON3wAAAAASUVORK5CYII=",
+        "mimeType": "image/png"
+      },
+      "types": {
+        "data": "string"
+      }
+    },
+    {
+      "name": "Message summaries identify explicit file attachments without body bytes",
+      "method": "message.summarize",
+      "params": {
+        "message": {
+          "payload": {
+            "parts": [
+              {
+                "mimeType": "application/pdf",
+                "filename": "report.pdf"
+              }
+            ]
+          }
+        },
+        "now": 1700000000000
+      },
+      "equals": {
+        "hasAttachments": true
+      }
+    },
+    {
+      "name": "Message summaries do not count inline sender logos as attachments",
+      "method": "message.summarize",
+      "params": {
+        "message": {
+          "payload": {
+            "parts": [
+              {
+                "mimeType": "image/png",
+                "filename": "logo.png",
+                "headers": [
+                  {
+                    "name": "Content-Disposition",
+                    "value": "inline"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "now": 1700000000000
+      },
+      "equals": {
+        "hasAttachments": false
+      }
     }
   ],
   "unreleased": {
@@ -1371,7 +1441,8 @@
       "inbox.avatar",
       "inbox.snooze",
       "inbox.wake",
-      "inbox.tick"
+      "inbox.tick",
+      "attachment.thumbnail"
     ],
     "cases": [
       "Inbox snapshot refuses unknown accounts",
@@ -1380,7 +1451,11 @@
       "Inbox avatar rejects address controls before a request",
       "Inbox overview admission rejects empty message selection",
       "Inbox avatar rejects refresh controls before any request",
-      "Inbox snapshot preserves safe overview failure reason"
+      "Inbox snapshot preserves safe overview failure reason",
+      "Attachment thumbnail rejects resource URLs before rendering",
+      "Attachment thumbnail prepares only raster PNG data",
+      "Message summaries identify explicit file attachments without body bytes",
+      "Message summaries do not count inline sender logos as attachments"
     ]
   }
 }

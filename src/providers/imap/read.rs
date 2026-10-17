@@ -646,6 +646,31 @@ fn snippet(payload: &Value) -> String {
         .and_then(|parts| parts.iter().map(snippet).find(|text| !text.is_empty()))
         .unwrap_or_default()
 }
+fn structure_has_attachments(node: &Node, depth: usize, budget: &mut usize) -> bool {
+    if depth > 12 || *budget == 0 { return false; }
+    *budget -= 1;
+    let fields = node.list();
+    if matches!(fields.first(), Some(Node::List(_))) {
+        return fields.iter().take_while(|node| matches!(node, Node::List(_)))
+            .any(|node| structure_has_attachments(node, depth + 1, budget));
+    }
+    let named = |params: &[Node], key: &str| params.chunks_exact(2)
+        .any(|pair| pair[0].is(key) && !pair[1].is("NIL") && !pair[1].text().is_empty());
+    let text = fields.first().is_some_and(|node| node.is("TEXT"));
+    let nested = fields.first().is_some_and(|node| node.is("MESSAGE"))
+        && fields.get(1).is_some_and(|node| node.is("RFC822"));
+    let disposition = fields.get(if text { 9 } else if nested { 11 } else { 8 })
+        .map(Node::list).unwrap_or(&[]);
+    let attached = disposition.first().is_some_and(|node| node.is("ATTACHMENT"));
+    let inline = disposition.first().is_some_and(|node| node.is("INLINE"));
+    let image = fields.first().is_some_and(|node| node.is("IMAGE"));
+    let cid = fields.get(3).is_some_and(|node| !node.is("NIL") && !node.text().is_empty());
+    if image && !attached && (inline || cid) { return false; }
+    attached || named(fields.get(2).map(Node::list).unwrap_or(&[]), "NAME")
+        || named(disposition.get(1).map(Node::list).unwrap_or(&[]), "FILENAME")
+        || (nested && fields.get(8).is_some_and(|node| structure_has_attachments(node, depth + 1, budget)))
+}
+
 fn parse_messages(data: &[u8], folder: &str, full: bool, boxes: &Mailboxes) -> Result<Vec<Value>> {
     let mut result = Vec::new();
     for row in nodes(data)? {
@@ -658,6 +683,7 @@ fn parse_messages(data: &[u8], folder: &str, full: bool, boxes: &Mailboxes) -> R
         let mut date = 0i64;
         let mut size = 0u64;
         let mut raw = None;
+        let mut has_attachments = false;
         let mut i = 0;
         while i + 1 < fields.len() {
             let key = &fields[i];
@@ -679,6 +705,8 @@ fn parse_messages(data: &[u8], folder: &str, full: bool, boxes: &Mailboxes) -> R
                     .ok()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0)
+            } else if key.is("BODYSTRUCTURE") {
+                has_attachments = structure_has_attachments(value, 0, &mut 4000);
             } else if key.text().to_ascii_uppercase().starts_with(b"BODY[") {
                 raw = Some(value.text())
             }
@@ -687,7 +715,7 @@ fn parse_messages(data: &[u8], folder: &str, full: bool, boxes: &Mailboxes) -> R
         let Some(uid) = uid else { continue };
         let Some(raw) = raw else { continue };
         let payload = crate::message::parse(raw)?;
-        result.push(json!({"id":format!("{uid}:{folder}"),"threadId":format!("{uid}:{folder}"),"labelIds":flags_labels(&flags,folder,boxes),"internalDate":date,"sizeEstimate":size,"snippet":if full{snippet(&payload)}else{String::new()},"payload":payload}));
+        result.push(json!({"id":format!("{uid}:{folder}"),"threadId":format!("{uid}:{folder}"),"labelIds":flags_labels(&flags,folder,boxes),"internalDate":date,"sizeEstimate":size,"hasAttachments":has_attachments,"snippet":if full{snippet(&payload)}else{String::new()},"payload":payload}));
     }
     Ok(result)
 }
@@ -752,7 +780,7 @@ async fn messages(p: &Value) -> Result<Value> {
         };
         let data = command(
             &mut w,
-            &format!("UID FETCH {set} (UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[{section}])"),
+            &format!("UID FETCH {set} (UID FLAGS INTERNALDATE RFC822.SIZE BODYSTRUCTURE BODY.PEEK[{section}])"),
         )
         .await?;
         release(w, key).await;

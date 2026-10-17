@@ -137,10 +137,23 @@ assert.strictEqual(trashRequests[0].params.accountId,'synthetic@example.org')
 context.trashMessage('second',()=>{})
 assert.strictEqual(trashRequests[1].params.id,'second')
 console.log('Gmail trash adapter preserves exact captured message IDs')
-for (const [code,status] of [['gmail_forbidden','403'],['gmail_length_required','411'],['gmail_rate_limited','429']]) {
+for (const [code,status] of [['gmail_forbidden','403'],['gmail_length_required','411'],['gmail_rate_limited','temporarily limited']]) {
   const shown=context.backendError({message:code,body:'synthetic-secret'},'gmail.trash')
   assert(shown.includes(status))
   assert(!shown.includes('synthetic-secret'))
 }
 for (const code of ['gmail_queue_full','gmail_queue_lost'])
   assert(!context.backendError({message:code},'gmail.trash').includes('could not complete'),code)
+
+let withdrawn = 0
+context.backend = {executable: '/test/omamail', call(method, params, callback) {
+  return {withdraw() { withdrawn++; return true }}
+}}
+const beforeCancel = context.inFlight
+const unsent = context.getMessage('cancelled-before-dispatch', true, () => assert.fail('cancelled request delivered'))
+assert.strictEqual(context.inFlight, beforeCancel + 1)
+context.abortRequest(unsent)
+assert.strictEqual(withdrawn, 1, 'cancellation withdraws the queued physical frame')
+assert.strictEqual(context.inFlight, beforeCancel, 'withdrawal releases the in-flight count')
+context.abortRequest(unsent)
+assert.strictEqual(withdrawn, 1, 'withdrawal settles only once')

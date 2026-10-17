@@ -28,10 +28,8 @@ Item {
   }
   Component.onDestruction: invalidateBackend()
 
-  // Gmail's list endpoint returns ids only, so every page costs one list call
-  // plus one metadata call per message. Those are fired together rather than
-  // in sequence: 25 sequential round trips to Google is most of a second of
-  // staring at an empty panel.
+  // Gmail returns IDs separately from message resources. A bounded group of
+  // reads keeps queued work inside each request's deadline while rows arrive.
   property int inFlight: 0
   readonly property bool busy: inFlight > 0
 
@@ -63,7 +61,7 @@ Item {
       return "Gmail authorization expired. Sign in again."
     if (code === "gmail_forbidden") return "Gmail refused this request (HTTP 403). Check account permissions."
     if (code === "gmail_length_required") return "Gmail rejected the request format (HTTP 411)."
-    if (code === "gmail_rate_limited") return "Gmail is rate limiting this account (HTTP 403/429). Wait a moment, then try again."
+    if (code === "gmail_rate_limited") return "Gmail requests are temporarily limited. Try again later."
     if (code === "gmail_queue_full") return "Too many changes are still waiting for Gmail. Wait a moment, then try again."
     if (code === "gmail_queue_lost") return "The change was not sent before the mail backend stopped"
     if (code === "gmail_draft_missing") return "That draft is no longer in the mailbox"
@@ -95,13 +93,17 @@ Item {
       if (typeof callback === "function")
         callback(error ? null : result, error ? backendError(error, method) : "")
     }
-    backend.call(method, params, function(result, error) {
+    var pending = backend.call(method, params, function(result, error) {
       if (!error && result && result.queued === true && String(result.ticket || "") !== "") {
         root.park(String(result.ticket), method, deliver)
         return
       }
       deliver(result, error)
     })
+    handle.withdraw = function() {
+      if (!settled && pending && typeof pending.withdraw === "function" && pending.withdraw())
+        deliver(null, null)
+    }
     return handle
   }
 
@@ -147,6 +149,7 @@ Item {
   function abortRequest(handle) {
     if (!handle) return
     handle.aborted = true
+    if (typeof handle.withdraw === "function") handle.withdraw()
     var children = handle.children || []
     for (var i = 0; i < children.length; i++) abortRequest(children[i])
     handle.children = []
@@ -202,12 +205,12 @@ Item {
     return handle
   }
 
-  // Fetches every id at once and calls back once, with the results in the
+  // Fetches up to four IDs at a time and calls back once, with results in the
   // order the ids were given rather than the order Google answered in. A list
   // search may also take `progress`, which receives the payloads as Google
   // answers so cached rows can be filled in without waiting for the slowest
   // request on the page. Answers close enough to share a frame are batched:
-  // repainting and sorting the whole list once per one of 25 parallel replies
+  // repainting and sorting the whole list once per reply
   // costs far more than the few milliseconds of extra latency reveal.
   function getMessages(ids, full, callback, existingHandle, progress) {
     var handle = existingHandle || newHandle()
@@ -262,19 +265,27 @@ Item {
       callback(ordered, firstError)
     }
 
-    for (var i = 0; i < list.length; i++) {
-      (function(index) {
-        var child = root.getMessage(list[index], full, function(payload, error) {
-          if (handle.aborted) return
-          if (error && !firstError) firstError = error
-          results[index] = payload
-          queueProgress(payload)
-          remaining--
-          if (remaining === 0) finish()
-        })
-        handle.children.push(child)
-      })(i)
+    var nextIndex = 0
+    var active = 0
+    function start(index) {
+      active++
+      var child = root.getMessage(list[index], full, function(payload, error) {
+        active--
+        if (handle.aborted) return
+        if (error && !firstError) firstError = error
+        results[index] = payload
+        queueProgress(payload)
+        remaining--
+        if (remaining === 0) finish()
+        else pump()
+      })
+      handle.children.push(child)
     }
+    function pump() {
+      while (!handle.aborted && active < 4 && nextIndex < list.length)
+        start(nextIndex++)
+    }
+    pump()
     return handle
   }
 

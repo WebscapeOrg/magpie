@@ -101,7 +101,18 @@ Item {
       root.service.openExternal(opened)
   }
 
+  property int imageRequestSerial: 0
+  readonly property var imageOwner: service ? service.reading : null
+  onImageOwnerChanged: resetImageMarker()
+  onVisibleChanged: if (!visible) resetImageMarker()
+
+  function resetImageMarker() {
+    imageRequestSerial++
+    imagePopover.close()
+  }
+
   function openImageMarker(source) {
+    var requestSerial = ++imageRequestSerial
     var wanted = String(source || "")
     if (Html.isRasterDataImage(wanted)) {
       imagePopover.show(wanted)
@@ -112,7 +123,7 @@ Item {
       return
     }
     root.service.fetchDisplayImage(wanted, function(data) {
-      if (!root) return
+      if (!root || requestSerial !== root.imageRequestSerial) return
       imagePopover.showPrepared(wanted, data)
     })
   }
@@ -142,8 +153,8 @@ Item {
   property int attachmentPreviewSerial: 0
   property bool attachmentPreviewBusy: false
   property int attachmentPreviewBytes: 0
-  onSelectedIdChanged: resetAttachments()
-  onServiceChanged: resetAttachments()
+  onSelectedIdChanged: { resetAttachments(); resetImageMarker() }
+  onServiceChanged: { resetAttachments(); resetImageMarker() }
   onAttachmentsChanged: resetAttachments()
 
   function resetAttachments() {

@@ -21,12 +21,12 @@ Item {
     property string activeAccountId: "me@example.com"
     property var copied: []
     property var pastedInto: []
-    function preferredSendAs(_r) { return null }
-    function switchTo(_id) { return true }
+    function preferredSendAs(recipients) { return null }
+    function switchTo(accountId) { return true }
     function refreshRecipientContacts() {}
-    function send(_f) { return true }
+    function send(fields) { return true }
     function copyText(text) { copied = copied.concat([String(text)]); return true }
-    function clipboardAttachment(_dir, callback) {
+    function clipboardAttachment(directory, callback) {
       var focused = compose.Window.activeFocusItem
       pastedInto = pastedInto.concat([focused ? String(focused.objectName) : ""])
       callback({ ok: false, error: "no-image" })

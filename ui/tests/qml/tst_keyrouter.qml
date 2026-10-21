@@ -181,12 +181,12 @@ Item {
 
     function test_escape_is_the_way_out_of_every_context() {
       var contexts = ["list", "reader", "search", "compose", "page", "calendar"]
-      for (var i = 0; i < contexts.length; i++) {
-        host.context = contexts[i]
+      for (var index = 0; index < contexts.length; index++) {
+        host.context = contexts[index]
         host.lastId = ""
         wait(20)
         keyClick(Qt.Key_Escape)
-        compare(host.lastId, "back", "Escape must leave " + contexts[i])
+        compare(host.lastId, "back", "Escape must leave " + contexts[index])
       }
     }
 

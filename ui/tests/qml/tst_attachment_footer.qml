@@ -116,9 +116,9 @@ Item {
 
     function attachments(count) {
       var result = []
-      for (var i = 0; i < count; i++)
-        result.push({filename: "Report " + (i + 1) + ".pdf", mimeType: "application/pdf",
-          size: 1536, attachmentId: "att-" + i})
+      for (var index = 0; index < count; index++)
+        result.push({filename: "Report " + (index + 1) + ".pdf", mimeType: "application/pdf",
+          size: 1536, attachmentId: "att-" + index})
       return result
     }
 
@@ -131,7 +131,7 @@ Item {
       var list = findChild(reader, "attachment-scroller")
       var children = list.contentItem.children[0].children
       var result = []
-      for (var i=0;i<children.length;i++) if(children[i].attachment) result.push(children[i])
+      for (var index=0;index<children.length;index++) if(children[index].attachment) result.push(children[index])
       return result
     }
 

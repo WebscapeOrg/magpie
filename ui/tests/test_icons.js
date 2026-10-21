@@ -1,5 +1,5 @@
 const assert = require("assert")
-const fs = require("fs")
+const fileSystem = require("fs")
 const path = require("path")
 const { load } = require("./load")
 
@@ -36,7 +36,7 @@ assert.ok(!bounded.includes("example.org") && !bounded.includes("NaN") && !bound
 // Invariant: direct literal icon requests must fail validation on typos instead of leaving blank controls.
 const root = path.join(__dirname, "..")
 const files = [path.join(root, "App.qml")]
-for (const entry of fs.readdirSync(path.join(root, "components"))) {
+for (const entry of fileSystem.readdirSync(path.join(root, "components"))) {
   if (entry.endsWith(".qml")) files.push(path.join(root, "components", entry))
 }
 function literalIconNames(text) {
@@ -64,12 +64,12 @@ assert.deepStrictEqual(literalIconNames(`
 
 assert.deepStrictEqual(literalIconNames('iconName: ""; fallbackIcon: ""'), [], "optional empty icons are not requests")
 
-const asked = new Set()
+const requestedIcons = new Set()
 for (const file of files) {
-  const text = fs.readFileSync(file, "utf8")
-  for (const name of literalIconNames(text)) asked.add(name)
+  const text = fileSystem.readFileSync(file, "utf8")
+  for (const name of literalIconNames(text)) requestedIcons.add(name)
 }
-assert.ok(asked.size >= 20, `found the icon names the views use (${asked.size})`)
-for (const name of asked) assert.ok(icons.has(name), `the views ask for "${name}", which Icons.js defines`)
+assert.ok(requestedIcons.size >= 20, `found the icon names the views use (${requestedIcons.size})`)
+for (const name of requestedIcons) assert.ok(icons.has(name), `the views ask for "${name}", which Icons.js defines`)
 
 console.log("test_icons.js ok")

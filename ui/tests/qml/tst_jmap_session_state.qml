@@ -3,20 +3,8 @@ import QtTest 1.3
 import "transports.js" as Transports
 import "../../account" as Account
 
-// A reply that names a newer session state has the session fetched again.
-//
-// Every API reply carries `sessionState`, and one that differs from the held
-// session's is the server saying its URLs, its limits or its accounts changed
-// without moving. The client held the session from sign-in or from the cache
-// and noticed a change only when a request came back 404; a server that kept
-// its API URL and changed a limit was never re-read. One reply naming a new
-// state now costs one session GET, and the held session is replaced by what it
-// answers — not dropped first, so nothing in flight waits on it.
-//
-// Why Qt rather than node: `Jmap.movedSessionState` is asserted on its own in
-// `tests/test_jmap.js`; what has to be seen here is the client acting on it
-// from inside `readCall`, once per state, on the real objects with the
-// transport stubbed.
+// Invariant: Rust returns the authoritative refreshed session. The UI applies its
+// changed state and limits without issuing another discovery request.
 Item {
   width: 400
   height: 300
@@ -77,8 +65,6 @@ Item {
         sessionState: sessionState
       })
     }
-
-
 
     // Rust refreshes the authoritative session before returning state. The
     // adapter applies the refreshed limits and never launches a second GET.

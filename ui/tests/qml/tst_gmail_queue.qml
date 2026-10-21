@@ -122,7 +122,7 @@ Item {
       var handle = api.getMessages(["a", "b", "c", "d", "e", "f"], false,
         function() { fail("aborted page delivered") })
       api.abortRequest(handle)
-      for (var i = 0; i < 4; i++) api.backend.answer(i, { id: "ignored" })
+      for (var itemIndex = 0; itemIndex < 4; itemIndex++) api.backend.answer(itemIndex, { id: "ignored" })
       compare(api.backend.calls.length, 4)
       compare(api.inFlight, 0)
     }

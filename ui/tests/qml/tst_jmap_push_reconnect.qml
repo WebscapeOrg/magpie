@@ -56,57 +56,57 @@ Item {
     name: "JmapPushBackendLifetime"
     when: windowShown
     function test_stale_open_is_closed_without_starting_poll() {
-      var f = createTemporaryObject(fixture, this)
-      f.auth.loggedIn = true
-      compare(f.calls.length, 1)
-      compare(f.calls[0].method, "jmap.watch")
-      compare(f.calls[0].params.accountId, "jmap:ada@example.org")
-      compare(f.calls[0].params.credential, undefined)
-      f.auth.loggedIn = false
-      f.calls[0].callback({opened:true}, "")
-      compare(f.calls.length, 3)
-      compare(f.calls[1].method, "jmap.cancel")
-      compare(f.calls[2].method, "jmap.stream.close")
-      compare(f.calls[2].params.streamId, f.calls[0].params.streamId)
-      compare(f.push.streamId, "")
+      var scenario = createTemporaryObject(fixture, this)
+      scenario.auth.loggedIn = true
+      compare(scenario.calls.length, 1)
+      compare(scenario.calls[0].method, "jmap.watch")
+      compare(scenario.calls[0].params.accountId, "jmap:ada@example.org")
+      compare(scenario.calls[0].params.credential, undefined)
+      scenario.auth.loggedIn = false
+      scenario.calls[0].callback({opened:true}, "")
+      compare(scenario.calls.length, 3)
+      compare(scenario.calls[1].method, "jmap.cancel")
+      compare(scenario.calls[2].method, "jmap.stream.close")
+      compare(scenario.calls[2].params.streamId, scenario.calls[0].params.streamId)
+      compare(scenario.push.streamId, "")
     }
     function test_poll_stops_when_account_logs_out_and_stale_reply_is_ignored() {
-      var f = createTemporaryObject(fixture, this)
-      f.auth.loggedIn = true
-      f.calls[0].callback({opened:true}, "")
-      compare(f.calls[1].method, "jmap.stream.poll")
-      var id = f.calls[1].params.streamId
-      f.auth.loggedIn = false
-      compare(f.calls[2].method, "jmap.stream.close")
-      compare(f.calls[2].params.streamId, id)
-      f.calls[1].callback({events:[{kind:"connected"}], closed:false}, "")
+      var scenario = createTemporaryObject(fixture, this)
+      scenario.auth.loggedIn = true
+      scenario.calls[0].callback({opened:true}, "")
+      compare(scenario.calls[1].method, "jmap.stream.poll")
+      var id = scenario.calls[1].params.streamId
+      scenario.auth.loggedIn = false
+      compare(scenario.calls[2].method, "jmap.stream.close")
+      compare(scenario.calls[2].params.streamId, id)
+      scenario.calls[1].callback({events:[{kind:"connected"}], closed:false}, "")
       wait(0)
-      compare(f.calls.length, 3)
-      compare(f.push.streamId, "")
+      compare(scenario.calls.length, 3)
+      compare(scenario.push.streamId, "")
     }
     function test_rejected_credential_closes_without_reopening() {
-      var f = createTemporaryObject(fixture, this)
+      var scenario = createTemporaryObject(fixture, this)
       var rejected = 0
-      f.push.secretRejected.connect(function() { rejected++ })
-      f.auth.loggedIn = true
-      f.calls[0].callback({opened:true}, "")
-      f.calls[1].callback({events:[{kind:"rejected"}], closed:false}, "")
+      scenario.push.secretRejected.connect(function() { rejected++ })
+      scenario.auth.loggedIn = true
+      scenario.calls[0].callback({opened:true}, "")
+      scenario.calls[1].callback({events:[{kind:"rejected"}], closed:false}, "")
       compare(rejected, 1)
-      compare(f.calls[2].method, "jmap.stream.close")
+      compare(scenario.calls[2].method, "jmap.stream.close")
       wait(0)
-      compare(f.calls.length, 3)
+      compare(scenario.calls.length, 3)
     }
     function test_poll_delivery_continues_on_same_stream() {
-      var f = createTemporaryObject(fixture, this)
+      var scenario = createTemporaryObject(fixture, this)
       var changes = 0
-      f.push.remoteChanged.connect(function() { changes++ })
-      f.auth.loggedIn = true
-      f.calls[0].callback({opened:true}, "")
-      f.calls[1].callback({events:[{kind:"connected"}], closed:false}, "")
+      scenario.push.remoteChanged.connect(function() { changes++ })
+      scenario.auth.loggedIn = true
+      scenario.calls[0].callback({opened:true}, "")
+      scenario.calls[1].callback({events:[{kind:"connected"}], closed:false}, "")
       compare(changes, 1)
-      tryVerify(function() { return f.calls.length === 3 })
-      compare(f.calls[2].method, "jmap.stream.poll")
-      compare(f.calls[2].params.streamId, f.calls[1].params.streamId)
+      tryVerify(function() { return scenario.calls.length === 3 })
+      compare(scenario.calls[2].method, "jmap.stream.poll")
+      compare(scenario.calls[2].params.streamId, scenario.calls[1].params.streamId)
     }
   }
 }

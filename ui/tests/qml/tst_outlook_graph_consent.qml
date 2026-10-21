@@ -83,13 +83,13 @@ Item {
       onLoginSucceeded: successes++
       onSessionUnavailable: unavailable++
       function fields(body) {
-        var out = {}
+        var output = {}
         var pairs = String(body).split("&")
-        for (var i = 0; i < pairs.length; i++) {
-          var pair = pairs[i].split("=")
-          out[decodeURIComponent(pair[0])] = decodeURIComponent((pair[1] || "").replace(/\+/g, " "))
+        for (var itemIndex = 0; itemIndex < pairs.length; itemIndex++) {
+          var pair = pairs[itemIndex].split("=")
+          output[decodeURIComponent(pair[0])] = decodeURIComponent((pair[1] || "").replace(/\+/g, " "))
         }
-        return out
+        return output
       }
       function mailScopes() { return "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send" }
       function graphScopes() {
@@ -163,9 +163,9 @@ Item {
       return auth
     }
     function grants(auth) {
-      var out = []
-      for (var i = 0; i < auth.requests.length; i++) out.push(auth.requests[i].grant || auth.requests[i].url.replace(/.*\//, ""))
-      return out
+      var output = []
+      for (var itemIndex = 0; itemIndex < auth.requests.length; itemIndex++) output.push(auth.requests[itemIndex].grant || auth.requests[itemIndex].url.replace(/.*\//, ""))
+      return output
     }
     // The mail half of a sign-in: the code, the token, the mailbox verified.
     function signInForMail(auth) {
@@ -186,17 +186,17 @@ Item {
       // The newest live request is the one just made by this action; a fresh
       // object's cancelled restore remains in the fake only to exercise stale
       // callback handling.
-      for (var i = credentialPlatform.lookups.length - 1; i >= 0; i--)
-        if (credentialPlatform.lookups[i].running) return credentialPlatform.lookups[i]
+      for (var itemIndex = credentialPlatform.lookups.length - 1; itemIndex >= 0; itemIndex--)
+        if (credentialPlatform.lookups[itemIndex].running) return credentialPlatform.lookups[itemIndex]
       fail("No pending credential lookup")
     }
     function storedSecrets(auth) {
-      var out = []
-      for (var i = 0; i < credentialPlatform.writes.length; i++)
-        if (credentialPlatform.writes[i].secret !== "") out.push(credentialPlatform.writes[i].secret)
-      for (var j = 0; j < auth.keyringJobs.length; j++)
-        if (auth.keyringJobs[j].token !== "") out.push(auth.keyringJobs[j].token)
-      return out
+      var output = []
+      for (var itemIndex = 0; itemIndex < credentialPlatform.writes.length; itemIndex++)
+        if (credentialPlatform.writes[itemIndex].secret !== "") output.push(credentialPlatform.writes[itemIndex].secret)
+      for (var nestedIndex = 0; nestedIndex < auth.keyringJobs.length; nestedIndex++)
+        if (auth.keyringJobs[nestedIndex].token !== "") output.push(auth.keyringJobs[nestedIndex].token)
+      return output
     }
 
     function test_a_mailbox_that_sends_by_smtp_signs_in_with_one_code() {

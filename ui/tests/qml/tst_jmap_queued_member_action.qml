@@ -69,7 +69,7 @@ Item {
       { id: "b", name: "Trash", role: "trash", parentId: null, totalEmails: 0, unreadEmails: 0 }
     ]
 
-    // The ids an `Email/set` request named, read off the transport line.
+    // Invariant: Native mutations preserve the selected member IDs.
     function updatedIds(process) {
       verify(process.method === "jmap.trash" || process.method === "jmap.batchModify")
       compare(process.params.accountId, "jmap:ada@example.org")

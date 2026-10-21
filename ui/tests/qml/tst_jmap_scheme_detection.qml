@@ -84,8 +84,6 @@ Item {
       sessionState: "s0"
     })
 
-
-
     function test_a_recorded_scheme_is_tried_first_and_only_the_last_refusal_counts() {
       verify(!!tokenAccount.auth && !!tokenAccount.api)
       tokenAccount.auth.secret = "old-token"

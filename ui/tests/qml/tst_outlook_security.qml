@@ -82,8 +82,8 @@ Item {
       return auth
     }
     function lookupProcess(auth) {
-      for (var i = credentialPlatform.lookups.length - 1; i >= 0; i--)
-        if (credentialPlatform.lookups[i].running) return credentialPlatform.lookups[i]
+      for (var itemIndex = credentialPlatform.lookups.length - 1; itemIndex >= 0; itemIndex--)
+        if (credentialPlatform.lookups[itemIndex].running) return credentialPlatform.lookups[itemIndex]
       fail("No pending keyring lookup")
     }
     function deliverLookup(auth) {
@@ -92,8 +92,8 @@ Item {
       process.exited(0)
     }
     function finishJob(auth) {
-      for (var i = 0; i < credentialPlatform.writes.length; i++) {
-        var child = credentialPlatform.writes[i]
+      for (var itemIndex = 0; itemIndex < credentialPlatform.writes.length; itemIndex++) {
+        var child = credentialPlatform.writes[itemIndex]
         if (child.running) {
           var command = child.command.slice()
           child.started()
@@ -146,8 +146,8 @@ Item {
       auth.accountId = "outlook:bob@hotmail.com"
       auth.configuredEmail = "bob@hotmail.com"
       auth.logout()
-      for (var i = 0; i < credentialPlatform.writes.length; i++) {
-        var child = credentialPlatform.writes[i]
+      for (var itemIndex = 0; itemIndex < credentialPlatform.writes.length; itemIndex++) {
+        var child = credentialPlatform.writes[itemIndex]
         if (child.running && child.action === "clear") {
           compare(child.command[child.command.length - 1], "outlook:bob@hotmail.com",
             "Sign-out must clear Bob's token, not Alice's previous lookup key")
@@ -168,7 +168,7 @@ Item {
     function test_empty_lookup_completes_all_waiting_requests() {
       var auth = startLookup()
       var calls = 0
-      for (var i = 0; i < 2; i++) auth.withCredentials(function(token, error) {
+      for (var itemIndex = 0; itemIndex < 2; itemIndex++) auth.withCredentials(function(token, error) {
         compare(token, "")
         verify(error !== "")
         calls++

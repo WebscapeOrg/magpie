@@ -4,25 +4,8 @@ import "transports.js" as Transports
 import "NativeIntentFixture.js" as NativeIntentFixture
 import "../../account" as Account
 
-// A push that lands while an action is still in the air.
-//
-// The mechanism is the one the account already had, and that is the point: a
-// JMAP change notification goes through `refresh()`, which is the poll's own
-// door, so `loadMessages` defers it exactly as it defers a poll tick — and the
-// action's own callback replays it afterwards. Nothing about push is special
-// here except how fast it arrives.
-//
-// Why this needs Qt rather than a node test: the deferral is three objects
-// agreeing. The client's `remoteChanged` signal, the handler `MailAccount`
-// wires it to, and the pending-action state the optimistic update left behind
-// only meet inside a live component tree. A JavaScript test could assert each
-// of the three and still not catch the wiring being absent, which is the
-// failure this is written against.
-//
-// The account is a real `MailAccount` on the real `JmapClient`. Its transport
-// is the stubbed `Process` under `tests/qml/imports`, which never exits on its
-// own — so a request stays in flight until this test ends it, which is what
-// makes "while an action is pending" a state the test can stand still in.
+// Invariant: A push arriving during an optimistic mutation waits for that mutation,
+// then starts the deferred refresh even if the mutation failed. RPC replies are controlled.
 Item {
   width: 400
   height: 300

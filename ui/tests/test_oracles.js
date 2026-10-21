@@ -23,6 +23,20 @@ test("historical IMAP archive queries remain independent of current mailbox name
   }
 })
 
+test("native-domain fixtures retain independent provider query answers", () => {
+  const fixture = load("tests/qml/NativeDomainFixture.js")
+  for (const [provider, expected] of [
+    ["gmail", "report"], ["hey", "search:report"],
+    ["imap", 'folder:INBOX TEXT "report"'], ["outlook", 'folder:INBOX TEXT "report"'],
+    ["jmap", "text:report"]
+  ]) {
+    const response = fixture.answer("providers.resolve", {
+      operation: "query", provider, mailbox: "inbox", search: "report", defaultQuery: ""
+    })
+    assert.equal(response.value, expected)
+  }
+})
+
 test("conversation lookup does not invent summaries from the object prototype", () => {
   const conversation = load("tests/oracles/Conversation.js")
   assert.equal(conversation.summaryFor({}, "__proto__"), null)

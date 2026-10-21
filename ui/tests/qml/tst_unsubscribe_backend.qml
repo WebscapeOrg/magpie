@@ -16,6 +16,9 @@ Item {
   QtObject {
     id: mailbox
     property var backend: transport
+    property string accountId: "jmap:reader@example.org"
+    property string selectedId: "newsletter-a"
+    property int detailSerial: 1
     property bool unsubscribing: false
     property string unsubscribeDone: ""
     property string error: ""
@@ -29,6 +32,9 @@ Item {
       transport.ready = true
       transport.calls = []
       transport.done = null
+      mailbox.accountId = "jmap:reader@example.org"
+      mailbox.selectedId = "newsletter-a"
+      mailbox.detailSerial = 1
       mailbox.unsubscribing = false
       mailbox.unsubscribeDone = ""
       mailbox.error = ""
@@ -42,6 +48,29 @@ Item {
       transport.done({status: 204}, null)
       compare(mailbox.unsubscribing, false)
       compare(mailbox.unsubscribeDone, "Unsubscribed from this list")
+    }
+    function test_completion_cannot_change_another_message() {
+      action.postUnsubscribe("https://sender.example/unsubscribe")
+      mailbox.selectedId = "newsletter-b"
+      mailbox.detailSerial++
+      transport.done({status: 204}, null)
+      compare(mailbox.unsubscribing, false)
+      compare(mailbox.unsubscribeDone, "")
+      compare(mailbox.error, "")
+    }
+    function test_completion_cannot_report_failure_in_another_account() {
+      action.postUnsubscribe("https://sender.example/unsubscribe")
+      mailbox.accountId = "jmap:other@example.org"
+      transport.done(null, {message: "synthetic failure"})
+      compare(mailbox.unsubscribing, false)
+      compare(mailbox.unsubscribeDone, "")
+      compare(mailbox.error, "")
+    }
+    function test_reopening_same_message_does_not_accept_an_old_completion() {
+      action.postUnsubscribe("https://sender.example/unsubscribe")
+      mailbox.detailSerial++
+      transport.done({status: 204}, null)
+      compare(mailbox.unsubscribeDone, "")
     }
     function test_redirect_is_not_success() {
       action.postUnsubscribe("https://sender.example/unsubscribe")

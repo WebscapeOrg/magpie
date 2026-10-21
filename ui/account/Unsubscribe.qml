@@ -13,6 +13,17 @@ QtObject {
   required property var account
 
 
+  function readerSelection() {
+    return {accountId: account.accountId, messageId: account.selectedId,
+      revision: account.detailSerial}
+  }
+
+  function isCurrentSelection(selection) {
+    return selection.accountId === account.accountId
+      && selection.messageId === account.selectedId
+      && selection.revision === account.detailSerial
+  }
+
   // Three ways off a list, and `Unsubscribe.plan` picks between them so that
   // nothing here branches on a header. In order of how little the user has to
   // do: a POST the sender has promised is enough, a message to the address
@@ -36,9 +47,10 @@ QtObject {
 
     if (how === "mail") {
       if (!account.ready) {
-        account.fail("Sign in before account.unsubscribing")
+        account.fail("Sign in before unsubscribing")
         return
       }
+      var selection = readerSelection()
       account.unsubscribing = true
       account.api.sendMessage(Mail.buildSendPayload({
         // The address the newsletter was sent to. A list that only ever knew
@@ -51,6 +63,7 @@ QtObject {
         body: info.mail.body
       }), function(payload, error) {
         account.unsubscribing = false
+        if (!isCurrentSelection(selection)) return
         if (error) {
           account.fail(error)
           return
@@ -88,9 +101,11 @@ QtObject {
       account.fail("The mail backend is not ready")
       return
     }
+    var selection = readerSelection()
     account.backend.call("public.unsubscribe", { url: String(url) }, function(result, error) {
       var status = result ? Number(result.status || 0) : 0
       account.unsubscribing = false
+      if (!isCurrentSelection(selection)) return
       account.unsubscribeDone = ""
       if (error || status === 0) {
         account.fail("The unsubscribe request could not be sent")

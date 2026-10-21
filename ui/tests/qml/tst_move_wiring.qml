@@ -49,7 +49,7 @@ Item {
       mailService.accountsLoaded = true
       mailService.accountList = ({
         version: 1,
-        accounts: [{ id: id, email: email, provider: provider }],
+        accounts: [{ id: id, email: email, provider: provider, clientId: "" }],
         activeId: id
       })
       tryCompare(mailService, "accountCount", 1)

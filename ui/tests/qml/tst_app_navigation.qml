@@ -1,3 +1,4 @@
+import "../../settings/Display.js" as Display
 import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
@@ -53,7 +54,7 @@ Item {
     property int diagnosisCalls: 0
     function diagnoseError() { diagnosisCalls++; diagnosing = true }
 
-    property var displayPreferences: ({layout: "Split view"})
+    property var displayPreferences: Display.normalize({layout: "Split view"})
     property bool ready: true
     property bool anyAccountReady: true
     property bool hasSavedAccounts: true
@@ -98,7 +99,7 @@ Item {
     property string syncedLabel: ""
     property string recipientContactStatus: ""
     property var auth: fakeAuth
-    property var accountSummaries: [{ provider: "imap", email: "me@example.com" }]
+    property var accountSummaries: [{ provider: "imap", email: "me@example.com", active: true }]
     property var mailboxes: []
     property var labels: []
     property var messages: [{ id: "message-1", subject: "One" }]
@@ -130,6 +131,7 @@ Item {
       for (var i = 0; i < log.length; i++) if (log[i] === text) n++
       return n
     }
+    function accountEmailFor(_accountId) { return accountEmail }
     function editingIndex() { return 0 }
     function addAccount(provider) {
       record("add:" + String(provider || ""))
@@ -252,7 +254,7 @@ Item {
       // A test that failed part way through its scales must not leave the next
       // one measuring at somebody else's.
       Style.spacingScale = 1
-      mailService.displayPreferences = ({layout: "Split view"})
+      mailService.displayPreferences = Display.normalize({layout: "Split view"})
       mailService.log = []
       mailService.lastSavedDraft = null
       mailService.refuseMove = false
@@ -530,7 +532,7 @@ Item {
       failOnWarning(/Binding loop detected for property "height"/)
       try {
         for (var size of [12, 18]) {
-          MailStyle.preferences = {interfaceSize: size}
+          MailStyle.preferences = Display.normalize({interfaceSize: size})
           for (var width of [720, 360]) {
             host.width = width
             app.notice = ""
@@ -585,7 +587,7 @@ Item {
       compare(selector.currentText, "Day (d)")
     }
     function test_reader_toolbar_back_returns_to_list() {
-      mailService.displayPreferences = ({layout: "Single pane"})
+      mailService.displayPreferences = Display.normalize({layout: "Single pane"})
       var back = named(app, "reader-back-button")
       verify(back && !back.visible)
       app.openMessage("m1")
@@ -600,7 +602,7 @@ Item {
       back.clicked()
       compare(kinds(), "list")
       verify(!back.visible)
-      mailService.displayPreferences = ({layout: "Split view"})
+      mailService.displayPreferences = Display.normalize({layout: "Split view"})
       app.openMessage("m1")
       waitForRendering(app)
       verify(!back.visible)

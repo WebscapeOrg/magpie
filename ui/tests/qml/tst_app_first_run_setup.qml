@@ -1,3 +1,4 @@
+import "../../settings/Display.js" as Display
 import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
@@ -40,7 +41,7 @@ Item {
   QtObject {
     id: mailService
 
-    property var displayPreferences: ({layout: "Split view"})
+    property var displayPreferences: Display.normalize({layout: "Split view"})
     property bool ready: false
     property bool anyAccountReady: false
     property bool hasSavedAccounts: true
@@ -84,7 +85,7 @@ Item {
     property string actionStatus: ""
     property string syncedLabel: ""
     property string recipientContactStatus: ""
-    property var accountSummaries: [{ provider: "imap", email: "someone@gmail.com" }]
+    property var accountSummaries: [{ provider: "imap", email: "someone@gmail.com", active: true }]
     property var mailboxes: []
     property var labels: []
     property var messages: []
@@ -116,7 +117,7 @@ Item {
     function addAccount(provider) {
       lastAddedProvider = String(provider || "")
       record("add:" + lastAddedProvider)
-      accountSummaries = accountSummaries.concat([{provider: lastAddedProvider, email: ""}])
+      accountSummaries = accountSummaries.concat([{provider: lastAddedProvider, email: "", active: false}])
       accountCount += 1
       accountAdded()
     }
@@ -200,7 +201,7 @@ Item {
       mailService.log = []
       mailService.lastAddedProvider = ""
       mailService.lastConfigured = null
-      mailService.accountSummaries = [{provider: "imap", email: "someone@gmail.com"}]
+      mailService.accountSummaries = [{provider: "imap", email: "someone@gmail.com", active: true}]
       mailService.accountCount = 1
       mailService.providerId = "imap"
       mailService.hasSavedAccounts = true
@@ -328,7 +329,7 @@ Item {
       verify(removeButton.visible, "the Remove account button is visible")
       mouseClick(removeButton)
       compare(mailService.accountCount, 1, "the selected draft must actually be removed")
-      compare(mailService.accountSummaries, [{provider: "imap", email: "someone@gmail.com"}],
+      compare(mailService.accountSummaries, [{provider: "imap", email: "someone@gmail.com", active: true}],
         "the existing mailbox is retained")
       compare(mailService.log[mailService.log.length - 1], "discard")
     }

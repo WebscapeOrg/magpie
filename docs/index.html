@@ -1128,6 +1128,7 @@ footer p:last-child { margin-bottom: 0; }
   }
 
   var copy = document.querySelector(".copy");
+  var copyResetTimer;
   function selectCommand() {
     var range = document.createRange();
     range.selectNodeContents(document.querySelector(".command .cmd"));
@@ -1140,6 +1141,8 @@ footer p:last-child { margin-bottom: 0; }
     copy.disabled = false;
   }
   function copyCommand() {
+    clearTimeout(copyResetTimer);
+    copy.removeAttribute("data-state");
     if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
       selectCommand();
       return;
@@ -1151,7 +1154,7 @@ footer p:last-child { margin-bottom: 0; }
         copy.textContent = copyLabels[lang];
         copy.setAttribute("data-state", "done");
         copy.disabled = false;
-        setTimeout(function () {
+        copyResetTimer = setTimeout(function () {
           copy.innerHTML = copy.getAttribute("data-" + lang);
           copy.removeAttribute("data-state");
         }, 1600);

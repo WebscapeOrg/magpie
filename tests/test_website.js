@@ -8,8 +8,11 @@ const html = fs.readFileSync(path.join(__dirname, "../docs/index.html"), "utf8")
 const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
 
 function element(attributes = {}) {
+    let content = "Copy";
     return {
-        attributes, listeners: {}, textContent: "Copy", innerHTML: "Copy", disabled: false,
+        attributes, listeners: {}, disabled: false,
+        get textContent() { return content; }, set textContent(value) { content = value; },
+        get innerHTML() { return content; }, set innerHTML(value) { content = value; },
         setAttribute(name, value) { this.attributes[name] = value; },
         getAttribute(name) { return this.attributes[name]; },
         removeAttribute(name) { delete this.attributes[name]; },
@@ -25,6 +28,7 @@ function page(clipboard) {
     const selection = { node: null, removeAllRanges() { this.node = null; },
         addRange(range) { this.node = range.node; } };
     const timers = [];
+    const cancelledTimers = new Set();
     const document = {
         documentElement: element(),
         querySelectorAll(selector) { return selector === "[data-zh]" ? [copy] : []; },
@@ -37,7 +41,12 @@ function page(clipboard) {
         document, navigator: { clipboard, language: "en", platform: "Linux" },
         localStorage: { getItem() { return null; }, setItem() {} },
         window: { getSelection() { return selection; } },
-        setTimeout(callback) { timers.push(callback); }
+        setTimeout(callback) {
+            const id = timers.length;
+            timers.push(() => { if (!cancelledTimers.has(id)) callback(); });
+            return id;
+        },
+        clearTimeout(id) { cancelledTimers.add(id); }
     });
     return { copy, command, selection, timers };
 }
@@ -77,4 +86,21 @@ test("clipboard write reports pending and confirmed completion", async () => {
     assert.equal(view.copy.disabled, false);
     view.timers[0]();
     assert.equal(view.copy.innerHTML, "Copy");
+});
+
+
+test("a previous copy reset cannot overwrite the next pending operation", async () => {
+    const completions = [];
+    const view = page({ writeText() { return new Promise(resolve => completions.push(resolve)); } });
+    const first = view.copy.listeners.click();
+    completions[0]();
+    await first;
+    const second = view.copy.listeners.click();
+    assert.notEqual(view.copy.attributes["data-state"], "done");
+    view.timers[0]();
+    assert.equal(view.copy.textContent, "Copying…");
+    assert.equal(view.copy.disabled, true);
+    completions[1]();
+    await second;
+    assert.equal(view.copy.textContent, "Copied");
 });

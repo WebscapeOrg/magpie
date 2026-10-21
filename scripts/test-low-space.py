@@ -35,10 +35,14 @@ def main():
                "--cap-drop", "ALL", "--ro-bind", "/", "/", "--proc", "/proc",
                "--dev", "/dev", "--size", str(64 * 1024 * 1024), "--tmpfs", "/tmp",
                "--ro-bind", seed, "/tmp/fixture-seed",
+               "--ro-bind", str(Path(__file__).resolve()), "/tmp/fixture-worker.py",
+               "--ro-bind", executables[0], "/tmp/fixture-test",
                "--perms", "0700", "--dir", "/tmp/mail-check",
+               "--chdir", "/tmp/mail-check",
                "--setenv", "TMPDIR", "/tmp/mail-check",
+               "--unsetenv", "MAGPIE_LOW_SPACE_SEED",
                "--setenv", "OMAMAIL_ACTION_TEST_CHILD", TEST,
-               sys.executable, str(Path(__file__).resolve()), "--worker", executables[0]]
+               str(Path(sys.executable).resolve()), "/tmp/fixture-worker.py", "--worker", "/tmp/fixture-test"]
         result = subprocess.run(command, cwd=ROOT, env=os.environ.copy(), timeout=30)
         raise SystemExit(result.returncode)
 

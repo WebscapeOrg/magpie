@@ -1352,6 +1352,20 @@ function fitDeclaration(declaration, node, fit, dropImageHeight) {
 var FITTABLE_DECLARATION = /width|nowrap/i
 
 // Invariant: fitted attributes must leave the reusable source node unchanged.
+function fitStyleAttribute(node, attribute, fit, dropImageHeight) {
+  var declarations = splitDeclarations(attribute.value)
+  var kept = []
+  var changed = false
+  for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    var fitted = fitDeclaration(declarations[declarationIndex], node, fit, dropImageHeight)
+    if (fitted !== declarations[declarationIndex]) changed = true
+    if (fitted) kept.push(fitted)
+  }
+  if (!changed) return attribute
+  var style = joinDeclarations(kept)
+  return style === "" ? null : { name: "style", value: style }
+}
+
 function fitAttributes(node, fit) {
   var attributes = node.attrs
   if (attributes.length === 0) return attributes
@@ -1383,18 +1397,7 @@ function fitAttributes(node, fit) {
     else if (attribute.name === "style" && attribute.value !== null && attribute.value !== undefined
       && (fit.sides || FITTABLE_DECLARATION.test(String(attribute.value))
         || dropImageHeight)) {
-      var declarations = splitDeclarations(attribute.value)
-      var kept = []
-      var changed = false
-      for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
-        var fitted = fitDeclaration(declarations[declarationIndex], node, fit, dropImageHeight)
-        if (fitted !== declarations[declarationIndex]) changed = true
-        if (fitted) kept.push(fitted)
-      }
-      if (changed) {
-        var style = joinDeclarations(kept)
-        replacement = style === "" ? null : { name: "style", value: style }
-      }
+      replacement = fitStyleAttribute(node, attribute, fit, dropImageHeight)
     }
 
     if (replacement === attribute) {

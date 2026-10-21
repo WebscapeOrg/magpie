@@ -109,8 +109,6 @@ Item {
     return { mode: label.toLowerCase(), label: label + " (" + Keymap.displayFor(binding) + ")" }
   })
   signal createAt(double startMs)
-  signal copyRequested(string text)
-  signal openRequested(string url)
   signal editRequested(string sourceId, var event)
   signal deleteRequested(string sourceId, var event)
 

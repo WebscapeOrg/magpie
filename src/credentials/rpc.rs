@@ -124,7 +124,7 @@ async fn call_with_store(
     method: &str,
     params: &Value,
 ) -> Result<Value, &'static str> {
-    // Parsing before the first await is deliberate: malformed metadata or a
+    // Invariant: Parsing before the first await is deliberate: malformed metadata or a
     // secret containing NUL cannot prompt, read, write, or delete in a native
     // credential store.
     match parse(method, params)? {

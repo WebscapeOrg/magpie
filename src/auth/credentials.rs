@@ -77,7 +77,7 @@ fn text_secret(secret: &Secret) -> Result<&str, &'static str> {
     Ok(value)
 }
 
-// The setup page stores an empty string for a personal account's tenant
+// Invariant: The setup page stores an empty string for a personal account's tenant
 // (there is no tenant to name), while a missing field only ever occurs on
 // data from before that field existed. Both mean the same thing here, and
 // must resolve to the same string everywhere it is read: `destination`
@@ -146,7 +146,7 @@ fn cached_token(
     wall_now: std::time::SystemTime,
 ) -> Option<String> {
     let (token, expiry) = tokens.get(resource)?;
-    // Linux's monotonic clock stops during suspend. Wall time catches sleep
+    // Invariant: Linux's monotonic clock stops during suspend. Wall time catches sleep
     // and forward corrections; the monotonic deadline still bounds reuse if
     // the wall clock moves backwards. Keep the original 60-second margin.
     let monotonic_remaining = expiry.monotonic.checked_duration_since(monotonic_now)?;
@@ -207,7 +207,7 @@ async fn access_token_with(
     let client_id = client_id.to_owned();
     let resource = resource.to_owned();
     in_outlook_lane(lock, move |mut tokens| async move {
-        // One refresh at a time per mailbox, shared by mail and Graph resources:
+        // Invariant: One refresh at a time per mailbox, shared by mail and Graph resources:
         // rotating a refresh token must not race another resource's exchange.
         if let Some(token) = cached_token(
             &tokens,
@@ -248,7 +248,7 @@ async fn access_token_with(
     .await
 }
 
-// The account lock remains held across every exchange and refresh-token store.
+// Invariant: The account lock remains held across every exchange and refresh-token store.
 // Inject only the transport and store so provider fixtures never touch a keyring.
 async fn refresh_outlook_with<Request, RequestFuture, Persist, PersistFuture>(
     client_id: &str,
@@ -264,7 +264,7 @@ where
     PersistFuture: std::future::Future<Output = Result<(), &'static str>>,
 {
     let scope = scope(resource)?;
-    // Both network exchanges share one budget below the UI's RPC timeout.
+    // Invariant: Both network exchanges share one budget below the UI's RPC timeout.
     // Do not time out a keyring write: its blocking native operation must
     // finish while the caller still owns the account rotation lock.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
@@ -282,7 +282,7 @@ where
     let token: Value = serde_json::from_str(reply["body"].as_str().ok_or("auth_invalid_response")?)
         .map_err(|_| "auth_invalid_response")?;
     if reply["status"] != 200 {
-        // Consumers can refuse the first Graph grant with 70000 while this
+        // Invariant: Consumers can refuse the first Graph grant with 70000 while this
         // refresh token still works for mail. A cached mail access token is
         // not evidence: verify this exact grant, under the same rotation lock.
         if resource == "graph" && token["error"] == "invalid_grant" && aadsts_code(&token, 70000) {
@@ -309,7 +309,7 @@ where
                 });
             }
             outlook_access(&mail)?;
-            // Even a scope refusal may rotate the grant. Keep the successful
+            // Invariant: Even a scope refusal may rotate the grant. Keep the successful
             // mail probe's rotation before reporting missing Graph consent.
             persist(mail.clone()).await?;
             if !outlook_scopes(&mail, mail_scope) {
@@ -388,7 +388,7 @@ where
     F: FnOnce(tokio::sync::OwnedMutexGuard<Tokens>) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = Result<T, &'static str>> + Send + 'static,
 {
-    // Waiting is cancellable. Once admitted, finish under the owned guard:
+    // Invariant: Waiting is cancellable. Once admitted, finish under the owned guard:
     // native keyring writes use spawn_blocking and cannot be cancelled when
     // a calendar caller's outer deadline drops its authentication future.
     let guard = lane.lock_owned().await;
@@ -587,7 +587,7 @@ mod tests {
             "refresh_token":"synthetic-rotated", "scope":scope("mail").unwrap()})
     }
 
-    // This is Microsoft's consumer-account refusal, not proof the grant died.
+    // Invariant: This is Microsoft's consumer-account refusal, not proof the grant died.
     fn unconsented_graph() -> Value {
         json!({"error":"invalid_grant", "error_codes":[70000],
             "error_description":"AADSTS70000: The request was denied because one or more scopes requested are unauthorized or expired. The user must first sign in and grant the client application access to the requested scope."})
@@ -1084,7 +1084,7 @@ mod tests {
             "organizations"
         );
     }
-    /// A personal account's setup page writes an empty `tenant`, not a
+    /// Invariant: A personal account's setup page writes an empty `tenant`, not a
     /// missing one (there is no tenant to name). `destination` rejects an
     /// empty tenant outright, so building its URL straight from the stored
     /// field failed every refresh for exactly the accounts that are meant to
@@ -1119,7 +1119,7 @@ mod tests {
             ("mail".into(), ("mail-token".into(), expiry)),
             ("graph".into(), ("graph-token".into(), expiry)),
         ]);
-        // Linux monotonic time advanced only while awake; wall time includes
+        // Invariant: Linux monotonic time advanced only while awake; wall time includes
         // the five hours asleep. Neither resource may reuse the old token.
         for resource in ["mail", "graph"] {
             assert!(
@@ -1178,7 +1178,6 @@ mod tests {
                 ("graph-token".into(), expiry_at(monotonic, wall, 1800)),
             ),
         ]);
-        // Short suspend does not force a needless refresh of still-live grants.
         assert_eq!(
             cached_token(
                 &tokens,

@@ -13,7 +13,7 @@ pub(super) async fn send(params: &Value) -> Result<Value, &'static str> {
     if raw.len() > 16 * 1024 * 1024 {
         return Err("message_too_large");
     }
-    // Graph's MIME endpoint consumes standard base64, never raw MIME bytes.
+    // Invariant: Graph's MIME endpoint consumes standard base64, never raw MIME bytes.
     use base64::Engine;
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(raw)

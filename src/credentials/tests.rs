@@ -67,7 +67,7 @@ fn credentials_preserve_linux_scope_and_native_key_is_unambiguous() {
     assert_ne!(key.native_id().unwrap(), other.native_id().unwrap());
 }
 
-/// Explicit native runner gate. Never silently succeeds when the store is locked,
+/// Invariant: Explicit native runner gate. Never silently succeeds when the store is locked,
 /// absent, or unavailable. Unique synthetic entries are removed by Drop even on panic.
 #[test]
 #[ignore = "requires an unlocked native credential store; run explicitly on each native runner"]
@@ -175,7 +175,7 @@ fn credentials_native_contract() {
     }
 }
 
-// A process-local native-store substitute for existing isolated dispatcher
+// Invariant: A process-local native-store substitute for existing isolated dispatcher
 // fixtures. It cannot be enabled by production builds, settings or environment.
 static STORE: std::sync::Mutex<Option<std::sync::Arc<dyn CredentialStore>>> =
     std::sync::Mutex::new(None);

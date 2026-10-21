@@ -8,7 +8,11 @@ use std::{
 };
 struct Entry {
     key: [u8; 32],
-    value: tokio::sync::Mutex<Option<(Instant, Value, usize)>>,
+    value: tokio::sync::Mutex<Option<Snapshot>>,
+}
+struct Snapshot {
+    created: Instant,
+    value: Value,
 }
 pub(crate) struct Reads {
     entries: Mutex<VecDeque<Arc<Entry>>>,
@@ -37,7 +41,7 @@ impl Reads {
             Sha256::digest(serde_json::to_vec(params).map_err(|_| "invalid_params")?).into();
         let entry = {
             let mut entries = self.entries.lock().map_err(|_| "session_failed")?;
-            if let Some(index) = entries.iter().position(|e| e.key == key) {
+            if let Some(index) = entries.iter().position(|entry| entry.key == key) {
                 let entry = entries.remove(index).unwrap();
                 entries.push_back(entry.clone());
                 entry
@@ -58,10 +62,10 @@ impl Reads {
             }
         };
         let mut saved = entry.value.lock().await;
-        if let Some((at, value, _)) = saved.as_ref() {
-            if at.elapsed() < Duration::from_secs(5) {
-                return Ok(value.clone());
-            }
+        if let Some(snapshot) = saved.as_ref()
+            && snapshot.created.elapsed() < Duration::from_secs(5)
+        {
+            return Ok(snapshot.value.clone());
         }
         let _permit = self.slots.acquire().await.map_err(|_| "session_failed")?;
         let value = fetch().await?;
@@ -69,7 +73,10 @@ impl Reads {
             .map_err(|_| "calendar_invalid_response")?
             .len();
         if bytes <= 4 * 1024 * 1024 {
-            *saved = Some((Instant::now(), value.clone(), bytes));
+            *saved = Some(Snapshot {
+                created: Instant::now(),
+                value: value.clone(),
+            });
         }
         Ok(value)
     }

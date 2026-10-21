@@ -8,12 +8,98 @@ pub struct Profile(toml_edit::DocumentMut);
 fn setting(key: &str, item: &toml_edit::Item) -> Result<toml_edit::Value, &'static str> {
     match key {
         "requires_openai_auth" | "supports_websockets" => item.as_bool().map(Into::into),
-        "request_max_retries" | "stream_max_retries" | "stream_idle_timeout_ms" => {
-            item.as_integer().filter(|n| *n >= 0).map(Into::into)
-        }
+        "request_max_retries" | "stream_max_retries" | "stream_idle_timeout_ms" => item
+            .as_integer()
+            .filter(|number| *number >= 0)
+            .map(Into::into),
         _ => item.as_str().map(Into::into),
     }
     .ok_or("agent_config_invalid")
+}
+
+fn configure_provider(
+    command: &mut std::process::Command,
+    name: &str,
+    item: &toml_edit::Item,
+) -> Result<(), &'static str> {
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    {
+        return Err("agent_config_invalid");
+    }
+    let provider = item.as_table_like().ok_or("agent_config_invalid")?;
+    let mut headers = toml_edit::InlineTable::new();
+    for (key, item) in provider.iter() {
+        let prefix = format!("model_providers.{name}");
+        if key == "experimental_bearer_token" {
+            let token = item.as_str().ok_or("agent_config_invalid")?;
+            let variable = format!(
+                "OMAMAIL_CODEX_TOKEN_{}",
+                name.bytes()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            );
+            command.env(&variable, token).args([
+                "-c",
+                &format!("{prefix}.env_key={}", serde_json::json!(variable)),
+            ]);
+        } else if key == "http_headers" {
+            for (header, value) in item.as_table_like().ok_or("agent_config_invalid")?.iter() {
+                let variable = format!(
+                    "OMAMAIL_CODEX_HEADER_{}_{}",
+                    name.bytes()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>(),
+                    header
+                        .bytes()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>()
+                );
+                command.env(&variable, value.as_str().ok_or("agent_config_invalid")?);
+                headers.insert(header, variable.into());
+            }
+        } else if key == "env_http_headers" {
+            for (header, value) in item.as_table_like().ok_or("agent_config_invalid")?.iter() {
+                headers.insert(header, value.as_str().ok_or("agent_config_invalid")?.into());
+            }
+        } else if [
+            "name",
+            "base_url",
+            "env_key",
+            "wire_api",
+            "requires_openai_auth",
+            "supports_websockets",
+            "request_max_retries",
+            "stream_max_retries",
+            "stream_idle_timeout_ms",
+        ]
+        .contains(&key)
+        {
+            if key == "base_url" {
+                let url = reqwest::Url::parse(item.as_str().ok_or("agent_config_invalid")?)
+                    .map_err(|_| "agent_config_invalid")?;
+                if !url.username().is_empty()
+                    || url.password().is_some()
+                    || url.query().is_some()
+                    || url.fragment().is_some()
+                {
+                    return Err("agent_config_invalid");
+                }
+            }
+            command.args(["-c", &format!("{prefix}.{key}={}", setting(key, item)?)]);
+        } else {
+            return Err("agent_config_invalid");
+        }
+    }
+    if !headers.is_empty() {
+        command.args([
+            "-c",
+            &format!("model_providers.{name}.env_http_headers={headers}"),
+        ]);
+    }
+    Ok(())
 }
 
 impl Profile {
@@ -37,96 +123,17 @@ impl Profile {
         }
         if let Some(providers) = source
             .get("model_providers")
-            .and_then(|v| v.as_table_like())
+            .and_then(|value| value.as_table_like())
         {
             for (name, item) in providers.iter() {
-                if name.is_empty()
-                    || !name
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-                {
-                    return Err("agent_config_invalid");
-                }
-                let provider = item.as_table_like().ok_or("agent_config_invalid")?;
-                let mut headers = toml_edit::InlineTable::new();
-                for (key, item) in provider.iter() {
-                    let prefix = format!("model_providers.{name}");
-                    if key == "experimental_bearer_token" {
-                        let token = item.as_str().ok_or("agent_config_invalid")?;
-                        let variable = format!(
-                            "OMAMAIL_CODEX_TOKEN_{}",
-                            name.bytes().map(|b| format!("{b:02x}")).collect::<String>()
-                        );
-                        command.env(&variable, token).args([
-                            "-c",
-                            &format!("{prefix}.env_key={}", serde_json::json!(variable)),
-                        ]);
-                    } else if key == "http_headers" {
-                        for (header, value) in
-                            item.as_table_like().ok_or("agent_config_invalid")?.iter()
-                        {
-                            let variable = format!(
-                                "OMAMAIL_CODEX_HEADER_{}_{}",
-                                name.bytes().map(|b| format!("{b:02x}")).collect::<String>(),
-                                header
-                                    .bytes()
-                                    .map(|b| format!("{b:02x}"))
-                                    .collect::<String>()
-                            );
-                            command.env(&variable, value.as_str().ok_or("agent_config_invalid")?);
-                            headers.insert(header, variable.into());
-                        }
-                    } else if key == "env_http_headers" {
-                        for (header, value) in
-                            item.as_table_like().ok_or("agent_config_invalid")?.iter()
-                        {
-                            headers.insert(
-                                header,
-                                value.as_str().ok_or("agent_config_invalid")?.into(),
-                            );
-                        }
-                    } else if [
-                        "name",
-                        "base_url",
-                        "env_key",
-                        "wire_api",
-                        "requires_openai_auth",
-                        "supports_websockets",
-                        "request_max_retries",
-                        "stream_max_retries",
-                        "stream_idle_timeout_ms",
-                    ]
-                    .contains(&key)
-                    {
-                        if key == "base_url" {
-                            let url =
-                                reqwest::Url::parse(item.as_str().ok_or("agent_config_invalid")?)
-                                    .map_err(|_| "agent_config_invalid")?;
-                            if !url.username().is_empty()
-                                || url.password().is_some()
-                                || url.query().is_some()
-                                || url.fragment().is_some()
-                            {
-                                return Err("agent_config_invalid");
-                            }
-                        }
-                        command.args(["-c", &format!("{prefix}.{key}={}", setting(key, item)?)]);
-                    } else {
-                        return Err("agent_config_invalid");
-                    }
-                }
-                if !headers.is_empty() {
-                    command.args([
-                        "-c",
-                        &format!("model_providers.{name}.env_http_headers={headers}"),
-                    ]);
-                }
+                configure_provider(command, name, item)?;
             }
         }
+
         if let Some(value) = source
             .get("features")
-            .and_then(|f| f.get("enable_request_compression"))
-            .and_then(|v| v.as_bool())
+            .and_then(|features| features.get("enable_request_compression"))
+            .and_then(|value| value.as_bool())
         {
             command.args([
                 "-c",
@@ -139,7 +146,7 @@ impl Profile {
         super::storage::check_id(id)?;
         let home = std::env::var_os("CODEX_HOME")
             .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".codex")))
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".codex")))
             .ok_or("agent_config_unavailable")?;
         let mut bytes = String::new();
         match File::open(home.join("config.toml")) {
@@ -148,7 +155,7 @@ impl Profile {
                     .read_to_string(&mut bytes)
                     .map_err(|_| "agent_config_invalid")?;
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => return Err("agent_config_unavailable"),
         }
         if bytes.len() > 1024 * 1024 {
@@ -176,7 +183,7 @@ impl Profile {
         // Transport formatting is not authority and is needed by local providers.
         if let Some(value) = source
             .get("features")
-            .and_then(|f| f.get("enable_request_compression"))
+            .and_then(|features| features.get("enable_request_compression"))
         {
             selected["features"]["enable_request_compression"] = value.clone();
         }

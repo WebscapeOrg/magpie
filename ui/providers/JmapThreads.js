@@ -96,8 +96,8 @@ function memberGet(accountId, ids) {
 function invocationAt(responses, callId) {
   var list = Protocol.invocations(responses)
   var wanted = Protocol.trimmed(callId)
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].callId === wanted) return { name: list[i].name, arguments: list[i].arguments }
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (list[itemIndex].callId === wanted) return { name: list[itemIndex].name, arguments: list[itemIndex].arguments }
   }
   return null
 }
@@ -112,8 +112,8 @@ function argumentsAt(responses, callId) {
 }
 
 // The `list` of a `/get` reply, as an array.
-function getList(args) {
-  var body = args && typeof args === "object" ? args : {}
+function getList(parameters) {
+  var body = parameters && typeof parameters === "object" ? parameters : {}
   return Array.isArray(body.list) ? body.list : []
 }
 
@@ -122,15 +122,15 @@ function getList(args) {
 //   [{ id: "maaaaaf", threadId: "d" }, ...]
 function representativeThreads(responses) {
   var list = getList(argumentsAt(responses, CALL_REPRESENTATIVES))
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var row = list[i] || {}
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var row = list[itemIndex] || {}
     var id = Protocol.trimmed(row.id)
     var threadId = Protocol.trimmed(row.threadId)
     if (id === "" || threadId === "") continue
-    out.push({ id: id, threadId: threadId })
+    output.push({ id: id, threadId: threadId })
   }
-  return out
+  return output
 }
 
 // Thread id to its member ids, oldest first — which is the order `Thread/get`
@@ -139,51 +139,51 @@ function representativeThreads(responses) {
 // decision, not this list's.
 function threadMembers(responses) {
   var list = getList(argumentsAt(responses, CALL_THREADS))
-  var out = {}
-  for (var i = 0; i < list.length; i++) {
-    var row = list[i] || {}
+  var output = {}
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var row = list[itemIndex] || {}
     var id = Protocol.trimmed(row.id)
     if (id === "") continue
     var ids = Array.isArray(row.emailIds) ? row.emailIds : []
     var members = []
-    for (var j = 0; j < ids.length; j++) {
-      var member = Protocol.trimmed(ids[j])
+    for (var nestedIndex = 0; nestedIndex < ids.length; nestedIndex++) {
+      var member = Protocol.trimmed(ids[nestedIndex])
       if (member !== "") members.push(member)
     }
-    out[id] = members
+    output[id] = members
   }
-  return out
+  return output
 }
 
 // Every member id the threads on this page name, once each, in page order.
 // This is what the fourth call asks for through its back-reference, and what
 // the follow-up asks for by id when the server refuses to answer it in one go.
 function memberIdsOf(representatives, threads) {
-  var reps = Array.isArray(representatives) ? representatives : []
+  var representativeRows = Array.isArray(representatives) ? representatives : []
   var map = threads && typeof threads === "object" ? threads : {}
   var seen = {}
-  var out = []
-  for (var i = 0; i < reps.length; i++) {
-    var members = map[reps[i].threadId]
+  var output = []
+  for (var itemIndex = 0; itemIndex < representativeRows.length; itemIndex++) {
+    var members = map[representativeRows[itemIndex].threadId]
     if (!Array.isArray(members)) continue
-    for (var j = 0; j < members.length; j++) {
-      if (seen[members[j]]) continue
-      seen[members[j]] = true
-      out.push(members[j])
+    for (var nestedIndex = 0; nestedIndex < members.length; nestedIndex++) {
+      if (seen[members[nestedIndex]]) continue
+      seen[members[nestedIndex]] = true
+      output.push(members[nestedIndex])
     }
   }
-  return out
+  return output
 }
 
 // Member id to the member itself.
 function memberIndex(list) {
   var rows = Array.isArray(list) ? list : []
-  var out = {}
-  for (var i = 0; i < rows.length; i++) {
-    var id = Protocol.trimmed((rows[i] || {}).id)
-    if (id !== "") out[id] = rows[i]
+  var output = {}
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var id = Protocol.trimmed((rows[itemIndex] || {}).id)
+    if (id !== "") output[id] = rows[itemIndex]
   }
-  return out
+  return output
 }
 
 // The one mailbox a query is a view of, or "" for a search — which is a view of
@@ -217,19 +217,19 @@ function countedMembers(members, roles, query) {
   var trash = Protocol.trimmed(map.trash)
   var only = viewed !== "" && (viewed === junk || viewed === trash) ? viewed : ""
 
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var member = list[i]
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var member = list[itemIndex]
     if (!member || typeof member !== "object") continue
     if (only !== "") {
-      if (Protocol.inMailbox(member, only)) out.push(member)
+      if (Protocol.inMailbox(member, only)) output.push(member)
       continue
     }
     if (junk !== "" && Protocol.inMailbox(member, junk)) continue
     if (trash !== "" && Protocol.inMailbox(member, trash)) continue
-    out.push(member)
+    output.push(member)
   }
-  return out
+  return output
 }
 
 // The `thread` block a row carries:
@@ -247,10 +247,10 @@ function threadBlockFor(threadId, members, roles, query) {
   var ids = []
   var unread = false
   var flagged = false
-  for (var i = 0; i < counted.length; i++) {
-    ids.push(Protocol.trimmed(counted[i].id))
-    if (!Protocol.hasKeyword(counted[i], "$seen")) unread = true
-    if (Protocol.hasKeyword(counted[i], "$flagged")) flagged = true
+  for (var itemIndex = 0; itemIndex < counted.length; itemIndex++) {
+    ids.push(Protocol.trimmed(counted[itemIndex].id))
+    if (!Protocol.hasKeyword(counted[itemIndex], "$seen")) unread = true
+    if (Protocol.hasKeyword(counted[itemIndex], "$flagged")) flagged = true
   }
   return {
     id: Protocol.trimmed(threadId),
@@ -269,32 +269,32 @@ function threadBlockFor(threadId, members, roles, query) {
 // counting a message that no longer exists is worse than a row counting one
 // fewer.
 function threadBlocks(representatives, threads, members, roles, query) {
-  var reps = Array.isArray(representatives) ? representatives : []
+  var representativeRows = Array.isArray(representatives) ? representatives : []
   var map = threads && typeof threads === "object" ? threads : {}
   var index = members && typeof members === "object" ? members : {}
-  var out = {}
-  for (var i = 0; i < reps.length; i++) {
-    var ids = Array.isArray(map[reps[i].threadId]) ? map[reps[i].threadId] : []
+  var output = {}
+  for (var itemIndex = 0; itemIndex < representativeRows.length; itemIndex++) {
+    var ids = Array.isArray(map[representativeRows[itemIndex].threadId]) ? map[representativeRows[itemIndex].threadId] : []
     var list = []
-    for (var j = 0; j < ids.length; j++) {
-      if (index[ids[j]]) list.push(index[ids[j]])
+    for (var nestedIndex = 0; nestedIndex < ids.length; nestedIndex++) {
+      if (index[ids[nestedIndex]]) list.push(index[ids[nestedIndex]])
     }
-    out[reps[i].id] = threadBlockFor(reps[i].threadId, list, roles, query)
+    output[representativeRows[itemIndex].id] = threadBlockFor(representativeRows[itemIndex].threadId, list, roles, query)
   }
-  return out
+  return output
 }
 
 // The mailboxes one member sits in, as a plain list of ids.
 function mailboxIdsOf(email) {
   var ids = (email || {}).mailboxIds
-  var out = []
-  if (!ids || typeof ids !== "object") return out
+  var output = []
+  if (!ids || typeof ids !== "object") return output
   for (var key in ids) {
     if (!Protocol.isSet(ids[key])) continue
     var id = Protocol.trimmed(key)
-    if (id !== "") out.push(id)
+    if (id !== "") output.push(id)
   }
-  return out
+  return output
 }
 
 // Message id to the mailboxes it sits in, for every member the read answered
@@ -303,13 +303,13 @@ function mailboxIdsOf(email) {
 // decides whether archiving the conversation should move it at all.
 function membershipsFrom(list) {
   var rows = Array.isArray(list) ? list : []
-  var out = {}
-  for (var i = 0; i < rows.length; i++) {
-    var id = Protocol.trimmed((rows[i] || {}).id)
+  var output = {}
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var id = Protocol.trimmed((rows[itemIndex] || {}).id)
     if (id === "") continue
-    out[id] = mailboxIdsOf(rows[i])
+    output[id] = mailboxIdsOf(rows[itemIndex])
   }
-  return out
+  return output
 }
 
 // What the client keeps of the pages it has read, in entries. Both maps below
@@ -331,10 +331,10 @@ function mergedInto(existing, additions, limit) {
     }
     if (held >= cap) source = {}
   }
-  var out = {}
-  for (var key in source) out[key] = source[key]
-  for (var added in extra) out[added] = extra[added]
-  return out
+  var output = {}
+  for (var key in source) output[key] = source[key]
+  for (var added in extra) output[added] = extra[added]
+  return output
 }
 
 // ------------------------------------------------------ acting on a row
@@ -366,8 +366,8 @@ function patchPlan(ids, addLabelIds, removeLabelIds, roles, memberships) {
   var expanded = list.length > 1
   var groups = []
   var byPatch = {}
-  for (var i = 0; i < list.length; i++) {
-    var id = list[i]
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var id = list[itemIndex]
     var known = expanded && Array.isArray(map[id]) ? map[id] : null
     var patch = Protocol.patchFor(addLabelIds, removeLabelIds, roles, known)
     // One refusal is the whole action's: the destination mailbox is missing
@@ -398,19 +398,19 @@ function patchPlan(ids, addLabelIds, removeLabelIds, roles, memberships) {
 // supplied, so the page is delivered only once every row has its block.
 function collapsedPage(responses, limit, roles, query, members) {
   var page = Protocol.queryPage(argumentsAt(responses, CALL_QUERY), limit)
-  var reps = representativeThreads(responses)
+  var representativeRows = representativeThreads(responses)
   var threads = threadMembers(responses)
   var supplied = Array.isArray(members) ? members : null
   var answered = argumentsAt(responses, CALL_MEMBERS)
   // Refused, not empty: `argumentsAt` answers null for a call that came back an
   // `error` and for one the reply never carried, and either is a member read
   // this page has not had.
-  var owed = supplied === null && answered === null ? memberIdsOf(reps, threads) : []
+  var owed = supplied === null && answered === null ? memberIdsOf(representativeRows, threads) : []
   var list = supplied !== null ? supplied : getList(answered)
   return {
     page: page,
     blocks: owed.length > 0 ? {}
-      : threadBlocks(reps, threads, memberIndex(list), roles, query),
+      : threadBlocks(representativeRows, threads, memberIndex(list), roles, query),
     memberships: membershipsFrom(list),
     pending: owed
   }

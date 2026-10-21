@@ -45,8 +45,8 @@ function trimmed(value) {
 
 function isBox(name) {
   var wanted = trimmed(name).toLowerCase()
-  for (var i = 0; i < BOXES.length; i++) {
-    if (BOXES[i] === wanted) return true
+  for (var itemIndex = 0; itemIndex < BOXES.length; itemIndex++) {
+    if (BOXES[itemIndex] === wanted) return true
   }
   return false
 }
@@ -120,8 +120,8 @@ function parseQuery(query) {
     var rest = trimmed(text.slice(4)).split(/\s+/)
     var box = trimmed(rest[0]).toLowerCase()
     var unseen = false
-    for (var i = 1; i < rest.length; i++) {
-      if (trimmed(rest[i]).toLowerCase() === "unseen") unseen = true
+    for (var itemIndex = 1; itemIndex < rest.length; itemIndex++) {
+      if (trimmed(rest[itemIndex]).toLowerCase() === "unseen") unseen = true
     }
     if (box === TRASH) return { kind: "trash", box: TRASH, label: "", text: "", unseen: unseen }
     if (!isBox(box)) box = "imbox"
@@ -259,11 +259,11 @@ function unknownFlag(text) {
 function withoutFlag(command, flag) {
   var list = Array.isArray(command) ? command : []
   var wanted = trimmed(flag)
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    if (String(list[i]) !== wanted) out.push(list[i])
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (String(list[itemIndex]) !== wanted) output.push(list[itemIndex])
   }
-  return out
+  return output
 }
 
 function hasFlag(command, flag) {
@@ -281,8 +281,8 @@ function actionCommand(verb, ids) {
   var name = trimmed(verb)
   var postings = []
   var list = Array.isArray(ids) ? ids : [ids]
-  for (var i = 0; i < list.length; i++) {
-    var posting = postingIdOf(list[i])
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var posting = postingIdOf(list[itemIndex])
     if (posting !== "" && postings.indexOf(posting) < 0) postings.push(posting)
   }
   if (postings.length === 0) return []
@@ -371,13 +371,13 @@ function draftEditCommand(id, fields) {
 
 function attachArgs(files) {
   var list = Array.isArray(files) ? files : []
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var entry = list[i]
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var entry = list[itemIndex]
     var path = trimmed(typeof entry === "string" ? entry : (entry && entry.path))
-    if (path !== "") out = out.concat(["--attach", path])
+    if (path !== "") output = output.concat(["--attach", path])
   }
-  return out
+  return output
 }
 
 function isDroppableFlag(flag) {
@@ -407,7 +407,7 @@ function parseJson(text, fallback) {
   try {
     var parsed = JSON.parse(String(text || ""))
     return parsed === null || parsed === undefined ? fallback : parsed
-  } catch (e) {
+  } catch (error) {
     return fallback
   }
 }
@@ -452,8 +452,8 @@ function posting(raw, boxKind) {
     : (contacts.length > 0 ? contacts[0] : null)
   var addressed = Array.isArray(entry.addressed_contacts) ? entry.addressed_contacts : []
   var recipients = []
-  for (var i = 0; i < addressed.length; i++) {
-    var to = addressed[i] || {}
+  for (var itemIndex = 0; itemIndex < addressed.length; itemIndex++) {
+    var to = addressed[itemIndex] || {}
     if (trimmed(to.email_address) !== "")
       recipients.push({ name: trimmed(to.name), email: trimmed(to.email_address) })
   }
@@ -498,8 +498,8 @@ function parseListing(data) {
   if (Array.isArray(data)) {
     // A search result: a thread, its topic id beside it, and the messages that
     // matched. There is no seen state on one, so a searched row claims none.
-    for (var i = 0; i < data.length; i++) {
-      var hit = data[i] || {}
+    for (var itemIndex = 0; itemIndex < data.length; itemIndex++) {
+      var hit = data[itemIndex] || {}
       var messages = Array.isArray(hit.messages) ? hit.messages : []
       var newest = messages.length > 0 ? messages[messages.length - 1] : {}
       rows.push({
@@ -528,15 +528,15 @@ function parseListing(data) {
 
   var postings = Array.isArray(data.postings) ? data.postings : []
   var kind = trimmed(data.kind)
-  for (var j = 0; j < postings.length; j++) rows.push(posting(postings[j], kind))
+  for (var nestedIndex = 0; nestedIndex < postings.length; nestedIndex++) rows.push(posting(postings[nestedIndex], kind))
   return rows
 }
 
 function parseDraftListing(data) {
   var list = Array.isArray(data) ? data : []
   var rows = []
-  for (var i = 0; i < list.length; i++) {
-    var entry = list[i] || {}
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var entry = list[itemIndex] || {}
     var id = trimmed(entry.id)
     if (!/^\d+$/.test(id)) continue
     rows.push({
@@ -558,12 +558,12 @@ function parseDraftListing(data) {
 
 function draftAddresses(values) {
   var list = Array.isArray(values) ? values : []
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var email = trimmed(list[i])
-    if (email !== "") out.push({ name: "", email: email })
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var email = trimmed(list[itemIndex])
+    if (email !== "") output.push({ name: "", email: email })
   }
-  return out
+  return output
 }
 
 function parseDraft(data) {
@@ -629,11 +629,11 @@ function pageOf(parsed, data, rows, maxResults, token) {
 function filterRows(parsed, rows) {
   var list = Array.isArray(rows) ? rows : []
   if (!parsed || parsed.unseen !== true) return list
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    if (!list[i].seen) out.push(list[i])
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (!list[itemIndex].seen) output.push(list[itemIndex])
   }
-  return out
+  return output
 }
 
 // `hey labels`, as the shape the sidebar reads. HEY calls them folders and
@@ -641,14 +641,14 @@ function filterRows(parsed, rows) {
 // the sidebar has to produce `label:<id>`, which is the only thing `hey label`
 // takes.
 function parseLabels(data) {
-  var out = []
+  var output = []
   var list = Array.isArray(data) ? data : []
-  for (var i = 0; i < list.length; i++) {
-    var entry = list[i] || {}
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var entry = list[itemIndex] || {}
     var id = trimmed(entry.id)
     var name = trimmed(entry.name)
     if (id === "" || name === "") continue
-    out.push({
+    output.push({
       id: id,
       name: name,
       rawName: id,
@@ -658,7 +658,7 @@ function parseLabels(data) {
       threadsUnread: 0
     })
   }
-  return out
+  return output
 }
 
 // `hey accounts list`, as this mailbox's address. The list holds an "all" row
@@ -666,8 +666,8 @@ function parseLabels(data) {
 // first real one is the identity this plugin signed in as.
 function parseAccountAddress(data) {
   var list = Array.isArray(data) ? data : []
-  for (var i = 0; i < list.length; i++) {
-    var entry = list[i] || {}
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var entry = list[itemIndex] || {}
     if (trimmed(entry.id) === "all") continue
     var email = trimmed(entry.email)
     if (email !== "") return email
@@ -690,8 +690,8 @@ function parseThread(text) {
   if (!answer.ok) return { html: "", text: "", error: answer.error }
   var entries = Array.isArray(answer.data) ? answer.data : []
   var parts = []
-  for (var i = 0; i < entries.length; i++) {
-    var body = trimmed((entries[i] || {}).body)
+  for (var itemIndex = 0; itemIndex < entries.length; itemIndex++) {
+    var body = trimmed((entries[itemIndex] || {}).body)
     if (body !== "") parts.push(body)
   }
   // Oldest first, which is the order HEY serves and the order a conversation

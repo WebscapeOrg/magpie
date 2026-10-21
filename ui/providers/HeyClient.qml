@@ -24,14 +24,14 @@ Item {
     if (!handle) return
     handle.aborted = true
     var children = handle.children || []
-    for (var i = 0; i < children.length; i++) abortRequest(children[i])
+    for (var itemIndex = 0; itemIndex < children.length; itemIndex++) abortRequest(children[itemIndex])
   }
 
   function usesBackend() {
     return backend && String(backend.executable || "") !== ""
   }
 
-  function backendRead(method, params, callback, handle) {
+  function backendRead(method, parameters, callback, handle) {
     var account = auth ? String(auth.accountId || "") : ""
     var program = auth ? String(auth.heyPath || "") : ""
     if (!auth || !auth.loggedIn || (account === "" && method !== "hey.profile") || program === "") {
@@ -41,15 +41,15 @@ Item {
       return handle
     }
     if (account !== "") {
-      params.accountId = account
-      params.program = program
+      parameters.accountId = account
+      parameters.program = program
     }
     if (!usesBackend()) {
       Qt.callLater(function() { if (!handle.aborted) callback(null, "Mail backend unavailable") })
       return handle
     }
     root.inFlight++
-    backend.call(method, params, function(result, error) {
+    backend.call(method, parameters, function(result, error) {
       root.inFlight = Math.max(0, root.inFlight - 1)
       if (handle.aborted) return
       if (!auth || !auth.loggedIn || String(auth.accountId || "") !== account
@@ -127,7 +127,7 @@ Item {
         Qt.callLater(function() { if (root) callback([], "") })
         return handle
       }
-      for (var i = 0; i < list.length; i++) {
+      for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
         (function(index) {
           var child = root.getMessage(list[index], true, function(payload, error) {
             if (handle.aborted) return
@@ -137,30 +137,30 @@ Item {
             remaining--
             if (remaining > 0) return
             var ordered = []
-            for (var j = 0; j < results.length; j++) {
-              if (results[j]) ordered.push(results[j])
+            for (var nestedIndex = 0; nestedIndex < results.length; nestedIndex++) {
+              if (results[nestedIndex]) ordered.push(results[nestedIndex])
             }
             callback(ordered, firstError)
           })
           handle.children.push(child)
-        })(i)
+        })(itemIndex)
       }
       return handle
     }
 
     Qt.callLater(function() {
       if (!root || handle.aborted) return
-      var out = []
-      for (var i = 0; i < list.length; i++) {
+      var output = []
+      for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
         if (root.usesBackend()) {
-          var resource = root.messageResources[String(list[i])]
-          if (resource) out.push(resource)
+          var resource = root.messageResources[String(list[itemIndex])]
+          if (resource) output.push(resource)
           continue
         }
 
       }
-      if (out.length > 0 && typeof progress === "function") progress(out)
-      callback(out, out.length > 0 || list.length === 0 ? ""
+      if (output.length > 0 && typeof progress === "function") progress(output)
+      callback(output, output.length > 0 || list.length === 0 ? ""
         : "Those messages are no longer in the mailbox")
     })
     return handle
@@ -307,13 +307,13 @@ Item {
     var list = Array.isArray(ids) ? ids : [ids]
     var updated = {}
     for (var resourceId in messageResources) updated[resourceId] = messageResources[resourceId]
-    for (var r = 0; r < list.length; r++) {
-      var resource = updated[String(list[r])]
+    for (var resourceIndex = 0; resourceIndex < list.length; resourceIndex++) {
+      var resource = updated[String(list[resourceIndex])]
       if (!resource) continue
       var changed = Object.assign({}, resource)
       changed.labelIds = resource.labelIds.filter(function(label) { return label !== "UNREAD" })
       if (verb === "markUnread") changed.labelIds.push("UNREAD")
-      updated[String(list[r])] = changed
+      updated[String(list[resourceIndex])] = changed
     }
     messageResources = updated
   }
@@ -328,10 +328,10 @@ Item {
   // command has.
   function messageParams(payload, draft) {
     var value = payload || {}
-    var params = { raw: String(value.raw || ""), threadId: String(value.threadId || ""),
+    var parameters = { raw: String(value.raw || ""), threadId: String(value.threadId || ""),
       attachments: Array.isArray(value.attachments) ? value.attachments : [] }
-    if (draft) params.draftId = String(value.draftId || "")
-    return params
+    if (draft) parameters.draftId = String(value.draftId || "")
+    return parameters
   }
   function sendMessage(payload, callback) {
     return backendRead("hey.send", messageParams(payload, false), callback, newHandle())

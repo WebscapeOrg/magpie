@@ -36,7 +36,7 @@ Item {
     if (handle.requestId && backend && backend.ready)
       backend.call("jmap.cancel", { requestId: handle.requestId }, function() {})
     var children = handle.children || []
-    for (var i = 0; i < children.length; i++) abortRequest(children[i])
+    for (var itemIndex = 0; itemIndex < children.length; itemIndex++) abortRequest(children[itemIndex])
   }
   function applyState(state) {
     if (!state) return
@@ -58,7 +58,7 @@ Item {
     if (code === "jmap_timeout" || code === "request_timed_out") return "The mail server took too long to answer"
     return "The mail server could not complete this request"
   }
-  function nativeRequest(method, params, callback, existingHandle) {
+  function nativeRequest(method, parameters, callback, existingHandle) {
     var handle = existingHandle || newHandle()
     if (handle.aborted) return handle
     if (credentialsRejected) {
@@ -73,7 +73,7 @@ Item {
     var generation = epoch
     var requestId = "jmap-" + account + "-" + Date.now() + "-" + (++sequence)
     handle.requestId = requestId
-    var request = Object.assign({}, params || {}, { accountId: account, requestId: requestId })
+    var request = Object.assign({}, parameters || {}, { accountId: account, requestId: requestId })
     inFlight++
     backend.call(method, request, function(result, error) {
       if (!root) return

@@ -163,9 +163,9 @@ Item {
     var context = sessionContext()
     var waiting = graphWaiters
     graphWaiters = []
-    for (var i = 0; i < waiting.length; i++) {
+    for (var itemIndex = 0; itemIndex < waiting.length; itemIndex++) {
       var current = isCurrent(context) && sessionEnabled
-      try { waiting[i](current ? token : "", current ? error : "Session changed") }
+      try { waiting[itemIndex](current ? token : "", current ? error : "Session changed") }
       catch (error) { /* Invariant: one consumer cannot strand another waiter. */ }
     }
   }
@@ -381,13 +381,13 @@ Item {
     var context = sessionContext()
     var pending = tokenWaiters.slice()
     tokenWaiters = []
-    for (var i = 0; i < pending.length; i++) {
+    for (var itemIndex = 0; itemIndex < pending.length; itemIndex++) {
       // A consumer can synchronously sign out or switch accounts. Remaining
       // callbacks still belong to the session captured above.
       var current = isCurrent(context) && sessionEnabled
-      try { pending[i](current ? (token || "") : "",
+      try { pending[itemIndex](current ? (token || "") : "",
         current ? safeError(error) : "Session changed") }
-      catch (e) { /* consumers own their callback errors */ }
+      catch (error) { /* consumers own their callback errors */ }
     }
   }
 
@@ -535,16 +535,16 @@ Item {
     var id = ++tokenRequestCount
     var request = { abort: function() {
       var kept = []
-      for (var i = 0; i < root.tokenRequests.length; i++) {
-        if (root.tokenRequests[i].id !== id) kept.push(root.tokenRequests[i])
+      for (var itemIndex = 0; itemIndex < root.tokenRequests.length; itemIndex++) {
+        if (root.tokenRequests[itemIndex].id !== id) kept.push(root.tokenRequests[itemIndex])
       }
       root.tokenRequests = kept
     } }
     tokenRequests = tokenRequests.concat([{ id: id, request: request }])
     function finish(result, error) {
       var live = false
-      for (var i = 0; i < root.tokenRequests.length; i++) {
-        if (root.tokenRequests[i].id === id) live = true
+      for (var itemIndex = 0; itemIndex < root.tokenRequests.length; itemIndex++) {
+        if (root.tokenRequests[itemIndex].id === id) live = true
       }
       if (!live) return
       request.abort()
@@ -830,8 +830,8 @@ Item {
     cancelDeviceLogin()
     var open = tokenRequests
     tokenRequests = []
-    for (var i = 0; i < open.length; i++) {
-      if (open[i].request && open[i].request.abort) open[i].request.abort()
+    for (var itemIndex = 0; itemIndex < open.length; itemIndex++) {
+      if (open[itemIndex].request && open[itemIndex].request.abort) open[itemIndex].request.abort()
     }
     refreshBusy = false
     loginBusy = false

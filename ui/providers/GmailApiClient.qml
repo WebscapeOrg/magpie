@@ -69,7 +69,7 @@ Item {
     return "Gmail backend could not complete this request"
   }
 
-  function backendRequest(method, params, callback) {
+  function backendRequest(method, parameters, callback) {
     var handle = newHandle()
     var account = auth ? String(auth.accountId || "") : ""
     if (!usesBackend() || !auth || !auth.loggedIn || account === "") {
@@ -82,7 +82,7 @@ Item {
     backendAccount = account
     var epoch = backendEpoch
     var session = auth
-    params.accountId = account
+    parameters.accountId = account
     root.inFlight++
     var settled = false
     function deliver(result, error) {
@@ -94,7 +94,7 @@ Item {
       if (typeof callback === "function")
         callback(error ? null : result, error ? backendError(error, method) : "")
     }
-    var pending = backend.call(method, params, function(result, error) {
+    var pending = backend.call(method, parameters, function(result, error) {
       if (!error && result && result.queued === true && String(result.ticket || "") !== "") {
         root.park(String(result.ticket), method, deliver)
         return
@@ -122,8 +122,8 @@ Item {
     parked = next
   }
 
-  function settle(params) {
-    var ticket = String(params && params.ticket || "")
+  function settle(parameters) {
+    var ticket = String(parameters && parameters.ticket || "")
     var entry = parked[ticket]
     if (!entry) return
     var next = Object.assign({}, parked)
@@ -131,19 +131,19 @@ Item {
     parked = next
     entry.watchdog.stop()
     entry.watchdog.destroy()
-    if (params.ok === true) entry.deliver({}, null)
-    else entry.deliver(null, { message: String(params.error || "gmail_queue_lost") })
+    if (parameters.ok === true) entry.deliver({}, null)
+    else entry.deliver(null, { message: String(parameters.error || "gmail_queue_lost") })
   }
 
   // The backend that held the queue is gone with it.
   function settleAll(error) {
     var tickets = Object.keys(parked)
-    for (var i = 0; i < tickets.length; i++) settle({ ticket: tickets[i], ok: false, error: error })
+    for (var itemIndex = 0; itemIndex < tickets.length; itemIndex++) settle({ ticket: tickets[itemIndex], ok: false, error: error })
   }
 
   Connections {
     target: root.backend
-    function onNotification(method, params) { if (method === "gmail.settled") root.settle(params) }
+    function onNotification(method, parameters) { if (method === "gmail.settled") root.settle(parameters) }
     function onReadyChanged() { if (!root.backend.ready) root.settleAll("gmail_queue_lost") }
   }
 
@@ -152,7 +152,7 @@ Item {
     handle.aborted = true
     if (typeof handle.withdraw === "function") handle.withdraw()
     var children = handle.children || []
-    for (var i = 0; i < children.length; i++) abortRequest(children[i])
+    for (var itemIndex = 0; itemIndex < children.length; itemIndex++) abortRequest(children[itemIndex])
     handle.children = []
   }
 
@@ -257,8 +257,8 @@ Item {
       if (typeof callback !== "function") return
       flushProgress()
       var ordered = []
-      for (var i = 0; i < results.length; i++) {
-        if (results[i]) ordered.push(results[i])
+      for (var itemIndex = 0; itemIndex < results.length; itemIndex++) {
+        if (results[itemIndex]) ordered.push(results[itemIndex])
       }
       // A partial page is still a failed page: hiding one failed request just
       // because another answered would let the caller keep a continuation
@@ -290,11 +290,11 @@ Item {
     return handle
   }
 
-  function localRequest(method,params,callback) {
+  function localRequest(method,parameters,callback) {
     var identity=backendIdentity
     var handle=newHandle()
-    params.accountId=identity
-    backend.call(method,params,function(result,error) {
+    parameters.accountId=identity
+    backend.call(method,parameters,function(result,error) {
       if (handle.aborted || identity!==root.backendIdentity) return
       callback(result,error ? "Could not read saved mailbox information" : "")
     })
@@ -374,8 +374,8 @@ Item {
       Qt.callLater(function() { if (!handle.aborted && typeof callback === "function") callback(null, "") })
       return handle
     }
-    for (var i = 0; i < list.length; i++) {
-      handle.children.push(backendRequest(method, { id: String(list[i] || "") }, function(payload, error) {
+    for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+      handle.children.push(backendRequest(method, { id: String(list[itemIndex] || "") }, function(payload, error) {
         if (handle.aborted) return
         if (error && !firstError) firstError = error
         remaining--
@@ -408,9 +408,9 @@ Item {
     return backendRequest("gmail.saveDraft", Api.sendBody(payload), callback)
   }
   function updateDraft(messageId, payload, callback) {
-    var params = Api.sendBody(payload)
-    params.id = String(messageId || "")
-    return backendRequest("gmail.updateDraft", params, callback)
+    var parameters = Api.sendBody(payload)
+    parameters.id = String(messageId || "")
+    return backendRequest("gmail.updateDraft", parameters, callback)
   }
   function deleteDraft(messageId, callback) {
     return backendRequest("gmail.deleteDraft", { id: String(messageId || "") }, callback)

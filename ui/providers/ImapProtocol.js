@@ -159,9 +159,9 @@ function domainOf(address) {
 function presetFor(address) {
   var domain = domainOf(address)
   if (!domain) return null
-  for (var i = 0; i < PRESETS.length; i++) {
-    for (var j = 0; j < PRESETS[i].domains.length; j++) {
-      if (PRESETS[i].domains[j] === domain) return PRESETS[i]
+  for (var itemIndex = 0; itemIndex < PRESETS.length; itemIndex++) {
+    for (var nestedIndex = 0; nestedIndex < PRESETS[itemIndex].domains.length; nestedIndex++) {
+      if (PRESETS[itemIndex].domains[nestedIndex] === domain) return PRESETS[itemIndex]
     }
   }
   return null
@@ -315,8 +315,8 @@ var STARTTLS_SMTP_PORTS = [25, 587]
 
 function usesStartTls(port, ports) {
   var value = Number(port)
-  for (var i = 0; i < ports.length; i++) {
-    if (ports[i] === value) return true
+  for (var itemIndex = 0; itemIndex < ports.length; itemIndex++) {
+    if (ports[itemIndex] === value) return true
   }
   return false
 }
@@ -421,8 +421,8 @@ function groupByFolder(ids, maxPerGroup) {
   var list = Array.isArray(ids) ? ids : []
   var order = []
   var groups = {}
-  for (var i = 0; i < list.length; i++) {
-    var parsed = parseMessageId(list[i])
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var parsed = parseMessageId(list[itemIndex])
     if (parsed.uid < 1) continue
     if (!groups[parsed.folder]) {
       groups[parsed.folder] = []
@@ -430,19 +430,19 @@ function groupByFolder(ids, maxPerGroup) {
     }
     groups[parsed.folder].push(parsed.uid)
   }
-  var out = []
+  var output = []
   var limit = Math.max(0, Math.floor(Number(maxPerGroup)) || 0)
-  for (var j = 0; j < order.length; j++) {
-    var folder = order[j]
+  for (var nestedIndex = 0; nestedIndex < order.length; nestedIndex++) {
+    var folder = order[nestedIndex]
     var uids = groups[folder]
     if (limit < 1) {
-      out.push({ folder: folder, uids: uids })
+      output.push({ folder: folder, uids: uids })
       continue
     }
     for (var at = 0; at < uids.length; at += limit)
-      out.push({ folder: folder, uids: uids.slice(at, at + limit) })
+      output.push({ folder: folder, uids: uids.slice(at, at + limit) })
   }
-  return out
+  return output
 }
 
 // ----------------------------------------------------------------- quoting
@@ -467,13 +467,13 @@ function quote(value) {
 // arrived in a response can extend a command.
 function sequenceSet(uids) {
   var list = Array.isArray(uids) ? uids : []
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var uid = Math.floor(Number(list[i]))
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var uid = Math.floor(Number(list[itemIndex]))
     if (!isFinite(uid) || uid < 1) continue
-    out.push(String(uid))
+    output.push(String(uid))
   }
-  return out.join(",")
+  return output.join(",")
 }
 
 // ---------------------------------------------------------------- commands
@@ -504,8 +504,8 @@ function uidListCommand() {
 // and running the range up to `*` rather than back to the count keeps a
 // message delivered between the two from sitting above the ceiling unseen.
 function topUidCommand(count) {
-  var n = Math.floor(Number(count))
-  return isFinite(n) && n >= 1 ? "FETCH " + n + ":* (UID)" : ""
+  var messageCount = Math.floor(Number(count))
+  return isFinite(messageCount) && messageCount >= 1 ? "FETCH " + messageCount + ":* (UID)" : ""
 }
 
 // A SEARCH over a known UID snapshot can be split without using message
@@ -538,15 +538,15 @@ function searchWindow(criteria, highestUid) {
 function sortedUids(values) {
   var list = Array.isArray(values) ? values : []
   var found = {}
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var uid = Math.floor(Number(list[i]))
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var uid = Math.floor(Number(list[itemIndex]))
     if (!isFinite(uid) || uid < 1 || found[uid]) continue
     found[uid] = true
-    out.push(uid)
+    output.push(uid)
   }
-  out.sort(function(a, b) { return a - b })
-  return out
+  output.sort(function(left, right) { return left - right })
+  return output
 }
 
 function searchCommands(criteria, snapshot, highestUid) {
@@ -561,8 +561,8 @@ function searchCommands(criteria, snapshot, highestUid) {
   var ceiling = Math.floor(Number(highestUid))
   if (isFinite(ceiling) && ceiling > 0) {
     var below = []
-    for (var i = 0; i < uids.length; i++) {
-      if (uids[i] <= ceiling) below.push(uids[i])
+    for (var itemIndex = 0; itemIndex < uids.length; itemIndex++) {
+      if (uids[itemIndex] <= ceiling) below.push(uids[itemIndex])
     }
     uids = below
   }
@@ -814,12 +814,12 @@ function splitResponse(text) {
 function parseSearch(text) {
   var lines = splitResponse(text)
   var uids = []
-  for (var i = 0; i < lines.length; i++) {
-    var match = lines[i].match(/^\*\s+(?:SEARCH|ESEARCH)\b([\s\S]*)$/i)
+  for (var itemIndex = 0; itemIndex < lines.length; itemIndex++) {
+    var match = lines[itemIndex].match(/^\*\s+(?:SEARCH|ESEARCH)\b([\s\S]*)$/i)
     if (!match) continue
     var numbers = match[1].match(/\d+/g) || []
-    for (var j = 0; j < numbers.length; j++) {
-      var uid = Math.floor(Number(numbers[j]))
+    for (var nestedIndex = 0; nestedIndex < numbers.length; nestedIndex++) {
+      var uid = Math.floor(Number(numbers[nestedIndex]))
       if (isFinite(uid) && uid > 0) uids.push(uid)
     }
   }
@@ -832,7 +832,7 @@ function parseSearch(text) {
 function parseUidList(text) {
   var entries = parseFetch(text)
   var uids = []
-  for (var i = 0; i < entries.length; i++) uids.push(entries[i].uid)
+  for (var itemIndex = 0; itemIndex < entries.length; itemIndex++) uids.push(entries[itemIndex].uid)
   return sortedUids(uids)
 }
 
@@ -859,11 +859,11 @@ function parseFlags(line) {
   var match = String(line || "").match(/FLAGS\s*\(([^)]*)\)/i)
   if (!match) return []
   var flags = match[1].split(/\s+/)
-  var out = []
-  for (var i = 0; i < flags.length; i++) {
-    if (trimmed(flags[i]) !== "") out.push(trimmed(flags[i]))
+  var output = []
+  for (var itemIndex = 0; itemIndex < flags.length; itemIndex++) {
+    if (trimmed(flags[itemIndex]) !== "") output.push(trimmed(flags[itemIndex]))
   }
-  return out
+  return output
 }
 
 // The body of a FETCH item that arrived as a literal. Everything this client
@@ -906,13 +906,13 @@ function parseInternalDate(line) {
 // keyed on one would act on whichever message had slid into that position.
 function parseFetch(text) {
   var lines = splitResponse(text)
-  var out = []
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i]
+  var output = []
+  for (var itemIndex = 0; itemIndex < lines.length; itemIndex++) {
+    var line = lines[itemIndex]
     if (!/^\*\s+\d+\s+FETCH\s/i.test(line)) continue
     var uid = Math.floor(Number(fetchItem(line, "UID")))
     if (!isFinite(uid) || uid < 1) continue
-    out.push({
+    output.push({
       uid: uid,
       flags: parseFlags(line),
       internalDate: parseInternalDate(line),
@@ -920,15 +920,15 @@ function parseFetch(text) {
       raw: parseLiteralBody(line)
     })
   }
-  return out
+  return output
 }
 
 // `* STATUS "INBOX" (MESSAGES 42 UNSEEN 3)`
 function parseStatus(text) {
   var lines = splitResponse(text)
   var result = { messages: 0, unseen: 0 }
-  for (var i = 0; i < lines.length; i++) {
-    var match = lines[i].match(/^\*\s+STATUS\s+[^(]*\(([^)]*)\)/i)
+  for (var itemIndex = 0; itemIndex < lines.length; itemIndex++) {
+    var match = lines[itemIndex].match(/^\*\s+STATUS\s+[^(]*\(([^)]*)\)/i)
     if (!match) continue
     var messages = match[1].match(/MESSAGES\s+(\d+)/i)
     var unseen = match[1].match(/UNSEEN\s+(\d+)/i)
@@ -951,18 +951,18 @@ function folderName(value) {
 // `* LIST (\HasNoChildren \Sent) "/" "Sent Items"`
 function parseList(text) {
   var lines = splitResponse(text)
-  var out = []
-  for (var i = 0; i < lines.length; i++) {
-    var match = lines[i].match(/^\*\s+(?:LIST|LSUB|XLIST)\s+\(([^)]*)\)\s+(NIL|"(?:[^"\\]|\\.)*"|\S+)\s+([\s\S]*)$/i)
+  var output = []
+  for (var itemIndex = 0; itemIndex < lines.length; itemIndex++) {
+    var match = lines[itemIndex].match(/^\*\s+(?:LIST|LSUB|XLIST)\s+\(([^)]*)\)\s+(NIL|"(?:[^"\\]|\\.)*"|\S+)\s+([\s\S]*)$/i)
     if (!match) continue
     var flags = []
     var rawFlags = match[1].split(/\s+/)
-    for (var j = 0; j < rawFlags.length; j++) {
-      if (trimmed(rawFlags[j]) !== "") flags.push(trimmed(rawFlags[j]))
+    for (var nestedIndex = 0; nestedIndex < rawFlags.length; nestedIndex++) {
+      if (trimmed(rawFlags[nestedIndex]) !== "") flags.push(trimmed(rawFlags[nestedIndex]))
     }
     var name = folderName(match[3])
     if (name === "") continue
-    out.push({
+    output.push({
       name: name,
       delimiter: match[2] === "NIL" ? "" : unquoteImap(match[2]),
       flags: flags,
@@ -971,7 +971,7 @@ function parseList(text) {
       selectable: flags.join(" ").toLowerCase().indexOf("\\noselect") < 0
     })
   }
-  return out
+  return output
 }
 
 // ------------------------------------------------- mailbox names on the wire
@@ -1001,8 +1001,8 @@ function decodeShift(chunk) {
   var width = 0
   var units = []
   var pending = -1
-  for (var i = 0; i < chunk.length; i++) {
-    var value = MODIFIED_BASE64.indexOf(chunk.charAt(i))
+  for (var itemIndex = 0; itemIndex < chunk.length; itemIndex++) {
+    var value = MODIFIED_BASE64.indexOf(chunk.charAt(itemIndex))
     if (value < 0) return null
     bits = (bits << 6) | value
     width += 6
@@ -1022,39 +1022,39 @@ function decodeShift(chunk) {
   if (pending >= 0) return null
   if (width > 0 && (bits & ((1 << width) - 1)) !== 0) return null
   if (units.length === 0) return null
-  var out = ""
-  for (var j = 0; j < units.length; j++) out += String.fromCharCode(units[j])
-  return out
+  var output = ""
+  for (var nestedIndex = 0; nestedIndex < units.length; nestedIndex++) output += String.fromCharCode(units[nestedIndex])
+  return output
 }
 
 function decodeMailbox(name) {
   var text = String(name === undefined || name === null ? "" : name)
   if (text.indexOf("&") < 0) return text
-  var out = ""
+  var output = ""
   var at = 0
   while (at < text.length) {
     if (text.charAt(at) !== "&") {
-      out += text.charAt(at)
+      output += text.charAt(at)
       at++
       continue
     }
     var close = text.indexOf("-", at + 1)
     if (close < 0) {
       // An unterminated run is not a name this can improve on.
-      out += text.substring(at)
+      output += text.substring(at)
       break
     }
     var chunk = text.substring(at + 1, close)
     if (chunk === "") {
       // "&-" is how the protocol spells an ampersand.
-      out += "&"
+      output += "&"
     } else {
       var decoded = decodeShift(chunk)
-      out += decoded === null ? text.substring(at, close + 1) : decoded
+      output += decoded === null ? text.substring(at, close + 1) : decoded
     }
     at = close + 1
   }
-  return out
+  return output
 }
 
 // The other direction, for a name the user typed that is about to be sent in
@@ -1065,39 +1065,39 @@ function decodeMailbox(name) {
 // round trip.
 function encodeMailbox(name) {
   var text = String(name === undefined || name === null ? "" : name)
-  var out = ""
+  var output = ""
   var run = ""
   function flush() {
     if (run === "") return
     var bytes = []
-    for (var i = 0; i < run.length; i++) {
-      var code = run.charCodeAt(i)
+    for (var itemIndex = 0; itemIndex < run.length; itemIndex++) {
+      var code = run.charCodeAt(itemIndex)
       bytes.push((code >> 8) & 0xff, code & 0xff)
     }
     var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+,"
     var encoded = ""
-    for (var b = 0; b < bytes.length; b += 3) {
-      var n = (bytes[b] << 16) | ((b + 1 < bytes.length ? bytes[b + 1] : 0) << 8)
-        | (b + 2 < bytes.length ? bytes[b + 2] : 0)
-      encoded += alphabet.charAt((n >> 18) & 63) + alphabet.charAt((n >> 12) & 63)
-      if (b + 1 < bytes.length) encoded += alphabet.charAt((n >> 6) & 63)
-      if (b + 2 < bytes.length) encoded += alphabet.charAt(n & 63)
+    for (var byteIndex = 0; byteIndex < bytes.length; byteIndex += 3) {
+      var packedBytes = (bytes[byteIndex] << 16) | ((byteIndex + 1 < bytes.length ? bytes[byteIndex + 1] : 0) << 8)
+        | (byteIndex + 2 < bytes.length ? bytes[byteIndex + 2] : 0)
+      encoded += alphabet.charAt((packedBytes >> 18) & 63) + alphabet.charAt((packedBytes >> 12) & 63)
+      if (byteIndex + 1 < bytes.length) encoded += alphabet.charAt((packedBytes >> 6) & 63)
+      if (byteIndex + 2 < bytes.length) encoded += alphabet.charAt(packedBytes & 63)
     }
-    out += "&" + encoded + "-"
+    output += "&" + encoded + "-"
     run = ""
   }
-  for (var at = 0; at < text.length; at++) {
-    var ch = text.charAt(at)
-    var code = text.charCodeAt(at)
+  for (var characterOffset = 0; characterOffset < text.length; characterOffset++) {
+    var character = text.charAt(characterOffset)
+    var code = text.charCodeAt(characterOffset)
     if (code >= 0x20 && code <= 0x7e) {
       flush()
-      out += ch === "&" ? "&-" : ch
+      output += character === "&" ? "&-" : character
     } else {
-      run += ch
+      run += character
     }
   }
   flush()
-  return out
+  return output
 }
 
 // The three commands that change the folder list. A name the server already
@@ -1110,10 +1110,10 @@ function encodeMailbox(name) {
 function validFolderName(value) {
   var text = String(value === undefined || value === null ? "" : value)
   if (text === "" || /[\x00-\x1f\x7f]/.test(text)) return false
-  for (var i = 0; i < text.length; i++) {
-    var code = text.charCodeAt(i)
+  for (var itemIndex = 0; itemIndex < text.length; itemIndex++) {
+    var code = text.charCodeAt(itemIndex)
     if (code >= 0xd800 && code <= 0xdbff) {
-      var next = text.charCodeAt(++i)
+      var next = text.charCodeAt(++itemIndex)
       if (!(next >= 0xdc00 && next <= 0xdfff)) return false
     } else if (code >= 0xdc00 && code <= 0xdfff) return false
   }
@@ -1151,8 +1151,8 @@ function isSpecialFolder(folder, special) {
   if (name.toLowerCase() === "inbox") return true
 
   var flags = Array.isArray(entry.flags) ? entry.flags : []
-  for (var i = 0; i < flags.length; i++) {
-    if (SPECIAL_USE.indexOf(String(flags[i]).toLowerCase()) >= 0) return true
+  for (var itemIndex = 0; itemIndex < flags.length; itemIndex++) {
+    if (SPECIAL_USE.indexOf(String(flags[itemIndex]).toLowerCase()) >= 0) return true
   }
 
   // A server with no SPECIAL-USE at all still had its folders matched by name
@@ -1167,19 +1167,19 @@ function isSpecialFolder(folder, special) {
 function specialFolders(folders) {
   var list = Array.isArray(folders) ? folders : []
   var map = {}
-  for (var i = 0; i < list.length; i++) {
-    var flags = list[i].flags || []
-    for (var j = 0; j < flags.length; j++) {
-      var flag = String(flags[j]).toLowerCase()
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var flags = list[itemIndex].flags || []
+    for (var nestedIndex = 0; nestedIndex < flags.length; nestedIndex++) {
+      var flag = String(flags[nestedIndex]).toLowerCase()
       if (SPECIAL_USE.indexOf(flag) < 0) continue
-      if (!map[flag]) map[flag] = list[i].name
+      if (!map[flag]) map[flag] = list[itemIndex].name
     }
   }
   // Gmail's IMAP predates SPECIAL-USE on some accounts and answers with
   // "[Gmail]/Sent Mail" and friends under XLIST-style names instead. Matching
   // on the name is a guess, so it only fills gaps the flags left.
-  for (var k = 0; k < list.length; k++) {
-    var name = String(list[k].name || "")
+  for (var choiceIndex = 0; choiceIndex < list.length; choiceIndex++) {
+    var name = String(list[choiceIndex].name || "")
     var leaf = name.split(/[\/.]/).pop().toLowerCase()
     if (!map["\\sent"] && /^sent( mail| items| messages)?$/.test(leaf)) map["\\sent"] = name
     if (!map["\\trash"] && /^(trash|deleted( items| messages)?)$/.test(leaf)) map["\\trash"] = name
@@ -1203,7 +1203,7 @@ function specialFolders(folders) {
 function labelIdsFor(flags, folder, special) {
   var list = Array.isArray(flags) ? flags : []
   var lowered = []
-  for (var i = 0; i < list.length; i++) lowered.push(String(list[i]).toLowerCase())
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) lowered.push(String(list[itemIndex]).toLowerCase())
 
   var ids = []
   // Unread is the *absence* of \Seen, which is the one inversion in the whole
@@ -1259,8 +1259,8 @@ function flagPlanForLabels(addLabelIds, removeLabelIds, special) {
   var plan = { add: [], remove: [], move: "" }
 
   function has(list, id) {
-    for (var i = 0; i < list.length; i++) {
-      if (String(list[i]).toUpperCase() === id) return true
+    for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+      if (String(list[itemIndex]).toUpperCase() === id) return true
     }
     return false
   }
@@ -1299,8 +1299,8 @@ function folderTarget(addLabelIds, removeLabelIds) {
   var added = Array.isArray(addLabelIds) ? addLabelIds : []
   var removed = Array.isArray(removeLabelIds) ? removeLabelIds : []
   if (added.length === 0) return ""
-  for (var i = 0; i < removed.length; i++) {
-    if (String(removed[i]).toUpperCase() === "INBOX") return String(added[0])
+  for (var itemIndex = 0; itemIndex < removed.length; itemIndex++) {
+    if (String(removed[itemIndex]).toUpperCase() === "INBOX") return String(added[0])
   }
   return ""
 }
@@ -1379,11 +1379,11 @@ function redact(text) {
 // `X-Spam-Flag: NO` is not the server refusing the command.
 function failureCompletion(text) {
   var lines = splitResponse(text)
-  for (var i = 0; i < lines.length; i++) {
+  for (var itemIndex = 0; itemIndex < lines.length; itemIndex++) {
     // A response containing a literal includes the literal's own lines in this
     // string. Only its first protocol line can be a completion, and spaces or
     // tabs — not \s, which also crosses a newline — separate its fields.
-    var first = String(lines[i] || "").split(/\r?\n/)[0]
+    var first = String(lines[itemIndex] || "").split(/\r?\n/)[0]
     var match = first.match(/^([^+*\s]\S*)[ \t]+(NO|BAD)(?:[ \t]+(.*))?$/i)
     if (match) return { detail: trimmed(match[3]) }
   }
@@ -1410,12 +1410,12 @@ function parseCapabilities(text) {
   var match = String(text || "").match(/^\*\s+CAPABILITY\s+([^\r\n]*)/im)
   if (!match) return []
   var words = match[1].split(/\s+/)
-  var out = []
-  for (var i = 0; i < words.length; i++) {
-    var word = trimmed(words[i]).toUpperCase()
-    if (word !== "") out.push(word)
+  var output = []
+  for (var itemIndex = 0; itemIndex < words.length; itemIndex++) {
+    var word = trimmed(words[itemIndex]).toUpperCase()
+    if (word !== "") output.push(word)
   }
-  return out
+  return output
 }
 
 function hasCapability(capabilities, name) {

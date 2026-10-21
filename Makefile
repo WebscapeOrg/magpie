@@ -81,6 +81,17 @@ QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tool
 	ui/components/WeekCalendarView.qml \
 	ui/components/WindowMoveArea.qml \
 	ui/bar/BarPreview.qml
+QML_FILES += ui/tests/qml/tst_account_message_identity.qml
+QML_FILES += ui/tests/qml/tst_compose_attachment_recovery.qml
+QML_FILES += ui/tests/qml/tst_compose_geometry.qml
+QML_FILES += ui/tests/qml/tst_event_suggestion_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_google_auth_session.qml
+QML_FILES += ui/tests/qml/tst_message_list_geometry.qml
+QML_FILES += ui/tests/qml/tst_password_sign_in_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_provider_session_callbacks.qml
+QML_FILES += ui/tests/qml/tst_reader_image_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_setup_plaintext.qml
+QML_FILES += ui/tests/qml/tst_signature_import_lifecycle.qml
 APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml
 APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)
@@ -185,6 +196,13 @@ test-shell-portable: test-shell-independent
 	python3 tests/test_public_http.py
 
 test-shell-independent:
+	python3 tests/test_register_mailto.py
+	python3 tests/test_qml_native_resources.py
+	python3 tests/test_published_agent_contract.py
+	python3 tests/test_config_store_paths.py
+	python3 tests/test_ci_report.py
+	python3 tests/test_body_cache_paths.py
+	python3 tests/test_backend_process_cleanup.py
 	python3 tests/test_benchmark_processes.py
 	python3 tests/test_benchmark_results.py
 	python3 tests/test_app_make.py
@@ -250,6 +268,7 @@ test-qml:
 	python3 tests/run_qml_native.py "$(QMLTESTRUNNER)" -input ui/tests/qml
 	python3 tests/test_outlook_http.py "$(QMLTESTRUNNER)"
 	python3 tests/test_sidebar_text.py "$(QMLTESTRUNNER)"
+	python3 tests/test_view_resources.py "$(QMLTESTRUNNER)"
 	python3 tests/test_attachment_resources.py "$(QMLTESTRUNNER)"
 	QMLTESTRUNNER="$(QMLTESTRUNNER)" cargo test --locked --lib message::html::tests::native_output_cannot_trigger_qt_resource_requests -- --ignored
 

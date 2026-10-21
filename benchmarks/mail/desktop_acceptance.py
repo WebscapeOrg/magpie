@@ -2,6 +2,7 @@
 """Measure a synthetic native window through physical or virtual display capture."""
 import argparse
 import base64
+from contextlib import ExitStack
 import hashlib
 import io
 import json
@@ -172,6 +173,17 @@ def accessibility(pid, stage, output):
     (output / (stage + ".done")).touch()
 
 
+def stop_process(process):
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
@@ -195,143 +207,136 @@ def main():
         parser.error("Use at least 50 messages, 3 samples and nonnegative HTML size")
     env = seed(output, binary, args.messages, args.html_bytes)
     env["GSETTINGS_BACKEND"] = "memory"
-    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"], env=env,
-                           stdout=subprocess.PIPE, stderr=(output / "dbus.log").open("w"), text=True)
-    env["DBUS_SESSION_BUS_ADDRESS"] = bus.stdout.readline().strip()
-    os.environ["DBUS_SESSION_BUS_ADDRESS"] = env["DBUS_SESSION_BUS_ADDRESS"]
-    server = None
-    if args.display_mode == "physical":
-        instances = json.loads(subprocess.check_output(["hyprctl", "instances", "-j"], text=True))
-        if len(instances) != 1:
-            raise RuntimeError("Expected one available Hyprland session")
-        env.update(HYPRLAND_INSTANCE_SIGNATURE=instances[0]["instance"], WAYLAND_DISPLAY=instances[0]["wl_socket"],
-                   QT_QPA_PLATFORM="wayland")
-    else:
-        server = subprocess.Popen(["Xvfb", "-displayfd", "1", "-screen", "0", "1920x1600x24", "-nolisten", "tcp"],
-                                  stdout=subprocess.PIPE, stderr=(output / "xvfb.log").open("w"), text=True)
-        env.update(DISPLAY=":" + server.stdout.readline().strip(), QT_QPA_PLATFORM="xcb")
-    env.update(QT_SCALE_FACTOR=args.scale, OMAMAIL_DEVELOPMENT_RESOURCES="1",
-               OMAMAIL_BIN=str(binary), MAGPIE_DESKTOP_OPTIONS=str(output / "options.json"),
-               QT_ACCESSIBILITY="1", QT_LINUX_ACCESSIBILITY_ALWAYS_ON="1")
-    env.pop("QT_QUICK_BACKEND", None)
-    private(output / "options.json", json.dumps({"output": str(output), "samples": args.samples,
-                                                "largeIds": [f"synthetic-{args.messages-1-i:08}" for i in range(3)] if args.html_bytes else [],
-                                                "accessibility": args.accessibility}))
-    if args.accessibility:
-        subprocess.run(["gdbus", "call", "--session", "--dest", "org.a11y.Bus", "--object-path", "/org/a11y/bus",
-                        "--method", "org.freedesktop.DBus.Properties.Set", "org.a11y.Status", "IsEnabled", "<true>"],
-                       check=True, capture_output=True, text=True, env=env)
-    launched = time.time() * 1000
-    process = subprocess.Popen([str(driver), "-input", str(ROOT / "benchmarks/mail/tst_desktop.qml")],
-                               env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    lines = queue.Queue()
+    with ExitStack() as cleanup:
+        bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"], env=env,
+                               stdout=subprocess.PIPE, stderr=cleanup.enter_context((output / "dbus.log").open("w")), text=True)
+        cleanup.callback(stop_process, bus)
+        env["DBUS_SESSION_BUS_ADDRESS"] = bus.stdout.readline().strip()
+        os.environ["DBUS_SESSION_BUS_ADDRESS"] = env["DBUS_SESSION_BUS_ADDRESS"]
+        server = None
+        if args.display_mode == "physical":
+            instances = json.loads(subprocess.check_output(["hyprctl", "instances", "-j"], text=True))
+            if len(instances) != 1:
+                raise RuntimeError("Expected one available Hyprland session")
+            env.update(HYPRLAND_INSTANCE_SIGNATURE=instances[0]["instance"], WAYLAND_DISPLAY=instances[0]["wl_socket"],
+                       QT_QPA_PLATFORM="wayland")
+        else:
+            server = subprocess.Popen(["Xvfb", "-displayfd", "1", "-screen", "0", "1920x1600x24", "-nolisten", "tcp"],
+                                      stdout=subprocess.PIPE, stderr=cleanup.enter_context((output / "xvfb.log").open("w")), text=True)
+            cleanup.callback(stop_process, server)
+            env.update(DISPLAY=":" + server.stdout.readline().strip(), QT_QPA_PLATFORM="xcb")
+        env.update(QT_SCALE_FACTOR=args.scale, OMAMAIL_DEVELOPMENT_RESOURCES="1",
+                   OMAMAIL_BIN=str(binary), MAGPIE_DESKTOP_OPTIONS=str(output / "options.json"),
+                   QT_ACCESSIBILITY="1", QT_LINUX_ACCESSIBILITY_ALWAYS_ON="1")
+        env.pop("QT_QUICK_BACKEND", None)
+        private(output / "options.json", json.dumps({"output": str(output), "samples": args.samples,
+                                                    "largeIds": [f"synthetic-{args.messages-1-i:08}" for i in range(3)] if args.html_bytes else [],
+                                                    "accessibility": args.accessibility}))
+        if args.accessibility:
+            subprocess.run(["gdbus", "call", "--session", "--dest", "org.a11y.Bus", "--object-path", "/org/a11y/bus",
+                            "--method", "org.freedesktop.DBus.Properties.Set", "org.a11y.Status", "IsEnabled", "<true>"],
+                           check=True, capture_output=True, text=True, env=env)
+        launched = time.time() * 1000
+        process = subprocess.Popen([str(driver), "-input", str(ROOT / "benchmarks/mail/tst_desktop.qml")],
+                                   env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        cleanup.callback(stop_process, process)
+        lines = queue.Queue()
 
-    def read():
-        for line in process.stdout:
-            lines.put(line)
-        lines.put(None)
+        def read():
+            for line in process.stdout:
+                lines.put(line)
+            lines.put(None)
 
-    threading.Thread(target=read, daemon=True).start()
-    results = []
-    code = None
-    failure = None
-    deadline = time.monotonic() + 180
-    try:
-        with (output / "desktop.log").open("w") as log:
-            while time.monotonic() < deadline:
-                line = lines.get(timeout=20)
-                if line is None:
-                    break
-                log.write(line)
-                log.flush()
-                if "DESKTOP_CHECKPOINT accessibility-" in line and args.accessibility:
-                    accessibility(process.pid, line.split("DESKTOP_CHECKPOINT ", 1)[1].strip(), output)
-                if "DESKTOP_CAPTURE " not in line:
-                    continue
-                event = json.loads(line.split("DESKTOP_CAPTURE ", 1)[1])
-                window = window_for(env, process.pid) if args.display_mode == "physical" else {
-                    "at": [0, 0], "size": [round(1024 * float(args.scale)), round(768 * float(args.scale))]}
-                if not window:
-                    raise RuntimeError("Synthetic window is not mapped")
-                expected = event["serial"] % 2
-                until = time.monotonic() + 10
-                while time.monotonic() < until:
-                    if args.display_mode == "physical": window = window_for(env, process.pid)
-                    x, y = window["at"]
-                    scale = float(args.scale)
-                    region = f"{x + round(12 * scale)},{y + round(12 * scale)} 2x2"
-                    if args.display_mode == "physical":
-                        capture = subprocess.check_output(["grim", "-g", region, "-t", "ppm", "-"], env=env, timeout=5)
-                        pixels = Image.open(io.BytesIO(capture)).convert("RGB")
-                    else:
-                        pixels = ImageGrab.grab(xdisplay=env["DISPLAY"]).crop((round(12*scale), round(12*scale), round(12*scale)+2, round(12*scale)+2)).convert("RGB")
-                    red, green, blue = pixels.getpixel((0, 0))
-                    if blue > 100 and ((expected and red > green + 80) or (not expected and green > red + 80)):
-                        elapsed = time.time() * 1000 - (launched if event["kind"] == "coldInbox" else event["started"])
+        threading.Thread(target=read, daemon=True).start()
+        results = []
+        code = None
+        failure = None
+        deadline = time.monotonic() + 180
+        try:
+            with (output / "desktop.log").open("w") as log:
+                while time.monotonic() < deadline:
+                    line = lines.get(timeout=20)
+                    if line is None:
                         break
+                    log.write(line)
+                    log.flush()
+                    if "DESKTOP_CHECKPOINT accessibility-" in line and args.accessibility:
+                        accessibility(process.pid, line.split("DESKTOP_CHECKPOINT ", 1)[1].strip(), output)
+                    if "DESKTOP_CAPTURE " not in line:
+                        continue
+                    event = json.loads(line.split("DESKTOP_CAPTURE ", 1)[1])
+                    window = window_for(env, process.pid) if args.display_mode == "physical" else {
+                        "at": [0, 0], "size": [round(1024 * float(args.scale)), round(768 * float(args.scale))]}
+                    if not window:
+                        raise RuntimeError("Synthetic window is not mapped")
+                    expected = event["serial"] % 2
+                    until = time.monotonic() + 10
+                    while time.monotonic() < until:
+                        if args.display_mode == "physical": window = window_for(env, process.pid)
+                        x, y = window["at"]
+                        scale = float(args.scale)
+                        region = f"{x + round(12 * scale)},{y + round(12 * scale)} 2x2"
+                        if args.display_mode == "physical":
+                            capture = subprocess.check_output(["grim", "-g", region, "-t", "ppm", "-"], env=env, timeout=5)
+                            pixels = Image.open(io.BytesIO(capture)).convert("RGB")
+                        else:
+                            pixels = ImageGrab.grab(xdisplay=env["DISPLAY"]).crop((round(12*scale), round(12*scale), round(12*scale)+2, round(12*scale)+2)).convert("RGB")
+                        red, green, blue = pixels.getpixel((0, 0))
+                        if blue > 100 and ((expected and red > green + 80) or (not expected and green > red + 80)):
+                            elapsed = time.time() * 1000 - (launched if event["kind"] == "coldInbox" else event["started"])
+                            break
+                    else:
+                        private(output / "window.json", json.dumps(window, indent=2))
+                        x, y = window["at"]
+                        width, height = window["size"]
+                        if args.display_mode == "physical":
+                            subprocess.run(["grim", "-g", f"{x},{y} {width}x{height}", str(output / "failed-window.png")], env=env, check=True)
+                        else:
+                            ImageGrab.grab(xdisplay=env["DISPLAY"]).save(output / "failed-window.png")
+                        raise RuntimeError(f"Compositor never presented marker {expected}; last pixel {pixels.getpixel((0, 0))}")
+                    results.append(dict(event, presentedMs=round(elapsed, 3)))
+                    if event["kind"] in ("coldInbox", "compose", "composeFocus", "largeHtml", "offlineEdit"):
+                        x, y = window["at"]
+                        width, height = window["size"]
+                        if args.display_mode == "physical":
+                            subprocess.run(["grim", "-g", f"{x},{y} {width}x{height}", str(output / (event["kind"] + ".png"))], env=env, check=True)
+                        else:
+                            ImageGrab.grab(xdisplay=env["DISPLAY"]).crop((0,0,width,height)).save(output / (event["kind"] + ".png"))
+                    (output / ("capture-" + str(event["serial"]))).touch()
                 else:
-                    private(output / "window.json", json.dumps(window, indent=2))
-                    x, y = window["at"]
-                    width, height = window["size"]
-                    if args.display_mode == "physical":
-                        subprocess.run(["grim", "-g", f"{x},{y} {width}x{height}", str(output / "failed-window.png")], env=env, check=True)
-                    else:
-                        ImageGrab.grab(xdisplay=env["DISPLAY"]).save(output / "failed-window.png")
-                    raise RuntimeError(f"Compositor never presented marker {expected}; last pixel {pixels.getpixel((0, 0))}")
-                results.append(dict(event, presentedMs=round(elapsed, 3)))
-                if event["kind"] in ("coldInbox", "compose", "composeFocus", "largeHtml", "offlineEdit"):
-                    x, y = window["at"]
-                    width, height = window["size"]
-                    if args.display_mode == "physical":
-                        subprocess.run(["grim", "-g", f"{x},{y} {width}x{height}", str(output / (event["kind"] + ".png"))], env=env, check=True)
-                    else:
-                        ImageGrab.grab(xdisplay=env["DISPLAY"]).crop((0,0,width,height)).save(output / (event["kind"] + ".png"))
-                (output / ("capture-" + str(event["serial"]))).touch()
-            else:
-                raise RuntimeError("Desktop acceptance timed out")
-        code = process.wait(timeout=10)
-    except Exception as error:
-        failure = str(error)
-        raise
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try: process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=10)
-        if server is not None:
-            server.terminate()
-            server.wait(timeout=10)
-        bus.terminate()
-        bus.wait(timeout=10)
-        groups = {}
-        for result in results:
-            groups.setdefault(result["kind"], []).append(result["presentedMs"])
-        summary = {kind: {"samplesMs": values, "p95Ms": sorted(values)[math.ceil(.95 * len(values)) - 1]}
-                   for kind, values in groups.items()}
-        unchanged = (source_before == source_hash()
-                     and backend_hash == hashlib.sha256(binary.read_bytes()).hexdigest()
-                     and driver_hash == hashlib.sha256(driver.read_bytes()).hexdigest())
-        if not unchanged:
-            failure = "Source or binaries changed during measurement"
-            code = 1
-        report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-                  "sourceSha256": source_before, "driverSha256": driver_hash,
-                  "backendSha256": backend_hash, "messages": args.messages,
-                  "largeHtmlBytes": args.html_bytes,
-                  "backendPath": str(binary), "driverPath": str(driver),
-                  "cpu": next((line.split(":", 1)[1].strip() for line in Path("/proc/cpuinfo").read_text().splitlines() if line.startswith("model name")), "unknown"),
-                  "qt": next((line for line in (output / "desktop.log").read_text().splitlines() if line.startswith("Config:")), "unknown"),
-                  "viewport": [1024, 768], "osCaches": "warm", "input": "Qt key event delivered to the actual application window",
-                  "themeSha256": {name: hashlib.sha256((Path(env["HOME"]) / ".local/state/omarchy/current/theme" / name).read_bytes()).hexdigest()
-                                   for name in ("colors.toml", "shell.toml") if (Path(env["HOME"]) / ".local/state/omarchy/current/theme" / name).exists()},
-                  "scale": args.scale, "platform": platform.platform(), "results": summary, "raw": results,
-                  "status": "pass" if code == 0 and failure is None else "fail", "error": failure,
-                  "statusScope": "Functional acceptance only; compare timings with targets separately.",
-                  "displayMode": args.display_mode,
-                  "boundary": "Input/RPC/model/layout to captured pixels. Includes capture overhead. Cold means new app/backend processes; OS caches are warm. Xvfb measures an isolated virtual display, not physical compositor presentation."}
-        private(output / "results.json", json.dumps(report, indent=2))
+                    raise RuntimeError("Desktop acceptance timed out")
+            code = process.wait(timeout=10)
+        except Exception as error:
+            failure = str(error)
+            raise
+        finally:
+            groups = {}
+            for result in results:
+                groups.setdefault(result["kind"], []).append(result["presentedMs"])
+            summary = {kind: {"samplesMs": values, "p95Ms": sorted(values)[math.ceil(.95 * len(values)) - 1]}
+                       for kind, values in groups.items()}
+            unchanged = (source_before == source_hash()
+                         and backend_hash == hashlib.sha256(binary.read_bytes()).hexdigest()
+                         and driver_hash == hashlib.sha256(driver.read_bytes()).hexdigest())
+            if not unchanged:
+                failure = "Source or binaries changed during measurement"
+                code = 1
+            report = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+                      "sourceSha256": source_before, "driverSha256": driver_hash,
+                      "backendSha256": backend_hash, "messages": args.messages,
+                      "largeHtmlBytes": args.html_bytes,
+                      "backendPath": str(binary), "driverPath": str(driver),
+                      "cpu": next((line.split(":", 1)[1].strip() for line in Path("/proc/cpuinfo").read_text().splitlines() if line.startswith("model name")), "unknown"),
+                      "qt": next((line for line in (output / "desktop.log").read_text().splitlines() if line.startswith("Config:")), "unknown"),
+                      "viewport": [1024, 768], "osCaches": "warm", "input": "Qt key event delivered to the actual application window",
+                      "themeSha256": {name: hashlib.sha256((Path(env["HOME"]) / ".local/state/omarchy/current/theme" / name).read_bytes()).hexdigest()
+                                       for name in ("colors.toml", "shell.toml") if (Path(env["HOME"]) / ".local/state/omarchy/current/theme" / name).exists()},
+                      "scale": args.scale, "platform": platform.platform(), "results": summary, "raw": results,
+                      "status": "pass" if code == 0 and failure is None else "fail", "error": failure,
+                      "statusScope": "Functional acceptance only; compare timings with targets separately.",
+                      "displayMode": args.display_mode,
+                      "boundary": "Input/RPC/model/layout to captured pixels. Includes capture overhead. Cold means new app/backend processes; OS caches are warm. Xvfb measures an isolated virtual display, not physical compositor presentation."}
+            private(output / "results.json", json.dumps(report, indent=2))
     print(json.dumps(summary, indent=2))
     raise SystemExit(code)
 

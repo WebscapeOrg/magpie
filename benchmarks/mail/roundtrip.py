@@ -151,10 +151,12 @@ def main():
         load_before=os.getloadavg();start=time.perf_counter()
         process=subprocess.Popen([shutil.which('qs'),'--no-color','--path',str(temp/'shell.qml')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)
         try:output,_=process.communicate(timeout=920)
-        finally:
+        except subprocess.TimeoutExpired:
+            # Invariant: the timed-out leader has not been reaped, so its process-group identity is reserved.
             try:os.killpg(process.pid,signal.SIGKILL)
             except ProcessLookupError:pass
-            process.wait()
+            process.communicate()
+            raise
         if process.returncode!=0 or 'ROUNDTRIP_ERROR' in output or 'ROUNDTRIP_DONE' not in output:raise RuntimeError(output[-6000:])
         rows=[];parts=[];total=None
         for line in output.splitlines():

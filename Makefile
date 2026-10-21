@@ -188,6 +188,7 @@ test-shell-portable: test-shell-independent
 	python3 tests/test_public_http.py
 
 test-shell-independent:
+	python3 tests/test_benchmark_processes.py
 	python3 tests/test_app_make.py
 	python3 tests/test_performance_verification.py
 	python3 tests/test_diagnostics.py

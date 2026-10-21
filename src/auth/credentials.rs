@@ -390,11 +390,11 @@ fn outlook_scopes(token: &Value, scope: &str) -> bool {
         })
 }
 
-async fn in_outlook_lane<T, F, Fut>(lane: AccountTokens, operation: F) -> Result<T, &'static str>
+async fn in_outlook_lane<Output, Operation, OperationFuture>(lane: AccountTokens, operation: Operation) -> Result<Output, &'static str>
 where
-    T: Send + 'static,
-    F: FnOnce(tokio::sync::OwnedMutexGuard<Tokens>) -> Fut + Send + 'static,
-    Fut: std::future::Future<Output = Result<T, &'static str>> + Send + 'static,
+    Output: Send + 'static,
+    Operation: FnOnce(tokio::sync::OwnedMutexGuard<Tokens>) -> OperationFuture + Send + 'static,
+    OperationFuture: std::future::Future<Output = Result<Output, &'static str>> + Send + 'static,
 {
     // Invariant: Waiting is cancellable. Once admitted, finish under the owned guard:
     // native keyring writes use spawn_blocking and cannot be cancelled when
@@ -423,21 +423,21 @@ async fn account_tokens(
 }
 
 /// Serialize explicit stores/clears with refresh-token rotation.
-pub(super) async fn change_outlook(params: &Value, clear: bool) -> Result<Value, &'static str> {
-    let account = params["accountId"].as_str().ok_or("invalid_params")?;
+pub(super) async fn change_outlook(parameters: &Value, clear: bool) -> Result<Value, &'static str> {
+    let account = parameters["accountId"].as_str().ok_or("invalid_params")?;
     valid_account("outlook", account)?;
     let owned = account.to_owned();
     let entry = tokio::task::spawn_blocking(move || settings("outlook", &owned))
         .await
         .map_err(|_| "auth_account_invalid")??;
     let client = entry["clientId"].as_str().ok_or("auth_client_missing")?;
-    if params["clientId"] != client || client.is_empty() || client.chars().any(char::is_control) {
+    if parameters["clientId"] != client || client.is_empty() || client.chars().any(char::is_control) {
         return Err("auth_client_invalid");
     }
     let token = if clear {
         ""
     } else {
-        params["token"]
+        parameters["token"]
             .as_str()
             .filter(|value| !value.is_empty() && value.len() <= 16384 && !value.chars().any(char::is_control))
             .ok_or("auth_secret_invalid")?
@@ -495,15 +495,15 @@ pub(super) async fn store_google(
     .await
 }
 
-async fn store_google_with<F, Fut>(
+async fn store_google_with<Persist, PersistFuture>(
     client_id: &str,
     account: &str,
     token: &str,
-    mut run: F,
+    mut persist: Persist,
 ) -> Result<(), &'static str>
 where
-    F: FnMut(CredentialKey, Secret) -> Fut,
-    Fut: std::future::Future<Output = Result<(), &'static str>>,
+    Persist: FnMut(CredentialKey, Secret) -> PersistFuture,
+    PersistFuture: std::future::Future<Output = Result<(), &'static str>>,
 {
     if client_id.is_empty()
         || client_id.len() > 1024
@@ -525,7 +525,7 @@ where
             client_id: client_id.into(),
         },
     };
-    run(
+    persist(
         key,
         Secret::new(token.as_bytes().to_vec()).map_err(store_error)?,
     )
@@ -557,16 +557,16 @@ async fn persist_outlook_rotation(
     .await
 }
 
-async fn persist_outlook_rotation_with<F, Fut>(
+async fn persist_outlook_rotation_with<Persist, PersistFuture>(
     refresh: &str,
     token: &Value,
     key: CredentialKey,
     read_only: bool,
-    mut put: F,
+    mut put: Persist,
 ) -> Result<(), &'static str>
 where
-    F: FnMut(CredentialKey, Secret) -> Fut,
-    Fut: std::future::Future<Output = Result<(), &'static str>>,
+    Persist: FnMut(CredentialKey, Secret) -> PersistFuture,
+    PersistFuture: std::future::Future<Output = Result<(), &'static str>>,
 {
     let Some(rotated) = token["refresh_token"]
         .as_str()

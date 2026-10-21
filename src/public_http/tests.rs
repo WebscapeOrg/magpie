@@ -141,7 +141,7 @@ async fn connection_is_pinned_and_original_host_is_preserved() {
         &test_client(address),
         parse_url("http://sender.example/image", false).unwrap(),
         Method::GET,
-        MAX_IMAGE,
+        MAX_IMAGE_BYTES,
         DEADLINE,
     )
     .await

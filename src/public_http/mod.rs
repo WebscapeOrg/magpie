@@ -13,8 +13,8 @@ use std::{
 };
 
 const DEADLINE: Duration = Duration::from_secs(20);
-const MAX_IMAGE: usize = 5 * 1024 * 1024;
-const MAX_RESPONSE: usize = 16 * 1024 * 1024;
+const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 static CLIENT: OnceLock<Result<Client, &'static str>> = OnceLock::new();
 
 #[derive(Debug)]
@@ -212,7 +212,7 @@ pub async fn fetch(url: &str, max_bytes: usize) -> Result<Response, &'static str
         client()?,
         parse_url(url, false)?,
         Method::GET,
-        max_bytes.min(MAX_RESPONSE),
+        max_bytes.min(MAX_RESPONSE_BYTES),
         DEADLINE,
     )
     .await
@@ -253,7 +253,7 @@ fn image_data(response: Response) -> Result<String, &'static str> {
     Ok(format!("data:{mime};base64,{}", STANDARD.encode(data)))
 }
 pub async fn image(url: &str) -> Result<String, &'static str> {
-    image_data(fetch(url, MAX_IMAGE).await?)
+    image_data(fetch(url, MAX_IMAGE_BYTES).await?)
 }
 
 #[cfg(test)]

@@ -129,16 +129,16 @@ fn run(key: &CredentialKey, operation: Operation<'_>) -> Result<Option<Secret>, 
 /// committed it, so repeating `CreateItem` would leave two items carrying the
 /// same attributes and `find` would answer `Ambiguous` for the rest of the
 /// credential's life. A write reports the failure and the caller asks again.
-fn run_on<F, C>(
+fn run_on<Connect, ConnectionFuture>(
     shared: &Shared,
     key: &CredentialKey,
     operation: Operation<'_>,
-    connect: F,
+    connect: Connect,
     deadline: Duration,
 ) -> Result<Option<Secret>, Error>
 where
-    F: Fn() -> C,
-    C: Future<Output = Result<zbus::Connection, Error>>,
+    Connect: Fn() -> ConnectionFuture,
+    ConnectionFuture: Future<Output = Result<zbus::Connection, Error>>,
 {
     let until = Instant::now() + deadline;
     match attempt(shared, key, operation, &connect, until) {
@@ -170,16 +170,16 @@ where
 /// none. Returns the session it used alongside any fault, so the caller drops
 /// that session and not a newer one.
 #[allow(clippy::type_complexity)]
-fn attempt<F, C>(
+fn attempt<Connect, ConnectionFuture>(
     shared: &Shared,
     key: &CredentialKey,
     operation: Operation<'_>,
-    connect: &F,
+    connect: &Connect,
     until: Instant,
 ) -> Result<Option<Secret>, (Option<Arc<Session>>, Fault)>
 where
-    F: Fn() -> C,
-    C: Future<Output = Result<zbus::Connection, Error>>,
+    Connect: Fn() -> ConnectionFuture,
+    ConnectionFuture: Future<Output = Result<zbus::Connection, Error>>,
 {
     let session = match acquire(shared, connect, until) {
         Ok(session) => session,
@@ -205,10 +205,10 @@ where
 /// is held outside the runtime rather than inside a task, so a caller waiting
 /// for it is only waiting for another thread to finish negotiating, and no
 /// prompt is ever awaited underneath it: every prompting call is in `execute`.
-fn acquire<F, C>(shared: &Shared, connect: &F, until: Instant) -> Result<Arc<Session>, Fault>
+fn acquire<Connect, ConnectionFuture>(shared: &Shared, connect: &Connect, until: Instant) -> Result<Arc<Session>, Fault>
 where
-    F: Fn() -> C,
-    C: Future<Output = Result<zbus::Connection, Error>>,
+    Connect: Fn() -> ConnectionFuture,
+    ConnectionFuture: Future<Output = Result<zbus::Connection, Error>>,
 {
     let mut held = slot(shared);
     if let Some(session) = held.as_ref() {

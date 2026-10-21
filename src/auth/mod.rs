@@ -13,7 +13,7 @@ pub struct Session {
 }
 
 static CLIENT: OnceLock<Result<reqwest::Client, &'static str>> = OnceLock::new();
-const LIMIT: usize = 256 * 1024;
+const MAX_AUTH_PAYLOAD_BYTES: usize = 256 * 1024;
 
 fn client() -> Result<&'static reqwest::Client, &'static str> {
     CLIENT
@@ -32,17 +32,17 @@ fn client() -> Result<&'static reqwest::Client, &'static str> {
         .map_err(|error| *error)
 }
 
-fn destination(params: &Value) -> Result<String, &'static str> {
-    let fields = params.as_object().ok_or("invalid_params")?;
+fn destination(parameters: &Value) -> Result<String, &'static str> {
+    let fields = parameters.as_object().ok_or("invalid_params")?;
     if fields.keys()
         .any(|key| !["provider", "endpoint", "tenant", "body"].contains(&key.as_str()))
     {
         return Err("invalid_params");
     }
-    match (params["provider"].as_str(), params["endpoint"].as_str()) {
+    match (parameters["provider"].as_str(), parameters["endpoint"].as_str()) {
         (Some("gmail"), Some("token")) => Ok("https://oauth2.googleapis.com/token".into()),
         (Some("outlook"), Some(endpoint @ ("token" | "device"))) => {
-            let tenant = params
+            let tenant = parameters
                 .get("tenant")
                 .map(|value| value.as_str().ok_or("invalid_params"))
                 .transpose()?
@@ -95,7 +95,7 @@ async fn post_with_deadline(
         if status.is_redirection() {
             return Err("auth_redirect_refused");
         }
-        if response.content_length().is_some_and(|size| size > LIMIT as u64) {
+        if response.content_length().is_some_and(|size| size > MAX_AUTH_PAYLOAD_BYTES as u64) {
             return Err("auth_response_too_large");
         }
         let mut bytes = Vec::new();
@@ -104,7 +104,7 @@ async fn post_with_deadline(
             .await
             .map_err(|_| "auth_transport_failed")?
         {
-            if chunk.len() > LIMIT - bytes.len() {
+            if chunk.len() > MAX_AUTH_PAYLOAD_BYTES - bytes.len() {
                 return Err("auth_response_too_large");
             }
             bytes.extend_from_slice(&chunk);
@@ -121,9 +121,9 @@ async fn post_with_deadline(
 }
 
 impl Session {
-    pub async fn call(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+    pub async fn call(&self, method: &str, parameters: &Value) -> Result<Value, &'static str> {
         if matches!(method, "auth.store" | "auth.clear") {
-            if params
+            if parameters
                 .as_object()
                 .ok_or("invalid_params")?
                 .keys()
@@ -131,10 +131,10 @@ impl Session {
             {
                 return Err("invalid_params");
             }
-            return credentials::change_outlook(params, method == "auth.clear").await;
+            return credentials::change_outlook(parameters, method == "auth.clear").await;
         }
         if method == "auth.token" {
-            if params
+            if parameters
                 .as_object()
                 .ok_or("invalid_params")?
                 .keys()
@@ -142,11 +142,11 @@ impl Session {
             {
                 return Err("invalid_params");
             }
-            if params["provider"] != "outlook" {
+            if parameters["provider"] != "outlook" {
                 return Err("invalid_params");
             }
-            let account = params["accountId"].as_str().ok_or("invalid_params")?;
-            let resource = params
+            let account = parameters["accountId"].as_str().ok_or("invalid_params")?;
+            let resource = parameters
                 .get("resource")
                 .map(|value| value.as_str().ok_or("invalid_params"))
                 .transpose()?
@@ -156,7 +156,7 @@ impl Session {
             return Ok(json!({"access_token":access,"expires_in":60,"scope":scope}));
         }
         if method == "auth.invalidate" {
-            if params
+            if parameters
                 .as_object()
                 .ok_or("invalid_params")?
                 .keys()
@@ -164,19 +164,19 @@ impl Session {
             {
                 return Err("invalid_params");
             }
-            let account = params["accountId"].as_str().ok_or("invalid_params")?;
+            let account = parameters["accountId"].as_str().ok_or("invalid_params")?;
             credentials::invalidate(account).await?;
             return Ok(json!({"invalidated":true}));
         }
         if method == "outlook.graphSend" {
-            return graph::send(params).await;
+            return graph::send(parameters).await;
         }
         if method != "auth.form" {
-            return self.flows.call(method, params).await;
+            return self.flows.call(method, parameters).await;
         }
-        let url = destination(params)?;
-        let body = params["body"].as_str().ok_or("invalid_params")?;
-        if body.len() > LIMIT || body.bytes().any(|byte| byte < 32 || byte == 127) {
+        let url = destination(parameters)?;
+        let body = parameters["body"].as_str().ok_or("invalid_params")?;
+        if body.len() > MAX_AUTH_PAYLOAD_BYTES || body.bytes().any(|byte| byte < 32 || byte == 127) {
             return Err("invalid_params");
         }
         post(client()?, &url, body.into()).await
@@ -229,7 +229,7 @@ mod tests {
             assert!(socket.read(&mut request).await.unwrap() > 0);
             socket
                 .write_all(
-                    format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", LIMIT + 1).as_bytes(),
+                    format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", MAX_AUTH_PAYLOAD_BYTES + 1).as_bytes(),
                 )
                 .await
                 .unwrap();

@@ -315,6 +315,7 @@ function expandRecurringEvents(events, startMs, endMs) {
   }
   for (var masterIndex = 0; masterIndex < masters.length; masterIndex++) {
     var master = masters[masterIndex]
+    if (master.status === "CANCELLED") continue
     var excluded = {}
     var exclusions = Array.isArray(master.excludedMs) ? master.excludedMs : []
     for (var exclusionIndex = 0; exclusionIndex < exclusions.length; exclusionIndex++) excluded[Number(exclusions[exclusionIndex])] = true

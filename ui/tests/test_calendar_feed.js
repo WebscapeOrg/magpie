@@ -793,3 +793,13 @@ console.log("test_calendar_feed.js ok")
   const indexed=feed.indexDays(events,days)
   for (const day of days) assert.strictEqual(JSON.stringify(indexed[day.startMs]),JSON.stringify(feed.eventsOnDay(events,day)), 'day index preserves half-open boundaries and unequal day lengths')
 }
+
+{
+  const cancelledSeries = '<multistatus><response><href>/cancelled.ics</href><propstat><prop><calendar-data><![CDATA['
+    + ['BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'UID:cancelled-series', 'DTSTART:20261001T100000Z',
+      'DTEND:20261001T110000Z', 'RRULE:FREQ=DAILY;COUNT=3', 'STATUS:CANCELLED',
+      'SUMMARY:Cancelled meeting', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n')
+    + ']]></calendar-data></prop></propstat></response></multistatus>'
+  assert.strictEqual(feed.eventsFromCaldav(cancelledSeries, 'work', Date.UTC(2026, 9, 1), Date.UTC(2026, 9, 5)).length, 0,
+    'a cancelled recurring master must not generate visible occurrences')
+}

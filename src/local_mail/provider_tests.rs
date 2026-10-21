@@ -200,7 +200,7 @@ async fn synchronize(local: &LocalMail, gmail: &gmail::Session) {
     let store = local.store(ACCOUNT).await.unwrap();
     for _ in 0..8 {
         set(&store, "lastHistory", "0");
-        sync::step(&store, gmail, ACCOUNT, 0).await.unwrap();
+        sync::step(&store, gmail, ACCOUNT).await.unwrap();
         if store.status().unwrap()["complete"] == true {
             return;
         }
@@ -228,7 +228,7 @@ async fn cached_mail_survives_auth_failure_and_offline_edits_reconcile_with_prov
         let store = local.store(ACCOUNT).await.unwrap();
         provider.world.lock().unwrap().unauthorized = true;
         set(&store, "lastHistory", "0");
-        assert_eq!(sync::step(&store, &gmail, ACCOUNT, 0).await, Err("gmail_unauthorized"));
+        assert_eq!(sync::step(&store, &gmail, ACCOUNT).await, Err("gmail_unauthorized"));
         let requests = provider.world.lock().unwrap().requests.len();
         let list = local.call("local.list", &json!({"accountId":ACCOUNT,"query":"in:inbox","limit":50})).await.unwrap();
         assert_eq!(list["summaries"].as_array().unwrap().len(), 2);
@@ -250,7 +250,7 @@ async fn cached_mail_survives_auth_failure_and_offline_edits_reconcile_with_prov
         let store = restarted.store(ACCOUNT).await.unwrap();
         assert!(store.status().unwrap()["pendingEdits"].as_u64().unwrap() > 0);
         provider.world.lock().unwrap().unauthorized = false;
-        sync::step(&store, &gmail, ACCOUNT, 0).await.unwrap();
+        sync::step(&store, &gmail, ACCOUNT).await.unwrap();
         assert_eq!(store.status().unwrap()["pendingEdits"], 0);
         let world = provider.world.lock().unwrap();
         assert_eq!(world.writes.len(), 1, "rapid reversals must coalesce to one mutation");
@@ -258,7 +258,7 @@ async fn cached_mail_survives_auth_failure_and_offline_edits_reconcile_with_prov
         drop(world);
         restarted.call("local.edit", &json!({"accountId":ACCOUNT,"ticket":"deleted","ids":["two"],"addLabelIds":["STARRED"],"removeLabelIds":[]})).await.unwrap();
         provider.world.lock().unwrap().messages.remove("two");
-        sync::step(&store, &gmail, ACCOUNT, 0).await.unwrap();
+        sync::step(&store, &gmail, ACCOUNT).await.unwrap();
         assert_eq!(store.status().unwrap()["editConflicts"], 1);
         let edits = store.edits().unwrap();
         let conflict = edits.as_array().unwrap().iter().find(|edit| edit["ticket"] == "deleted").unwrap();
@@ -290,7 +290,7 @@ async fn interrupted_provider_body_keeps_inventory_checkpoint_and_unvisited_mail
         assert!(
             tokio::time::timeout(
                 Duration::from_millis(300),
-                sync::step(&store, &gmail, ACCOUNT, 0)
+                sync::step(&store, &gmail, ACCOUNT)
             )
             .await
             .is_err()
@@ -346,7 +346,7 @@ async fn interrupted_inventory_and_history_requests_resume_their_saved_page() {
             .put(&message("unvisited", "kept during partial inventory"), 0)
             .unwrap();
         set(&store, "legacyImported", "true");
-        sync::step(&store, &gmail, ACCOUNT, 0).await.unwrap();
+        sync::step(&store, &gmail, ACCOUNT).await.unwrap();
         assert_eq!(
             store.read(|db| store::state(db, "page")).unwrap(),
             "page-two"
@@ -358,13 +358,13 @@ async fn interrupted_inventory_and_history_requests_resume_their_saved_page() {
             if checkpoint == "historyPage" {
                 provider.world.lock().unwrap().paginated_history = true;
                 set(&store, "lastHistory", "0");
-                sync::step(&store, &gmail, ACCOUNT, 0).await.unwrap();
+                sync::step(&store, &gmail, ACCOUNT).await.unwrap();
             }
             provider.world.lock().unwrap().pause = pause.into();
             assert!(
                 tokio::time::timeout(
                     Duration::from_millis(300),
-                    sync::step(&store, &gmail, ACCOUNT, 0)
+                    sync::step(&store, &gmail, ACCOUNT)
                 )
                 .await
                 .is_err()
@@ -394,7 +394,7 @@ async fn interrupted_inventory_and_history_requests_resume_their_saved_page() {
                 expected
             );
             provider.world.lock().unwrap().pause.clear();
-            sync::step(&store, &gmail, ACCOUNT, 0).await.unwrap();
+            sync::step(&store, &gmail, ACCOUNT).await.unwrap();
         }
         assert!(store.resource("unvisited").unwrap().is_none());
         assert_eq!(store.status().unwrap()["complete"], true);
@@ -406,7 +406,7 @@ async fn interrupted_inventory_and_history_requests_resume_their_saved_page() {
             .unwrap();
         provider.world.lock().unwrap().expired_history = true;
         set(&store, "lastHistory", "0");
-        sync::step(&store, &gmail, ACCOUNT, 0).await.unwrap();
+        sync::step(&store, &gmail, ACCOUNT).await.unwrap();
         assert!(store.resource("retained").unwrap().is_some());
         assert_eq!(store.status().unwrap()["inventoryComplete"], false);
         provider.world.lock().unwrap().expired_history = false;
@@ -454,7 +454,7 @@ async fn low_space_refuses_body_download_and_preserves_saved_mail() {
         );
         set(&store, "legacyImported", "true");
         assert_eq!(
-            sync::step(&store, &gmail, ACCOUNT, 0).await,
+            sync::step(&store, &gmail, ACCOUNT).await,
             Err("local_disk_low")
         );
         assert!(store.resource("saved").unwrap().is_some());

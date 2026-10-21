@@ -64,7 +64,7 @@ pub async fn handle(
     one(raw.get(), session, deadline).await
 }
 
-// Detect the control barrier without executing any domain operation. Batch
+// Invariant: Detect the control barrier without executing any domain operation. Batch
 // shutdown drains earlier frames, then completes its entire batch before exit.
 pub fn requests_quit(frame: &[u8]) -> bool {
     let Ok(raw) = serde_json::from_slice::<Box<RawValue>>(frame) else {
@@ -108,7 +108,7 @@ async fn one(
     {
         return (Some(error(Value::Null, -32600, "Invalid Request")), false);
     }
-    // An expired queued request must not start a side effect: timeout_at polls
+    // Invariant: An expired queued request must not start a side effect: timeout_at polls
     // its future before checking the clock.
     let began = std::time::Instant::now();
     let request_number = super::diagnostics::next();
@@ -133,7 +133,7 @@ async fn one(
                 .await
                 .unwrap_or(Err("request_timed_out"))
             } else {
-                // Legacy process operations have their own deadlines. Dropping a
+                // Invariant: Legacy process operations have their own deadlines. Dropping a
                 // spawn_blocking join cannot cancel a running send; await it so quit
                 // remains a completion barrier and never reports a false cancellation.
                 session.dispatch(&request.method, &request.params).await
@@ -174,7 +174,7 @@ mod tests {
         let (response, quit) = handle(frame, &session, deadline).await;
         assert!(!quit);
         assert_eq!(response.unwrap()["error"]["message"], "request_timed_out");
-        // An expired call must leave every upload slot available, not merely
+        // Invariant: An expired call must leave every upload slot available, not merely
         // return a timeout after executing the immediate upload future.
         for _ in 0..8 {
             assert!(
@@ -205,7 +205,7 @@ mod tests {
             )
             .await
             .unwrap();
-        // Occupy both decode permits. The uploaded request must expire while
+        // Invariant: Occupy both decode permits. The uploaded request must expire while
         // waiting, before consuming its bytes or starting provider work.
         let permits = session.upload_jobs.acquire_many(2).await.unwrap();
         let frame = serde_json::to_vec(&json!({"jsonrpc":"2.0","id":"bounded",
@@ -246,7 +246,7 @@ mod tests {
             });
             started.await.unwrap();
             let session = crate::backend::Session::default();
-            // Unknown methods use the same blocking dispatch path as the HEY
+            // Invariant: Unknown methods use the same blocking dispatch path as the HEY
             // process adapter, without invoking a real provider or changing PATH.
             let frame = br#"{"jsonrpc":"2.0","id":1,"method":"unknown"}"#;
             let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
@@ -257,7 +257,7 @@ mod tests {
                 response = &mut request => Some(response),
                 _ = tokio::time::sleep(Duration::from_millis(60)) => None,
             };
-            // Always release the thread before asserting so a regression does
+            // Invariant: Always release the thread before asserting so a regression does
             // not hang Runtime::drop with an unfinished blocking operation.
             release.send(()).unwrap();
             blocker.await.unwrap();

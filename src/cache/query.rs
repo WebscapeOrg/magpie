@@ -188,11 +188,16 @@ fn eligible(provider: &str, query: &str, row: &Value) -> bool {
         }
     })
 }
-fn stale(stamp: f64, now: f64, ttl: f64) -> bool {
-    stamp <= 0.0 || now - stamp > ttl.max(0.0)
+fn stale(stored_at_ms: f64, now_ms: f64, ttl_ms: f64) -> bool {
+    stored_at_ms <= 0.0 || now_ms - stored_at_ms > ttl_ms.max(0.0)
 }
 fn date(row: &Value) -> i64 {
     row["dateMs"].as_i64().unwrap_or(0)
+}
+struct SearchCandidate {
+    summary: Value,
+    eligible: bool,
+    matched: bool,
 }
 fn search(value: &Value, query: &str, provider: &str) -> Vec<Value> {
     let wanted = terms(query);
@@ -210,32 +215,37 @@ fn search(value: &Value, query: &str, provider: &str) -> Vec<Value> {
             .total_cmp(&a.1["at"].as_f64().unwrap_or(0.0))
     });
     let mut seen: HashMap<String, usize> = HashMap::new();
-    let mut rows: Vec<(Value, bool, bool)> = Vec::new();
+    let mut rows: Vec<SearchCandidate> = Vec::new();
     for (key, page) in queries {
-        if let Some(entries) = page["summaries"].as_array() {
-            for row in entries {
-                let Some(id) = row["id"].as_str().filter(|id| !id.is_empty()) else {
-                    continue;
-                };
-                let index = if let Some(index) = seen.get(id) {
-                    *index
-                } else {
-                    let index = rows.len();
-                    seen.insert(id.into(), index);
-                    rows.push((
-                        row.clone(),
-                        eligible(provider, source_query(key), row),
-                        false,
-                    ));
-                    index
-                };
-                if rows[index].1 && matches(row, &wanted) {
-                    rows[index].2 = true;
-                }
+        let Some(entries) = page["summaries"].as_array() else {
+            continue;
+        };
+        for row in entries {
+            let Some(id) = row["id"].as_str().filter(|id| !id.is_empty()) else {
+                continue;
+            };
+            let index = if let Some(index) = seen.get(id) {
+                *index
+            } else {
+                let index = rows.len();
+                seen.insert(id.into(), index);
+                rows.push(SearchCandidate {
+                    summary: row.clone(),
+                    eligible: eligible(provider, source_query(key), row),
+                    matched: false,
+                });
+                index
+            };
+            if rows[index].eligible && matches(row, &wanted) {
+                rows[index].matched = true;
             }
         }
     }
-    let mut found: Vec<_> = rows.into_iter().filter(|r| r.2).map(|r| r.0).collect();
+    let mut found: Vec<_> = rows
+        .into_iter()
+        .filter(|candidate| candidate.matched)
+        .map(|candidate| candidate.summary)
+        .collect();
     found.sort_by_key(|row| std::cmp::Reverse(date(row)));
     found
 }
@@ -323,22 +333,7 @@ impl QueryCache {
         let shared = self.account(&account).await?;
         let mut state = shared.lock().await;
         if !state.loaded {
-            let p = json!({"accountId":account});
-            let root = self.root.clone();
-            state.store = tokio::task::spawn_blocking(move || disk(root, "cache.storeRead", &p))
-                .await
-                .map_err(|_| "cache_unavailable")?
-                .unwrap_or_else(|_| store::empty());
-            let expected = account
-                .split_once(':')
-                .map(|(_, email)| email)
-                .unwrap_or(&account);
-            if state.store["account"]
-                .as_str()
-                .is_some_and(|stored| !stored.is_empty() && !stored.eq_ignore_ascii_case(expected))
-            {
-                state.store = store::empty();
-            }
+            state.store = self.restore_store(&account).await?;
             state.loaded = true;
         }
         if !*live.lock().map_err(|_| "cache_unavailable")? {
@@ -354,7 +349,7 @@ impl QueryCache {
         {
             return Err("cache_store_too_large");
         }
-        // A background snapshot cannot join the UI debounce: that timer can
+        // Invariant: A background snapshot cannot join the UI debounce: that timer can
         // outlive its watch, or carry cancelled data into an unrelated UI save.
         // Hold the same cancellation mutex through the actual atomic disk
         // commit, then publish only the successfully committed snapshot.
@@ -373,6 +368,23 @@ impl QueryCache {
         state.dirty = false;
         state.touched = now();
         Ok(())
+    }
+    async fn restore_store(&self, account: &str) -> Result<Value> {
+        let params = json!({"accountId":account});
+        let root = self.root.clone();
+        let saved = tokio::task::spawn_blocking(move || disk(root, "cache.storeRead", &params))
+            .await
+            .map_err(|_| "cache_unavailable")?
+            .unwrap_or_else(|_| store::empty());
+        let expected = account
+            .split_once(':')
+            .map(|(_, email)| email)
+            .unwrap_or(account);
+        let stored = saved["account"].as_str().unwrap_or("");
+        if !stored.is_empty() && !stored.eq_ignore_ascii_case(expected) {
+            return Ok(store::empty());
+        }
+        Ok(saved)
     }
     async fn account(&self, account: &str) -> Result<Arc<AsyncMutex<State>>> {
         let mut map = self.accounts.lock().await;
@@ -409,23 +421,10 @@ impl QueryCache {
         state.touched = now();
         if method == "cache.queryRestore" {
             if !state.loaded {
-                let p = json!({"accountId":account});
-                let root = self.root.clone();
-                state.store =
-                    match tokio::task::spawn_blocking(move || disk(root, "cache.storeRead", &p))
-                        .await
-                    {
-                        Ok(Ok(value)) => value,
-                        _ => store::empty(),
-                    };
-                let expected = account
-                    .split_once(':')
-                    .map(|(_, email)| email)
-                    .unwrap_or(&account);
-                let stored = state.store["account"].as_str().unwrap_or("");
-                if !stored.is_empty() && !stored.eq_ignore_ascii_case(expected) {
-                    state.store = store::empty();
-                }
+                state.store = self
+                    .restore_store(&account)
+                    .await
+                    .unwrap_or_else(|_| store::empty());
                 state.loaded = true;
             }
             state.generation = self.serial.fetch_add(1, Ordering::Relaxed) + 1;

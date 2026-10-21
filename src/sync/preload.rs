@@ -3,7 +3,7 @@
 use super::*;
 use futures_util::{StreamExt, stream};
 use tokio::sync::Semaphore;
-// Automatic warmup stays small; an explicit reader still keeps the existing
+// Performance: Automatic warmup stays small; an explicit reader still keeps the existing
 // message/transport limits and can fetch larger messages normally.
 const MAX_AUTOMATIC_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -29,7 +29,7 @@ impl Job {
             let live = live.clone();
             let complete = complete.clone();
             async move {
-                // Let the mailbox notification and immediate interactive requests run first.
+                // Performance: Let the mailbox notification and immediate interactive requests run first.
                 tokio::time::sleep(Duration::from_millis(250)).await;
                 if tokio::time::timeout(
                     Duration::from_secs(180),
@@ -61,7 +61,7 @@ impl Job {
 }
 impl Drop for Job {
     fn drop(&mut self) {
-        // Writers hold this same short-lived lock around the final commit.
+        // Invariant: Writers hold this same short-lived lock around the final commit.
         // Thus no old generation can rename a cache file after cancellation returns.
         *self.live.lock().unwrap_or_else(|e| e.into_inner()) = false;
         self.task.abort();
@@ -293,7 +293,7 @@ pub(super) fn production(
                         &message,
                         chrono::Utc::now().timestamp_millis(),
                     )?;
-                    // HEY has no separate metadata read. Reuse its complete
+                    // Performance: HEY has no separate metadata read. Reuse its complete
                     // thread response instead of issuing the same read twice.
                     if fetched
                         && account.starts_with("hey:")
@@ -318,7 +318,7 @@ pub(super) fn production(
             let summaries: Vec<_> = summaries.into_iter().map(|(summary, _)| summary).collect();
             current(&live)?;
             queries.prefetch(&account,inbox(&account),limit,&json!({"summaries":summaries,"estimate":page["estimate"],"nextPageToken":page["nextPageToken"]}),live.clone()).await?;
-            // Full resources are fetched one at a time per account. Across all
+            // Invariant: Full resources are fetched one at a time per account. Across all
             // accounts only two preload network requests may consume transport slots.
             for (id, size) in ids.into_iter().zip(sizes) {
                 current(&live)?;

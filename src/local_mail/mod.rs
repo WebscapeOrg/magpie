@@ -1,9 +1,9 @@
 mod content;
 mod ipc;
 #[cfg(test)]
-mod recovery_tests;
-#[cfg(test)]
 mod provider_tests;
+#[cfg(test)]
+mod recovery_tests;
 mod search;
 mod store;
 mod sync;
@@ -52,30 +52,10 @@ impl LocalMail {
             .events
             .get_or_init(|| tokio::sync::broadcast::channel(128).0)
             .clone();
-        jobs.insert(account,tokio::spawn(async move {
-            let mut tick = 0u64;
-            let mut reported = std::time::Instant::now()-std::time::Duration::from_secs(2);
-            let mut changed = false;
-            loop {
-                let answer = sync::step(&store,&gmail,&worker_account,tick).await;
-                changed |= answer==Ok(true);
-                if reported.elapsed() >= std::time::Duration::from_secs(1) || answer.is_err() {
-                let error = answer.as_ref().err().copied().unwrap_or("");
-                let _ = sync::disk(&store,move|s|s.write(|db| {
-                    store::set_state(db,"error",error)?;
-                    if error.is_empty() && changed { store::set_state(db,"updated",&chrono::Utc::now().timestamp_millis().to_string())?; }
-                    Ok(())
-                })).await;
-                if let Ok(status) = sync::disk(&store,|s|s.status()).await {
-                    let _ = events.send(json!({"jsonrpc":"2.0","method":"local.changed","params":{"accountId":worker_account,"status":status,"changed":changed}}));
-                }
-                reported = std::time::Instant::now();
-                changed = false;
-                }
-                tick += 1;
-                tokio::time::sleep(std::time::Duration::from_millis(if answer.is_err() {30_000} else if answer==Ok(false) {5_000} else {25})).await;
-            }
-        }));
+        jobs.insert(
+            account,
+            tokio::spawn(sync::watch(store, gmail, worker_account, events)),
+        );
         Ok(())
     }
     pub async fn refresh(&self, account: &str) -> Result<(), &'static str> {
@@ -104,9 +84,15 @@ impl LocalMail {
         }
     }
     async fn store(&self, account: &str) -> Result<Arc<Store>, &'static str> {
-        self.open_store(account, true).await?.ok_or("local_storage_unavailable")
+        self.open_store(account, true)
+            .await?
+            .ok_or("local_storage_unavailable")
     }
-    async fn open_store(&self, account: &str, create: bool) -> Result<Option<Arc<Store>>, &'static str> {
+    async fn open_store(
+        &self,
+        account: &str,
+        create: bool,
+    ) -> Result<Option<Arc<Store>>, &'static str> {
         let account = account.to_owned();
         let stores = self.stores.clone();
         let identity = account.clone();
@@ -131,14 +117,18 @@ impl LocalMail {
             } else {
                 private_fs::directories_readonly(&dirs.state, &["omamail", "mail", &hash])?
             };
-            let Some(directory) = directory else { return Ok(None) };
+            let Some(directory) = directory else {
+                return Ok(None);
+            };
             let store = Store::open(directory)?;
             stores.insert(account, store.clone());
             Ok(Some(store))
         })
         .await
         .map_err(|_| "local_storage_unavailable")??;
-        if let Some(store) = &store { ipc::listen(store, &identity)?; }
+        if let Some(store) = &store {
+            ipc::listen(store, &identity)?;
+        }
         Ok(store)
     }
     pub(crate) async fn resource(
@@ -206,7 +196,14 @@ impl LocalMail {
             Ok(None) => {
                 let mut resource = match crate::cache::resource::read(account, id).await? {
                     Some(resource) => resource,
-                    None => gmail.call("gmail.read", &json!({"accountId":account,"id":id,"full":true})).await?,
+                    None => {
+                        gmail
+                            .call(
+                                "gmail.read",
+                                &json!({"accountId":account,"id":id,"full":true}),
+                            )
+                            .await?
+                    }
                 };
                 sync::hydrate_text(gmail, account, id, &mut resource, true).await?;
                 let store = self.store(account).await?;

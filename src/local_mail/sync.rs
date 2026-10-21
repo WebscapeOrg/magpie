@@ -19,11 +19,51 @@ fn valid_id(value: &Value) -> Result<&str> {
         .filter(|v| !v.is_empty() && v.len() <= 1024 && !v.chars().any(char::is_control))
         .ok_or("gmail_invalid_response")
 }
+pub(super) async fn watch(
+    store: Arc<Store>,
+    gmail: Arc<gmail::Session>,
+    account: String,
+    events: tokio::sync::broadcast::Sender<Value>,
+) {
+    let mut reported = std::time::Instant::now() - std::time::Duration::from_secs(2);
+    let mut changed = false;
+    loop {
+        let answer = step(&store, &gmail, &account).await;
+        changed |= answer == Ok(true);
+        if reported.elapsed() >= std::time::Duration::from_secs(1) || answer.is_err() {
+            let error = answer.as_ref().err().copied().unwrap_or("");
+            let _ = disk(&store, move |store| {
+                store.write(|db| {
+                    set_state(db, "error", error)?;
+                    if error.is_empty() && changed {
+                        set_state(
+                            db,
+                            "updated",
+                            &chrono::Utc::now().timestamp_millis().to_string(),
+                        )?;
+                    }
+                    Ok(())
+                })
+            })
+            .await;
+            if let Ok(status) = disk(&store, |store| store.status()).await {
+                let _ = events.send(json!({"jsonrpc":"2.0","method":"local.changed","params":{"accountId":account,"status":status,"changed":changed}}));
+            }
+            reported = std::time::Instant::now();
+            changed = false;
+        }
+        let delay_ms = match answer {
+            Err(_) => 30_000,
+            Ok(false) => 5_000,
+            Ok(true) => 25,
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+    }
+}
 pub(super) async fn step(
     store: &Arc<Store>,
     gmail: &gmail::Session,
     account: &str,
-    _tick: u64,
 ) -> Result<bool> {
     if deliver_edit(store, gmail, account).await? {
         return Ok(true);
@@ -408,27 +448,16 @@ async fn deliver_edit(store: &Arc<Store>, gmail: &gmail::Session, account: &str)
         answer => answer?,
     };
     let claim = id.clone();
-    let Some((sequence, add, remove)) = disk(store, move |s| s.claim_changes(&claim)).await? else {
+    let Some(changes) = disk(store, move |s| s.claim_changes(&claim)).await? else {
         return Ok(true);
     };
-    let current = before["labelIds"]
-        .as_array()
-        .ok_or("gmail_invalid_response")?;
-    let satisfied = add
-        .as_array()
-        .ok_or("local_storage_corrupt")?
-        .iter()
-        .all(|v| current.contains(v))
-        && remove
-            .as_array()
-            .ok_or("local_storage_corrupt")?
-            .iter()
-            .all(|v| !current.contains(v));
+    let sequence = changes.sequence;
+    let satisfied = changes.satisfied_by(&before)?;
     if !satisfied {
         let delivery = gmail
             .call_settled(
                 "gmail.modify",
-                &json!({"accountId":account,"id":id,"addLabelIds":add,"removeLabelIds":remove}),
+                &json!({"accountId":account,"id":id,"addLabelIds":changes.additions,"removeLabelIds":changes.removals}),
             )
             .await;
         if let Err(error @ ("gmail_forbidden" | "invalid_params")) = delivery {
@@ -450,20 +479,7 @@ async fn deliver_edit(store: &Arc<Store>, gmail: &gmail::Session, account: &str)
             .replica_call(account, "minimal", &json!({"id":id}))
             .await?
     };
-    let current = after["labelIds"]
-        .as_array()
-        .ok_or("gmail_invalid_response")?;
-    if !add
-        .as_array()
-        .ok_or("local_storage_corrupt")?
-        .iter()
-        .all(|v| current.contains(v))
-        || !remove
-            .as_array()
-            .ok_or("local_storage_corrupt")?
-            .iter()
-            .all(|v| !current.contains(v))
-    {
+    if !changes.satisfied_by(&after)? {
         return Err("local_edit_not_confirmed");
     }
     disk(store,move|s|s.write(|db| {

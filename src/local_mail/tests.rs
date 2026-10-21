@@ -10,17 +10,26 @@ pub(super) fn directory() -> std::path::PathBuf {
     let name = format!(
         "magpie-local-{}-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
         SERIAL.fetch_add(1, Ordering::Relaxed)
     );
-    crate::platform::private_fs::directories(&parent, &[&name], true).unwrap().unwrap();
+    crate::platform::private_fs::directories(&parent, &[&name], true)
+        .unwrap()
+        .unwrap();
     parent.join(name)
 }
 pub(super) fn open_directory(path: &std::path::Path) -> File {
     let path = path.canonicalize().unwrap();
-    crate::platform::private_fs::directories(path.parent().unwrap(), &[path.file_name().unwrap().to_str().unwrap()], false)
-        .unwrap()
-        .unwrap()
+    crate::platform::private_fs::directories(
+        path.parent().unwrap(),
+        &[path.file_name().unwrap().to_str().unwrap()],
+        false,
+    )
+    .unwrap()
+    .unwrap()
 }
 pub(super) fn message(id: &str, text: &str) -> Value {
     json!({"id":id,"threadId":"thread","labelIds":["INBOX","UNREAD"],"internalDate":"1700000000000",
@@ -164,9 +173,9 @@ fn coalescing_preserves_latest_intent_and_undo_stops_before_claim() {
         .edit("read", &["one".into()], &[], &["UNREAD".into()])
         .unwrap();
     store.cancel_edit("read").unwrap();
-    let (_, add, remove) = store.claim_changes("one").unwrap().unwrap();
-    assert_eq!(add, json!([]));
-    assert_eq!(remove, json!(["STARRED"]));
+    let changes = store.claim_changes("one").unwrap().unwrap();
+    assert!(changes.additions.is_empty());
+    assert_eq!(changes.removals, ["STARRED"]);
     assert_eq!(store.cancel_edit("star"), Err("local_edit_already_started"));
     assert_eq!(
         store.resource("one").unwrap().unwrap()["labelIds"],

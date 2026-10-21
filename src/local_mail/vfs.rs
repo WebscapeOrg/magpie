@@ -32,7 +32,7 @@ pub(super) struct Vfs {
     name: CString,
     root: Arc<Root>,
 }
-// The registration and callbacks are stable allocations; mutable shared state
+// Invariant: The registration and callbacks are stable allocations; mutable shared state
 // is behind Locks. Connections hold an Arc<Vfs> until sqlite3_close completes.
 unsafe impl Send for Vfs {}
 unsafe impl Sync for Vfs {}
@@ -147,7 +147,7 @@ unsafe extern "C" fn open(
         Ok(None) if flags & SQLITE_OPEN_CREATE != 0 => {
             match fs::create_private(&root.directory, name) {
                 Ok(file) => {
-                    // Private creation excludes other Windows writers. Reopen
+                    // Invariant: Private creation excludes other Windows writers. Reopen
                     // under the owner lease so our SQLite connections can share it.
                     drop(file);
                     match fs::regular(&root.directory, name, true) {

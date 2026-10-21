@@ -418,6 +418,7 @@ fn malformed_provider_action_previews_refuse_without_credentials_or_writes() {
                 serde_json::json!({"ok":false,"error":{"code":"invalid_params"}})
             );
             assert_eq!(fixture_snapshot(&fixture.0), before);
+            assert!(!touched.exists(), "{account} {bad} reached credentials");
         }
     }
 }
@@ -505,6 +506,10 @@ async fn malformed_final_imap_action_id_prevents_all_network_and_cache_changes()
         serde_json::json!({"ok":false,"error":{"code":"invalid_params"}})
     );
     assert_eq!(fixture_snapshot(&fixture.0), before);
+    assert!(
+        !fixture.0.join("credential-touched").exists(),
+        "a malformed tail must be rejected before reading credentials"
+    );
 }
 
 #[test]

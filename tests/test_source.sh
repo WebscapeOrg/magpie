@@ -700,9 +700,9 @@ done
 # would draw a stop bold because a different message in the thread is unread.
 awk '
   /function getSummaries\(/ { in_members = 1 }
-  in_members && /withThreadBlock/ { exit 1 }
-  in_members && /^  function getMessages\(/ { exit 0 }
-  END { exit 0 }
+  in_members && /^  function getMessages\(/ { exit }
+  in_members && /withThreadBlock/ { invalid = 1 }
+  END { exit invalid }
 ' providers/JmapClient.qml \
   || fail "a conversation member must not be given the row's thread block"
 grep -q 'if (ids.length > 0) progress({' providers/ImapClient.qml \
@@ -845,9 +845,9 @@ grep -q 'AccountRemovalDialog {' App.qml \
   || fail "account removal needs a confirmation dialog"
 if awk '
   /function removeCurrentAccountFromEditor\(/ { in_remove = 1 }
-  in_remove && /service\.removeAccountAt/ { exit 0 }
-  in_remove && /^  }/ { exit 1 }
-  END { exit 1 }
+  in_remove && /service\.removeAccountAt/ { found = 1 }
+  in_remove && /^  }/ { exit }
+  END { exit !found }
 ' App.qml; then
   fail "requesting account removal must not remove it immediately"
 fi
@@ -921,10 +921,10 @@ if 'text: "Settings..."' not in settings_block:
     raise SystemExit("test_source.sh: Settings opens an extra page and needs an ellipsis")
 PY
 if awk '
-  /id: accountControl/ { in_status = 1 }
-  in_status && /resultSummary/ { exit 0 }
-  in_status && /^        }/ { exit 1 }
-  END { exit 1 }
+  /id: statusBar$/ { in_status = 1 }
+  in_status && /resultSummary/ { found = 1 }
+  in_status && /^      }/ { exit }
+  END { exit !found }
 ' App.qml; then
   fail "the window status line must not repeat the list result count"
 fi
@@ -1319,8 +1319,6 @@ if "decodeURIComponent" not in source:
     raise SystemExit("test_source.sh: Service must decode its resolved filesystem path")
 PLUGINDIR
 
-printf 'test_source.sh ok\n'
-
 # A preview is drawn the same as an open and must be marked read differently.
 # The gate is one condition in the detail callback and it has no unit test that
 # can reach it — the panel-level test asserts only that a flag was passed.
@@ -1369,3 +1367,5 @@ if grep -E 'secret-tool|scripts/keyring-(lookup|store|clear)\.sh' \
     providers/*.qml calendar/*.qml >/dev/null; then
   fail "QML credential paths must use the typed backend credential RPC"
 fi
+
+printf 'test_source.sh ok\n'

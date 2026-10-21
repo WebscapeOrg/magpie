@@ -62,15 +62,17 @@ function retainedSummaries(source, limit, kept) {
   if (!isFinite(cap) || cap <= 0) return source
   var held = 0
   for (var counted in source) {
+    if (!Object.prototype.hasOwnProperty.call(source, counted)) continue
     held = held + 1
     if (held >= cap) break
   }
   if (held < cap) return source
-  var survivors = {}
+  var survivors = Object.create(null)
   var ids = Array.isArray(kept) ? kept : []
   for (var memberIndex = 0; memberIndex < ids.length; memberIndex++) {
     var wanted = trimmed(ids[memberIndex])
-    if (wanted !== "" && source[wanted]) survivors[wanted] = source[wanted]
+    if (wanted !== "" && Object.prototype.hasOwnProperty.call(source, wanted) && source[wanted])
+      survivors[wanted] = source[wanted]
   }
   return survivors
 }
@@ -78,9 +80,12 @@ function retainedSummaries(source, limit, kept) {
 function mergedSummaries(existing, additions, limit, kept) {
   var source = retainedSummaries(existing && typeof existing === "object" ? existing : {}, limit, kept)
   var extra = additions && typeof additions === "object" ? additions : {}
-  var output = {}
-  for (var key in source) output[key] = source[key]
+  var output = Object.create(null)
+  for (var key in source) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) output[key] = source[key]
+  }
   for (var added in extra) {
+    if (!Object.prototype.hasOwnProperty.call(extra, added)) continue
     var id = trimmed(added)
     if (id !== "" && extra[added]) output[id] = extra[added]
   }
@@ -89,7 +94,9 @@ function mergedSummaries(existing, additions, limit, kept) {
 
 function summaryFor(summaries, id) {
   var store = summaries && typeof summaries === "object" ? summaries : {}
-  var found = store[trimmed(id)]
+  var key = trimmed(id)
+  if (!Object.prototype.hasOwnProperty.call(store, key)) return null
+  var found = store[key]
   return found && typeof found === "object" ? found : null
 }
 

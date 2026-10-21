@@ -4,19 +4,7 @@ import "../settings"
 import QtQuick.Controls
 import qs.Commons
 
-// Themed single-select dropdown. Trigger row paints with the kit's focus
-// chrome; the popup anchors below and uses Color.popups.background +
-// Color.popups.border so it reads as a panel surface rather than the
-// platform-native ComboBox look.
-//
-// `options` accepts either a plain string[] or an array of
-// { value, label } objects (label is what we render; value is what we
-// emit). Mixing is fine — each row is interpreted independently.
-//
-// Keyboard: Tab to focus the trigger, Enter/Space opens, Esc closes,
-// j/k or Up/Down walks options inside the open popup, Enter selects.
-// A sibling SearchableDropdown reuses the same visuals but adds an
-// embedded filter input — keep the two separate so each stays simple.
+// Docs: options accept strings or objects with distinct value and label fields.
 Item {
   id: root
 
@@ -34,16 +22,9 @@ Item {
   property int popupRowHeight: Math.max(Style.spacing.popupRowHeight, MailStyle.body + 18)
   property bool showLabel: true
 
-  // Panel-cursor flag. When true, the trigger renders the shared
-  // hover-cursor state. Active Qt focus defaults to the same visuals.
-  // Emits `hovered(bool)` on pointer enter/leave so the panel can keep
-  // its cursor state in sync with the mouse.
   property bool hasCursor: false
 
-  // popupOpen + open()/close()/toggle() let a parent panel know when the
-  // dropdown owns keys (its embedded ListView is active) and suspend its
-  // own keyCatcher so j/k inside the popup don't double-drive the panel
-  // cursor.
+  // Invariant: parent shortcut handling must stand down while popupOpen owns navigation.
   readonly property bool popupOpen: popup.opened
   function open() { popup.open() }
   function close() { popup.close() }

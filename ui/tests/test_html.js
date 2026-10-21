@@ -1819,4 +1819,15 @@ for (const fixture of require("../../tests/fixtures/raster.json")) {
   assert.strictEqual(html.isRasterDataImage(value), fixture.decodedBytes !== null, fixture.name)
 }
 
+
+{
+  const header = Buffer.from(tinyPng.split(",")[1], "base64")
+  const bytes = Buffer.concat([header, Buffer.alloc(6 * 1024 * 1024 - header.length)])
+  const exact = "data:image/png;base64," + bytes.toString("base64")
+  const over = "data:image/png;base64," + Buffer.concat([bytes, Buffer.from([0])]).toString("base64")
+  assert.strictEqual(html.isRasterDataImage(exact), true, "the exact encoded payload bound is allowed")
+  assert.strictEqual(html.isRasterDataImage(over), false, "cached encoded payloads remain individually bounded")
+  assert.strictEqual(html.isDisplayableImageUrl(over), false)
+}
+
 console.log("test_html.js ok")

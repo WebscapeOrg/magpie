@@ -6,8 +6,8 @@ var ACTIVE = ["queued", "running"]
 
 // Invariant: Missing or malformed job listings represent no jobs in this historical model.
 function parseJobs(text) {
-  var parsed = null
-  try { parsed = JSON.parse(String(text || "")) } catch (error) { parsed = null }
+  var parsed
+  try { parsed = JSON.parse(String(text || "")) } catch (error) { return [] }
   if (!Array.isArray(parsed)) return []
   var output = []
   for (var itemIndex = 0; itemIndex < parsed.length; itemIndex++) {
@@ -239,8 +239,8 @@ function selectionPayload(summaries, account, folder, prompt, accountId) {
 }
 
 function parseShown(text) {
-  var parsed = null
-  try { parsed = JSON.parse(String(text || "")) } catch (error) { parsed = null }
+  var parsed
+  try { parsed = JSON.parse(String(text || "")) } catch (error) { return null }
   if (!parsed || typeof parsed !== "object" || !parsed.job) return null
   return { job: parsed.job, output: String(parsed.output || ""), transcript: chatEntries(parsed.transcript) }
 }
@@ -332,7 +332,7 @@ function draftAsks() {
   for (var itemIndex = 0; itemIndex < DRAFT_ASKS.length; itemIndex++) {
     var ask = DRAFT_ASKS[itemIndex]
     var prompt = ask.prompt + " Work only on the mail title and body; do not rewrite addresses, dates, metadata, or this instruction."
-    if (ask.id !== "review") prompt = prompt.replace("Answer with your review, not a rewrite.", "") + " " + MAIL_TRANSFORM_FORMAT
+    if (ask.id !== "review") prompt = prompt + " " + MAIL_TRANSFORM_FORMAT
     output.push({id: ask.id, label: ask.label, prompt: prompt})
   }
   return output

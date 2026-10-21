@@ -9,8 +9,7 @@ function asList(value) {
   var length = value.length
   if (typeof length !== "number" || !isFinite(length) || Math.floor(length) !== length || length < 1) return []
   var output = []
-  var itemIndex
-  for (itemIndex = 0; itemIndex < length; itemIndex++) {
+  for (var itemIndex = 0; itemIndex < length; itemIndex++) {
     if (value[itemIndex] !== undefined) output.push(value[itemIndex])
   }
   return output
@@ -28,16 +27,14 @@ function identities(mailboxes) {
   var rows = asList(mailboxes)
   var output = []
   var seen = Object.create(null)
-  var itemIndex
-  for (itemIndex = 0; itemIndex < rows.length; itemIndex++) {
-    var box = rows[itemIndex] || ({})
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var box = rows[itemIndex] || {}
     if (box.ready !== true || box.canSend === false) continue
     var accountId = String(box.id || "")
     if (accountId === "") continue
     var aliases = aliasesOf(box)
-    var aliasIndex
-    for (aliasIndex = 0; aliasIndex < aliases.length; aliasIndex++) {
-      var alias = aliases[aliasIndex] || ({})
+    for (var aliasIndex = 0; aliasIndex < aliases.length; aliasIndex++) {
+      var alias = aliases[aliasIndex] || {}
       var email = String(alias.email || "").trim()
       if (email === "") continue
       var key = JSON.stringify([accountId, email.toLowerCase()])
@@ -60,15 +57,14 @@ function visible(rows, accountId, mode) {
   if (kind === "new" || kind === "") return list
   var wanted = String(accountId || "")
   var kept = []
-  var itemIndex
-  for (itemIndex = 0; itemIndex < list.length; itemIndex++) {
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
     if (String(list[itemIndex].accountId || "") === wanted) kept.push(list[itemIndex])
   }
   return kept
 }
 
 function subtitle(identity) {
-  var row = identity || ({})
+  var row = identity || {}
   var name = String(row.displayName || "").trim()
   if (name !== "") return name
   var label = String(row.label || "").trim()

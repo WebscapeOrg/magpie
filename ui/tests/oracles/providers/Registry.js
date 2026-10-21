@@ -48,8 +48,7 @@ function define(source) {
   var boxes = []
   var list = Array.isArray(raw.MAILBOXES) ? raw.MAILBOXES : []
   for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
-    var box = mailbox(list[itemIndex])
-    boxes.push(box)
+    boxes.push(mailbox(list[itemIndex]))
   }
   return {
     id: String(raw.ID || ""),

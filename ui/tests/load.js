@@ -1,6 +1,7 @@
 const fs = require("fs")
 const path = require("path")
 const vm = require("vm")
+const assert = require("node:assert/strict")
 
 const ROOT = path.dirname(__dirname)
 
@@ -33,16 +34,12 @@ function loadModule(file, libraries) {
   return context
 }
 
-module.exports = { load, ROOT }
-
 // Invariant: Comparing across VM realms must preserve undefined, non-finite numbers and sparse arrays.
-function plain(value) {
-  return structuredClone(value)
-}
-
 function deepEqual(actual, expected, message) {
-  if (message === undefined) require("assert").deepStrictEqual(plain(actual), plain(expected))
-  else require("assert").deepStrictEqual(plain(actual), plain(expected), message)
+  const actualValue = structuredClone(actual)
+  const expectedValue = structuredClone(expected)
+  if (message === undefined) assert.deepEqual(actualValue, expectedValue)
+  else assert.deepEqual(actualValue, expectedValue, message)
 }
 
-module.exports.deepEqual = deepEqual
+module.exports = { load, ROOT, deepEqual }

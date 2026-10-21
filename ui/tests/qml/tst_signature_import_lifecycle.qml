@@ -86,6 +86,8 @@ Item {
     name: "SignatureImportLifecycle"
     when: windowShown
     function init() {
+      page.y = 0
+      fakeService.pickerCallback = null
       page.importing = false
       page.selectedSignatureAccountId = "a@example.org"
       fakeService.signatureId = ""
@@ -95,6 +97,17 @@ Item {
     function picked() { fakeService.pickerCallback({ok: true, paths: ["/synthetic/signature.png"]}) }
     function read() { fakeBackend.callback({ok: true, mimeType: "image/png", data: "iVBORw0KGgoAAA=="}, null) }
     function imported() { fakeBackend.callback({html: "<p>signature</p>", plain: "", images: 1, dropped: 0, problem: ""}, null) }
+    function test_import_button_starts_the_owned_request() {
+      var trigger = findChild(page, "settings-signature-import")
+      verify(trigger)
+      page.y = 20 - trigger.mapToItem(page, 0, 0).y
+      waitForRendering(trigger)
+      mouseClick(trigger, trigger.width / 2, trigger.height / 2)
+      verify(fakeService.pickerCallback)
+      compare(page.importingAccountId, "a@example.org")
+      picked(); read(); imported()
+      compare(fakeService.signatureId, "a@example.org")
+    }
     function test_picker_completion_keeps_the_original_account() {
       page.importSignature()
       page.selectSignatureAccount("b@example.net")

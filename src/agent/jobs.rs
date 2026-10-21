@@ -1105,7 +1105,7 @@ pub fn projection(params: &Value) -> Result<Value> {
         let map = looks.entry(account.to_owned()).or_default();
         if map
             .get(id)
-            .is_none_or(|current| active(j) || (!active(current) && order(j) > order(current)))
+            .is_none_or(|current| !active(current) && (active(j) || order(j) > order(current)))
         {
             map.insert(id.to_owned(), j.clone());
         }
@@ -1127,7 +1127,7 @@ pub fn projection(params: &Value) -> Result<Value> {
             };
             if map
                 .get(id)
-                .is_none_or(|current| active(j) || (!active(current) && order(j) > order(current)))
+                .is_none_or(|current| !active(current) && (active(j) || order(j) > order(current)))
             {
                 map.insert(id.to_owned(), j.clone());
             }
@@ -1313,6 +1313,70 @@ mod tests {
                 .len(),
             1
         );
+    }
+    #[test]
+    fn projection_selects_first_active_job_consistently() {
+        let running =
+            json!({"id":"new","accountId":"a","messageId":"m","state":"running","created":2});
+        let queued =
+            json!({"id":"old","accountId":"a","messageId":"m","state":"queued","created":1});
+        let completed =
+            json!({"id":"completed","accountId":"a","messageId":"m","state":"done","created":3});
+        for (jobs, selected) in [
+            (vec![running.clone(), queued.clone()], "new"),
+            (vec![queued.clone(), running.clone()], "old"),
+            (vec![completed.clone(), running.clone(), queued], "new"),
+            (vec![running, completed], "new"),
+        ] {
+            let projected = projection(&json!({"jobs":jobs,"accountId":"a"})).unwrap();
+            assert_eq!(projected["byMessage"]["m"]["id"], selected);
+            assert_eq!(projected["byAccount"]["a"]["m"]["id"], selected);
+            assert_eq!(
+                projected["scopesByAccount"]["a"]["[\"m\"]"]["job"]["id"],
+                selected
+            );
+        }
+    }
+    #[test]
+    fn projection_selects_newest_completed_job_without_active_jobs() {
+        let oldest = json!({"id":"old","accountId":"a","messageId":"m","state":"done","created":999,"createdOrder":1});
+        let newest = json!({"id":"new","accountId":"a","messageId":"m","state":"done","created":1,"createdOrder":2});
+        for jobs in [vec![oldest.clone(), newest.clone()], vec![newest, oldest]] {
+            let projected = projection(&json!({"jobs":jobs,"accountId":"a"})).unwrap();
+            assert_eq!(projected["byMessage"]["m"]["id"], "new");
+            assert_eq!(projected["byAccount"]["a"]["m"]["id"], "new");
+            assert_eq!(
+                projected["scopesByAccount"]["a"]["[\"m\"]"]["job"]["id"],
+                "new"
+            );
+        }
+    }
+    #[test]
+    fn projection_selects_first_active_event_look_then_newest_completed() {
+        let look = |id: &str, state: &str, created: u64| json!({"id":id,"accountId":"a","messageId":"m","kind":"events","state":state,"created":created});
+        for (jobs, selected) in [
+            (
+                vec![look("new", "running", 2), look("old", "queued", 1)],
+                "new",
+            ),
+            (
+                vec![look("old", "queued", 1), look("new", "running", 2)],
+                "old",
+            ),
+            (vec![look("old", "done", 1), look("new", "done", 2)], "new"),
+            (vec![look("new", "done", 2), look("old", "done", 1)], "new"),
+            (
+                vec![look("done", "done", 2), look("active", "running", 1)],
+                "active",
+            ),
+            (
+                vec![look("active", "running", 1), look("failed", "failed", 3)],
+                "active",
+            ),
+        ] {
+            let projected = projection(&json!({"jobs":jobs,"accountId":"a"})).unwrap();
+            assert_eq!(projected["eventLooks"]["a"]["m"]["id"], selected);
+        }
     }
     #[test]
     fn projection_refuses_amplifying_metadata_before_building_maps() {

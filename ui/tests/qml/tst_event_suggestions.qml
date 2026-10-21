@@ -254,10 +254,13 @@ Item {
       var adas = mailService.accountAt(0)
       mailService.settings = ({ suggestEvents: true })
       var start = new Date(2026, 8, 12, 19, 0).getTime()
+      var allDayStart = new Date(2026, 8, 13).getTime()
+      var allDayEnd = new Date(2026, 8, 15).getTime()
       setJobs([
         look("look-44", ada, "44:INBOX", "done",
           [{ title: "Dinner with Bob", startMs: start, endMs: start + 7200000, location: "Luigi's" },
-            { title: "Offsite", startMs: start + 86400000, endMs: start + 2 * 86400000, allDay: true }]),
+            { title: "Offsite", startMs: allDayStart, endMs: allDayEnd, allDay: true,
+              location: "Conference centre", notes: "Bring your notebook" }]),
         look("look-99", bob, "44:INBOX", "done", [{ title: "Bob's own", startMs: start, endMs: start + 3600000 }])
       ])
       adas.selectedId = "44:INBOX"
@@ -301,7 +304,12 @@ Item {
       verify(mailService.addSuggestedEvent(mailService.eventSuggestions[0]))
       verify(handed !== null)
       compare(handed.title, "Offsite")
-      verify(handed.description.indexOf("All day") >= 0)
+      compare(handed.allDay, true, "the composer receives an all-day event")
+      compare(handed.startMs, allDayStart, "the original start date reaches the composer")
+      compare(handed.endMs, allDayEnd, "the exclusive multi-day end reaches the composer")
+      compare(handed.location, "Conference centre")
+      compare(handed.description, "Bring your notebook", "the original notes reach the composer")
+      compare(handed.accountId, ada, "the suggestion stays with the reading account")
       controller.eventCreated(false, "refused")
       compare(mailService.eventSuggestions.length, 1, "a refused write keeps the suggestion")
       controller.eventCreated(true, "")

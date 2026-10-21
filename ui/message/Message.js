@@ -15,11 +15,6 @@ var B64_LOOKUP = (function() {
   return table
 })()
 
-function b64Index(character) {
-  var value = B64_LOOKUP[character]
-  return value === undefined ? -1 : value
-}
-
 function base64ToBytes(text) {
   var input = String(text || "")
   var bytes = []
@@ -43,16 +38,16 @@ function utf8Scalar(bytes, index) {
   if (first < 0x80) return first
   var width = first >= 0xc2 && first <= 0xdf ? 2
     : (first >= 0xe0 && first <= 0xef ? 3 : (first >= 0xf0 && first <= 0xf4 ? 4 : 0))
-  if (width === 0 || index + width > bytes.length) return -1
+  if (width === 0 || index + width > bytes.length) return null
   var codePoint = first & (width === 2 ? 0x1f : (width === 3 ? 0x0f : 0x07))
   for (var offset = 1; offset < width; offset++) {
     var continuation = bytes[index + offset]
-    if (continuation < 0x80 || continuation > 0xbf) return -1
+    if (continuation < 0x80 || continuation > 0xbf) return null
     codePoint = (codePoint << 6) | (continuation & 0x3f)
   }
-  if (width === 3 && codePoint < 0x800) return -1
-  if (width === 4 && (codePoint < 0x10000 || codePoint > 0x10ffff)) return -1
-  if (codePoint >= 0xd800 && codePoint <= 0xdfff) return -1
+  if (width === 3 && codePoint < 0x800) return null
+  if (width === 4 && (codePoint < 0x10000 || codePoint > 0x10ffff)) return null
+  if (codePoint >= 0xd800 && codePoint <= 0xdfff) return null
   return codePoint
 }
 
@@ -67,7 +62,7 @@ function bytesToUtf8(bytes) {
       continue
     }
     var codePoint = utf8Scalar(bytes, byteIndex)
-    if (codePoint < 0) {
+    if (codePoint === null) {
       // Invariant: malformed UTF-8 bytes fall back individually to Latin-1 so message text remains readable.
       result += String.fromCharCode(first)
       byteIndex++
@@ -97,9 +92,7 @@ function decodeBase64Url(text) {
   if (typeof Qt !== "undefined" && typeof Qt.atob === "function") {
     try {
       return Qt.atob(input.replace(/-/g, "+").replace(/_/g, "/"))
-    } catch (parseError) {
-
-    }
+    } catch (parseError) {}
   }
   return bytesToUtf8(base64ToBytes(input))
 }
@@ -177,7 +170,7 @@ function looksLikeUtf8(bytes) {
       continue
     }
     var codePoint = utf8Scalar(values, byteIndex)
-    if (codePoint < 0) return false
+    if (codePoint === null) return false
     byteIndex += codePoint < 0x800 ? 2 : (codePoint < 0x10000 ? 3 : 4)
     multibyte = true
   }

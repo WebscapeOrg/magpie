@@ -145,12 +145,3 @@ function explanation(info, canSend) {
   if (how === "browser") return "Unsubscribing opens this sender's page in a browser"
   return ""
 }
-
-// Invariant: the RFC 8058 request body and content type are fixed protocol values.
-function postBody() {
-  return "List-Unsubscribe=One-Click"
-}
-
-function postContentType() {
-  return "application/x-www-form-urlencoded"
-}

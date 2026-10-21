@@ -7,8 +7,6 @@ function draft(to, cc, bcc, subject, body) {
   return { to: to, cc: cc, bcc: bcc, subject: subject, body: body }
 }
 
-// ------------------------------------------------------------------ parse
-
 deepEqual(mailto.parse("mailto:jane@example.com"),
   draft("jane@example.com", "", "", "", ""),
   "a bare address is a new message to that person")
@@ -51,11 +49,9 @@ deepEqual(mailto.parse("mailto:jane@example.com#ignored"),
   draft("jane@example.com", "", "", "", ""),
   "a fragment is not part of the message")
 
-// A stray percent is not an escape. Losing the whole subject over one is worse
+// Invariant: A stray percent is not an escape. Losing the whole subject over one is worse
 // than keeping it as written.
 assert.strictEqual(mailto.parse("mailto:jane@example.com?subject=100%").subject, "100%")
-
-// --------------------------------------------------------- payload → draft
 
 deepEqual(mailto.draftFromPayload({ mailto: "mailto:jane@example.com?subject=Hi" }),
   draft("jane@example.com", "", "", "Hi", ""))
@@ -66,8 +62,6 @@ assert.strictEqual(mailto.draftFromPayload({}), null)
 assert.strictEqual(mailto.draftFromPayload({ mailbox: "inbox" }), null)
 assert.strictEqual(mailto.draftFromPayload({ mailto: "https://example.com" }), null)
 assert.strictEqual(mailto.draftFromPayload(null), null)
-
-
 
 {
     const value=mailto.parse('mailto:one+tag@example.test?to=two+tag@example.test&subject=A+B%20C%2BD&body=100%+done')

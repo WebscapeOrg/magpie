@@ -3,12 +3,10 @@ const { load, deepEqual } = require("./load")
 
 const signature = load("message/Signature.js")
 
-// One-pixel rasters, as base64.
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 const GIF = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>').toString("base64")
 
-// A picture: only a real raster, by its bytes, within the cap.
 assert.strictEqual(signature.rasterKind(PNG), "image/png")
 assert.strictEqual(signature.rasterKind(GIF), "image/gif")
 assert.strictEqual(signature.rasterKind(SVG), "", "an SVG is a document, whatever it is named")
@@ -21,7 +19,6 @@ assert.strictEqual(signature.rasterKind(""), "")
   assert.ok(signature.importImage(PNG, { maxImageBytes: 10 }).problem.indexOf("larger") >= 0)
 }
 
-// Markup: everything that could run, fetch or hide is gone; the words stay.
 {
   const hostile = '<html><head><style>p{display:none}</style><script>alert(1)</script></head>'
     + '<body><p onmouseover="steal()" style="color:red" class="x">Ada <b>Lovelace</b></p>'
@@ -55,7 +52,6 @@ assert.strictEqual(signature.rasterKind(""), "")
   assert.strictEqual(html.indexOf("<"), 0, "what is stored is markup rebuilt from the tree")
 }
 
-// Formatting is what the file was imported for: colours, a face, a table.
 {
   const styled = signature.importHtml('<table style="border:1px solid #ccc"><tr><td align="left"><font color="#333" face="Arial" size="2">Ada</font><br><span style="color:#888">Analyst</span></td></tr></table>')
   assert.strictEqual(styled.problem, "")
@@ -65,12 +61,11 @@ assert.strictEqual(signature.rasterKind(""), "")
   assert.strictEqual(styled.dropped, 0, "nothing needed removing")
 }
 
-// Nothing usable, and too big, are refused rather than stored empty.
 assert.ok(signature.importHtml("<script>x()</script>").problem.indexOf("Nothing") >= 0)
 assert.ok(signature.importHtml("x".repeat(300 * 1024)).problem.indexOf("too large") >= 0)
 assert.ok(signature.importHtml("").problem !== "")
 
-// Text with a break in it stays two lines, and a stored signature round-trips
+// Invariant: Text with a break in it stays two lines, and a stored signature round-trips
 // through the importer unchanged in what it says.
 {
   const first = signature.importHtml("<p>Ada Lovelace<br>Analyst</p>")
@@ -80,7 +75,6 @@ assert.ok(signature.importHtml("").problem !== "")
   assert.strictEqual(again.plain, first.plain)
 }
 
-// Sending: each data image becomes a cid part.
 {
   const swapped = signature.inlineParts('<p><img src="data:image/png;base64,' + PNG + '"> and <img src="data:image/gif;base64,' + GIF + '"></p>', "sig")
   assert.strictEqual(swapped.parts.length, 2)

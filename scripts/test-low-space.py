@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +13,9 @@ TEST = "local_mail::provider_tests::low_space_refuses_body_download_and_preserve
 
 
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--worker":
+        shutil.copytree("/tmp/fixture-seed", "/tmp/mail-check/store")
+        os.execv(sys.argv[2], [sys.argv[2], "--exact", TEST, "--ignored", "--nocapture"])
     build = subprocess.run(
         ["cargo", "test", "--locked", "--lib", "--no-run", "--message-format=json"],
         cwd=ROOT, stdout=subprocess.PIPE, text=True, check=True)
@@ -30,7 +35,7 @@ def main():
                "--perms", "0700", "--dir", "/tmp/mail-check",
                "--setenv", "TMPDIR", "/tmp/mail-check",
                "--setenv", "OMAMAIL_ACTION_TEST_CHILD", TEST,
-               executables[0], "--exact", TEST, "--ignored", "--nocapture"]
+               sys.executable, str(Path(__file__).resolve()), "--worker", executables[0]]
         result = subprocess.run(command, cwd=ROOT, env=os.environ.copy(), timeout=30)
         raise SystemExit(result.returncode)
 

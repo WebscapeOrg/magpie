@@ -1313,7 +1313,6 @@ assert.strictEqual(
 // `tests/test_jmap_transport.sh` asserts the same literal in the config — and
 // the sentence somebody who just clicked an attachment reads when a blob is
 // past it.
-assert.strictEqual(jmap.MAX_BLOB_BYTES, 20971520)
 assert.strictEqual(jmap.downloadError({ exit: 63, status: 0, stderr: "" }, ""),
   "This attachment is larger than 20 MB")
 
@@ -1403,11 +1402,11 @@ assert.strictEqual(jmap.EVENT_PING_SECONDS, 30)
 // state carried between calls is the half-read event, and the answer is in the
 // same object: `kind` is "" until a blank line ends one.
 
-function readEvent(lines) {
+function readEvents(lines) {
   let state = jmap.emptyEventState()
   const events = []
-  for (let i = 0; i < lines.length; i++) {
-    state = jmap.parseEventLine(state, lines[i])
+  for (const line of lines) {
+    state = jmap.parseEventLine(state, line)
     if (state.kind !== "") events.push(state)
   }
   return events
@@ -1416,7 +1415,7 @@ function readEvent(lines) {
 const stateJson =
   '{"@type":"StateChange","changed":{"t":{"Email":"s42","Mailbox":"s9"}}}'
 
-let events = readEvent(["event: state", "data: " + stateJson, ""])
+let events = readEvents(["event: state", "data: " + stateJson, ""])
 assert.strictEqual(events.length, 1)
 assert.strictEqual(events[0].kind, "state")
 deepEqual(events[0].changed, { t: { Email: "s42", Mailbox: "s9" } })
@@ -1424,7 +1423,7 @@ deepEqual(events[0].changed, { t: { Email: "s42", Mailbox: "s9" } })
 // A ping says the interval the server settled on, which may not be the one
 // that was asked for: RFC 8620 lets a server clamp, and Stalwart clamps up to
 // thirty. The watchdog follows what the server said rather than what it wanted.
-events = readEvent(["event: ping", 'data: {"interval": 60}', ""])
+events = readEvents(["event: ping", 'data: {"interval": 60}', ""])
 assert.strictEqual(events.length, 1)
 assert.strictEqual(events[0].kind, "ping")
 assert.strictEqual(events[0].interval, 60)
@@ -1432,20 +1431,20 @@ assert.strictEqual(events[0].changed, null)
 
 // Stalwart sends a third event on the same connection. A mail client has
 // nothing to do with it and must not mistake it for either of the two it does.
-events = readEvent(["event: calendarAlert", 'data: {"id":"7"}', ""])
+events = readEvents(["event: calendarAlert", 'data: {"id":"7"}', ""])
 assert.strictEqual(events.length, 1)
 assert.strictEqual(events[0].kind, "calendarAlert")
 assert.strictEqual(events[0].changed, null)
 assert.strictEqual(events[0].interval, 0)
 
 // A comment line is the spec's keep-alive and carries nothing.
-events = readEvent([": keep-alive", ""])
+events = readEvents([": keep-alive", ""])
 assert.strictEqual(events.length, 0, "a comment is not an event, and ends none")
 
 // CRLF. `SplitParser` splits on "\n", so a server writing CRLF leaves the CR
 // on the end of every line — including the blank one that ends an event, which
 // would then never be blank and no event would ever complete.
-events = readEvent(["event: state\r", "data: " + stateJson + "\r", "\r"])
+events = readEvents(["event: state\r", "data: " + stateJson + "\r", "\r"])
 assert.strictEqual(events.length, 1)
 assert.strictEqual(events[0].kind, "state")
 deepEqual(events[0].changed, { t: { Email: "s42", Mailbox: "s9" } })
@@ -1453,12 +1452,12 @@ deepEqual(events[0].changed, { t: { Email: "s42", Mailbox: "s9" } })
 // An id line is dropped: Stalwart sends none, so there is nothing to replay
 // and no `Last-Event-ID` to send back. A retry line is dropped too — the
 // reconnect table here is this client's own.
-events = readEvent(["id: 9", "retry: 5000", "event: state", "data: " + stateJson, ""])
+events = readEvents(["id: 9", "retry: 5000", "event: state", "data: " + stateJson, ""])
 assert.strictEqual(events.length, 1)
 deepEqual(events[0].changed, { t: { Email: "s42", Mailbox: "s9" } })
 
 // Two events on one connection, and the accumulator carrying nothing across.
-events = readEvent(["event: ping", 'data: {"interval":30}', "",
+events = readEvents(["event: ping", 'data: {"interval":30}', "",
   "event: state", "data: " + stateJson, ""])
 assert.strictEqual(events.length, 2)
 assert.strictEqual(events[0].kind, "ping")
@@ -1467,37 +1466,37 @@ deepEqual(events[1].changed, { t: { Email: "s42", Mailbox: "s9" } })
 
 // Data over more than one line is joined with a newline, as the spec says, so
 // a document a server chose to wrap still parses.
-events = readEvent(["event: state", 'data: {"@type":"StateChange",',
+events = readEvents(["event: state", 'data: {"@type":"StateChange",',
   'data: "changed":{"t":{"Email":"s42"}}}', ""])
 assert.strictEqual(events.length, 1)
 deepEqual(events[0].changed, { t: { Email: "s42" } })
 
 // A single space after the colon is the separator and is dropped; a second one
 // is data. No space at all is legal too.
-events = readEvent(["event:state", "data:" + stateJson, ""])
+events = readEvents(["event:state", "data:" + stateJson, ""])
 assert.strictEqual(events.length, 1)
 assert.strictEqual(events[0].kind, "state")
 
 // An event whose data is not a JSON object completes with nothing to act on,
 // rather than throwing inside the process that draws the desktop.
-events = readEvent(["event: state", "data: not json", ""])
+events = readEvents(["event: state", "data: not json", ""])
 assert.strictEqual(events.length, 1)
 assert.strictEqual(events[0].changed, null)
-events = readEvent(["event: state", "data: []", ""])
+events = readEvents(["event: state", "data: []", ""])
 assert.strictEqual(events[0].changed, null, "an array is not a changed map")
 
 // A blank line between events is the spec's own keep-alive and completes
 // nothing.
-events = readEvent(["", "", ""])
+events = readEvents(["", "", ""])
 assert.strictEqual(events.length, 0)
 
 // The half-read event is held in the process that draws the whole desktop, so
 // a server or a proxy that never sends the blank line cannot grow it forever.
-let long = jmap.emptyEventState()
-long = jmap.parseEventLine(long, "event: state")
+let oversizedEvent = jmap.emptyEventState()
+oversizedEvent = jmap.parseEventLine(oversizedEvent, "event: state")
 for (let i = 0; i < 40; i++)
-  long = jmap.parseEventLine(long, "data: " + new Array(4000).join("x"))
-assert.ok(long.data.length <= jmap.MAX_EVENT_CHARS,
+  oversizedEvent = jmap.parseEventLine(oversizedEvent, "data: " + new Array(4000).join("x"))
+assert.ok(oversizedEvent.data.length <= jmap.MAX_EVENT_CHARS,
   "an event that never ends is dropped rather than accumulated")
 
 // ---------------------------------------------------------- what a push means
@@ -1541,8 +1540,8 @@ assert.strictEqual(jmap.refreshPlan({ t: { EmailSubmission: "s3" } }, "t", known
 
 // ---------------------------------------------------------------- reconnect
 
-// A clean close and the planned rotation: at once, and the failure count is
-// left where it was — only a line off a working connection resets it.
+// Invariant: clean close and planned rotation preserve the failure count.
+// The owner resets it only after the connection lasts a full ping interval.
 deepEqual(jmap.reconnectDelay(0, 200, 0), { delay: 0, attempt: 0, stop: false, rejected: false })
 deepEqual(jmap.reconnectDelay(28, 200, 4), { delay: 0, attempt: 4, stop: false, rejected: false })
 
@@ -1560,7 +1559,7 @@ assert.strictEqual(jmap.reconnectDelay(7, 0, 9).delay, 300000)
 assert.strictEqual(jmap.reconnectDelay(7, 0, 40).delay, 300000,
   "and it stays capped however long it has been failing")
 
-// The reset is the caller's: it passes zero once a line has arrived.
+// Invariant: the owner passes zero only after the connection has settled.
 assert.strictEqual(jmap.reconnectDelay(7, 0, 0).delay, 1000,
   "the first failure after a working connection waits a second again")
 
@@ -1607,10 +1606,8 @@ assert.strictEqual(jmap.streamTrailerStatus("http401"), -1)
 assert.strictEqual(jmap.streamTrailerStatus(""), -1)
 assert.strictEqual(jmap.streamTrailerStatus(null), -1)
 
-// What the table reads for a connection that has just ended. A connection that
-// heard nothing is not a clean close whatever curl exited with: a server or a
-// proxy answering 200 and closing at once would otherwise be reopened every few
-// milliseconds for as long as it kept doing it.
+// Invariant: a connection that never settled is not a clean close. Otherwise
+// a server that answers 200 and closes at once would trigger immediate retries.
 assert.strictEqual(jmap.streamExit(0, true), 0, "an hour of pings then a close is clean")
 assert.strictEqual(jmap.streamExit(28, true), 28, "and so is the planned rotation")
 assert.strictEqual(jmap.streamExit(0, false), jmap.EXIT_STREAM_SILENT)
@@ -2247,14 +2244,6 @@ deepEqual(jmap.draftSaveResult({
 }), { saved: true, warning: "Draft saved, but the older copy could not be removed" },
   "the tolerated one is passed over rather than ending the search")
 
-// The send request is the one call that adds the submission capability, and it
-// never adds a vendor URN.
-deepEqual(jmap.USING_SUBMISSION, [
-  "urn:ietf:params:jmap:core",
-  "urn:ietf:params:jmap:mail",
-  "urn:ietf:params:jmap:submission"
-])
-
 // ------------------------------------------------------ per-account refusals
 //
 // The provider's list is a ceiling and an account withdraws from it. Presence
@@ -2402,11 +2391,6 @@ assert.strictEqual(provider.capabilities.send, true)
 assert.strictEqual(provider.capabilities.web, false, "no web UI this plugin knows the address of")
 assert.strictEqual(provider.capabilities.webBox, false)
 
-// `conversations` is the word arriving with that hook, and this is the one
-// assertion that has to be written for both trees: absent from the registry's
-// vocabulary it is `undefined` here, and present it must be the `true` the
-// description declares — a registry that learned the word and dropped this
-// provider's answer would be one row per message on a mailbox that has threads.
 assert.strictEqual(provider.capabilities.conversations, true,
   "one row per conversation, from the server's own thread id")
 

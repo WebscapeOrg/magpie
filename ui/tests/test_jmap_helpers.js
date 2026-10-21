@@ -3,13 +3,6 @@ const { load, deepEqual } = require("./load")
 
 const jmap = load("providers/JmapProtocol.js")
 
-// The small rules `JmapProtocol.js` is written with — ids as a list, a value
-// that is there, the one walk over a reply's invocations — and beside them the
-// reply-shaped errors, the waiting list the client holds three of, and the
-// credential and scheme rules the sign-in reads. Split from `test_jmap.js`
-// for the reason `test_jmap_threads.js` was: the 128 KB ceiling on a tracked
-// file.
-
 // ---------------------------------------------------------- the small rules
 //
 // Three helpers the rest of the file is written with: ids as a clean list, a
@@ -99,8 +92,7 @@ deepEqual(jmap.schemeOrder(undefined), ["basic", "bearer"])
 
 // ------------------------------------------------- the session's addresses
 //
-// The fixture `test_jmap.js` judges sessions with, repeated here for the rule
-// that came after the split.
+// Invariant: each case receives a fresh valid session before its URL override.
 function session(overrides) {
   const base = {
     capabilities: {
@@ -137,12 +129,12 @@ function session(overrides) {
 // goes to every one of them. HTTPS or nothing — the transport refuses anything
 // else before curl runs, and this is the same rule at the gate where the
 // session is judged, with this client's sentence rather than the script's.
-var notHttps = "The server's session names an address that is not HTTPS"
-assert.strictEqual(jmap.verifySession(session({ apiUrl: "http://api.example.org/jmap/" })).error, notHttps)
-assert.strictEqual(jmap.verifySession(session({ downloadUrl: "file:///etc/passwd?{blobId}" })).error, notHttps)
-assert.strictEqual(jmap.verifySession(session({ uploadUrl: "ftp://api.example.org/{accountId}" })).error, notHttps)
-assert.strictEqual(jmap.verifySession(session({ eventSourceUrl: "ws://api.example.org/es" })).error, notHttps)
-assert.strictEqual(jmap.verifySession(session({ apiUrl: "/jmap/" })).error, notHttps,
+const invalidSessionUrl = "The server's session names an address that is not HTTPS"
+assert.strictEqual(jmap.verifySession(session({ apiUrl: "http://api.example.org/jmap/" })).error, invalidSessionUrl)
+assert.strictEqual(jmap.verifySession(session({ downloadUrl: "file:///etc/passwd?{blobId}" })).error, invalidSessionUrl)
+assert.strictEqual(jmap.verifySession(session({ uploadUrl: "ftp://api.example.org/{accountId}" })).error, invalidSessionUrl)
+assert.strictEqual(jmap.verifySession(session({ eventSourceUrl: "ws://api.example.org/es" })).error, invalidSessionUrl)
+assert.strictEqual(jmap.verifySession(session({ apiUrl: "/jmap/" })).error, invalidSessionUrl,
   "a relative address is not one this client can send to either")
 assert.strictEqual(jmap.verifySession(session({ apiUrl: "HTTPS://API.EXAMPLE.ORG/jmap/" })).error, "",
   "the scheme is judged without regard to case")

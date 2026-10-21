@@ -104,6 +104,16 @@ fn all_inline_text_parts_are_indexed_and_missing_text_is_explicit() {
     assert!(!result.body.contains("private-file-text"));
     assert!(!result.complete);
 }
+#[test]
+fn attachment_disposition_uses_the_complete_trimmed_token() {
+    let resource = json!({"payload":{"mimeType":"multipart/mixed","parts":[
+        {"mimeType":"text/plain","headers":[{"name":"content-disposition","value":" \tAttachment ; filename=file.txt"}],"body":{"attachmentId":"external","size":10}},
+        {"mimeType":"text/plain","headers":[{"name":"Content-Disposition","value":"attachment-extra"}],"body":{"data":URL_SAFE_NO_PAD.encode("inline body")}}
+    ]}});
+    let result = content::extract(&resource);
+    assert!(result.complete);
+    assert_eq!(result.body, "inline body\n");
+}
 #[cfg(unix)]
 #[test]
 fn database_and_sidecar_links_never_touch_their_targets() {

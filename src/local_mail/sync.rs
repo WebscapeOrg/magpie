@@ -358,24 +358,7 @@ pub(super) async fn hydrate_text(
         for index in 0..part["parts"].as_array().map_or(0, Vec::len) {
             pending.push(format!("{path}/parts/{index}"));
         }
-        let attachment = part["headers"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|header| {
-                header["name"]
-                    .as_str()
-                    .is_some_and(|n| n.eq_ignore_ascii_case("content-disposition"))
-                    && header["value"].as_str().is_some_and(|v| {
-                        v.split(';')
-                            .next()
-                            .unwrap_or("")
-                            .trim()
-                            .eq_ignore_ascii_case("attachment")
-                    })
-            });
-        if attachment
-            || !part["filename"].as_str().unwrap_or("").is_empty()
+        if super::content::is_attachment(part)
             || !matches!(part["mimeType"].as_str(), Some("text/plain" | "text/html"))
             || part["body"]["data"].is_string()
         {

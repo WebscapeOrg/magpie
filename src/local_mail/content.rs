@@ -6,6 +6,29 @@ pub(super) struct Text {
     pub filenames: String,
     pub complete: bool,
 }
+pub(super) fn is_attachment(part: &Value) -> bool {
+    if !part["filename"].as_str().unwrap_or("").is_empty() {
+        return true;
+    }
+    part["headers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|header| {
+            header["name"]
+                .as_str()
+                .is_some_and(|name| name.eq_ignore_ascii_case("content-disposition"))
+                && header["value"].as_str().is_some_and(|value| {
+                    value
+                        .split(';')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .eq_ignore_ascii_case("attachment")
+                })
+        })
+}
+
 pub(super) fn extract(resource: &Value) -> Text {
     let mut output = Text {
         body: String::new(),
@@ -18,19 +41,11 @@ pub(super) fn extract(resource: &Value) -> Text {
             pending.extend(parts.iter().rev());
         }
         let filename = part["filename"].as_str().unwrap_or("");
-        let attachment = part["headers"].as_array().into_iter().flatten().any(|h| {
-            h["name"]
-                .as_str()
-                .is_some_and(|s| s.eq_ignore_ascii_case("Content-Disposition"))
-                && h["value"]
-                    .as_str()
-                    .is_some_and(|s| s.to_lowercase().starts_with("attachment"))
-        });
         if !filename.is_empty() {
             output.filenames.push_str(filename);
             output.filenames.push('\n');
         }
-        if !filename.is_empty() || attachment {
+        if is_attachment(part) {
             continue;
         }
         let mime = part["mimeType"].as_str().unwrap_or("");

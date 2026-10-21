@@ -45,6 +45,17 @@ Item {
       }
     }
   }
+  Component {
+    id: cacheBackendFactory
+    QtObject {
+      property bool ready: true
+      property var queries: ({})
+      function call(method, params, callback) {
+        if (method === "cache.queryPut") queries[params.key] = params.page
+        callback({generation: 1}, "")
+      }
+    }
+  }
   TestCase {
     name: "QueuedActions"
     property int serial: 0
@@ -367,11 +378,10 @@ Item {
       verify(act(account,"one", "trash"))
       verify(act(account,"two", "trash"))
       // What `rememberList` wrote after the second keystroke.
-      var cachedQueries = {}
-      account.cache.backend = {ready:true,call:function(method, params, callback) {
-        if(method === "cache.queryPut") cachedQueries[params.key] = params.page
-        callback({generation:1}, "")
-      }}
+      var cacheBackend = createTemporaryObject(cacheBackendFactory, account)
+      verify(cacheBackend !== null)
+      var cachedQueries = cacheBackend.queries
+      account.cache.backend = cacheBackend
       account.cache.loaded = true
       account.cache.putQuery(home, ({ summaries: [], estimate: 0, nextPageToken: "" }))
       account.rawQuery = "label:C"

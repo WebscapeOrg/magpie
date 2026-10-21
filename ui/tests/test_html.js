@@ -846,7 +846,7 @@ assert.ok(bare.indexOf("x</body>") > 0)
   // clamped by the stylesheet's max-width instead.
   var fitted = "<table width=\"600\"><tr><td>a</td><td>b</td></tr>"
     + "<tr><td style=\"padding:4px 30px\">"
-    + "<img src=\"a.png\" width=\"540\" height=\"200\"></td><td>c</td></tr></table>"
+    + "<img src=\"" + tinyPng + "\" width=\"540\" height=\"200\"></td><td>c</td></tr></table>"
   var narrow = html.documentFor(fitted, { maxImageWidth: 380, compact: true })
   var roomy = html.documentFor(fitted, { maxImageWidth: 800, compact: true })
   assert.ok(narrow.indexOf('width="600"') < 0, "600 does not fit in 380")
@@ -1789,6 +1789,20 @@ function activityMail() {
     for (const view of [result, result.reader]) {
       assert.strictEqual(view.complexity.images, 2, "decoded bytes share a document-wide budget")
       assert.strictEqual(view.blockedImages, 1)
+    }
+  }
+  for (const render of [html.documentFor, html.readerDocumentFor]) {
+    const cached = '<p>Text</p><img src="' + oversized + '">'
+      + '<img src="cid:unresolved"><img src="https://cdn.example.com/unprepared">'
+      + ('<img src="' + large + '">').repeat(3)
+    for (const document of [cached, html.parse(cached)]) {
+      const before = typeof document === "string" ? document : JSON.stringify(document)
+      const output = render(document, {})
+      assert.ok(!output.includes(oversized), "old backend oversized data never reaches Qt")
+      assert.ok(!output.includes("cid:") && !output.includes("cdn.example.com"))
+      assert.strictEqual((output.match(/<img /g) || []).length, 2, "the final serializer enforces the decoded budget")
+      assert.strictEqual(typeof document === "string" ? document : JSON.stringify(document), before,
+        "rendering does not mutate cached documents")
     }
   }
   const unresolved = html.sanitize('<img src="cid:unknown" alt="Inline picture">', { withReader: true })

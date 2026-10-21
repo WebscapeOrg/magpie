@@ -373,9 +373,7 @@ Item {
       eventCreated(false, "A repeating event on a Microsoft calendar is made in Outlook")
       return false
     }
-    if (source.kind === "google") createGoogleEvent()
-    else if (source.kind === "microsoft") createGraphEvent()
-    else createNativeEvent()
+    createNativeEvent()
     return true
   }
 
@@ -447,9 +445,7 @@ Item {
     writeEvent = event
     writeDraft = built
     eventWriting = true
-    if (source.kind === "google") startGoogleWrite()
-    else if (source.kind === "microsoft") startGraphWrite()
-    else startCaldavWrite()
+    startNativeWrite()
     return true
   }
 
@@ -503,9 +499,7 @@ Item {
     writeEvent = event
     writeDraft = null
     eventWriting = true
-    if (source.kind === "google") startGoogleWrite()
-    else if (source.kind === "microsoft") startGraphWrite()
-    else startCaldavWrite()
+    startNativeWrite()
     return true
   }
 
@@ -550,16 +544,6 @@ Item {
     }
     if (ok && rangeStart && rangeEnd) refresh(rangeStart, rangeEnd)
   }
-
-  function startGoogleWrite() { startNativeWrite() }
-
-  function startGraphWrite() { startNativeWrite() }
-
-  function createGraphEvent() { createNativeEvent() }
-
-  function startCaldavWrite() { startNativeWrite() }
-
-  function createGoogleEvent() { createNativeEvent() }
 
   // The account's primary Microsoft calendar, which is the one calendar a
   // backend from before discovery reaches: it ignores the identity and asks

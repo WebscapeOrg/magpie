@@ -575,36 +575,7 @@ Item {
     }
     nativeRequest(writeSource, writeOp, fields, function(result, error) {
       if (!error) root.undoChange = null
-      if (!error && root.writeOp === "update" && root.writeSource.kind === "google"
-          && root.service.backendCanGoogleCalendars === true
-          && root.writeEvent.start && root.writeEvent.end
-          && !root.writeDraft.destination && !(root.writeEvent.attendees || []).some(function(attendee) { return attendee.self !== true })
-          && !(root.writeDraft.google.attendees || []).some(function(attendee) { return attendee.self !== true })) {
-        var saved = null
-        try { saved = JSON.parse(result.body) } catch (parseError) {}
-        if (saved && saved.etag) {
-          var previous = root.writeEvent
-          var inverse = Calendar.googleEventPatch({ title: previous.summary, description: previous.description,
-            location: previous.location, start: previous.start.ms, end: previous.end.ms }, previous.start.allDay)
-          if (root.writeDraft.google.conferenceData) inverse.conferenceData = previous.conferenceData || null
-          if (root.writeDraft.google.recurrence !== undefined) inverse.recurrence = previous.recurrenceLines || []
-          var preserved = ["reminders", "transparency", "visibility", "attendees"]
-          var completeUndo = true
-          for (var preservedIndex = 0; preservedIndex < preserved.length; preservedIndex++) {
-            var field = preserved[preservedIndex]
-            if (root.writeDraft.google[field] !== undefined && previous[field] !== undefined)
-              inverse[field] = previous[field]
-            else if (root.writeDraft.google[field] !== undefined) completeUndo = false
-          }
-          if (!previous.start.allDay && previous.timeZone) {
-            inverse.start.timeZone = previous.timeZone
-            inverse.end.timeZone = previous.timeZone
-          }
-          if (completeUndo && scope === root.calendarScope)
-            root.undoChange = { source: root.writeSource, eventId: fields.eventId, ifMatch: saved.etag,
-              body: JSON.stringify(inverse), sendUpdates: "none", scope: scope }
-        }
-      }
+      if (!error) root.rememberUndo(result, fields.eventId, scope)
       if (error || !root.writeDraft || !root.writeDraft.destination) { root.finishWrite(!error, error); return }
       var move = { eventId: fields.eventId, destination: root.writeDraft.destination.calendarId || "primary",
         sendUpdates: root.writeDraft.sendUpdates }
@@ -613,6 +584,35 @@ Item {
         if (moveError && root.rangeStart && root.rangeEnd) root.refresh(root.rangeStart, root.rangeEnd)
       })
     })
+  }
+
+  function rememberUndo(result, eventId, scope) {
+    if (writeOp !== "update" || writeSource.kind !== "google"
+        || service.backendCanGoogleCalendars !== true || !writeEvent.start || !writeEvent.end
+        || writeDraft.destination || scope !== calendarScope
+        || (writeEvent.attendees || []).some(function(attendee) { return attendee.self !== true })
+        || (writeDraft.google.attendees || []).some(function(attendee) { return attendee.self !== true })) return
+    var saved = null
+    try { saved = JSON.parse(result.body) } catch (parseError) {}
+    if (!saved || !saved.etag) return
+    var previous = writeEvent
+    var inverse = Calendar.googleEventPatch({ title: previous.summary, description: previous.description,
+      location: previous.location, start: previous.start.ms, end: previous.end.ms }, previous.start.allDay)
+    if (writeDraft.google.conferenceData) inverse.conferenceData = previous.conferenceData || null
+    if (writeDraft.google.recurrence !== undefined) inverse.recurrence = previous.recurrenceLines || []
+    var preserved = ["reminders", "transparency", "visibility", "attendees"]
+    for (var fieldIndex = 0; fieldIndex < preserved.length; fieldIndex++) {
+      var field = preserved[fieldIndex]
+      if (writeDraft.google[field] === undefined) continue
+      if (previous[field] === undefined) return
+      inverse[field] = previous[field]
+    }
+    if (!previous.start.allDay && previous.timeZone) {
+      inverse.start.timeZone = previous.timeZone
+      inverse.end.timeZone = previous.timeZone
+    }
+    undoChange = { source: writeSource, eventId: eventId, ifMatch: saved.etag,
+      body: JSON.stringify(inverse), sendUpdates: "none", scope: scope }
   }
 
   function undoLastChange() {

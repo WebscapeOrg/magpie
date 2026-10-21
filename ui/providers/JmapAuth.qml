@@ -64,6 +64,7 @@ Item {
   // The three names `MailAccount` reads without knowing which provider it has.
   readonly property bool credentialsPresent: configured
   property bool loginBusy: false
+  property int sessionGeneration: 0
   property bool credentialLookupBusy: false
   property bool credentialWriteBusy: false
   property int credentialLookupSerial: 0
@@ -223,6 +224,7 @@ Item {
   // turn, and one `Mailbox/get` — rather than being written down first and
   // failing later on a page with no field to correct.
   function signIn(value) {
+    if (loginBusy || credentialWriteBusy) return false
     if (platform && platform.canAccessCredentials === false) {
       lastError = "Install or update the mail backend before signing in"
       return false
@@ -244,6 +246,7 @@ Item {
       lastError = "Add the email address for this mailbox"
       return false
     }
+    sessionGeneration++
     lastError = ""
     serverNeeded = false
     loginBusy = true
@@ -259,7 +262,8 @@ Item {
   // `authScheme` and `accountId`. It is emitted before the secret is stored,
   // because the keyring entry is named after the account and the account is
   // not named until the page has written the address down.
-  function completeSignIn(ok, result, error, needsServer) {
+  function completeSignIn(ok, result, error, needsServer, generation) {
+    if (!loginBusy || (generation !== undefined && generation !== sessionGeneration)) return
     loginBusy = false
     progressStep = 0
     if (!ok) {
@@ -281,7 +285,10 @@ Item {
     // account id onto the entry, and only then is this object `configured`.
     // Emitting in the same turn would have `MailAccount` start fetching
     // against settings that had not landed yet.
-    Qt.callLater(function() { if (root) root.loginSucceeded() })
+    var completedGeneration = sessionGeneration
+    Qt.callLater(function() {
+      if (root && root.sessionGeneration === completedGeneration && root.loggedIn) root.loginSucceeded()
+    })
   }
 
   function storeSecret() {
@@ -315,12 +322,16 @@ Item {
 
   function logout() {
     var boundAccount = accountId
+    cancelLogin()
+    credentialLookupSerial++
+    credentialLookupBusy = false
     secret = ""
     pendingSecret = ""
     secretChecked = true
     if (credentialWriteBusy && credentialWriteAccount === boundAccount)
       pendingCredentialDelete = boundAccount
     else deleteCredential(boundAccount)
+    finishWaiters(null, "Signed out")
     loggedOut()
   }
 
@@ -338,11 +349,14 @@ Item {
   // calling one.
   function beginLogin() { /* the setup form drives sign-in, not a browser */ }
   function cancelLogin() {
+    sessionGeneration++
+    pendingSecret = ""
     loginBusy = false
     progressStep = 0
   }
 
   onAccountIdChanged: {
+    cancelLogin()
     // A different mailbox has a different secret. Dropping the one in memory
     // is what stops an account rename from leaving the previous account's
     // credential in front of the new one's server.

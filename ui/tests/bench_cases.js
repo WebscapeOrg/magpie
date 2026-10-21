@@ -1,22 +1,11 @@
-// The benchmark itself, kept apart from the two things that run it.
-//
-// Every number this project has argued about so far came out of node, and node
-// is V8. The shell runs QML's own engine, so the same fixtures and the same
-// loops are run there too — `make bench` prints both, side by side, and the
-// difference between the columns is the only honest answer to "how much does it
-// cost to have written this in JavaScript".
-//
-// Written in the same ES5 the QML engine is fed everywhere else in this
-// repository, and it reaches Html.js through a plain object of functions rather
-// than an import, so neither runner needs anything the other does not have.
+.pragma library
 
-// A marketing mail shaped like the real thing: a card behind nine layout
-// tables, because that is what this mailbox actually receives. `cards` is the
-// only knob; roughly 0.8 KB of source per card.
+// Shared Node/QML fixtures and timers measure JavaScript preparation only.
+// Each synthetic card nests nine layout tables to exercise flattening limits.
 function outlookMail(cards) {
   var out = "<html><head><title>Newsletter</title><style>.x{color:red}</style></head><body>"
     + "<div style=\"display:none;font-size:1px\">preheader text nobody reads</div>"
-  for (var i = 0; i < cards; i++) {
+  for (var cardIndex = 0; cardIndex < cards; cardIndex++) {
     var open = ""
     var close = ""
     for (var depth = 0; depth < 9; depth++) {
@@ -25,17 +14,17 @@ function outlookMail(cards) {
       close = "</td></tr></table>" + close
     }
     out += open
-      + "<img src=\"https://cdn.example.com/hero" + i + ".png\" width=\"540\" height=\"200\" alt=\"a>b\">"
-      + "<h2 style=\"color:#111;margin:0 0 8px\">Headline " + i + "</h2>"
+      + "<img src=\"https://cdn.example.com/hero" + cardIndex + ".png\" width=\"540\" height=\"200\" alt=\"a>b\">"
+      + "<h2 style=\"color:#111;margin:0 0 8px\">Headline " + cardIndex + "</h2>"
       + "<p style=\"margin:0 12px;color:#555\">Body copy &amp; more of it, "
-      + "<a href=\"https://example.com/" + i + "\">read on</a>.</p>"
-      + "<img src=\"https://track.example.com/p" + i + ".gif\" width=\"1\" height=\"1\">"
+      + "<a href=\"https://example.com/" + cardIndex + "\">read on</a>.</p>"
+      + "<img src=\"https://track.example.com/p" + cardIndex + ".gif\" width=\"1\" height=\"1\">"
       + close
   }
   return out + "</body></html>"
 }
 
-function kb(measured) {
+function kibibytes(measured) {
   return (measured.length / 1024).toFixed(0)
 }
 
@@ -56,10 +45,7 @@ function timed(run) {
   return (Date.now() - started) / runs
 }
 
-// What opening a message costs: the body is parsed once, and all three ways of
-// reading it come off that parse — the sanitised document, the rebuilt reading
-// document, and the plain-text reading. The reader then builds the document for
-// whichever mode is on, which is reading mode by default.
+// Parse once, prepare all three content modes, then build the reader document.
 function openOnce(html, source, palette) {
   var ready = html.sanitize(source,
     { allowRemoteImages: false, withPlainText: true, withReader: true })
@@ -67,10 +53,8 @@ function openOnce(html, source, palette) {
   return ready
 }
 
-// Which bound refused it, because "too heavy" is four different bounds and
-// which one bites is the thing worth knowing when tuning them.
 function refusedBy(size, limits) {
-  if (size.length > limits.richText) return "too long (" + kb(size) + " KB)"
+  if (size.length > limits.richText) return "too long (" + kibibytes(size) + " KiB)"
   if (size.tags > limits.elements) return "too many elements (" + size.tags + ")"
   if (size.tables > limits.tables) return "too many tables (" + size.tables + ")"
   if (size.tableDepth > limits.tableDepth) return "tables too deep (" + size.tableDepth + ")"
@@ -88,8 +72,8 @@ function run(html, log) {
   log("  " + pad("", 68).replace(/ /g, "-"))
 
   var sizes = [6, 24, 90, 240]
-  for (var i = 0; i < sizes.length; i++) {
-    var source = outlookMail(sizes[i])
+  for (var caseIndex = 0; caseIndex < sizes.length; caseIndex++) {
+    var source = outlookMail(sizes[caseIndex])
     var ready = openOnce(html, source, palette)
 
     var open = timed(function() { openOnce(html, source, palette) })
@@ -101,15 +85,12 @@ function run(html, log) {
     })
     palette.maxImageWidth = 380
 
-    // Which bound bit is asked of the mode that is on. Reading mode is a
-    // different document from the sanitised one and is not heavy for the same
-    // reasons — it is flat, and the reason this column is worth having is that
-    // it stays inside the bounds on mail the formatted view refuses.
+    // Reader and formatted documents have independent complexity budgets.
     var refused = ready.reader.tooHeavy
       ? refusedBy(ready.reader.complexity, html.limits)
       : (ready.tooHeavy ? "formatted view only (" + refusedBy(ready.complexity, html.limits) + ")" : "")
-    log("  " + pad(kb(source) + " KB", 8)
-      + pad(kb(ready.html) + " KB", 9)
+    log("  " + pad(kibibytes(source) + " KiB", 8)
+      + pad(kibibytes(ready.html) + " KiB", 9)
       + pad(ready.complexity.tags, 10)
       + pad(ready.reader.complexity.tags, 9)
       + pad(open.toFixed(2) + "ms", 10)
@@ -118,7 +99,7 @@ function run(html, log) {
   }
 
   log("")
-  log("  source    the sender's HTML, as Gmail handed it over")
+  log("  source    the synthetic HTML input")
   log("  to Qt     what the renderer is given for the formatted view")
   log("  elements  the formatted view's element count")
   log("  reading   the rebuilt reading document's, off the same parse")

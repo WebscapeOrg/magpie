@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Both halves of the benchmark, one after the other.
-#
-# The QML column is the one that matters — the shell runs that engine, not
-# node's — so this is worth running on the machine the shell runs on rather
-# than wherever the code was written.
+# Diagnostic Node and QML columns use the same synthetic fixtures.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
@@ -24,13 +20,9 @@ if [[ -z $runtime ]]; then
 fi
 
 printf '\n'
-# QML's console.log is qDebug, and on a systemd desktop Qt sends that to the
-# journal rather than to stderr unless it is told otherwise — so the column that
-# matters printed nothing at all and exited 0, which reads exactly like a
-# benchmark with no rows in it.
+# Keep Qt diagnostics in this command's output instead of the desktop journal.
 export QT_FORCE_STDERR_LOGGING=1
-# A benchmark, not a test: a QML runtime that will not start is worth saying out
-# loud, but it is not a reason to fail the target.
+# The Node-only diagnostic remains useful when Qt is unavailable.
 if ! "$runtime" ui/tests/bench_html.qml; then
   printf '\nThe QML column did not run: %s exited non-zero above.\n' "$runtime"
   printf 'On a machine where the shell itself runs, that is worth looking into.\n'

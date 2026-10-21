@@ -679,7 +679,10 @@ function carriesData(entry) {
   var raw = entry || {}
   if (trimmed(raw.id) !== "") return true
   var imap = raw.imap || {}
+  var jmap = raw.jmap || {}
   return trimmed(imap.username) !== "" || trimmed(imap.imapHost) !== ""
+    || trimmed(jmap.username) !== "" || trimmed(jmap.sessionUrl) !== ""
+    || trimmed(jmap.accountId) !== ""
     || trimmed(raw.clientId) !== "" || trimmed(raw.clientSecret) !== ""
 }
 

@@ -228,71 +228,23 @@ fn assert_no_runtime_storage(root: &Path) {
 }
 
 fn call_mail_list(root: &Path, account: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_omamail"))
-        .args(["call", "mail.list", "--json"])
-        .env("OMAMAIL_INTEGRATION_HOME", root)
-        .env("XDG_CONFIG_HOME", root.join("config"))
-        .env("HOME", root.join("home"))
-        .env("PATH", root.join("bin"))
-        .env(
-            "OMAMAIL_INTEGRATION_CREDENTIAL_FILE",
-            root.join("integration-credential"),
-        )
-        .env(
-            "OMAMAIL_INTEGRATION_CREDENTIAL_TRACE",
-            root.join("credential-touched"),
-        )
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .write_all(
-            serde_json::json!({"account":account})
-                .to_string()
-                .as_bytes(),
-        )
-        .unwrap();
-    drop(child.stdin.take());
-    child.wait_with_output().unwrap()
+    root_mail(
+        root,
+        &["call", "mail.list", "--json"],
+        serde_json::json!({"account": account})
+            .to_string()
+            .as_bytes(),
+    )
 }
 
 fn call_mail_read(root: &Path, account: &str, id: &str) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_omamail"))
-        .args(["call", "mail.read", "--json"])
-        .env("OMAMAIL_INTEGRATION_HOME", root)
-        .env("XDG_CONFIG_HOME", root.join("config"))
-        .env("HOME", root.join("home"))
-        .env("PATH", root.join("bin"))
-        .env(
-            "OMAMAIL_INTEGRATION_CREDENTIAL_FILE",
-            root.join("integration-credential"),
-        )
-        .env(
-            "OMAMAIL_INTEGRATION_CREDENTIAL_TRACE",
-            root.join("credential-touched"),
-        )
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .write_all(
-            serde_json::json!({"account":account, "id":id})
-                .to_string()
-                .as_bytes(),
-        )
-        .unwrap();
-    drop(child.stdin.take());
-    child.wait_with_output().unwrap()
+    root_mail(
+        root,
+        &["call", "mail.read", "--json"],
+        serde_json::json!({"account": account, "id": id})
+            .to_string()
+            .as_bytes(),
+    )
 }
 
 #[cfg(unix)]
@@ -309,10 +261,20 @@ fn set_mode(path: &Path, _: u32) {
     } else {
         format!("{user}:F")
     };
-    for arguments in [vec!["/setowner".to_owned(), user.clone()],
-        vec!["/inheritance:r".to_owned(), "/grant:r".to_owned(), grant]] {
-        let output = Command::new("icacls").arg(path).args(arguments).output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    for arguments in [
+        vec!["/setowner".to_owned(), user.clone()],
+        vec!["/inheritance:r".to_owned(), "/grant:r".to_owned(), grant],
+    ] {
+        let output = Command::new("icacls")
+            .arg(path)
+            .args(arguments)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
 
@@ -329,7 +291,9 @@ fn metadata(path: &Path) -> (u64, (i64, i64), (i64, i64)) {
 fn metadata(path: &Path) -> (u64, (i64, i64), (i64, i64)) {
     use std::hash::{Hash, Hasher};
     use std::os::windows::{ffi::OsStrExt, fs::MetadataExt};
-    use windows_sys::Win32::Security::{GetFileSecurityW, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION};
+    use windows_sys::Win32::Security::{
+        DACL_SECURITY_INFORMATION, GetFileSecurityW, OWNER_SECURITY_INFORMATION,
+    };
     let metadata = fs::metadata(path).unwrap();
     let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
     let flags = DACL_SECURITY_INFORMATION | OWNER_SECURITY_INFORMATION;
@@ -337,16 +301,32 @@ fn metadata(path: &Path) -> (u64, (i64, i64), (i64, i64)) {
     unsafe { GetFileSecurityW(name.as_ptr(), flags, std::ptr::null_mut(), 0, &mut needed) };
     assert!(needed > 0);
     let mut descriptor = vec![0u8; needed as usize];
-    assert_ne!(unsafe { GetFileSecurityW(name.as_ptr(), flags, descriptor.as_mut_ptr().cast(), needed, &mut needed) }, 0);
+    assert_ne!(
+        unsafe {
+            GetFileSecurityW(
+                name.as_ptr(),
+                flags,
+                descriptor.as_mut_ptr().cast(),
+                needed,
+                &mut needed,
+            )
+        },
+        0
+    );
     descriptor.truncate(needed as usize);
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     descriptor.hash(&mut hash);
     // Capture bytes separately in fixture_snapshot, and here preserve native
     // timestamps, attributes, owner and DACL: a same-size write or permission
     // repair must not pass a read-only regression merely because length stayed put.
-    (metadata.len(),
-        (metadata.last_write_time() as i64, metadata.creation_time() as i64),
-        (metadata.file_attributes() as i64, hash.finish() as i64))
+    (
+        metadata.len(),
+        (
+            metadata.last_write_time() as i64,
+            metadata.creation_time() as i64,
+        ),
+        (metadata.file_attributes() as i64, hash.finish() as i64),
+    )
 }
 
 type FixtureSnapshot = Vec<(
@@ -452,10 +432,10 @@ async fn malformed_final_imap_action_id_prevents_all_network_and_cache_changes()
         loop {
             let mut line = String::new();
             if match reader.read_line(&mut line).await {
-                            Ok(n) => n == 0,
-                            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => true,
-                            Err(error) => panic!("synthetic IMAP read failed: {error}"),
-                        } {
+                Ok(n) => n == 0,
+                Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => true,
+                Err(error) => panic!("synthetic IMAP read failed: {error}"),
+            } {
                 break;
             }
             let response = if line.starts_with("O1 LOGIN ") {
@@ -575,8 +555,10 @@ fn configured_read_failures_do_not_repair_registry_metadata() {
     ] {
         let output = call_mail_read(&fixture.0, account, id);
         assert!(!output.status.success(), "{account}: {output:?}");
-        assert!(!state_root(&fixture.0).join("omamail/mail").exists(),
-            "a failed read must not initialize local storage");
+        assert!(
+            !state_root(&fixture.0).join("omamail/mail").exists(),
+            "a failed read must not initialize local storage"
+        );
         if let Some(expected_error) = expected_error {
             assert_eq!(
                 serde_json::from_slice::<Value>(&output.stdout).unwrap()["error"]["code"],
@@ -1215,21 +1197,49 @@ fn failed_execution_retains_target_results_and_exits_one() {
     assert!(output.stderr.is_empty());
 }
 
+#[derive(Clone, Copy)]
+enum SendInvocation {
+    TaskCommand,
+    GenericCall,
+}
+
+#[derive(Clone, Copy)]
+enum DeliveryOwner {
+    Sender,
+    Desktop,
+    CrashingDesktop,
+}
+
+#[derive(Clone, Copy)]
+enum SmtpReply {
+    Acknowledged,
+    Lost,
+}
+
 #[tokio::test]
 async fn one_shot_send_owns_delivery_until_durable_terminal_result() {
-    for (generic, acknowledge) in [(false, true), (true, false)] {
-        real_smtp_send(generic, acknowledge, false, false).await;
+    for (invocation, reply) in [
+        (SendInvocation::TaskCommand, SmtpReply::Acknowledged),
+        (SendInvocation::GenericCall, SmtpReply::Lost),
+    ] {
+        synthetic_smtp_send(invocation, reply, DeliveryOwner::Sender).await;
     }
 }
 
 #[tokio::test]
 async fn concurrent_send_uses_idle_serve_owner_and_survives_owner_crash_or_smtp_ack_loss() {
-    for (acknowledge, crash) in [(true, false), (false, false), (false, true)] {
-        real_smtp_send(false, acknowledge, true, crash).await;
+    for (reply, owner) in [
+        (SmtpReply::Acknowledged, DeliveryOwner::Desktop),
+        (SmtpReply::Lost, DeliveryOwner::Desktop),
+        (SmtpReply::Lost, DeliveryOwner::CrashingDesktop),
+    ] {
+        synthetic_smtp_send(SendInvocation::TaskCommand, reply, owner).await;
     }
 }
 
-async fn real_smtp_send(generic: bool, acknowledge: bool, owner: bool, crash: bool) {
+async fn synthetic_smtp_send(invocation: SendInvocation, reply: SmtpReply, owner: DeliveryOwner) {
+    let acknowledge = matches!(reply, SmtpReply::Acknowledged);
+    let crash_owner = matches!(owner, DeliveryOwner::CrashingDesktop);
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let fixture = mail_list_fixture(9, true);
@@ -1239,7 +1249,7 @@ async fn real_smtp_send(generic: bool, acknowledge: bool, owner: bool, crash: bo
     registry["accounts"][1]["imap"]["smtpPort"] =
         serde_json::json!(listener.local_addr().unwrap().port());
     fs::write(&config, registry.to_string()).unwrap();
-    let mut desktop = if owner {
+    let mut desktop = if !matches!(owner, DeliveryOwner::Sender) {
         let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_omamail"))
             .arg("serve")
             .env("OMAMAIL_INTEGRATION_HOME", &fixture.0)
@@ -1331,7 +1341,7 @@ async fn real_smtp_send(generic: bool, acknowledge: bool, owner: bool, crash: bo
             writer.write_all(b"250 accepted\r\n").await.unwrap();
         }
         accepted.send(()).unwrap();
-        if crash {
+        if crash_owner {
             let mut line = String::new();
             let _ = reader.read_line(&mut line).await;
         }
@@ -1350,7 +1360,7 @@ async fn real_smtp_send(generic: bool, acknowledge: bool, owner: bool, crash: bo
     });
     let root = fixture.0.clone();
     let sending = tokio::task::spawn_blocking(move || {
-        let (args, body) = if generic {
+        let (args, body) = if matches!(invocation, SendInvocation::GenericCall) {
             (vec!["call", "mail.send", "--json"], serde_json::json!({"account":"imap:imap@example.org","to":["one@example.org"],"body":"private body 工\nsecond line","execute":true}).to_string().into_bytes())
         } else {
             (
@@ -1368,7 +1378,7 @@ async fn real_smtp_send(generic: bool, acknowledge: bool, owner: bool, crash: bo
         };
         root_mail(&root, &args, &body)
     });
-    if crash {
+    if crash_owner {
         tokio::time::timeout(std::time::Duration::from_secs(20), acceptance)
             .await
             .unwrap()
@@ -1519,7 +1529,9 @@ async fn imap_action_preview_requires_discovered_destinations_and_execution_uses
                         let mut line = String::new();
                         if match reader.read_line(&mut line).await {
                             Ok(n) => n == 0,
-                            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => true,
+                            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {
+                                true
+                            }
                             Err(error) => panic!("synthetic IMAP read failed: {error}"),
                         } {
                             break;
@@ -1640,10 +1652,10 @@ async fn imap_archive_keeps_confirmed_folder_results_when_later_select_refuses()
         loop {
             let mut line = String::new();
             if match reader.read_line(&mut line).await {
-                            Ok(n) => n == 0,
-                            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => true,
-                            Err(error) => panic!("synthetic IMAP read failed: {error}"),
-                        } {
+                Ok(n) => n == 0,
+                Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => true,
+                Err(error) => panic!("synthetic IMAP read failed: {error}"),
+            } {
                 break;
             }
             let response = if line.starts_with("O1 LOGIN ") {

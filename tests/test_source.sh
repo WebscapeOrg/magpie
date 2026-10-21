@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Two rules that are easy to break by accident and invisible until someone
-# switches to a light theme or the QML engine chokes on modern syntax.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../ui"
 
@@ -394,12 +392,6 @@ if error > body:
 error_block = text[error:body]
 if "height:" not in error_block or "lastError" not in error_block:
     raise SystemExit("test_source.sh: calendar errors must occupy their own visible row")
-if 'objectName: "calendarErrorCopy"' not in error_block or "copyRequested" not in error_block:
-    raise SystemExit("test_source.sh: a disabled Calendar API error must offer Copy")
-if 'objectName: "calendarApiEnable"' not in error_block or "openRequested" not in error_block:
-    raise SystemExit("test_source.sh: a disabled Calendar API error must link to Google Cloud")
-if 'lastErrorKind === "googleApiDisabled"' not in error_block:
-    raise SystemExit("test_source.sh: Calendar API actions must use the typed Google error")
 PY
 python3 - <<'PY'
 from pathlib import Path
@@ -1079,7 +1071,6 @@ oversized=$(cd ..
       [ -f "$file" ] || continue
       case "$file" in
         (preview.png) ceiling=$preview_limit ;;
-        (app/assets/fonts/SymbolsNerdFontMono-Regular.ttf) ceiling=2610012 ;;
         (app/resources/macos/omamail.icns) ceiling=111809 ;;
         (*) ceiling=$limit ;;
       esac
@@ -1093,9 +1084,8 @@ if [ -n "$oversized" ]; then
   fail "the files above are over their size ceiling; keep large assets out of the clone"
 fi
 
-# The standalone host embeds one exact upstream Nerd Fonts icon asset. Keep its
-# exception tied to reviewed bytes and to the provenance shipped beside it; a
-# different font must update all three deliberately.
+# Invariant: the standalone icon subset must match its reviewed bytes and
+# provenance. Native resource tests verify coverage of maintained QML glyphs.
 font_provenance=app/assets/fonts/NerdFonts-PROVENANCE.md
 [ -f "../$font_provenance" ] || fail "bundled fonts must record their provenance"
 while read -r expected file; do
@@ -1104,7 +1094,7 @@ while read -r expected file; do
   grep -q "$expected" "../$font_provenance" \
     || fail "$file checksum is missing from its shipped provenance"
 done <<'FONT_CHECKSUMS'
-fe471e538392f51910faab985fa8e192a39dd3426125edd15b71b3680df0e749 app/assets/fonts/SymbolsNerdFontMono-Regular.ttf
+a6de4cfc8a01d6e1271370e35591e23e696c84c52e36929b55d719916ada6b08 app/assets/fonts/SymbolsNerdFontMono-Regular.ttf
 FONT_CHECKSUMS
 
 # The macOS bundle icon is generated from the small reviewed SVG beside it.

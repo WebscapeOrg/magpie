@@ -8,9 +8,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import selectors
 import signal
 import subprocess
 import tempfile
+import time
 import tomllib
 
 
@@ -148,6 +150,28 @@ Scope {
 '''
 
 
+def collect_output(process, timeout_seconds):
+    deadline = time.monotonic() + timeout_seconds
+    output = bytearray()
+    with selectors.DefaultSelector() as selector:
+        selector.register(process.stdout, selectors.EVENT_READ)
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                raise subprocess.TimeoutExpired(process.args, timeout_seconds)
+            chunk = os.read(process.stdout.fileno(), 65536)
+            if chunk:
+                output.extend(chunk)
+            else:
+                selector.unregister(process.stdout)
+    # Invariant: keep the leader waitable until group cleanup; communicate() reaps it.
+    while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+        if time.monotonic() >= deadline:
+            raise subprocess.TimeoutExpired(process.args, timeout_seconds)
+        time.sleep(.01)
+    return output.decode('utf-8')
+
+
 def main():
     qs = shutil.which("qs")
     if not qs:
@@ -194,7 +218,7 @@ def main():
             start_new_session=True,
         )
         try:
-            output, _ = process.communicate(timeout=30)
+            output = collect_output(process, 30)
         finally:
             # Also reap the backend if a failed QML assertion stopped its parent.
             try:
@@ -202,6 +226,7 @@ def main():
             except ProcessLookupError:
                 pass
             process.wait()
+            process.stdout.close()
         assert process.returncode == 0, output
         assert "BACKEND_PROCESS_PASS" in output, output
         assert "BACKEND_PROCESS_FAIL" not in output, output

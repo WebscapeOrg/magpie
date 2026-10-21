@@ -101,8 +101,8 @@ var FIRST_STRONG_ISOLATE = 0x2068
 var POP_DIRECTIONAL_ISOLATE = 0x2069
 
 function isRtlCode(code) {
-  for (var i = 0; i < RTL_RANGES.length; i++) {
-    if (code >= RTL_RANGES[i][0] && code <= RTL_RANGES[i][1]) return true
+  for (var rangeIndex = 0; rangeIndex < RTL_RANGES.length; rangeIndex++) {
+    if (code >= RTL_RANGES[rangeIndex][0] && code <= RTL_RANGES[rangeIndex][1]) return true
   }
   return false
 }
@@ -187,16 +187,16 @@ function strongDirectionOf(text) {
   var source = String(text === undefined || text === null ? "" : text)
   var depth = 0
 
-  for (var i = 0; i < source.length; i++) {
-    var code = source.charCodeAt(i)
+  for (var characterIndex = 0; characterIndex < source.length; characterIndex++) {
+    var code = source.charCodeAt(characterIndex)
 
     // A surrogate pair is one character. Reading its halves as two would put
     // an Adlam or Kharoshthi message on the wrong side of the window.
-    if (code >= 0xD800 && code <= 0xDBFF && i + 1 < source.length) {
-      var low = source.charCodeAt(i + 1)
+    if (code >= 0xD800 && code <= 0xDBFF && characterIndex + 1 < source.length) {
+      var low = source.charCodeAt(characterIndex + 1)
       if (low >= 0xDC00 && low <= 0xDFFF) {
         code = (code - 0xD800) * 0x400 + (low - 0xDC00) + 0x10000
-        i++
+        characterIndex++
       }
     }
 
@@ -256,7 +256,7 @@ function withoutReplyPrefixes(subject) {
   var text = String(subject === undefined || subject === null ? "" : subject)
   // Bounded rather than `while (true)`: the expression can match empty on a
   // pathological subject, and a body of mail is not the place to find out.
-  for (var i = 0; i < 12; i++) {
+  for (var index = 0; index < 12; index++) {
     var stripped = text.replace(REPLY_PREFIX, "")
     if (stripped === text) break
     text = stripped

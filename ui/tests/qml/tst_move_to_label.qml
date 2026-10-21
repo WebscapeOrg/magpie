@@ -36,7 +36,11 @@ Item {
       function untrashMessage(id, callback) { return later(function() { callback(null, "") }) }
       function modifyMessage(id, add, remove, callback) { return batchModify([id], add, remove, callback) }
       function batchModify(ids, add, remove, callback) {
-        record.modified = record.modified.concat([ids.join(",") + " +" + (add || []).join(",") + " -" + (remove || []).join(",")])
+        record.modified = record.modified.concat([{
+          ids: ids.slice(),
+          addedLabels: (add || []).slice(),
+          removedLabels: (remove || []).slice()
+        }])
         return later(function() { callback(null, "") })
       }
       function getLabels(callback) { return later(function() { callback(record.labels, "") }) }
@@ -120,8 +124,8 @@ Item {
       keyClick(Qt.Key_Return)
       tryCompare(picker, "opened", false)
       tryVerify(function() { return record.modified.length === 1 }, 1000)
-      verify(record.modified[0].indexOf("1:INBOX") === 0, record.modified[0])
-      verify(record.modified[0].indexOf("+Work/2026") > 0, "moved under the label chosen: " + record.modified[0])
+      compare(record.modified[0].ids, ["1:INBOX"])
+      compare(record.modified[0].addedLabels, ["Work/2026"])
     }
 
     function test_a_menu_on_an_unticked_row_moves_that_row_alone() {
@@ -137,8 +141,9 @@ Item {
       picker.cursorIndex = 0
       picker.chooseCursor()
       tryVerify(function() { return record.modified.length === 1 }, 1000)
-      compare(record.modified[0].indexOf("2:INBOX +Receipts"), 0, record.modified[0])
-      verify(record.modified[0].indexOf("1:INBOX") < 0, "the ticked row stays")
+      compare(record.modified[0].ids, ["2:INBOX"])
+      compare(record.modified[0].addedLabels, ["Receipts"])
+      verify(record.modified[0].ids.indexOf("1:INBOX") < 0, "the ticked row stays")
       record.reset()
       app.cursorId = "2:INBOX"
       app.runShortcut("moveToLabel", "v")
@@ -148,7 +153,8 @@ Item {
       picker.cursorIndex = 0
       picker.chooseCursor()
       tryVerify(function() { return record.modified.length === 1 }, 1000)
-      compare(record.modified[0].indexOf("1:INBOX +Receipts"), 0, "from the keyboard the ticks win: " + record.modified[0])
+      compare(record.modified[0].ids, ["1:INBOX"], "from the keyboard the ticks win")
+      compare(record.modified[0].addedLabels, ["Receipts"])
     }
 
     function test_the_row_menu_opens_the_picker_for_its_row() {

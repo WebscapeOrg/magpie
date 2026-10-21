@@ -4,9 +4,8 @@ import "../.." as Omamail
 import "BackendFixture.js" as BackendFixture
 import "NativeIntentFixture.js" as NativeIntentFixture
 
-// The move route through the real objects. Unit tests own each rule; this one
-// catches a forwarding argument or property dropped between App, Service and
-// MailAccount before the rule can see it.
+// Invariant: real App, Service and MailAccount objects preserve the move context
+// across forwarding boundaries that isolated model tests cannot exercise.
 Item {
   width: 900
   height: 600
@@ -32,14 +31,17 @@ Item {
     name: "MoveWiring"
     when: windowShown
 
-    function initTestCase() { BackendFixture.markReady(mailService); NativeIntentFixture.install(mailService) }
+    function initTestCase() {
+      BackendFixture.markReady(mailService)
+      NativeIntentFixture.install(mailService)
+    }
 
     function named(item, objectName) {
       if (!item) return null
       if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      var children = item.children || []
+      for (var i = 0; i < children.length; i++) {
+        var found = named(children[i], objectName)
         if (found) return found
       }
       return null
@@ -67,10 +69,10 @@ Item {
       return -1
     }
 
-    function ids(labels) {
+    function labelIds(labels) {
       var result = []
       for (var i = 0; i < labels.length; i++) result.push(labels[i].id)
-      return result.join(",")
+      return result
     }
 
     function init() {
@@ -100,7 +102,7 @@ Item {
       tryCompare(account, "rawLabelId", "Label_3")
       compare(mailService.rawLabelId, "Label_3")
       compare(mailService.rawQuery, "label:Bills")
-      compare(ids(named(app, "label-picker").matchingLabels), "Label_7",
+      compare(labelIds(named(app, "label-picker").matchingLabels), ["Label_7"],
         "the current label cannot trigger an optimistic removal that leaves it attached")
 
       account.auth.credentials = ({
@@ -111,8 +113,7 @@ Item {
       account.auth.toolsChecked = true
       account.auth.missingTools = []
       account.auth.loggedIn = true
-      // Hold the transport below the real action pipeline: the test needs the
-      // optimistic result, not a request to Google.
+      // Invariant: the optimistic action runs while provider transport stays pending.
       account.auth.refreshBusy = true
       tryCompare(account, "ready", true)
       account.messages = [
@@ -129,8 +130,7 @@ Item {
       verify(app.actOnCursor("label:Label_7"))
 
       tryCompare(account, "actionPreparations", 0)
-      tryCompare(mailService, "selectedId", "two")
-      compare(mailService.selectedId, "two",
+      tryCompare(mailService, "selectedId", "two", 5000,
         "the reader follows the action to the same next message as the cursor")
       compare(app.cursorId, "two",
         "App uses the raw query even though the old mailbox key is Starred")
@@ -156,14 +156,12 @@ Item {
         { id: "Receipts", name: "Receipts", rawName: "Receipts", system: false, unread: 0 }
       ]
 
-      // The ninth row on the rail: eight mailboxes come first, and the rail
-      // stops at nine because `Ctrl+0` is reset zoom.
       var slot = labelSlot("Archive")
       verify(slot >= 0)
       app.goSlot(slot)
 
       tryCompare(account, "rawLabelId", "Archive")
-      compare(ids(named(app, "label-picker").matchingLabels), "Receipts",
+      compare(labelIds(named(app, "label-picker").matchingLabels), ["Receipts"],
         "the current folder cannot become a same-folder UID MOVE")
     }
   }

@@ -1582,7 +1582,7 @@ DropArea {
         onTextChanged: root.noteDraftChanged()
         onAccepted: bodyEdit.forceActiveFocus()
         Keys.priority: Keys.BeforeItem
-        Keys.onPressed: root.pasteKey(event)
+        Keys.onPressed: function(event) { root.pasteKey(event) }
       }
 
       PanelSeparator {
@@ -1837,7 +1837,7 @@ DropArea {
         }
       }
       Keys.priority: Keys.BeforeItem
-      Keys.onPressed: root.pasteKey(event)
+      Keys.onPressed: function(event) { root.pasteKey(event) }
     }
   }
 

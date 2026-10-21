@@ -42,6 +42,7 @@ Item {
   }
 
   Text {
+    textFormat: Text.PlainText
     id: labelText
     visible: root.showLabel && root.label !== ""
     anchors.left: parent.left

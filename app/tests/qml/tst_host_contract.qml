@@ -7,6 +7,7 @@ import qs.Commons as Commons
 import qs.Ui
 import "../../../ui" as Omamail
 import "../../../ui/components" as Components
+import "../../../ui/controls" as MailControls
 
 TestCase {
   id: testCase
@@ -16,6 +17,7 @@ TestCase {
   height: 480
 
   HostFixture { id: host }
+  HostFixture { id: otherStore }
 
   Component {
     id: nativeProcessComponent
@@ -94,6 +96,7 @@ TestCase {
   Component { id: windowComponent; FloatingWindow { visible: false; minimumSize: Qt.size(320, 240) } }
   Component { id: sharedAppComponent; Omamail.App { opened: false } }
   Component { id: actionIconComponent; Components.ActionIcon { name: "archive" } }
+  Component { id: mailDropdownComponent; MailControls.Dropdown { fontFamily: "monospace" } }
 
   Item {
     id: controls
@@ -208,12 +211,23 @@ TestCase {
     tryCompare(Style.iconFont, "status", FontLoader.Ready)
     compare(Style.font.family, Style.metrics.font.family)
     verify(Style.font.family.length > 0)
-    compare(Style.font.iconFamily, "Symbols Nerd Font Mono")
+    compare(Style.font.iconFamily, "Magpie Symbols")
     var icon = createTemporaryObject(actionIconComponent, testCase)
     verify(icon)
     verify(icon.imageSource.indexOf("data:image/svg+xml") === 0)
     tryCompare(icon.children[0], "status", Image.Ready)
     compare(icon.children[0].sourceSize.width, Math.ceil(icon.iconSize * 2))
+  }
+
+  function test_dropdown_chevron_uses_bundled_icon_font() {
+    tryCompare(Style.iconFont, "status", FontLoader.Ready)
+    var control = createTemporaryObject(mailDropdownComponent, testCase)
+    verify(control)
+    var column = control.children[0]
+    var trigger = column.children[1]
+    var chevron = trigger.children[1]
+    compare(chevron.text, "󰅀")
+    compare(chevron.font.family, Style.font.iconFamily)
   }
 
   function test_current_omarchy_theme_wins_over_stale_legacy_theme() {
@@ -413,6 +427,31 @@ TestCase {
     file.reload()
     compare(failures, 1)
     host.failed("/fixture/missing", "external")
+    compare(failures, 2)
+  }
+
+  function test_file_view_releases_the_original_store_when_replaced() {
+    otherStore.reset()
+    var file = createTemporaryObject(fileComponent, testCase, { store: host })
+    verify(file)
+    verify(host.watched[file.path])
+    file.store = otherStore
+    compare(host.watched[file.path], false)
+    compare(otherStore.watched[file.path], true)
+    file.store = null
+    compare(otherStore.watched[file.path], false)
+  }
+
+  function test_file_view_reports_a_failed_write_once() {
+    var file = createTemporaryObject(fileComponent, testCase, { store: host })
+    verify(file)
+    var failures = 0
+    file.loadFailed.connect(function() { failures++ })
+    host.rejectWrites = true
+    file.setText("unsaved")
+    compare(failures, 1)
+    compare(host.files[file.path], "saved")
+    host.failed(file.path, "external")
     compare(failures, 2)
   }
 

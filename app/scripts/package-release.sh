@@ -286,7 +286,7 @@ if [ "$test_layout" -eq 0 ]; then
   HOME="$isolated" XDG_CONFIG_HOME="$isolated/config" XDG_CACHE_HOME="$isolated/cache" XDG_STATE_HOME="$isolated/state" \
     QT_QPA_PLATFORM="$smoke_platform" "$packaged_host" --smoke-test "$ready"
   [ -s "$ready" ] || { printf 'standalone smoke test did not write readiness metadata\n' >&2; exit 1; }
-  backend_version=$($packaged_backend --version)
+  backend_version=$("$packaged_backend" --version)
   [ "$backend_version" = "omamail $version" ] || { printf 'bundled backend version mismatch: %s\n' "$backend_version" >&2; exit 1; }
   HOME="$isolated" XDG_CONFIG_HOME="$isolated/config" XDG_CACHE_HOME="$isolated/cache" XDG_STATE_HOME="$isolated/state" \
     python3 "$repo_root/tests/test_backend_api.py" --standalone \

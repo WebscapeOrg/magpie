@@ -3,12 +3,14 @@
 #include "backend_contract.h"
 
 #include <QDir>
+#include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLibraryInfo>
+#include <QRawFont>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTextStream>
@@ -52,6 +54,7 @@ private:
     }
 
 private slots:
+    void bundledIconFontCoversMaintainedPrivateUseGlyphs();
     void platedIconReadsEveryPngInTheIcns();
     void acceptsCompleteReadableLayout();
     void reportsEachMissingComponent_data();
@@ -69,6 +72,32 @@ private slots:
     void developmentDiscoveryUsesExplicitSourceAndBackend();
     void bundleDiscoveryAcceptsPortableRootLayout();
 };
+
+void ResourcesTest::bundledIconFontCoversMaintainedPrivateUseGlyphs()
+{
+    const QDir source(QStringLiteral(OMAMAIL_SOURCE_ROOT));
+    const QString fontPath = source.filePath(QStringLiteral("app/assets/fonts/SymbolsNerdFontMono-Regular.ttf"));
+    QVERIFY(QFileInfo(fontPath).size() < 128 * 1024);
+    const QRawFont font(fontPath, 16);
+    QVERIFY(font.isValid());
+    QCOMPARE(font.familyName(), QStringLiteral("Magpie Symbols"));
+    for (const QString &directory : {QStringLiteral("app/qml"), QStringLiteral("ui")}) {
+        QDirIterator files(source.filePath(directory), {QStringLiteral("*.qml"), QStringLiteral("*.js")},
+                           QDir::Files, QDirIterator::Subdirectories);
+        while (files.hasNext()) {
+            QFile file(files.next());
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            const auto characters = QString::fromUtf8(file.readAll()).toUcs4();
+            for (const char32_t character : characters) {
+                const bool privateUse = (character >= 0xe000 && character <= 0xf8ff)
+                    || (character >= 0xf0000 && character <= 0xffffd)
+                    || (character >= 0x100000 && character <= 0x10fffd);
+                if (privateUse)
+                    QVERIFY2(font.supportsCharacter(character), qPrintable(file.fileName()));
+            }
+        }
+    }
+}
 
 void ResourcesTest::platedIconReadsEveryPngInTheIcns()
 {

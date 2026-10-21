@@ -68,17 +68,15 @@ FileStore::FileStore(QObject *parent)
     });
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this,
             [this](const QString &directory) {
-        for (const QString &path : std::as_const(m_watchedFiles)) {
+        for (const QString &path : m_watchSubscribers.keys()) {
             const QFileInfo info(path);
             if (info.absolutePath() != directory && info.absoluteFilePath() != directory)
                 continue;
-            const bool exists = QFileInfo::exists(path);
             // A watched directory may be a symlink such as Omarchy's
             // `current` theme entry. Its existence can stay true while its
             // target is atomically replaced, so any relevant directory event
             // invalidates the watched path.
             emit changed(path);
-            m_lastExists.insert(path, exists);
         }
         restoreWatches();
     });
@@ -149,7 +147,7 @@ QVariantMap FileStore::write(const QString &path, const QString &text, bool atom
         emit failed(path, error);
         return result(false, {}, error);
     }
-    if (m_watchedFiles.contains(QFileInfo(path).absoluteFilePath()))
+    if (m_watchSubscribers.contains(QFileInfo(path).absoluteFilePath()))
         emit changed(QFileInfo(path).absoluteFilePath());
     restoreWatches();
     return result(true);
@@ -159,11 +157,10 @@ void FileStore::watch(const QString &path, bool enabled)
 {
     const QString absolute = QFileInfo(path).absoluteFilePath();
     if (enabled) {
-        m_watchedFiles.insert(absolute);
-        m_lastExists.insert(absolute, QFileInfo::exists(absolute));
-    } else {
-        m_watchedFiles.remove(absolute);
-        m_lastExists.remove(absolute);
+        ++m_watchSubscribers[absolute];
+    } else if (auto subscription = m_watchSubscribers.find(absolute);
+               subscription != m_watchSubscribers.end()) {
+        if (--subscription.value() == 0) m_watchSubscribers.erase(subscription);
     }
     restoreWatches();
 }
@@ -176,9 +173,8 @@ void FileStore::watch(const QString &path, bool enabled)
 void FileStore::restoreWatches()
 {
     QSet<QString> wanted;
-    for (const QString &file : std::as_const(m_watchedFiles)) {
+    for (const QString &file : m_watchSubscribers.keys()) {
         const bool exists = QFileInfo::exists(file);
-        m_lastExists.insert(file, exists);
         if (exists) wanted.insert(file);
         wanted.insert(QFileInfo(file).absolutePath());
     }

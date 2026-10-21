@@ -24,6 +24,7 @@ QtObject {
   property var notifications: []
   property var files: ({})
   property var watched: ({})
+  property bool rejectWrites: false
   signal notificationActivated(string accountId, string messageId)
   signal reopenRequested()
   signal closeRequested()
@@ -40,6 +41,7 @@ QtObject {
     pendingNotificationActivation = ({})
     files = ({ "/fixture/existing": "saved" })
     watched = ({})
+    rejectWrites = false
     hidden = false
     quitCalled = false
   }
@@ -84,6 +86,10 @@ QtObject {
     return false
   }
   function write(path, text, atomic) {
+    if (rejectWrites) {
+      failed(String(path), "write refused")
+      return ({ ok: false, error: "write refused" })
+    }
     var next = ({})
     var keys = Object.keys(files)
     for (var i = 0; i < keys.length; i++) next[keys[i]] = files[keys[i]]

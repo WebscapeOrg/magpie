@@ -23,6 +23,7 @@ private slots:
     void invalidJsonIsPreserved();
     void rejectsCredentialAndUnknownFields();
     void fileStoreReadsWritesAndWatches();
+    void sharedWatchSurvivesOneSubscriberLeaving();
     void fileStoreWriteOutlastsABriefShareLock();
     void watchReportsExternalCreation();
     void watchReportsDirectoryMutation();
@@ -113,6 +114,31 @@ void SettingsTest::fileStoreReadsWritesAndWatches()
     QVERIFY(written.value(QStringLiteral("ok")).toBool());
     QTRY_VERIFY_WITH_TIMEOUT(!changed.isEmpty(), 2000);
     QCOMPARE(changed.last().at(0).toString(), path);
+}
+
+void SettingsTest::sharedWatchSurvivesOneSubscriberLeaving()
+{
+    QTemporaryDir directory;
+    const QString path = directory.filePath(QStringLiteral("shared.txt"));
+    FileStore store;
+    QVERIFY(store.write(path, QStringLiteral("initial"), true).value(QStringLiteral("ok")).toBool());
+    store.watch(path, true);
+    store.watch(path, true);
+    store.watch(path, false);
+    QSignalSpy changed(&store, &FileStore::changed);
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("external"), qint64(8));
+    file.close();
+    QTRY_VERIFY_WITH_TIMEOUT(!changed.isEmpty(), 2000);
+    store.watch(path, false);
+    QTest::qWait(50);
+    changed.clear();
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write("no subscribers"), qint64(14));
+    file.close();
+    QTest::qWait(100);
+    QVERIFY(changed.isEmpty());
 }
 
 // A file just written is briefly held by the virus scanner or the indexer on

@@ -2,8 +2,10 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
 import "../../account/Unified.js" as Unified
+import "BackendFixture.js" as BackendFixture
 
 Item {
+  id: root
   width: 400
   height: 300
 
@@ -31,8 +33,76 @@ Item {
     manifest: ({ id: "omamail" })
   }
 
+  QtObject {
+    id: inactiveAgentHost
+    property var capabilities: ({agent:false,tray:false,mailto:false,notifications:false})
+  }
+
+  Component {
+    id: inactiveServiceFactory
+    Omamail.Service {
+      manifest: ({id:"omamail"})
+      platform: inactiveAgentHost
+    }
+  }
+
   TestCase {
     name: "ServiceSettings"
+
+    function inactiveService() {
+      var service = createTemporaryObject(inactiveServiceFactory, root)
+      verify(service)
+      compare(service.hasAgent, false)
+      compare(findChild(service, "agent-runner"), null)
+      return service
+    }
+
+    function verifyNoAgentRequests(fixture) {
+      wait(10)
+      compare(fixture.requests.filter(function(request) {
+        return request.method.indexOf("agent.") === 0
+      }), [], "Disabled agent actions must not dispatch native agent work")
+    }
+
+    function test_disabled_agent_has_no_history_or_loading_state() {
+      var service = inactiveService()
+      compare(service.agentAvailable, false)
+      compare(service.agentHasEarlier, false)
+      compare(service.agentHasOlderChats, false)
+      compare(service.agentHasNewerChats, false)
+      compare(service.agentLoadingEarlier, false)
+      compare(service.agentSelectionRevision, 0)
+      compare(service.agentAllJobs, [])
+      compare(service.agentShownTranscript, [])
+    }
+
+    function test_disabled_agent_has_no_proposals() {
+      compare(inactiveService().agentShownProposals, [])
+    }
+
+    function test_disabled_agent_refuses_earlier_messages_without_dispatch() {
+      var service = inactiveService()
+      var fixture = BackendFixture.markReady(service, 7)
+      compare(service.loadEarlierAgentMessages(), false)
+      verifyNoAgentRequests(fixture)
+    }
+
+    function test_disabled_agent_refuses_continuation_without_dispatch() {
+      var service = inactiveService()
+      var fixture = BackendFixture.markReady(service, 7)
+      compare(service.canContinueAgentJob({id:"old-chat",canContinue:true}), false)
+      verifyNoAgentRequests(fixture)
+    }
+
+    function test_disabled_agent_ignores_paging_without_dispatch() {
+      var service = inactiveService()
+      var fixture = BackendFixture.markReady(service, 7)
+      service.pageAgentChats(true)
+      service.pageAgentChats(false)
+      verifyNoAgentRequests(fixture)
+      compare(service.agentHasOlderChats, false)
+      compare(service.agentHasNewerChats, false)
+    }
 
     function test_scoped_manifest_resolves_bundled_helpers_without_private_metadata() {
       verify(scopedMailService.pluginDir !== "")

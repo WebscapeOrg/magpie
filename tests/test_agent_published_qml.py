@@ -6,6 +6,7 @@ no real mailbox, model, keyring or terminal is used. The loopback bridge admits
 only the agent methods needed by the fixture.
 """
 import argparse
+from contextlib import ExitStack
 import http.server
 import json
 import os
@@ -42,7 +43,7 @@ def main():
     parser.add_argument('--runner', default=shutil.which('qmltestrunner6') or '/usr/lib/qt6/bin/qmltestrunner')
     args = parser.parse_args()
     binary = str(args.binary.resolve())
-    with tempfile.TemporaryDirectory(prefix='omamail-published-agent-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='omamail-published-agent-') as temporary, ExitStack() as cleanup:
         root = Path(temporary).resolve()
         env = dict(os.environ, HOME=str(root), XDG_CONFIG_HOME=str(root/'config'),
                    XDG_CACHE_HOME=str(root/'cache'), XDG_STATE_HOME=str(root/'state'),
@@ -110,8 +111,10 @@ print(json.dumps({'type':'result','subtype':'success','result':'Synthetic Claude
                 self.end_headers()
                 self.wfile.write(data)
         server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        cleanup.callback(server.server_close)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        cleanup.callback(server.shutdown)
         imports = root/'imports'
         shutil.copytree(ROOT/'ui/tests/qml/imports', imports)
         mock = imports/'Quickshell/Quickshell.qml'
@@ -122,7 +125,6 @@ print(json.dumps({'type':'result','subtype':'success','result':'Synthetic Claude
             result = subprocess.run([args.runner, '-input', str(ROOT/'ui/tests/compatibility/tst_published_agent.qml'),
                                      '-import', str(imports)], env=env, timeout=75)
         finally:
-            server.shutdown(); server.server_close()
             for ident in started:
                 rpc('agent.jobCancel', {'id': ident})
             deadline = time.monotonic()+8

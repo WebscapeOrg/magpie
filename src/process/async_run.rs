@@ -1,11 +1,14 @@
 //! Async, bounded, cancellation-safe transport for official provider tools.
-use std::{process::Stdio, time::Duration};
-use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
-    process::{Child, Command},
-};
+#[cfg(windows)]
+use std::process::Stdio;
+use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+#[cfg(windows)]
+use tokio::process::{Child, Command};
 
+#[cfg(windows)]
 struct ChildReaper(Option<Child>);
+#[cfg(windows)]
 impl Drop for ChildReaper {
     fn drop(&mut self) {
         let Some(mut child) = self.0.take() else {
@@ -55,6 +58,7 @@ pub async fn run(
 ) -> Result<Output, &'static str> {
     run_with_stderr_limit(program, args, input, timeout, limit, limit.min(65536)).await
 }
+#[cfg(windows)]
 pub(super) async fn run_with_stderr_limit(
     program: &str,
     args: &[String],
@@ -110,6 +114,57 @@ pub(super) async fn run_with_stderr_limit(
         let _ = child.wait().await;
     }
     result
+}
+
+#[cfg(unix)]
+pub(super) async fn run_with_stderr_limit(
+    program: &str,
+    args: &[String],
+    input: &[u8],
+    timeout: Duration,
+    limit: usize,
+    stderr_limit: usize,
+) -> Result<Output, &'static str> {
+    use tokio::net::unix::pipe::{Receiver, Sender};
+    use tokio::signal::unix::{SignalKind, signal};
+    if input.len() > limit {
+        return Err("process_input_too_large");
+    }
+    let mut exits = signal(SignalKind::child()).map_err(|_| "process_wait_failed")?;
+    let mut child = super::spawn_managed(program, args)?;
+    let mut stdin = Sender::from_owned_fd(child.take_stdin().ok_or("process_pipe_failed")?.into())
+        .map_err(|_| "process_pipe_failed")?;
+    let stdout = Receiver::from_owned_fd(child.take_stdout().ok_or("process_pipe_failed")?.into())
+        .map_err(|_| "process_pipe_failed")?;
+    let stderr = Receiver::from_owned_fd(child.take_stderr().ok_or("process_pipe_failed")?.into())
+        .map_err(|_| "process_pipe_failed")?;
+    tokio::time::timeout(timeout, async {
+        let write = async {
+            stdin
+                .write_all(input)
+                .await
+                .map_err(|_| "process_input_failed")?;
+            drop(stdin);
+            Ok(())
+        };
+        let wait = async {
+            loop {
+                if let Some(status) = child.try_wait().map_err(|_| "process_wait_failed")? {
+                    return Ok(status);
+                }
+                exits.recv().await.ok_or("process_wait_failed")?;
+            }
+        };
+        let (_, stdout, stderr, status) =
+            tokio::try_join!(write, read(stdout, limit), read(stderr, stderr_limit), wait)?;
+        Ok(Output {
+            success: status.success(),
+            stdout,
+            stderr,
+        })
+    })
+    .await
+    .unwrap_or(Err("process_timed_out"))
 }
 
 #[cfg(all(test, unix))]

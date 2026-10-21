@@ -68,6 +68,9 @@ impl ManagedChild {
         self.child.stderr.take()
     }
     pub fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        #[cfg(unix)]
+        return self.tree.try_wait(&mut self.child);
+        #[cfg(windows)]
         self.child.try_wait()
     }
 

@@ -138,7 +138,7 @@ async fn planned_group_failure(failure: &str, use_move: bool, flags_only: bool, 
         );
     });
     let mut p = params(port);
-    // Preserve input order and spelling, not the BTreeMap's folder/UID order.
+    // Invariant: Preserve input order and spelling, not the BTreeMap's folder/UID order.
     p["ids"] = json!(["8:ZOther", "007:INBOX", "9:INBOX", "10:ZZLast"]);
     p["addLabelIds"] = json!([]);
     p["removeLabelIds"] = if flags_only {

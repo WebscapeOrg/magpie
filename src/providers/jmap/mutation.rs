@@ -143,7 +143,7 @@ impl Session {
         if has(&added, "SPAM") && !learns_junk(&snapshot) {
             return Err("jmap_spam_unavailable");
         }
-        // All patches are validated before the first network mutation.
+        // Invariant: All patches are validated before the first network mutation.
         let change = patch(&added, &removed, roles, None)?;
         if change.as_object().is_none_or(|change| change.is_empty()) {
             return Err("invalid_params");
@@ -194,7 +194,7 @@ impl Session {
             .await;
             match result {
                 Ok(ids) => succeeded.extend(ids),
-                // Unknown delivery: retain earlier acknowledgements, stop, and
+                // Invariant: Unknown delivery: retain earlier acknowledgements, stop, and
                 // report this chunk and every unsent target as failed.
                 Err(_) => break,
             }
@@ -432,7 +432,7 @@ impl Session {
         snapshot: &Snapshot,
         id: &str,
     ) -> Result<(), &'static str> {
-        // Cleanup survives cancellation of the composer request. Dropping a
+        // Invariant: Cleanup survives cancellation of the composer request. Dropping a
         // JoinHandle detaches its owned task; no UI/request borrow outlives it.
         let body = json!({"using":[mailbox::CORE,mailbox::MAIL],"methodCalls":[["Email/set",{"accountId":snapshot.account,"destroy":[id]},"0"]]});
         let request = prepare(

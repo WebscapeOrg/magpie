@@ -70,7 +70,7 @@ pub(super) struct Context {
     pub(super) memberships: Mutex<Cache>,
     pub(super) known: Mutex<Map<String, Value>>,
 }
-// Each cache has a retained-memory allowance, independent of entry count.
+// Performance: Each cache has a retained-memory allowance, independent of entry count.
 // A conservative JSON-size multiplier covers Value/String allocation overhead.
 const CACHE_BYTES: usize = 8 * 1024 * 1024;
 #[derive(Default)]
@@ -246,7 +246,7 @@ impl Session {
         if by_id.len() != requested.len() {
             return Err("mail_action_target_unknown");
         }
-        // A message-scoped action needs only the validated representatives.
+        // Invariant: A message-scoped action needs only the validated representatives.
         // Unrelated conversation size and membership cannot prevent starring.
         if crate::account::model::action_scope(action) == "message" {
             return Ok(requested.iter().map(|id| json!({"id":id})).collect());
@@ -332,7 +332,7 @@ impl Session {
         if member_by_id.len() != all_member_ids.len() {
             return Err("mail_action_target_unknown");
         }
-        // A response has one row per requested representative, so a server can
+        // Performance: A response has one row per requested representative, so a server can
         // otherwise make 1,000 representatives of one 2,000-member thread
         // retain two million copied IDs. Share the expansion per thread/view
         // and reject the aggregate projection before any row is built.

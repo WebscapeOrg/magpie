@@ -55,7 +55,7 @@ pub(super) async fn run(
         return future.await;
     };
     let entry = entry(&key).await?;
-    // Notify is registered before reading the flag, closing cancel-before-poll races.
+    // Invariant: Notify is registered before reading the flag, closing cancel-before-poll races.
     let notified = entry.notify.notified();
     tokio::pin!(notified);
     notified.as_mut().enable();
@@ -64,7 +64,7 @@ pub(super) async fn run(
     }
     let result = tokio::select! {result=future=>result,_=notified=>Err("request_cancelled")};
     let mut reads = READS.get_or_init(Default::default).lock().await;
-    // Keep aborted entries briefly so an already queued continuation cannot revive a read.
+    // Invariant: Keep aborted entries briefly so an already queued continuation cannot revive a read.
     // Map + this reader are two references. Any additional reader (including
     // one that just registered) must retain this cancellation identity.
     if !entry.aborted.load(Ordering::SeqCst) && Arc::strong_count(&entry) == 2 {

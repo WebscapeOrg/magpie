@@ -49,7 +49,7 @@ with socket.socket() as listener:
             reply = b"220 upgrade\r\n" if smtp else b"O1 OK upgrade\r\n"
             if mode == "buffered":
                 connection.sendall(reply + b"plaintext-after-upgrade\r\n")
-                # A reset also discards the injected plaintext. Neither path
+                # Invariant: A reset also discards the injected plaintext. Neither path
                 # may contain credential bytes (a ClientHello is harmless).
                 received = bytearray()
                 try:

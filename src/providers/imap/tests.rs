@@ -70,7 +70,7 @@ async fn bridge_starttls_encrypts_credentials_and_never_downgrades() {
                 settings["imapHost"] = json!(host);
                 settings["imapPort"] = json!(logical_port);
             }
-            // Only the socket destination is substituted. All host/port/trust
+            // Invariant: Only the socket destination is substituted. All host/port/trust
             // decisions go through the production connection selection path.
             let result = connect_with_dial(&settings, smtp, |dial_host, dial_port| async move {
                 assert_eq!(
@@ -87,7 +87,7 @@ async fn bridge_starttls_encrypts_credentials_and_never_downgrades() {
                     .map_err(|_| "mail_network_failed")
             })
             .await;
-            // Keep the TLS socket alive until the peer has read and reported
+            // Invariant: Keep the TLS socket alive until the peer has read and reported
             // the credentials. Closing it here can abort the peer's handshake
             // on Windows while TLS 1.3 session tickets are still in flight.
             let mut secure = None;
@@ -292,7 +292,7 @@ async fn smtp_native_submission_dot_stuffs_and_never_retries() {
         assert_eq!(line(&mut w).await.unwrap(), b"\r\n");
         assert_eq!(line(&mut w).await.unwrap(), b"..body\r\n");
         assert_eq!(line(&mut w).await.unwrap(), b".\r\n");
-        // The server accepted DATA but disconnected without an acknowledgement.
+        // Invariant: The server accepted DATA but disconnected without an acknowledgement.
         drop(w);
         assert!(
             tokio::time::timeout(Duration::from_millis(30), listener.accept())
@@ -434,12 +434,12 @@ async fn actual_tls_rejects_untrusted_issuer_and_wrong_hostname() {
         output.read_line(&mut report).unwrap();
         assert_eq!(report.trim(), "tls-refused-no-http");
     }
-    // A private authority the store was built from — the system's, in
+    // Invariant: A private authority the store was built from — the system's, in
     // production — is honoured for the host it issued for (#185).
     let socket = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
     let w: Wire = BufReader::new(Box::new(socket));
     let mut secure = tls_with_roots(w, "localhost", trusted).await.unwrap();
-    // close_notify, so the peer reads a clean end rather than a reset.
+    // Invariant: close_notify, so the peer reads a clean end rather than a reset.
     secure.shutdown().await.unwrap();
     let mut report = String::new();
     output.read_line(&mut report).unwrap();

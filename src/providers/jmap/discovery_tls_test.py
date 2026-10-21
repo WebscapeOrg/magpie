@@ -29,7 +29,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             threading.Thread(target=self.server.shutdown, daemon=True).start()
 
 
-# HTTPServer.server_bind resolves the bound address to a name: a reverse lookup
+# Performance: HTTPServer.server_bind resolves the bound address to a name: a reverse lookup
 # that a CI host's resolver leaves to time out, ten seconds a start. The peer
 # has no use for a name.
 class LoopbackServer(http.server.HTTPServer):

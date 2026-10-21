@@ -68,7 +68,7 @@ impl Snapshot {
             .as_mut()
             .unwrap()
             .retain(|location| !missing.contains(location));
-        // Deletion may bring more candidates into the page. Verify those on
+        // Invariant: Deletion may bring more candidates into the page. Verify those on
         // the next continuation rather than returning a short or stale page.
         Ok(self
             .ordered

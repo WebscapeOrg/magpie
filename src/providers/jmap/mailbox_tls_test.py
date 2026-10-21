@@ -11,7 +11,7 @@ import sys
 
 scenario = sys.argv[1] if len(sys.argv) > 1 else "default"
 
-# HTTPServer.server_bind resolves the bound address to a name: a reverse lookup
+# Performance: HTTPServer.server_bind resolves the bound address to a name: a reverse lookup
 # that a CI host's resolver leaves to time out, ten seconds a start. The peer
 # has no use for a name.
 class LoopbackServer(http.server.HTTPServer):
@@ -57,7 +57,7 @@ with contextlib.nullcontext(pathlib.Path(__file__).parent.parent / "testdata" / 
             self.send_response(status);self.send_header("Content-Length",str(len(payload)));self.end_headers();self.wfile.write(payload)
         def do_GET(self):
             if self.path=="/report":
-                # Omit only this final harness read from the returned snapshot.
+                # Invariant: Omit only this final harness read from the returned snapshot.
                 self.answer(requests[:-1]);threading.Thread(target=self.server.shutdown,daemon=True).start();return
             if self.path=="/events":
                 payload=b'event: state\r\ndata: {"changed":{"account":{"Email":"e2","Mailbox":"m2"}}}\r\n\r\n'

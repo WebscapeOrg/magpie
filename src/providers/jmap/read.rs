@@ -216,7 +216,7 @@ impl Session {
             message["thread"] = block.clone();
         }
         let parts = super::resource::truncated_parts(email);
-        // A message can advertise arbitrarily many truncated text parts. Repair
+        // Performance: A message can advertise arbitrarily many truncated text parts. Repair
         // incrementally under one byte budget rather than retaining every blob.
         // Failed/oversized repairs retain the text already delivered, matching
         // the prior reader's best-effort behavior.

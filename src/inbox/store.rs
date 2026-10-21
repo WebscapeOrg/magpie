@@ -30,12 +30,16 @@ pub fn read(name: &str) -> Result<Option<Value>, &'static str> {
         .map(Some)
         .map_err(|_| "inbox_storage_invalid")
 }
-pub fn write(name: &str, value: &Value) -> Result<(), &'static str> {
-    let dir = directory()?;
+fn encode(value: &Value) -> Result<Vec<u8>, &'static str> {
     let bytes = serde_json::to_vec(value).map_err(|_| "inbox_storage_invalid")?;
     if bytes.len() > 8 * 1024 * 1024 {
         return Err("inbox_storage_invalid");
     }
+    Ok(bytes)
+}
+pub fn write(name: &str, value: &Value) -> Result<(), &'static str> {
+    let bytes = encode(value)?;
+    let dir = directory()?;
     fs::atomic_replace(&dir, name, &bytes)?;
     fs::sync_dir(&dir)
 }
@@ -52,11 +56,17 @@ pub fn update<T>(
 }
 
 pub fn cache(name: &str, value: &Value) -> Result<(), &'static str> {
+    let bytes = encode(value)?;
     let dir = directory()?;
     let _lock = fs::lock_exclusive(&dir, ".cache-lock")?;
+    fs::regular_readonly(&dir, name)?;
     let mut entries = Vec::new();
-    let mut total = 0u64;
-    for name in fs::names(&dir)? {
+    let mut total = bytes.len() as u64;
+    for entry_name in fs::names(&dir)? {
+        if entry_name == name {
+            continue;
+        }
+        let name = entry_name;
         if !name.starts_with("avatar-") {
             continue;
         }
@@ -73,22 +83,67 @@ pub fn cache(name: &str, value: &Value) -> Result<(), &'static str> {
         }
     }
     entries.sort_by_key(|entry| entry.0);
-    let mut count = entries.len();
+    let mut count = entries.len() + 1;
     for (_, name, bytes) in entries {
-        if count < 1024 && total < 128 * 1024 * 1024 {
+        if count <= 1024 && total <= 128 * 1024 * 1024 {
             break;
         }
         fs::remove_owned(&dir, &name)?;
         count -= 1;
         total = total.saturating_sub(bytes);
     }
-    write(name, value)
+    fs::atomic_replace(&dir, name, &bytes)?;
+    fs::sync_dir(&dir)
 }
 
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::os::unix::fs::{PermissionsExt, symlink};
+    #[test]
+    fn avatar_cache_reserves_incoming_bytes_before_writing() {
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let fixture =
+            crate::mail::tests::account_fixture(serde_json::json!({"version":1,"accounts":[]}));
+        let dir = directory().unwrap();
+        drop(dir);
+        let path = fixture.state.join("omamail/inbox/avatar-old.json");
+        File::create(&path)
+            .unwrap()
+            .set_len(128 * 1024 * 1024 - 1)
+            .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        cache("avatar-new.json", &serde_json::json!({"image":"new"})).unwrap();
+        assert!(!path.exists());
+        assert_eq!(read("avatar-new.json").unwrap().unwrap()["image"], "new");
+    }
+    #[test]
+    fn avatar_cache_rejects_oversized_writes_without_eviction() {
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let fixture =
+            crate::mail::tests::account_fixture(serde_json::json!({"version":1,"accounts":[]}));
+        let dir = directory().unwrap();
+        drop(dir);
+        let path = fixture.state.join("omamail/inbox/avatar-old.json");
+        File::create(&path)
+            .unwrap()
+            .set_len(128 * 1024 * 1024)
+            .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            cache(
+                "avatar-new.json",
+                &Value::String("x".repeat(8 * 1024 * 1024))
+            ),
+            Err("inbox_storage_invalid")
+        );
+        assert!(path.exists());
+        assert!(read("avatar-new.json").unwrap().is_none());
+    }
     #[test]
     fn private_store_refuses_links_and_keeps_sender_bytes_out_of_paths() {
         if crate::mail::tests::isolated() {

@@ -2,7 +2,7 @@ const assert = require("assert")
 const { load, deepEqual } = require("./load")
 
 const html = load("message/Html.js")
-const tinyPng = "data:image/png;base64,iVBORw0KGgo="
+const tinyPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII="
 
 function sanitizeWithTestImages(source, options) {
   if (!options || options.allowRemoteImages !== true
@@ -347,11 +347,11 @@ assert.strictEqual(sanitizeWithTestImages(many, { allowRemoteImages: true, maxIm
 
   const ready = sanitizeWithTestImages(source, {
     allowRemoteImages: true,
-    remoteImageData: ({ "https://cdn.example.com/photo.png": "data:image/png;base64,iVBORw0KGgo=" }),
+    remoteImageData: ({ "https://cdn.example.com/photo.png": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=" }),
     withReader: true
   })
-  assert.ok(ready.html.indexOf("data:image/png;base64,iVBORw0KGgo=") > 0)
-  assert.ok(ready.reader.html.indexOf("data:image/png;base64,iVBORw0KGgo=") > 0)
+  assert.ok(ready.html.indexOf("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=") > 0)
+  assert.ok(ready.reader.html.indexOf("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=") > 0)
 }
 
 // Invariant: Qt lays rich text out synchronously on the GUI thread, and this plugin runs
@@ -371,9 +371,9 @@ assert.strictEqual(size.tags, 3)
 assert.strictEqual(size.images, 1)
 assert.strictEqual(html.complexity(null).length, 0)
 
-// Invariant: cid: images point at attachments this plugin does not fetch, and data: URIs
+// Invariant: unresolved cid: images are blocked; validated data: URIs
 // are already local. Neither is a network request, and neither is counted.
-assert.strictEqual(sanitizeWithTestImages("<img src=\"cid:logo\">").blockedImages, 0)
+assert.strictEqual(sanitizeWithTestImages("<img src=\"cid:logo\">").blockedImages, 1)
 assert.strictEqual(sanitizeWithTestImages("<img src=\"data:image/png;base64,AAA\">").blockedImages, 0)
 assert.strictEqual(sanitizeWithTestImages("<img src='http://a.example.com/b.png'><img src='https://c.example.com/d.png'>").blockedImages, 2)
 assert.strictEqual(sanitizeWithTestImages("<img src='http://a.example.com/b.png'><img src='https://c.example.com/d.png'>",
@@ -500,9 +500,9 @@ assert.strictEqual(html.isDisplayableImageUrl(disguisedSvg), false,
   "disguised SVG must not reach a Qt Image source")
 for (const invalid of [
   "data:image/png;base64,iVBORw0KGgo",       // truncated quartet
-  "data:image/png;base64,iVBORw0KGgo===",    // excess padding
-  "data:image/png;base64,iVBORw0KGgo=tail",  // trailing bytes after padding
-  "data:image/jpeg;base64,iVBORw0KGgo=",     // declaration does not match bytes
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII===",    // excess padding
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=tail",  // trailing bytes after padding
+  "data:image/jpeg;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=",     // declaration does not match bytes
   "data:image/png;base64,iVBORw0KGgp="        // noncanonical padding bits
 ]) assert.strictEqual(html.isRasterDataImage(invalid), false, invalid)
 
@@ -1284,13 +1284,13 @@ function activityMail() {
   const shown = reading("<p><img src=\"https://cdn.example.com/hero.png\" alt=\"Hero\">"
     + "<img src=\"file:///etc/x.png\"><img src=\"http://127.0.0.1/a.png\">"
     + "<img src=\"//cdn.example.com/protocol.png\">"
-    + "<img src=\"data:image/png;base64,iVBORw0KGgo=\">"
+    + "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\">"
     + "<img src=\"cid:part1\"></p>", { allowRemoteImages: true })
   assert.strictEqual(shown.html,
-    "<p><img src=\"data:image/png;base64,iVBORw0KGgo=\">"
-    + "<img src=\"data:image/png;base64,iVBORw0KGgo=\">"
-    + "<img src=\"data:image/png;base64,iVBORw0KGgo=\">"
-    + "<img src=\"cid:part1\"></p>")
+    "<p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\">"
+    + "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\">"
+    + "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\">"
+    + "</p>")
   assert.strictEqual(shown.images, 2)
 
   // Invariant: The cap is the same one the formatted view keeps, for the same reason:
@@ -1465,22 +1465,22 @@ function activityMail() {
     + "<tr><td><a href=\"https://social.example.com/b\"><img src=\"https://cdn.example.com/b.png\" style=\"width:32px;height:32px\"></a></td></tr>"
     + "</table>", { allowRemoteImages: true }).html
   assert.strictEqual(icons,
-    "<p><a href=\"https://social.example.com/a\"><img src=\"data:image/png;base64,iVBORw0KGgo=\" width=\"32\" height=\"32\"></a> "
-      + "<a href=\"https://social.example.com/b\"><img src=\"data:image/png;base64,iVBORw0KGgo=\" width=\"32\" height=\"32\"></a></p>")
+    "<p><a href=\"https://social.example.com/a\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\" width=\"32\" height=\"32\"></a> "
+      + "<a href=\"https://social.example.com/b\"><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\" width=\"32\" height=\"32\"></a></p>")
 
   // Invariant: A standalone logo is not inline artwork, but its declared size still
   // prevents Qt from expanding the source bitmap to its natural pixel width.
   // It keeps the bounded dimension without becoming an avatar or icon strip.
   assert.strictEqual(reading("<p><img src=\"https://cdn.example.com/logo.png\" width=\"120\"></p>",
     { allowRemoteImages: true }).html,
-  "<p><img src=\"data:image/png;base64,iVBORw0KGgo=\" width=\"120\"></p>")
+  "<p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\" width=\"120\"></p>")
 
   // Invariant: The reading column may clamp a large picture's width. Its explicit height
   // must not survive that clamp or Qt stretches the image instead of deriving
   // the matching height from its intrinsic aspect ratio.
   assert.strictEqual(reading("<p><img src=\"https://cdn.example.com/hero.jpg\" width=\"600\" height=\"375\"></p>",
     { allowRemoteImages: true }).html,
-  "<p><img src=\"data:image/png;base64,iVBORw0KGgo=\" width=\"600\"></p>")
+  "<p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\" width=\"600\"></p>")
 
   // Invariant: An avatar at the start of a line is interface-like identity content, not
   // a picture sitting on the text baseline. Qt ignores image alignment in the
@@ -1491,7 +1491,7 @@ function activityMail() {
   assert.strictEqual(avatar,
     "<table cellspacing=\"0\" cellpadding=\"0\"><tr>"
       + "<td valign=\"middle\" style=\"padding:0px;padding-right:6px\"><a href=\"https://example.com/alice\">"
-      + "<img src=\"data:image/png;base64,iVBORw0KGgo=\" width=\"20\" height=\"20\"></a></td>"
+      + "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=\" width=\"20\" height=\"20\"></a></td>"
       + "<td valign=\"middle\" style=\"padding:0px\"><strong>Alice</strong> left a comment</td>"
       + "</tr></table>")
 
@@ -1709,8 +1709,9 @@ function activityMail() {
 }
 
 {
+  const pngBytes = Buffer.from(tinyPng.split(",")[1], "base64")
   const data = 'data:image/png;base64,' + Buffer.concat([
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.alloc(3 * 1024 * 1024 - 8)
+    pngBytes, Buffer.alloc(3 * 1024 * 1024 - pngBytes.length)
   ]).toString('base64')
   const ready = html.sanitize('<p>Body</p>' + '<img src="https://cdn.example.com/large">'.repeat(4),
     { allowRemoteImages: true, remoteImageData: { 'https://cdn.example.com/large': data }, withReader: true })
@@ -1758,6 +1759,50 @@ function activityMail() {
   assert.ok(!ready.html.includes('https://cdn.example.com/'),
     "malformed attribute names and non-anchor references must not reach Qt")
   assert.ok(ready.html.includes('Body'))
+}
+
+
+{
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGNsUHBgYGBgYmBgQFAAETQA5tQWlnwAAAAASUVORK5CYII=", "base64")
+  function pngDimensions(width, height) {
+    const image = Buffer.from(bytes)
+    image.writeUInt32BE(width, 16)
+    image.writeUInt32BE(height, 20)
+    let checksum = 0xffffffff
+    for (const byte of image.subarray(12, 29)) {
+      checksum ^= byte
+      for (let bit = 0; bit < 8; bit++) checksum = (checksum >>> 1) ^ ((checksum & 1) ? 0xedb88320 : 0)
+    }
+    image.writeUInt32BE((checksum ^ 0xffffffff) >>> 0, 29)
+    return "data:image/png;base64," + image.toString("base64")
+  }
+  const oversized = pngDimensions(4096, 4096)
+  assert.strictEqual(html.isRasterDataImage(oversized), false, "decoded image allocation is bounded")
+  assert.strictEqual(html.isDisplayableImageUrl(oversized), false, "popovers use the same decoded bound")
+  const large = pngDimensions(4096, 2048)
+  assert.strictEqual(html.isRasterDataImage(large), true, "the exact per-image boundary is allowed")
+  for (const prepared of [false, true]) {
+    const source = prepared ? "https://cdn.example.com/decoded" : large
+    const result = html.sanitize(('<img src="' + source + '">').repeat(3), {
+      withReader: true, allowRemoteImages: true, remoteImageData: { [source]: large }
+    })
+    for (const view of [result, result.reader]) {
+      assert.strictEqual(view.complexity.images, 2, "decoded bytes share a document-wide budget")
+      assert.strictEqual(view.blockedImages, 1)
+    }
+  }
+  const unresolved = html.sanitize('<img src="cid:unknown" alt="Inline picture">', { withReader: true })
+  for (const view of [unresolved, unresolved.reader]) {
+    assert.ok(!view.html.includes('<img'), "unresolved CID data never reaches Qt")
+    assert.strictEqual(view.blockedImages, 1)
+  }
+}
+
+
+for (const fixture of require("../../tests/fixtures/raster.json")) {
+  const value = "data:" + fixture.mime + ";base64," + fixture.data
+  assert.strictEqual(html.rasterDecodedBytes(value), fixture.decodedBytes || 0, fixture.name)
+  assert.strictEqual(html.isRasterDataImage(value), fixture.decodedBytes !== null, fixture.name)
 }
 
 console.log("test_html.js ok")

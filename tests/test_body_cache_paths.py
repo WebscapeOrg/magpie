@@ -53,6 +53,22 @@ class CachePaths(unittest.TestCase):
             self.assertEqual(outside.stat().st_mtime_ns, 1_000_000_000)
             self.assertEqual(outside.read_text(), 'KEEP')
 
+    def test_invalid_limit_cannot_write_mail_before_refusal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            account = Path(temporary)/'omamail/bodies/account'
+            result = subprocess.run([str(SCRIPT), 'put', str(account), 'mail.json', 'bad'],
+                                    input='{"body":"synthetic"}\n', text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(account.exists())
+
+    def test_zero_padded_decimal_limit_keeps_the_written_message(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            account = Path(temporary)/'omamail/bodies/account'
+            result = subprocess.run([str(SCRIPT), 'put', str(account), 'mail.json', '08'],
+                                    input='{"body":"synthetic"}\n', text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((account/'mail.json').read_text(), '{"body":"synthetic"}\n')
+
     def test_put_prune_touch_and_clear_keep_the_expected_account_scope(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

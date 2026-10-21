@@ -43,10 +43,16 @@ safe_name() {
   return 0
 }
 
+decimal_limit() {
+  value=$1
+  case "$value" in ''|*[!0-9]*) usage ;; esac
+  [ "${#value}" -le 7 ] || usage
+  while [ "${value#0}" != "$value" ]; do value=${value#0}; done
+  printf '%s\n' "${value:-0}"
+}
+
 prune_dir() {
-  keep=$1
-  case "$keep" in ''|*[!0-9]*) usage ;; esac
-  [ "${#keep}" -le 7 ] || usage
+  keep=$(decimal_limit "$1")
   [ -d "$dir" ] || return 0
   # Newest first, then drop everything past the limit. Names carry no spaces or
   # newlines by construction, so a plain read splits them correctly.
@@ -63,7 +69,7 @@ umask 077
 case "$command" in
   put)
     name=${3:-}
-    limit=${4:-1000}
+    limit=$(decimal_limit "${4:-1000}")
     safe_name "$name" || usage
     IFS= read -r payload
     [ -n "$payload" ] || exit 3

@@ -586,6 +586,7 @@ function hasRasterSignature(value) {
 var MAX_DECODED_IMAGE_BYTES = 64 * 1024 * 1024
 var MAX_DECODED_DOCUMENT_BYTES = 128 * 1024 * 1024
 var MAX_RASTER_METADATA_BYTES = 64 * 1024
+var MAX_RASTER_BASE64_BYTES = 8 * 1024 * 1024
 
 function rasterReader(payload) {
   var padding = payload.slice(-2) === "==" ? 2 : (payload.slice(-1) === "=" ? 1 : 0)
@@ -781,8 +782,10 @@ function rasterWebpSize(reader) {
 }
 
 function rasterDecodedBytes(value) {
-  var match = String(value || "").match(/^data:image\/(png|jpe?g|gif|webp|bmp);base64,([A-Za-z0-9+/]*={0,2})$/i)
-  if (!match || !hasRasterSignature(value)) return 0
+  var source = String(value || "")
+  if (source.length > MAX_RASTER_BASE64_BYTES + 24) return 0
+  var match = source.match(/^data:image\/(png|jpe?g|gif|webp|bmp);base64,([A-Za-z0-9+/]*={0,2})$/i)
+  if (!match || match[2].length > MAX_RASTER_BASE64_BYTES || !hasRasterSignature(source)) return 0
   var reader = rasterReader(match[2])
   var kind = match[1].toLowerCase()
   var size = kind === "png" ? rasterPngSize(reader)

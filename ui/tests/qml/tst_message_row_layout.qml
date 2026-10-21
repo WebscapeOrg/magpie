@@ -18,6 +18,7 @@ Item {
     name: "MessageRowLayout"
     when: windowShown
     function init() {
+      failOnWarning(/Unable to assign|TypeError|ReferenceError/)
       mouseMove(row,-20,-20)
       row.width=600;row.hasCursor=false;row.checked=false;row.conversations=false
       row.attachmentIndicatorEnabled=true;row.overview="";row.overviewState="";row.overviewReason=""
@@ -29,7 +30,7 @@ Item {
     }
     function test_attachment_indicator_keeps_line_height_and_text_gap(data) {
       row.width=data.width;row.hasCursor=data.actions;row.checked=false
-      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",hasAttachments:false}
+      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",unread:false,starred:false,hasAttachments:false}
       waitForRendering(row)
       var description=findChild(row,"message-description")
       var glyph=findChild(row,"message-attachment-indicator")
@@ -76,7 +77,7 @@ Item {
       row.overview=""
       row.overviewState="failed"
       row.overviewReason="AI response could not be verified against the mail; retry from Menu"
-      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",sourceLabel:"Personal"}
+      row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",unread:false,starred:false,sourceLabel:"Personal"}
       waitForRendering(row)
       var time=findChild(row,"message-time")
       compare(findChild(row,"message-source"),null)

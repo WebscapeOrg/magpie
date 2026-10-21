@@ -10,14 +10,14 @@ screenshots = [
   "docs/images/mini-list.webp",
 ]
 
-# The release also ships the Omarchy plugin backend (omamail-linux-*.tar.gz);
+# Invariant: the release also ships the Omarchy plugin backend (omamail-linux-*.tar.gz);
 # OmaStore installs the standalone desktop app and launches its Qt host.
 [linux.x86_64]
 asset = "omamail-app-linux-x86_64.tar.gz"
 exec = "omamail.app/bin/omamail-app"
 
-# Not published yet: until it is, the app is not installable on ARM rather than
-# getting the plugin backend in its place.
+# Invariant: ARM remains unavailable until a standalone asset exists; the plugin
+# backend is not a compatible desktop application.
 [linux.aarch64]
 asset = "omamail-app-linux-aarch64.tar.gz"
 exec = "omamail.app/bin/omamail-app"

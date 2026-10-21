@@ -299,45 +299,56 @@ function unquote(value) {
 
 // "Jane Doe <jane@example.com>", "<jane@example.com>" and a bare address all
 // have to end up as the same shape.
+function addressSyntax(value) {
+  return String(value || "").replace(/=\?[^?\s]+\?[bq]\?[^?]*\?=/gi, function(word) {
+    return new Array(word.length + 1).join(" ")
+  })
+}
+
 function parseAddress(value) {
-  var raw = decodeHeaderValue(value).trim()
+  var raw = String(value || "").trim()
   if (!raw) return { name: "", email: "", display: "" }
-  var angled = raw.match(/^(.*)<([^>]*)>\s*$/)
-  var name = ""
-  var email = ""
-  if (angled) {
-    name = unquote(angled[1])
-    email = angled[2].trim()
-  } else {
-    email = raw.replace(/^\s*<|>\s*$/g, "").trim()
-  }
+  var syntax = addressSyntax(raw)
+  var angled = syntax.match(/^(.*)<([^<>]*)>\s*$/)
+  var name = angled ? decodeHeaderValue(unquote(raw.substring(0, angled[1].length))) : ""
+  var email = angled ? angled[2].trim() : syntax.trim()
+  if (!/^(?:"(?:[^"\\]|\\.)*"|[^\s<>()\[\],;:@"\\]+)@(?:\[[^\r\n\]]+\]|[^\s<>()\[\],;:@"\\]+)$/.test(email)) email = ""
+  if (!name && email === "") name = decodeHeaderValue(unquote(raw))
   if (!name && email.indexOf("@") > 0) name = email.substring(0, email.indexOf("@"))
   return { name: name, email: email, display: name || email }
 }
 
 function parseAddressList(value) {
   var raw = String(value || "")
+  var syntax = addressSyntax(raw)
   var entries = []
-  var current = ""
+  var start = 0
   var inQuotes = false
   var inAngle = false
-  for (var i = 0; i < raw.length; i++) {
-    var character = raw.charAt(i)
-    if (character === "\"") inQuotes = !inQuotes
-    else if (character === "<") inAngle = true
-    else if (character === ">") inAngle = false
-    if (character === "," && !inQuotes && !inAngle) {
-      entries.push(current)
-      current = ""
+  for (var i = 0; i < syntax.length; i++) {
+    var character = syntax.charAt(i)
+    if (inQuotes && character === "\\") {
+      i++
       continue
     }
-    current += character
+    if (character === "\"") inQuotes = !inQuotes
+    if (inQuotes) continue
+    if (character === "<") inAngle = true
+    else if (character === ">") inAngle = false
+    if (inAngle) continue
+    if (character === ":") {
+      start = i + 1
+      continue
+    }
+    if (character !== "," && character !== ";") continue
+    entries.push(raw.substring(start, i))
+    start = i + 1
   }
-  entries.push(current)
+  entries.push(raw.substring(start))
   var result = []
   for (var j = 0; j < entries.length; j++) {
-    if (!entries[j].trim()) continue
-    result.push(parseAddress(entries[j]))
+    var parsed = parseAddress(entries[j])
+    if (parsed.email !== "") result.push(parsed)
   }
   return result
 }
@@ -622,10 +633,16 @@ function headerFrom(headers, name) {
 // (name*0=, name*1=) are not handled: they appear on long filenames, and a
 // truncated filename is a smaller loss than a parser that guesses.
 function contentTypeParam(value, name) {
-  var pattern = new RegExp(name + "\\s*=\\s*(\"([^\"]*)\"|([^;\\s]+))", "i")
-  var match = String(value || "").match(pattern)
-  if (!match) return ""
-  return (match[2] !== undefined ? match[2] : match[3] || "").trim()
+  var text = String(value || "")
+  var wanted = String(name || "").toLowerCase()
+  var parameter = /;\s*([^=;\s]+)\s*=\s*("(?:[^"\\]|\\.)*"|[^;\s]*)/g
+  var match
+  while ((match = parameter.exec(text)) !== null) {
+    if (match[1].toLowerCase() !== wanted) continue
+    var found = match[2]
+    return found.charAt(0) === "\"" ? unquote(found) : found.trim()
+  }
+  return ""
 }
 
 function mimeTypeOf(contentType) {
@@ -641,29 +658,18 @@ function mimeTypeOf(contentType) {
 // part of the message.
 function splitMultipart(body, boundary) {
   var text = String(body || "")
-  var marker = "--" + String(boundary || "")
-  if (boundary === "" || boundary === undefined || boundary === null) return []
-
+  var marker = String(boundary || "")
+  if (marker === "") return []
+  var delimiter = new RegExp("^--" + marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "([^\\r\\n]*)(?:\\r?\\n|$)", "gm")
   var parts = []
-  var index = text.indexOf(marker)
-  if (index < 0) return []
-
-  while (index >= 0) {
-    var afterMarker = index + marker.length
-    // The closing delimiter is the boundary followed by "--".
-    if (text.substr(afterMarker, 2) === "--") break
-    var start = text.indexOf("\n", afterMarker)
-    if (start < 0) break
-    start += 1
-    var next = text.indexOf(marker, start)
-    var end = next < 0 ? text.length : next
-    // The CRLF that precedes the next delimiter belongs to the delimiter, not
-    // to the part — a body that keeps it gains a trailing blank line, and a
-    // base64 part gains bytes that were never in the attachment.
-    var chunk = text.substring(start, end).replace(/\r?\n$/, "")
-    parts.push(chunk)
-    index = next
+  var start = -1
+  var match
+  while ((match = delimiter.exec(text)) !== null) {
+    if (start >= 0) parts.push(text.substring(start, match.index).replace(/\r?\n$/, ""))
+    if (match[1].substring(0, 2) === "--") return parts
+    start = delimiter.lastIndex
   }
+  if (start >= 0 && start < text.length) parts.push(text.substring(start).replace(/\r?\n$/, ""))
   return parts
 }
 

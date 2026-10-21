@@ -36,8 +36,8 @@ Rectangle {
     var sources = controller && controller.availableSources
       ? controller.availableSources.sources : []
     var sourceId = String(event && event.sourceId || "")
-    for (var i = 0; i < sources.length; i++) {
-      if (String(sources[i].id || "") === sourceId) return sources[i]
+    for (var entryIndex = 0; entryIndex < sources.length; entryIndex++) {
+      if (String(sources[entryIndex].id || "") === sourceId) return sources[entryIndex]
     }
     return null
   }

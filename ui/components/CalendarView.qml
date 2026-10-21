@@ -197,8 +197,8 @@ Item {
     var values = visibleEvents()
     if (values.length === 0) { selectedEventId = ""; return }
     var index = -1
-    for (var i = 0; i < values.length; i++) {
-      if (Calendar.eventKey(values[i]) === selectedEventId) { index = i; break }
+    for (var entryIndex = 0; entryIndex < values.length; entryIndex++) {
+      if (Calendar.eventKey(values[entryIndex]) === selectedEventId) { index = entryIndex; break }
     }
     if (index < 0) index = Number(offset) < 0 ? values.length : -1
     index = Math.max(0, Math.min(values.length - 1, index + Number(offset)))
@@ -223,7 +223,7 @@ Item {
       root.detailLoading = false
       if (error) { root.detailError = error; return }
       var resource
-      try { resource = JSON.parse(result.body) } catch (e) { root.detailError = "Could not read the event details"; return }
+      try { resource = JSON.parse(result.body) } catch (parseError) { root.detailError = "Could not read the event details"; return }
       var values = Calendar.eventsFromGoogle({items:[resource]}, source.id)
       if (values.length === 1 && Calendar.eventKey(values[0]) === Calendar.eventKey(event)) root.detailEvent = values[0]
       else root.detailError = "This event is no longer available"
@@ -253,9 +253,9 @@ Item {
 
   function activateSelection() {
     var values = visibleEvents()
-    for (var i = 0; i < values.length; i++) {
-      if (Calendar.eventKey(values[i]) === selectedEventId) {
-        activateEvent(values[i])
+    for (var entryIndex = 0; entryIndex < values.length; entryIndex++) {
+      if (Calendar.eventKey(values[entryIndex]) === selectedEventId) {
+        activateEvent(values[entryIndex])
         return
       }
     }
@@ -336,7 +336,7 @@ Item {
       controller.nativeRequest(source, "get", { eventId: requested.substring(separator + 1) }, function(result, error) {
         if (!root.waitingForEvent || root.selectedEventId !== requested || error) return
         var resource
-        try { resource = JSON.parse(result.body) } catch (e) { return }
+        try { resource = JSON.parse(result.body) } catch (parseError) { return }
         var events = Calendar.eventsFromGoogle({ items: [resource] }, source.id)
         if (events.length === 1) { root.waitingForEvent = false; root.activateEvent(events[0], true) }
       })

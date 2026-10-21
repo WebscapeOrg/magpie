@@ -43,13 +43,13 @@ Item {
 
   function buttonsInOrder() {
     var ordered = [cancelButton]
-    for (var i = 0; i < choiceButtons.count; i++) ordered.push(choiceButtons.itemAt(i))
+    for (var entryIndex = 0; entryIndex < choiceButtons.count; entryIndex++) ordered.push(choiceButtons.itemAt(entryIndex))
     return ordered
   }
   function moveFocus(step) {
     var ordered = buttonsInOrder()
     var at = 0
-    for (var i = 0; i < ordered.length; i++) if (ordered[i] && ordered[i].activeFocus) at = i
+    for (var entryIndex = 0; entryIndex < ordered.length; entryIndex++) if (ordered[entryIndex] && ordered[entryIndex].activeFocus) at = entryIndex
     var next = ordered[(at + step + ordered.length) % ordered.length]
     if (next) next.forceActiveFocus()
   }
@@ -85,8 +85,8 @@ Item {
         if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return
         event.accepted = true
         if (cancelButton.activeFocus) { root.close(); return }
-        for (var i = 0; i < choiceButtons.count; i++)
-          if (choiceButtons.itemAt(i).activeFocus) root.confirm(root.choices[i].value)
+        for (var entryIndex = 0; entryIndex < choiceButtons.count; entryIndex++)
+          if (choiceButtons.itemAt(entryIndex).activeFocus) root.confirm(root.choices[entryIndex].value)
       }
 
       Text {

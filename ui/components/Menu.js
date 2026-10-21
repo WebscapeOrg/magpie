@@ -24,9 +24,9 @@ function nextSelectable(entries, current, step) {
 }
 
 function position(anchorX, anchorY, width, height, containerWidth, containerHeight) {
-  var x = Math.max(0, Math.min(Number(anchorX), Number(containerWidth) - Number(width)))
-  var y = Number(anchorY)
-  if (y + height > containerHeight) y = y - height
-  if (y + height > containerHeight) y = containerHeight - height
-  return { x: Math.max(0, x), y: Math.max(0, y) }
+  var positionX = Math.max(0, Math.min(Number(anchorX), Number(containerWidth) - Number(width)))
+  var positionY = Number(anchorY)
+  if (positionY + height > containerHeight) positionY = positionY - height
+  if (positionY + height > containerHeight) positionY = containerHeight - height
+  return { x: Math.max(0, positionX), y: Math.max(0, positionY) }
 }

@@ -230,9 +230,9 @@ DropArea {
 
   function forgetOwned(attachments) {
     var owned = Array.isArray(attachments) ? attachments : []
-    for (var i = 0; i < owned.length; i++) {
-      if (owned[i] && owned[i].owned && owned[i].path)
-        enqueueAttach("forget", owned[i].path)
+    for (var entryIndex = 0; entryIndex < owned.length; entryIndex++) {
+      if (owned[entryIndex] && owned[entryIndex].owned && owned[entryIndex].path)
+        enqueueAttach("forget", owned[entryIndex].path)
     }
   }
 
@@ -401,8 +401,8 @@ DropArea {
     var listed = draftAttachments.slice()
     var kept = []
     var recover = []
-    for (var i = 0; i < listed.length; i++) {
-      var file = listed[i] || ({})
+    for (var entryIndex = 0; entryIndex < listed.length; entryIndex++) {
+      var file = listed[entryIndex] || ({})
       if (String(file.path || "") !== "" && String(file.data || "") === ""
           && String(file.handle || "") === "")
         recover.push(file)
@@ -410,18 +410,18 @@ DropArea {
     }
     if (recover.length === 0) return
     draftAttachments = kept
-    for (var r = 0; r < recover.length; r++)
-      enqueueAttach(recover[r].owned === true ? "recover-owned" : "recover",
-        String(recover[r].path || ""))
+    for (var recoveryIndex = 0; recoveryIndex < recover.length; recoveryIndex++)
+      enqueueAttach(recover[recoveryIndex].owned === true ? "recover-owned" : "recover",
+        String(recover[recoveryIndex].path || ""))
   }
 
   function reset() {
     clearCurrentDraft(true)
-    for (var p = 0; p < parkedDrafts.length; p++)
-      forgetOwned(parkedDrafts[p].draft ? parkedDrafts[p].draft.draftAttachments : [])
+    for (var candidateIndex = 0; candidateIndex < parkedDrafts.length; candidateIndex++)
+      forgetOwned(parkedDrafts[candidateIndex].draft ? parkedDrafts[candidateIndex].draft.draftAttachments : [])
     forgetOwned(interruptedDraft ? interruptedDraft.draftAttachments : [])
-    for (var i = 0; i < recoveryDrafts.length; i++)
-      forgetOwned(recoveryDrafts[i] ? recoveryDrafts[i].draftAttachments : [])
+    for (var entryIndex = 0; entryIndex < recoveryDrafts.length; entryIndex++)
+      forgetOwned(recoveryDrafts[entryIndex] ? recoveryDrafts[entryIndex].draftAttachments : [])
     parkedDrafts = []
     interruptedDraft = null
     recoveryDrafts = []
@@ -482,15 +482,15 @@ DropArea {
     if (!root.service) return []
     var own = [{email: root.service.accountEmailFor(root.accountId)}]
     var sources = Senders.asList(root.service.senderSources)
-    for (var i = 0; i < sources.length; i++) {
-      if (String(sources[i].id || "") !== root.accountId) continue
-      own.push({email: sources[i].email})
-      own = own.concat(Senders.asList(sources[i].aliases))
+    for (var entryIndex = 0; entryIndex < sources.length; entryIndex++) {
+      if (String(sources[entryIndex].id || "") !== root.accountId) continue
+      own.push({email: sources[entryIndex].email})
+      own = own.concat(Senders.asList(sources[entryIndex].aliases))
     }
     var identities = Senders.asList(root.service.sendIdentities)
-    for (var j = 0; j < identities.length; j++) {
-      if (String(identities[j].accountId || "") === root.accountId)
-        own.push(identities[j])
+    for (var identityIndex = 0; identityIndex < identities.length; identityIndex++) {
+      if (String(identities[identityIndex].accountId || "") === root.accountId)
+        own.push(identities[identityIndex])
     }
     return own
   }
@@ -716,9 +716,9 @@ DropArea {
     var forwarded = draft.mode === "forward" && Array.isArray(draft.forwardedAttachments)
       ? draft.forwardedAttachments : []
     var owned = Array.isArray(draft.draftAttachments) ? draft.draftAttachments : []
-    var i
-    for (i = 0; i < forwarded.length; i++) attachments.push(forwarded[i])
-    for (i = 0; i < owned.length; i++) attachments.push(owned[i])
+    var entryIndex
+    for (entryIndex = 0; entryIndex < forwarded.length; entryIndex++) attachments.push(forwarded[entryIndex])
+    for (entryIndex = 0; entryIndex < owned.length; entryIndex++) attachments.push(owned[entryIndex])
     return ({
       accountId: String(draft.accountId || ""),
       draftKey: String(draft.draftKey || ""),
@@ -798,9 +798,9 @@ DropArea {
     var index = -1
     var id = String(sendId || "")
     if (id !== "") {
-      for (var i = 0; i < parked.length; i++) {
-        if (parked[i].sendId === id) {
-          index = i
+      for (var entryIndex = 0; entryIndex < parked.length; entryIndex++) {
+        if (parked[entryIndex].sendId === id) {
+          index = entryIndex
           break
         }
       }
@@ -887,9 +887,9 @@ DropArea {
   function allOutgoingAttachments() {
     var out = []
     var forwarded = root.mode === "forward" ? root.forwardedAttachments : []
-    var i
-    for (i = 0; i < forwarded.length; i++) out.push(forwarded[i])
-    for (i = 0; i < root.draftAttachments.length; i++) out.push(root.draftAttachments[i])
+    var entryIndex
+    for (entryIndex = 0; entryIndex < forwarded.length; entryIndex++) out.push(forwarded[entryIndex])
+    for (entryIndex = 0; entryIndex < root.draftAttachments.length; entryIndex++) out.push(root.draftAttachments[entryIndex])
     return out
   }
 
@@ -980,7 +980,7 @@ DropArea {
   function finishAttach(mode, text, owner) {
     var result = null
     try { result = JSON.parse(String(text || "")) }
-    catch (e) { result = null }
+    catch (parseError) { result = null }
 
     // Invariant: attachment helpers outlive the form; stale completions must not enter the next
     // draft.
@@ -1004,8 +1004,8 @@ DropArea {
         && Array.isArray(result.paths))) {
       root.attaching = root.attachJobs.length > 0
       if (result && result.ok === true && Array.isArray(result.paths)) {
-        for (var p = 0; p < result.paths.length; p++)
-          enqueueAttach("read", String(result.paths[p] || ""))
+        for (var candidateIndex = 0; candidateIndex < result.paths.length; candidateIndex++)
+          enqueueAttach("read", String(result.paths[candidateIndex] || ""))
       }
       pumpAttach()
       return
@@ -1058,8 +1058,8 @@ DropArea {
 
   function attachDroppedUrls(urls) {
     var list = urls || []
-    for (var i = 0; i < list.length; i++) {
-      var url = String(list[i] || "")
+    for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
+      var url = String(list[entryIndex] || "")
       var path = url.indexOf("file://") === 0 ? decodeURIComponent(url.substring(7)) : url
       if (path !== "") enqueueAttach("read", path)
     }

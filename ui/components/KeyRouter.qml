@@ -24,8 +24,8 @@ Item {
     if (event.modifiers & Qt.MetaModifier) sequence += "Meta+"
     sequence += key
     var entries = Keymap.sequencesFor(root.context)
-    for (var i = 0; i < entries.length; i++) {
-      var entry = entries[i]
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+      var entry = entries[entryIndex]
       if (entry.sequence !== sequence || !Keymap.isSequenceEnabled(entry.binding,
           sequence, root.context, root.overlay)) continue
       event.accepted = true

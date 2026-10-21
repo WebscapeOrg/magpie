@@ -61,10 +61,12 @@ Item {
   }
 
   function finishWaiters(value, error) {
+    var context = { account: accountId, generation: sessionGeneration }
     var pending = credentialWaiters.slice()
     credentialWaiters = []
     for (var itemIndex = 0; itemIndex < pending.length; itemIndex++) {
-      try { pending[itemIndex](value || "", safeError(error)) }
+      var current = context.account === accountId && context.generation === sessionGeneration
+      try { pending[itemIndex](current ? value : "", current ? safeError(error) : "The mailbox changed during this request") }
       catch (error) { /* Invariant: one consumer must not prevent later waiters from completing. */ }
     }
   }
@@ -139,8 +141,9 @@ Item {
       return
     }
     password = value
+    var generation = sessionGeneration
     finishWaiters(settings.username + ":" + password, "")
-    loginSucceeded()
+    if (generation === sessionGeneration && loggedIn) loginSucceeded()
   }
 
   /** Called by the setup page once the user has filled the form in. The password

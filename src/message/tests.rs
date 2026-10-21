@@ -4,10 +4,22 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 fn list_attachment_flags_follow_explicit_mime_metadata_not_snippet_words() {
     use serde_json::json;
     for (message, expected) in [
-        (json!({"snippet":"The attachment is mentioned but absent"}), false),
-        (json!({"payload":{"mimeType":"application/pdf","filename":"report.pdf"}}), true),
-        (json!({"payload":{"parts":[{"mimeType":"image/png","filename":"logo.png","headers":[{"name":"Content-ID","value":"<logo>"}]}]}}), false),
-        (json!({"payload":{"parts":[{"mimeType":"image/png","filename":"photo.png","headers":[{"name":"Content-Disposition","value":"attachment"}]}]}}), true),
+        (
+            json!({"snippet":"The attachment is mentioned but absent"}),
+            false,
+        ),
+        (
+            json!({"payload":{"mimeType":"application/pdf","filename":"report.pdf"}}),
+            true,
+        ),
+        (
+            json!({"payload":{"parts":[{"mimeType":"image/png","filename":"logo.png","headers":[{"name":"Content-ID","value":"<logo>"}]}]}}),
+            false,
+        ),
+        (
+            json!({"payload":{"parts":[{"mimeType":"image/png","filename":"photo.png","headers":[{"name":"Content-Disposition","value":"attachment"}]}]}}),
+            true,
+        ),
         (json!({"hasAttachments":true}), true),
     ] {
         let summary = super::content::summarize(&message, 0).unwrap();

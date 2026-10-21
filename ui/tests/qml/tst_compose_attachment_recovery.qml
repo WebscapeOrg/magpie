@@ -55,13 +55,13 @@ Item {
     id: compose
     anchors.fill: parent
     service: mail
-    textColor: "#eeeeee"
-    backgroundColor: "#222222"
-    accentColor: "#e9a35f"
-    dimColor: "#aaaaaa"
-    dimmerColor: "#888888"
-    popupBackgroundColor: "#333333"
-    popupBorderColor: "#777777"
+    textColor: Qt.rgba(238/255, 238/255, 238/255, 1)
+    backgroundColor: Qt.rgba(34/255, 34/255, 34/255, 1)
+    accentColor: Qt.rgba(233/255, 163/255, 95/255, 1)
+    dimColor: Qt.rgba(170/255, 170/255, 170/255, 1)
+    dimmerColor: Qt.rgba(136/255, 136/255, 136/255, 1)
+    popupBackgroundColor: Qt.rgba(51/255, 51/255, 51/255, 1)
+    popupBorderColor: Qt.rgba(119/255, 119/255, 119/255, 1)
     panelFontFamily: "monospace"
   }
 

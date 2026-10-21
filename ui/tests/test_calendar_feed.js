@@ -381,6 +381,11 @@ assert.strictEqual(feed.monthEventLimit(10, 23, 2, 16, 5), 0)
   assert.deepStrictEqual(labels(feed.deleteRequest({ summary: "Standup", recurringEventId: "series" }, google, false)),
     ["all:Delete occurrence"])
   assert.ok(feed.deleteRequest({ recurrence: ["RRULE:FREQ=WEEKLY"] }, google, true).message.indexOf("Every occurrence") === 0)
+  const normalizedSeries = feed.eventsFromGoogle({items: [{id: "series", summary: "Standup",
+    recurrence: ["RRULE:FREQ=WEEKLY"], start: {dateTime: "2026-10-21T10:00:00Z"},
+    end: {dateTime: "2026-10-21T11:00:00Z"}}]}, "google:synthetic")[0]
+  assert.ok(feed.deleteRequest(normalizedSeries, google, true).message.indexOf("Every occurrence") === 0,
+    "A normalized series must warn that deleting it removes every occurrence")
   assert.strictEqual(feed.deleteRequest(null, null, false).name, "Untitled event")
 }
 

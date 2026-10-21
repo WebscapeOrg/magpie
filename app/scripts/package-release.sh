@@ -87,6 +87,7 @@ copy_product_files() {
   cp "$repo_root/app/assets/fonts/NerdFonts-README.md" "$destination/licenses/NerdFonts-README.md"
   cp "$repo_root/app/assets/fonts/NerdFonts-PROVENANCE.md" "$destination/licenses/NerdFonts-PROVENANCE.md"
   cp -R "$repo_root/app/assets/fonts/licenses/." "$destination/licenses/"
+  cp "$repo_root/data/unicode/LICENSE.txt" "$destination/licenses/Unicode-LICENSE.txt"
   cat > "$destination/release.json" <<EOF
 {"schemaVersion":1,"name":"omamail","version":"$version","target":"$target","topLevel":"$top_level"}
 EOF

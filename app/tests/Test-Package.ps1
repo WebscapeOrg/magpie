@@ -84,10 +84,20 @@ try {
             "omamail/licenses/Apache-2.0.txt",
             "omamail/licenses/Pomicons-OFL-1.1.txt",
             "omamail/licenses/GLYPH-SOURCES.md",
+            "omamail/licenses/Unicode-LICENSE.txt",
             "omamail/app-icon.ico",
             "omamail/release.json"
         )) {
             Assert-True ($Names -ccontains $Required) "archive is missing $Required"
+        }
+        $UnicodeLicense = $Zip.GetEntry("omamail/licenses/Unicode-LICENSE.txt")
+        $LicenseReader = New-Object IO.StreamReader($UnicodeLicense.Open())
+        try {
+            Assert-True ($LicenseReader.ReadToEnd() -ceq
+                [IO.File]::ReadAllText((Join-Path $RepoRoot "data/unicode/LICENSE.txt"))) `
+                "package does not contain the complete Unicode license notice"
+        } finally {
+            $LicenseReader.Dispose()
         }
         $IconEntry = $Zip.GetEntry("omamail/app-icon.ico")
         $IconMemory = New-Object IO.MemoryStream

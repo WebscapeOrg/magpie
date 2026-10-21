@@ -50,6 +50,8 @@ enum Command {
     Info,
     /// Print the executable version
     Version,
+    /// Print the bundled Unicode data license notice
+    Licenses,
     /// Inspect desktop accounts without exposing credentials
     Accounts {
         #[command(subcommand)]
@@ -100,6 +102,15 @@ pub fn run() {
         println!();
         return;
     };
+    if matches!(command, Command::Licenses) {
+        let unicode = include_str!("../../data/unicode/LICENSE.txt");
+        if cli.json {
+            println!("{}", serde_json::json!({"unicode": unicode}));
+        } else {
+            print!("{unicode}");
+        }
+        return;
+    }
     if matches!(command, Command::Serve) {
         if cli.json {
             Cli::command()
@@ -187,7 +198,7 @@ pub fn run() {
         }
         Command::Call { method } => call::read_params(io::stdin())
             .and_then(|params| runtime.block_on(call::dispatch(&session, &method, &params))),
-        Command::Serve => unreachable!(),
+        Command::Serve | Command::Licenses => unreachable!(),
         #[cfg(all(feature = "agent", unix))]
         Command::AgentWorker { .. } => unreachable!(),
         #[cfg(all(feature = "agent", unix))]

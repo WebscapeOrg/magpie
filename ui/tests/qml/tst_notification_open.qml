@@ -65,6 +65,7 @@ Item {
 
     function init() {
       app.close()
+      app.backToList()
       var list = Accounts.emptyList()
       list = Accounts.add(list, { email: first, provider: "gmail" })
       list = Accounts.add(list, { email: second, provider: "gmail" })
@@ -72,6 +73,8 @@ Item {
       service.accountsLoaded = true
       service.activeIndex = -1
       service.refreshCurrent()
+      service.setUnifiedMailboxes(false)
+      service.eachHost(function(account) { account.clearSelection() })
       host.opens = 0
       Quickshell.notifications = []
     }
@@ -146,6 +149,36 @@ Item {
       service.openNotification("gone@example.org", "message")
       compare(host.opens, 0)
       compare(service.activeAccountId, first)
+    }
+
+    function test_stale_payload_cannot_select_another_accounts_message() {
+      app.open(JSON.stringify({accountId: "gone@example.org", messageId: "same-local-id"}))
+      wait(0)
+      compare(service.activeAccountId, first)
+      compare(service.selectedId, "")
+    }
+
+    function test_payload_mailbox_belongs_to_the_target_account() {
+      service.findAccount(first).mailboxKey = "inbox"
+      service.findAccount(second).mailboxKey = "inbox"
+      app.open(JSON.stringify({accountId: second, mailbox: "trash"}))
+      compare(service.findAccount(first).mailboxKey, "inbox")
+      compare(service.findAccount(second).mailboxKey, "trash")
+    }
+
+    function test_a_later_account_switch_cancels_deferred_selection() {
+      app.open(JSON.stringify({accountId: first, messageId: "same-local-id"}))
+      service.switchTo(second)
+      wait(0)
+      compare(service.selectedId, "")
+    }
+
+    function test_notification_routes_in_unified_view() {
+      service.setUnifiedMailboxes(true)
+      app.open(JSON.stringify({accountId: second, messageId: "unified-message"}))
+      tryCompare(service.findAccount(second), "selectedId", "unified-message")
+      compare(service.reading, service.findAccount(second))
+      compare(service.findAccount(first).selectedId, "")
     }
 
     function test_dismissal_does_not_open_mail() {

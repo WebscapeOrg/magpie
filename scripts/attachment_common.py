@@ -1,22 +1,13 @@
-"""What both attachment scripts do to a name and to a payload before trusting it.
-
-One copy rather than two. `open-attachment.py` and `save-attachment.py` read
-the same two base64 lines from the same caller, and the filename on the first
-of them is written by whoever sent the mail. That makes `safe_filename` a
-security boundary, and a security boundary that exists twice is one that will
-be fixed once.
-"""
+"""Validate sender-controlled names and content for attachment opening and saving."""
 
 import base64
 import os
 import unicodedata
 
-# A name longer than this is refused by ext4 and by every filesystem the app is
-# likely to land on, which measures bytes rather than characters.
+# Invariant: filename limits apply to encoded bytes, as on ext4 and other target filesystems.
 MAX_FILENAME_BYTES = 240
 
-# Past this, what follows the last dot is not an extension — it is the rest of
-# the name, and there is nothing to preserve by keeping it.
+# Invariant: a long final dotted segment remains part of the truncated stem, not a preserved suffix.
 MAX_SUFFIX_BYTES = 32
 
 
@@ -26,7 +17,7 @@ def decode(value: bytes) -> bytes:
     return base64.b64decode(compact, altchars=b"-_", validate=True)
 
 
-# Opening these hands the desktop a document that can run code or fetch
+# Invariant: opening these hands the desktop a document that can run code or fetch
 # further resources. Saving them is still allowed; opening them is not.
 OPEN_REFUSED_SUFFIXES = (
     ".html", ".htm", ".xhtml", ".shtml",

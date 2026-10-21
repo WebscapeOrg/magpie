@@ -15,7 +15,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_RECORD_BYTES = 65536
-# An exact, reviewed vocabulary, never a pattern that could admit a credential or
+# Invariant: this exact, reviewed vocabulary cannot admit a credential or
 # server text. tests/test_diagnostics.py flags new static backend identifiers;
 # review their source before adding them here, never derive this set at runtime.
 MESSAGES = set('''attachment_handle_invalid attachment_handle_unavailable attachment_provider_unsupported
@@ -292,7 +292,8 @@ def read(fd, name):
 
 
 def write(fd, name, data):
-    read(fd, name)  # Refuse unsafe existing files before creating a replacement.
+    # Invariant: refuse unsafe existing files before creating a replacement.
+    read(fd, name)
     data = data.encode('utf-8')
     if len(data) > MAX_RECORD_BYTES:
         raise ValueError('Diagnostic file too large')
@@ -331,7 +332,7 @@ def main(mode):
         if mode == 'record':
             write(fd, 'errors.json', json.dumps(entries, ensure_ascii=True) + '\n')
             return
-        # No task contents, configuration, URLs, stderr or environment values.
+        # Invariant: reports exclude task contents, configuration, URLs, stderr and environment values.
         manifest = json.loads((ROOT / 'manifest.json').read_text())
         report = 'Omamail diagnostics\n'
         report += 'plugin: ' + str(manifest['version']) + '\n'
@@ -365,7 +366,7 @@ def main(mode):
                     report += '\n' + filename + ': dropped records=' + str(dropped)
             except (ValueError, OSError):
                 pass
-        # Preserve the existing bounded report when the transport history is full.
+        # Invariant: transport history cannot exceed the existing report size bound.
         while len(report.encode('utf-8')) + 1 > MAX_RECORD_BYTES:
             lines = report.splitlines()
             first = next((i for i, line in enumerate(lines) if line.startswith('{')), None)
@@ -381,7 +382,7 @@ def main(mode):
                 'An unknown error means the original text was omitted for privacy. '
                 'agent_invalid_state can indicate AI history written by an incompatible backend version. '
                 'The source checkout or installed plugin is at ' + str(ROOT) + '.')
-    # omarchy-agent execs the terminal and can stay in the foreground for the
+    # Invariant: omarchy-agent execs the terminal and can stay in the foreground for the
     # whole TUI session. Waiting with a timeout kills that window (SIGKILL).
     proc = subprocess.Popen(
         ['omarchy-agent', '--prompt', prompt],

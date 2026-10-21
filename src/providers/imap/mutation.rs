@@ -27,16 +27,25 @@ fn strings(params: &Value, key: &str) -> Result<Vec<String>> {
         })
         .collect()
 }
-fn plan(
-    method: &str,
-    params: &Value,
-    boxes: &Mailboxes,
-) -> Result<(Vec<String>, Vec<String>, Option<String>)> {
+#[derive(Default)]
+struct Changes {
+    add_flags: Vec<String>,
+    remove_flags: Vec<String>,
+    destination: Option<String>,
+}
+fn plan(method: &str, params: &Value, boxes: &Mailboxes) -> Result<Changes> {
     if method == "imap.trash" {
-        return Ok((vec![], vec![], Some(resolve(boxes, "\\Trash")?)));
+        return Ok(Changes {
+            destination: Some(resolve(boxes, "\\Trash")?),
+            ..Changes::default()
+        });
     }
     if method == "imap.untrash" {
-        return Ok((vec![], vec!["\\Deleted".into()], Some("INBOX".into())));
+        return Ok(Changes {
+            remove_flags: vec!["\\Deleted".into()],
+            destination: Some("INBOX".into()),
+            ..Changes::default()
+        });
     }
     let added = strings(params, "addLabelIds")?;
     let removed = strings(params, "removeLabelIds")?;
@@ -76,7 +85,11 @@ fn plan(
             }
         }
     }
-    Ok((add, remove, destination))
+    Ok(Changes {
+        add_flags: add,
+        remove_flags: remove,
+        destination,
+    })
 }
 fn encoded_mailbox(name: &str) -> Result<String> {
     if name.trim().is_empty() || name.len() > 4096 || !safe(name) {
@@ -208,16 +221,15 @@ async fn apply_group(
     folder: &str,
     uids: &[u32],
     boxes: &Mailboxes,
-    changes: &(Vec<String>, Vec<String>, Option<String>),
+    changes: &Changes,
 ) -> Result<()> {
-    let (add, remove, destination) = changes;
     command(wire, &format!("SELECT {}", quote(folder)?)).await?;
     let set = uids
         .iter()
         .map(u32::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    for (mode, flags) in [("+", add), ("-", remove)] {
+    for (mode, flags) in [("+", &changes.add_flags), ("-", &changes.remove_flags)] {
         if flags.is_empty() {
             continue;
         }
@@ -227,7 +239,7 @@ async fn apply_group(
         )
         .await?;
     }
-    if let Some(target) = destination
+    if let Some(target) = &changes.destination
         && target != folder
     {
         move_messages(wire, &set, target, boxes).await?;

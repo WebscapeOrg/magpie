@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -189,5 +190,11 @@ with tempfile.TemporaryDirectory() as temporary:
     message = {"from": {"email": "sender@example.com"}, "to": recipients, "cc": recipients}
     (cache / "account-x.json").write_text(json.dumps({"queries": {"q": {"summaries": [message] * 2000}}}))
     assert len(harvester.omamail_cache_records(cache)) == harvester.MAX_CACHE_CONTACTS
+
+connection = Mock()
+connection.execute.side_effect = sqlite3.OperationalError("malformed address book")
+with patch.object(harvester.sqlite3, "connect", return_value=connection):
+    assert harvester.records(Path("unused.sqlite")) == []
+connection.close.assert_called_once()
 
 print("contact discovery tests passed")

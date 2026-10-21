@@ -1775,7 +1775,9 @@ function activityMail() {
     assert.ok(result.html.length < 16 * 1024 * 1024)
   }
   const encoded = data.replace(/^data/, "&#100;ata")
-  const embedded = html.sanitize('<p>Body</p>' + ('<img src="' + encoded + '">').repeat(4), { withReader: true })
+  const embedded = html.sanitize('<p>Body</p><img src="' + encoded + '">'
+    + '<img src="https://cdn.example.com/large">'.repeat(3), { withReader: true,
+      allowRemoteImages: true, remoteImageData: { 'https://cdn.example.com/large': data } })
   for (const result of [embedded, embedded.reader]) {
     assert.strictEqual(result.complexity.images, 3, "encoded data schemes cannot bypass the byte budget")
     assert.strictEqual(result.blockedImages, 1)

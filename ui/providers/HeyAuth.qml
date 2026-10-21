@@ -18,6 +18,7 @@ Item {
   property bool loggedIn: false
   property bool statusChecked: false
   property bool loginBusy: false
+  property int sessionGeneration: 0
   property bool sessionBusy: false
   property string lastError: ""
   signal loginSucceeded()
@@ -27,12 +28,16 @@ Item {
 
   function safeError(value) { return String(value || "") }
   function request(method, callback) {
+    var generation = sessionGeneration
+    function deliver(result, error) {
+      if (root && generation === root.sessionGeneration) callback(result, error)
+    }
     if (!backend || !backend.ready) {
-      Qt.callLater(function() { callback(null, "Mail backend unavailable") })
+      Qt.callLater(function() { deliver(null, "Mail backend unavailable") })
       return
     }
     backend.call(method, {}, function(result, error) {
-      callback(result, error ? "HEY could not complete this request" : "")
+      deliver(result, error ? "HEY could not complete this request" : "")
     })
   }
   function restoreSession() {
@@ -59,6 +64,8 @@ Item {
     })
   }
   function cancelLogin() {
+    sessionGeneration++
+    sessionBusy = false
     loginPoll.stop()
     loginBusy = false
     request("hey.loginCancel", function(result, error) {})

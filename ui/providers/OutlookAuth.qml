@@ -114,12 +114,12 @@ Item {
   signal verifyRequested(var settings, string credentials)
 
   function sessionContext() {
-    return { generation: sessionGeneration, accountId: accountId, clientId: clientId }
+    return { generation: sessionGeneration, accountId: accountId, clientId: clientId, tenant: tenant }
   }
 
   function isCurrent(context) {
     return !!context && context.generation === sessionGeneration
-      && context.accountId === accountId && context.clientId === clientId
+      && context.accountId === accountId && context.clientId === clientId && context.tenant === tenant
   }
 
   function safeError(value) {
@@ -160,10 +160,13 @@ Item {
   }
 
   function finishGraphWaiters(token, error) {
+    var context = sessionContext()
     var waiting = graphWaiters
     graphWaiters = []
     for (var i = 0; i < waiting.length; i++) {
-      waiting[i](sessionEnabled ? token : "", sessionEnabled ? error : "Signed out")
+      var current = isCurrent(context) && sessionEnabled
+      try { waiting[i](current ? token : "", current ? error : "Session changed") }
+      catch (error) { /* Invariant: one consumer cannot strand another waiter. */ }
     }
   }
 
@@ -871,6 +874,7 @@ Item {
 
   onAccountIdChanged: changeIdentity()
   onClientIdChanged: changeIdentity()
+  onTenantChanged: changeIdentity()
 
   Timer {
     id: devicePoll

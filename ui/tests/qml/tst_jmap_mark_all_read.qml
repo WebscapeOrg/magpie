@@ -4,21 +4,8 @@ import "transports.js" as Transports
 import "NativeIntentFixture.js" as NativeIntentFixture
 import "../../account" as Account
 
-// "Mark these read" reaches the rail and the open message, and comes back.
-//
-// The list's rows took the change and the rail's stops did not: every member
-// summary the account held kept its dot, and nothing later re-reads a member
-// it already has, so the stale dot lasted the session. The same batch now
-// marks every held member, gives a representative its row's own recomputed
-// summary, and reads the open message the same way — and an error puts all
-// three back with the rows.
-//
-// Why Qt rather than node: the batch is one function over four properties of
-// one account, and the failure this is written against was the function
-// touching three of them. The account is a real `MailAccount` on the real
-// `JmapClient`; its transport is the stubbed `Process` under
-// `tests/qml/imports`, which never exits on its own, so the request stays in
-// flight until this test ends it.
+// Invariant: A failed native mutation restores the conversation row, held member
+// summaries and the open message together. The fixture controls RPC completion.
 Item {
   width: 400
   height: 300

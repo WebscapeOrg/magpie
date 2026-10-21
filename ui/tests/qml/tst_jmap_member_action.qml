@@ -4,14 +4,8 @@ import "transports.js" as Transports
 import "NativeIntentFixture.js" as NativeIntentFixture
 import "../../account" as Account
 
-// An action from a stop on the rail names one message on the wire.
-//
-// A verb on a conversation row reaches every counted member: the account
-// expands the row to its block and hands the client the flat list. A stop is
-// one message, and the same verb from its menu must name that message alone —
-// including when the stop is the representative, whose id is also a row's.
-// `MailAccount.act`'s fourth argument is what says so, and what has to be seen
-// here is the `Email/set` the transport is handed: one id, then three.
+// Invariant: A conversation action names every counted member. A reader-rail
+// action names only the selected member, including a representative that is also a row.
 Item {
   width: 400
   height: 300
@@ -71,7 +65,7 @@ Item {
       { id: "b", name: "Trash", role: "trash", parentId: null, totalEmails: 0, unreadEmails: 0 }
     ]
 
-    // The ids an `Email/set` request named, read off the transport line.
+    // Invariant: Native mutations preserve the selected member IDs.
     function updatedIds(process) {
       verify(process.method === "jmap.trash" || process.method === "jmap.batchModify")
       compare(process.params.accountId, "jmap:ada@example.org")

@@ -157,7 +157,10 @@ function addressLine(list) {
     var row = rows[itemIndex] || {}
     var email = String(row.email || "")
     var name = String(row.name || row.display || "")
-    if (email === "") { if (name !== "") output.push(name); continue }
+    if (email === "") {
+      if (name !== "") output.push(name)
+      continue
+    }
     output.push(name !== "" && name !== email ? name + " <" + email + ">" : email)
   }
   return output.join(", ")
@@ -298,9 +301,16 @@ function isDraftJob(job) {
 
 // Invariant: A draft job must match both the account and the draft key.
 function draftJobs(jobs, accountId, draftKey) {
+  var wantedKey = String(draftKey || "")
+  if (wantedKey === "") return []
   var list = Array.isArray(jobs) ? jobs : []
   var output = []
-  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) if (isDraftJob(list[itemIndex]) && ownedBy(list[itemIndex], accountId) && String(draftKey || "") !== "" && String(list[itemIndex].draftKey || "") === String(draftKey)) output.push(list[itemIndex])
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var job = list[itemIndex]
+    if (!isDraftJob(job) || !ownedBy(job, accountId)) continue
+    if (String(job.draftKey || "") !== wantedKey) continue
+    output.push(job)
+  }
   output.sort(function(left, right) { return createdOrder(right) - createdOrder(left) })
   return output
 }
@@ -334,10 +344,9 @@ function draftAnswer(job, output, transcript) {
   var text = String(output || "")
   var rows = Array.isArray(transcript) ? transcript : []
   for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
-    if (rows[itemIndex].role === "user" && rows[itemIndex].text.indexOf(MAIL_TRANSFORM_FORMAT) >= 0) {
-      var body = /^Title: [^\r\n]*\r?\n\r?\nBody:\r?\n([\s\S]*)$/.exec(text)
-      return body ? body[1] : ""
-    }
+    if (rows[itemIndex].role !== "user" || rows[itemIndex].text.indexOf(MAIL_TRANSFORM_FORMAT) < 0) continue
+    var body = /^Title: [^\r\n]*\r?\n\r?\nBody:\r?\n([\s\S]*)$/.exec(text)
+    return body ? body[1] : ""
   }
   return text
 }
@@ -347,7 +356,10 @@ function draftFingerprint(fields) {
   var values = fields || {}
   var text = JSON.stringify([values.from || "", values.to || "", values.subject || "", values.body || ""])
   var hash = 2166136261
-  for (var itemIndex = 0; itemIndex < text.length; itemIndex++) { hash ^= text.charCodeAt(itemIndex); hash = (hash * 16777619) >>> 0 }
+  for (var itemIndex = 0; itemIndex < text.length; itemIndex++) {
+    hash ^= text.charCodeAt(itemIndex)
+    hash = (hash * 16777619) >>> 0
+  }
   return String(hash)
 }
 
@@ -417,6 +429,12 @@ function commandSuggestions(text, choices) {
   return {start: value.lastIndexOf("/"), items: items}
 }
 
+function matchesHistory(job, wanted, draftKey) {
+  if (draftKey) return isDraftJob(job) && job.draftKey === draftKey
+  if (isDraftJob(job) || wanted === "") return false
+  return messageIdsOf(job).sort().join("\u001f") === wanted
+}
+
 function historyFor(jobs, accountId, ids, draftKey) {
   var rows = Array.isArray(jobs) ? jobs : []
   var wanted = (Array.isArray(ids) ? ids.slice() : []).sort().join("\u001f")
@@ -424,8 +442,7 @@ function historyFor(jobs, accountId, ids, draftKey) {
   for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
     var job = rows[itemIndex]
     if (!ownedBy(job, accountId)) continue
-    if (draftKey) { if (!isDraftJob(job) || job.draftKey !== draftKey) continue }
-    else if (isDraftJob(job) || messageIdsOf(job).sort().join("\u001f") !== wanted || wanted === "") continue
+    if (!matchesHistory(job, wanted, draftKey)) continue
     var key = String(job.conversationId || job.id)
     if (!groups[key] || createdOrder(job) > createdOrder(groups[key])) groups[key] = job
   }

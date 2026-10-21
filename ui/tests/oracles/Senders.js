@@ -16,6 +16,14 @@ function asList(value) {
   return output
 }
 
+function aliasesOf(mailbox) {
+  var aliases = Array.isArray(mailbox.aliases) ? mailbox.aliases : []
+  if (aliases.length > 0) return aliases
+  var fallback = String(mailbox.email || "").trim()
+  if (fallback === "") return []
+  return [{ email: fallback, displayName: String(mailbox.displayName || "") }]
+}
+
 function identities(mailboxes) {
   var rows = asList(mailboxes)
   var output = []
@@ -26,12 +34,7 @@ function identities(mailboxes) {
     if (box.ready !== true || box.canSend === false) continue
     var accountId = String(box.id || "")
     if (accountId === "") continue
-    var aliases = Array.isArray(box.aliases) ? box.aliases : []
-    if (aliases.length === 0) {
-      var fallback = String(box.email || "").trim()
-      if (fallback === "") continue
-      aliases = [{ email: fallback, displayName: String(box.displayName || "") }]
-    }
+    var aliases = aliasesOf(box)
     var aliasIndex
     for (aliasIndex = 0; aliasIndex < aliases.length; aliasIndex++) {
       var alias = aliases[aliasIndex] || ({})

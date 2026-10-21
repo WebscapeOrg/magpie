@@ -138,7 +138,7 @@ fn validate_secret(bytes: &[u8]) -> Result<(), Error> {
 }
 
 impl CredentialKey {
-    /// Keep Linux's historical libsecret attributes: a provider's credential
+    /// Invariant: Keep Linux's historical libsecret attributes: a provider's credential
     /// kind is its namespace, OAuth also binds the client and current grant.
     fn attributes(&self) -> Result<BTreeMap<String, String>, Error> {
         fn metadata(value: &str) -> Result<(), Error> {
@@ -188,7 +188,7 @@ impl CredentialKey {
         Ok(attributes)
     }
 
-    /// Length-delimited fields prevent delimiter collisions. Hashing also keeps
+    /// Invariant: Length-delimited fields prevent delimiter collisions. Hashing also keeps
     /// Windows target names below its limit without putting secrets in metadata.
     #[cfg(any(target_os = "macos", target_os = "windows", test))]
     fn native_id(&self) -> Result<String, Error> {

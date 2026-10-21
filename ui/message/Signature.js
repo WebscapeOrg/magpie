@@ -3,7 +3,7 @@
 
 // Invariant: imported signature HTML passes both the shared sanitizer and a stricter signature policy.
 
-var MAX_HTML_BYTES = 256 * 1024
+var MAX_HTML_CODE_UNITS = 256 * 1024
 var MAX_IMAGE_BYTES = 512 * 1024
 var MAX_DATA_IMAGES = 8
 
@@ -165,7 +165,7 @@ function sourceRemovals(source) {
 function importHtml(html, options) {
   var settings = options || {}
   var source = String(html === undefined || html === null ? "" : html)
-  if (source.length > Math.max(1, Math.floor(Number(settings.maxHtmlBytes) || MAX_HTML_BYTES)))
+  if (source.length > Math.max(1, Math.floor(Number(settings.maxHtmlBytes) || MAX_HTML_CODE_UNITS)))
     return { html: "", plain: "", dropped: 0, images: 0, problem: "That file is too large for a signature" }
   var cleaned = Html.sanitize(source, { allowRemoteImages: false, keepColors: true })
   // Docs: count non-image removals from the source because Html reports only blocked images.

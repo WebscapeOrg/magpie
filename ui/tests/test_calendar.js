@@ -8,7 +8,7 @@ function b64url(text) {
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 }
 
-// A real Google Calendar invitation, down to the folded ATTENDEE line and the
+// Invariant: A real Google Calendar invitation, down to the folded ATTENDEE line and the
 // VTIMEZONE it ships so a reader with no timezone database can still place the
 // meeting. Folded exactly where Google folds: at 75 octets, continued with one
 // leading space.
@@ -60,9 +60,7 @@ const GOOGLE_INVITE = [
   "END:VCALENDAR"
 ].join("\r\n")
 
-// ------------------------------------------------------------- line folding
-
-// The break *and* the space that continued it both go: RFC 5545 folds between
+// Invariant: The break *and* the space that continued it both go: RFC 5545 folds between
 // any two characters, so a kept space would land in the middle of a word.
 deepEqual(calendar.unfoldLines("A:one\r\n B:two"), ["A:oneB:two"],
   "a folded line rejoins with no space left behind")
@@ -70,8 +68,6 @@ deepEqual(calendar.unfoldLines("A:one\nB:two\r\n\r\nC:three"),
   ["A:one", "B:two", "C:three"], "bare LF and blank lines")
 deepEqual(calendar.unfoldLines("A:one\r\n\ttab-folded"), ["A:onetab-folded"],
   "a tab continues a line too")
-
-// ------------------------------------------------------------- one property
 
 const attendee = calendar.parseProperty(
   'ATTENDEE;PARTSTAT=NEEDS-ACTION;CN="Doe, Jane":mailto:jane@example.com')
@@ -81,7 +77,7 @@ assert.strictEqual(attendee.params.CN, "Doe, Jane", "a quoted CN keeps its comma
 assert.strictEqual(attendee.value, "mailto:jane@example.com",
   "the colon inside the value does not end the parameters")
 
-// A colon inside a quoted parameter must not be mistaken for the one that ends
+// Invariant: A colon inside a quoted parameter must not be mistaken for the one that ends
 // the head, or every property after it reads as the wrong name.
 const quotedColon = calendar.parseProperty('X-THING;NOTE="a:b":value')
 assert.strictEqual(quotedColon.name, "X-THING")
@@ -90,19 +86,15 @@ assert.strictEqual(quotedColon.value, "value")
 
 assert.strictEqual(calendar.parseProperty("no-colon-here"), null)
 
-// --------------------------------------------------------------- escaping
-
 assert.strictEqual(calendar.unescapeText("one\\, two\\; three"), "one, two; three")
 assert.strictEqual(calendar.unescapeText("line\\nbreak"), "line\nbreak")
 assert.strictEqual(calendar.unescapeText("back\\\\slash"), "back\\slash")
 assert.strictEqual(calendar.escapeText("one, two; three"), "one\\, two\\; three")
 assert.strictEqual(calendar.escapeText("line\nbreak"), "line\\nbreak")
-// Round trip, because a summary goes back out in the reply this builds.
+// Invariant: Round trip, because a summary goes back out in the reply this builds.
 const tricky = "Q3 review, part 2; \"the\\one\"\nand a second line"
 assert.strictEqual(calendar.unescapeText(calendar.escapeText(tricky)), tricky,
   "escape then unescape is the identity")
-
-// ------------------------------------------------------------ the invitation
 
 const invite = calendar.invitationFrom(GOOGLE_INVITE)
 assert.ok(invite, "a Google invitation parses")
@@ -126,9 +118,7 @@ assert.strictEqual(invite.attendees[0].name, "Jason Lee",
 assert.strictEqual(invite.attendees[0].partstat, "NEEDS-ACTION")
 assert.strictEqual(invite.attendees[1].optional, true)
 
-// ------------------------------------------------------------------- times
-//
-// August is EDT: the second Sunday in March 2026 is the 8th, the first in
+// Invariant: August is EDT: the second Sunday in March 2026 is the 8th, the first in
 // November is the 1st, and the 21st of August is between them. 10:00 -0400 is
 // 14:00 UTC, and getting this wrong is the difference between joining a
 // meeting and missing it.
@@ -138,7 +128,7 @@ assert.strictEqual(invite.start.resolved, true)
 assert.strictEqual(invite.start.allDay, false)
 assert.strictEqual(invite.start.tzid, "America/New_York")
 
-// The same zone in January is EST, which is the rule the *previous* year's
+// Invariant: The same zone in January is EST, which is the rule the *previous* year's
 // November transition put in force — the case a search that only looks inside
 // the event's own year gets wrong.
 const winter = calendar.invitationFrom(
@@ -147,7 +137,6 @@ const winter = calendar.invitationFrom(
 assert.strictEqual(winter.start.ms, Date.UTC(2026, 0, 15, 15, 0, 0),
   "January is EST, not EDT")
 
-// A UTC stamp needs no zone at all.
 const utcInvite = calendar.invitationFrom([
   "BEGIN:VCALENDAR", "VERSION:2.0", "METHOD:REQUEST", "BEGIN:VEVENT",
   "UID:u1", "SUMMARY:Standup",
@@ -157,7 +146,7 @@ assert.strictEqual(utcInvite.start.ms, Date.UTC(2026, 7, 21, 9, 0, 0))
 assert.strictEqual(utcInvite.start.tzid, "")
 assert.strictEqual(calendar.formatDuration(utcInvite), "15 min")
 
-// A named zone without a VTIMEZONE block stays unresolved. Its placeholder
+// Invariant: A named zone without a VTIMEZONE block stays unresolved. Its placeholder
 // must not change with the machine timezone running the parser.
 const namedZone = calendar.invitationFrom([
   "BEGIN:VCALENDAR", "VERSION:2.0", "METHOD:REQUEST", "BEGIN:VEVENT",
@@ -169,7 +158,7 @@ assert.strictEqual(namedZone.start.tzid, "Europe/Stockholm")
 assert.strictEqual(namedZone.start.ms, Date.UTC(2026, 7, 21, 9, 0, 0))
 assert.ok(calendar.formatWhen(namedZone).indexOf("09:00 (Europe/Stockholm)") > 0)
 
-// A private zone name cannot be converted. Its fallback is UTC rather than
+// Invariant: A private zone name cannot be converted. Its fallback is UTC rather than
 // the parser machine's local zone, so separate machines agree on the instant.
 const unknownZone = calendar.invitationFrom([
   "BEGIN:VCALENDAR", "VERSION:2.0", "METHOD:REQUEST", "BEGIN:VEVENT",
@@ -182,7 +171,6 @@ assert.strictEqual(unknownZone.start.ms, Date.UTC(2026, 7, 21, 9, 0, 0))
 assert.ok(calendar.formatWhen(unknownZone).indexOf("(Example/Headquarters)") > 0,
   "an unresolved time says which clock it is on")
 
-// DURATION stands in for a missing DTEND.
 const byDuration = calendar.invitationFrom([
   "BEGIN:VCALENDAR", "VERSION:2.0", "METHOD:REQUEST", "BEGIN:VEVENT",
   "UID:u3", "SUMMARY:Interview",
@@ -191,7 +179,7 @@ const byDuration = calendar.invitationFrom([
 assert.strictEqual(byDuration.end.ms, Date.UTC(2026, 7, 21, 10, 30, 0))
 assert.strictEqual(calendar.formatDuration(byDuration), "1 hour 30 min")
 
-// An all-day DTEND is the day *after* the last one, so a one-day event shown
+// Invariant: An all-day DTEND is the day *after* the last one, so a one-day event shown
 // from its raw end date would read as two.
 const allDay = calendar.invitationFrom([
   "BEGIN:VCALENDAR", "VERSION:2.0", "METHOD:REQUEST", "BEGIN:VEVENT",
@@ -210,7 +198,7 @@ const twoDays = calendar.invitationFrom([
 assert.strictEqual(calendar.formatWhen(twoDays),
   "Fri, Aug 21, 2026 – Sat, Aug 22, 2026")
 
-// A zone whose transitions are listed as dates rather than rules — an Exchange
+// Invariant: A zone whose transitions are listed as dates rather than rules — an Exchange
 // invitation with RDATEs — cannot be placed by reading rules. It falls back to
 // standard time rather than to whichever sub-component happened to be first.
 {
@@ -232,7 +220,6 @@ assert.strictEqual(calendar.formatWhen(twoDays),
     "standard time is the fallback, not whichever rule was written first")
 }
 
-// A zone with exactly one rule is a fixed offset and needs no search at all.
 {
   const fixed = calendar.invitationFrom([
     "BEGIN:VCALENDAR", "VERSION:2.0", "METHOD:REQUEST",
@@ -247,7 +234,7 @@ assert.strictEqual(calendar.formatWhen(twoDays),
   assert.strictEqual(fixed.start.resolved, true)
 }
 
-// iCloud ships a zone's whole history, retired rules included. Vienna fell
+// Invariant: iCloud ships a zone's whole history, retired rules included. Vienna fell
 // back in late September from 1981 to 1995; that rule's UNTIL has to end it,
 // or every autumn reads as standard time a month early and an event made on
 // an iPhone shows an hour late from late September to the end of October.
@@ -285,14 +272,14 @@ assert.strictEqual(calendar.formatWhen(twoDays),
     "the rule still in force ends summer time on the last Sunday of October")
   assert.strictEqual(at("20260701T120000").ms, Date.UTC(2026, 6, 1, 10, 0, 0))
   assert.strictEqual(at("20260115T120000").ms, Date.UTC(2026, 0, 15, 11, 0, 0))
-  // UNTIL=19950924T010000Z is the 03:00 summer-time transition itself. Read
-  // as a wall clock it would land after its own UNTIL and drop out, leaving
-  // October 1995 on summer time.
+  // Invariant: UNTIL=19950924T010000Z is the 03:00 summer-time transition itself. Read
+// as a wall clock it would land after its own UNTIL and drop out, leaving
+// October 1995 on summer time.
   assert.strictEqual(at("19951010T120000").ms, Date.UTC(1995, 9, 10, 11, 0, 0),
     "a rule's last transition is the one its UTC UNTIL names")
 }
 
-// Once every summer-time rule has ended, the zone stays where the last one
+// Invariant: Once every summer-time rule has ended, the zone stays where the last one
 // left it. Mexico City dropped summer time in 2022; years later it is on
 // -0600 all year, not on the 1922 entry that heads the list.
 {
@@ -321,7 +308,7 @@ assert.strictEqual(calendar.formatWhen(twoDays),
     "the final summer under the rules still counts")
 }
 
-// iCloud gathers a zone's one-off transitions into one sub-component per
+// Invariant: iCloud gathers a zone's one-off transitions into one sub-component per
 // offset pair, so the last change can be an RDATE decades after its DTSTART.
 // Moscow went to +0400 for good in 2011 and back to +0300 in 2014 — the
 // second only an RDATE of a component that starts in 1930.
@@ -352,7 +339,7 @@ assert.strictEqual(calendar.formatWhen(twoDays),
     "between the two, +0400 all year")
 }
 
-// One rule can take effect twice in a year. Casablanca leaves +0100 for
+// Invariant: One rule can take effect twice in a year. Casablanca leaves +0100 for
 // Ramadan, and in 2029 Ramadan starts in January and again in December, so
 // the January date has to count although the December one is still ahead.
 {
@@ -377,7 +364,7 @@ assert.strictEqual(calendar.formatWhen(twoDays),
   assert.strictEqual(at("20291231T120000").ms, Date.UTC(2029, 11, 31, 12, 0, 0))
 }
 
-// Sparse RDATE histories must keep the nearest past transition even when a
+// Invariant: Sparse RDATE histories must keep the nearest past transition even when a
 // later listed date lies ahead of the reading and the previous year is empty.
 {
   const sparse = [
@@ -404,8 +391,6 @@ assert.strictEqual(calendar.formatWhen(twoDays),
     "the current year's transition still takes effect at its wall-clock boundary")
 }
 
-// ------------------------------------------------------------- formatting
-
 assert.strictEqual(calendar.formatWhen(invite),
   new Date(Date.UTC(2026, 7, 21, 14, 0, 0)).getHours() === 14
     ? "Fri, Aug 21, 2026 · 14:00 – 15:00"
@@ -413,8 +398,6 @@ assert.strictEqual(calendar.formatWhen(invite),
   "the clock is the reader's own, whatever zone the invitation named")
 assert.strictEqual(calendar.formatDuration(invite), "1 hour")
 assert.strictEqual(calendar.attendeeSummary(invite), "2 guests · 1 yes, 1 awaiting")
-
-// -------------------------------------------------------------- recurrence
 
 assert.strictEqual(calendar.describeRecurrence("FREQ=WEEKLY;BYDAY=MO,WE"),
   "Weekly on Mon, Wed")
@@ -427,8 +410,6 @@ assert.strictEqual(calendar.describeRecurrence("FREQ=MONTHLY;UNTIL=20261231T0000
 assert.strictEqual(calendar.describeRecurrence("FREQ=HOURLY"), "Repeats",
   "an exotic rule is admitted to rather than described wrongly")
 assert.strictEqual(calendar.describeRecurrence(""), "")
-
-// ---------------------------------------------------------------- headline
 
 assert.strictEqual(calendar.headline(invite), "Updated invitation",
   "a sequence above zero means this is not the first one")
@@ -448,8 +429,6 @@ assert.strictEqual(calendar.partstatLabel("TENTATIVE"), "Maybe")
 assert.strictEqual(calendar.partstatLabel("NEEDS-ACTION"), "Awaiting")
 assert.strictEqual(calendar.partstatLabel(""), "Awaiting",
   "not having answered is a state, not missing data")
-
-// ---------------------------------------------------------------- responses
 
 assert.strictEqual(calendar.responseOf(invite, "jason@example.com"), "")
 assert.strictEqual(calendar.responseOf(invite, "grace@example.com"), "accepted")
@@ -471,8 +450,6 @@ assert.strictEqual(reply.method, "REPLY")
 assert.strictEqual(calendar.canRespond(reply, "jason@example.com"), false,
   "somebody else's answer is not an invitation")
 
-// ------------------------------------------------- remembering the answer
-
 {
   const answered = calendar.withResponse(invite, "jason@example.com", "accepted")
   assert.strictEqual(calendar.responseOf(answered, "jason@example.com"), "accepted")
@@ -485,8 +462,8 @@ assert.strictEqual(calendar.canRespond(reply, "jason@example.com"), false,
   assert.strictEqual(answered.summary, invite.summary)
   deepEqual(answered.source, invite.source)
 
-  // A forwarded invitation names no line for the reader. Answering it is still
-  // the right thing to have done, so the answer is recorded rather than lost.
+  // Invariant: A forwarded invitation names no line for the reader. Answering it is still
+// the right thing to have done, so the answer is recorded rather than lost.
   const forwarded = calendar.withResponse(invite, "someone-else@example.com", "declined")
   assert.strictEqual(forwarded.attendees.length, 3)
   assert.strictEqual(calendar.responseOf(forwarded, "someone-else@example.com"), "declined")
@@ -496,8 +473,6 @@ assert.strictEqual(calendar.canRespond(reply, "jason@example.com"), false,
   assert.strictEqual(calendar.withResponse(invite, "", "accepted"), invite)
   assert.strictEqual(calendar.withResponse(null, "a@b.com", "accepted"), null)
 }
-
-// -------------------------------------------------------------- the reply
 
 const me = { name: "Jason Lee", email: "jason@example.com" }
 const answer = calendar.buildReply(invite, me, "accepted", Date.UTC(2026, 7, 20, 8, 30, 0))
@@ -517,19 +492,17 @@ assert.ok(answer.indexOf("BEGIN:VTIMEZONE") >= 0 && answer.indexOf("RRULE:FREQ=Y
 assert.ok(answer.indexOf("END:VTIMEZONE") >= 0)
 assert.ok(answer.indexOf("END:VCALENDAR\r\n") >= 0)
 
-// A reply speaks for one person. Copying the other guests' lines back is how
+// Invariant: A reply speaks for one person. Copying the other guests' lines back is how
 // an organiser's calendar gets told that Grace accepted, by Jason.
 assert.strictEqual(answer.split("ATTENDEE").length - 1, 1,
   "exactly one ATTENDEE line, and it is this account's")
 assert.strictEqual(answer.indexOf("grace@example.com"), -1)
 
-// Nothing may exceed the 75-octet line limit once folded.
 for (const line of answerLines) {
   assert.ok(Buffer.byteLength(line, "utf8") <= 75,
     "line over 75 octets: " + JSON.stringify(line))
 }
 
-// The other two answers differ only in the one word they exist to carry.
 assert.ok(calendar.buildReply(invite, me, "declined", 0).indexOf("PARTSTAT=DECLINED") >= 0)
 assert.ok(calendar.buildReply(invite, me, "tentative", 0).indexOf("PARTSTAT=TENTATIVE") >= 0)
 assert.strictEqual(calendar.buildReply(invite, me, "maybe", 0), "",
@@ -537,12 +510,12 @@ assert.strictEqual(calendar.buildReply(invite, me, "maybe", 0), "",
 assert.strictEqual(calendar.buildReply(invite, { email: "" }, "accepted", 0), "",
   "an account with no address cannot answer")
 
-// A display name may not carry a quote: there is no escape for one inside a
+// Invariant: A display name may not carry a quote: there is no escape for one inside a
 // quoted parameter, so a name holding one would end the value early and the
 // rest of it would be read as more parameters.
 const sneaky = calendar.buildReply(invite,
   { name: 'Jason";X-EVIL=1;CN="x', email: "jason@example.com" }, "accepted", 0)
-// Read back through the parser, which unfolds first — the line is long enough
+// Invariant: Read back through the parser, which unfolds first — the line is long enough
 // to be folded, and a test that read the raw first line would be asserting
 // about half an address.
 const sneakyEvent = calendar.parse(sneaky).children.filter(function(child) {
@@ -556,8 +529,6 @@ assert.strictEqual(sneakyParsed.params.PARTSTAT, "ACCEPTED")
 assert.strictEqual(sneakyParsed.params["X-EVIL"], undefined,
   "a quote in a display name cannot open a parameter of its own")
 assert.strictEqual(sneaky.split("ATTENDEE").length - 1, 1)
-
-// ---------------------------------------------------------- reply as a mail
 
 const fields = calendar.replyFields(invite, me, "accepted", Date.UTC(2026, 7, 20, 8, 30, 0))
 assert.strictEqual(fields.to, "ada@example.com", "the answer goes to the organiser alone")
@@ -578,10 +549,6 @@ assert.strictEqual(calendar.replyFields(noOrganizer, me, "accepted", 0), null,
   "with nobody to answer, there is no reply to build")
 assert.strictEqual(calendar.canRespond(noOrganizer, "jason@example.com"), false)
 
-// ------------------------------------------------------------ out of a mail
-
-// The Gmail message resource, which is the shape both providers hand back.
-// `fromPayload` takes the MIME root out of it, the way `Mail.attachments` does.
 const message = {
   payload: {
     mimeType: "multipart/mixed",
@@ -600,9 +567,9 @@ const message = {
       {
         mimeType: "application/ics",
         filename: "invite.ics",
-        // Listed by id only, the way Gmail lists an attachment. There is
-        // nothing here to parse, and reaching for it would be a second round
-        // trip to learn what the inline part already said.
+        // Invariant: Listed by id only, the way Gmail lists an attachment. There is
+// nothing here to parse, and reaching for it would be a second round
+// trip to learn what the inline part already said.
         body: { size: 2048, attachmentId: "att1" }
       }
     ]
@@ -614,27 +581,24 @@ assert.ok(fromMail, "the invitation is found in the MIME tree")
 assert.strictEqual(fromMail.uid, "abc123@google.com")
 assert.strictEqual(fromMail.method, "REQUEST")
 
-// A calendar part past the ceiling is skipped before it is decoded: this runs
+// Invariant: A calendar part past the ceiling is skipped before it is decoded: this runs
 // on the thread that draws the whole desktop.
 assert.strictEqual(calendar.fromPayload({
   mimeType: "text/calendar; method=REQUEST",
   body: { size: 4 * 1024 * 1024, data: b64url(GOOGLE_INVITE) }
 }), null)
 
-// An ordinary message has none, and that is the answer for nearly every one.
 assert.strictEqual(calendar.fromPayload({
   mimeType: "text/plain", body: { data: b64url("hello") }
 }), null)
 assert.strictEqual(calendar.fromPayload(null), null)
 
-// An inline part wins over one that would have to be fetched, even when the
+// Invariant: An inline part wins over one that would have to be fetched, even when the
 // fetchable one comes first in the tree: the file is already here.
 assert.strictEqual(calendar.pendingPart(message.payload), null,
   "nothing to ask for when the invitation arrived with the message")
 
-// ------------------------------------------------- the invitation as a file
-//
-// What Gmail actually hands back for a Google Calendar invitation: both
+// Invariant: What Gmail actually hands back for a Google Calendar invitation: both
 // calendar parts named `invite.ics`, and so both listed by id with no octets
 // on either. Read as it stood, the message has a meeting in it and no way to
 // see one — which is what this shape is here to keep fixed.
@@ -673,12 +637,11 @@ assert.strictEqual(fetched.method, "REQUEST")
 assert.strictEqual(calendar.canRespond(fetched, "jason@example.com"), true,
   "and it can be answered like any other")
 
-// A part too big to parse is not worth a round trip either.
 assert.strictEqual(calendar.pendingPart({
   mimeType: "text/calendar", filename: "invite.ics",
   body: { size: 4 * 1024 * 1024, attachmentId: "att-huge" }
 }), null)
-// Neither is one the server described but gave no way to ask for.
+
 assert.strictEqual(calendar.pendingPart({
   mimeType: "text/calendar", filename: "invite.ics", body: { size: 900 }
 }), null)
@@ -686,14 +649,11 @@ assert.strictEqual(calendar.fromAttachment(null, b64url(GOOGLE_INVITE)), null)
 assert.strictEqual(calendar.fromAttachment(wanted, ""), null)
 assert.strictEqual(calendar.fromAttachment(wanted, b64url("not a calendar")), null)
 
-// The Content-Type states the method too, for a file that left the property out.
 const methodFromHeader = calendar.fromPayload({
   mimeType: "text/calendar; method=REQUEST",
   body: { data: b64url(GOOGLE_INVITE.replace("METHOD:REQUEST\r\n", "")) }
 })
 assert.strictEqual(methodFromHeader.method, "REQUEST")
-
-// -------------------------------------------------------------- robustness
 
 assert.strictEqual(calendar.invitationFrom(""), null)
 assert.strictEqual(calendar.invitationFrom("BEGIN:VCALENDAR\r\nEND:VCALENDAR"), null,
@@ -702,22 +662,21 @@ assert.strictEqual(calendar.invitationFrom(
   "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:No id\r\nEND:VEVENT\r\nEND:VCALENDAR"), null,
   "without a UID there is nothing a reply could name")
 assert.strictEqual(calendar.invitationFrom("not a calendar at all"), null)
-// Truncated mid-component: the parser has to stop rather than loop.
+// Invariant: truncated but structurally consistent calendars retain the fields already received.
 assert.ok(calendar.invitationFrom(
   "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:u9\r\nSUMMARY:Cut"),
   "a truncated file still yields what it did carry")
-// A file past the ceiling is not parsed at all: this runs on the thread that
+// Invariant: A file past the ceiling is not parsed at all: this runs on the thread that
 // draws the desktop.
 assert.strictEqual(calendar.parse("BEGIN:VCALENDAR\r\n"
   + "X-PAD:" + new Array(600000).join("x") + "\r\nEND:VCALENDAR"), null)
 
-// A date this cannot be sure about is refused rather than guessed at.
 assert.strictEqual(calendar.parseDateValue("2026-08-21"), null)
 assert.strictEqual(calendar.parseDateValue("20261321T100000"), null, "month 13")
 assert.strictEqual(calendar.parseDateValue("20260821T250000"), null, "hour 25")
 assert.ok(calendar.parseDateValue("20260821T100000Z").utc)
 
-// A CalDAV object may carry several events. Calendar views need every event,
+// Invariant: A CalDAV object may carry several events. Calendar views need every event,
 // while the invitation reader intentionally takes only the first one.
 const feed = [
   "BEGIN:VCALENDAR",
@@ -742,8 +701,6 @@ assert.strictEqual(feedEvents[0].uid, "first")
 assert.strictEqual(feedEvents[0].summary, "Morning review")
 assert.strictEqual(feedEvents[1].uid, "second")
 assert.strictEqual(feedEvents[1].start.allDay, true)
-
-
 
 {
     for(const value of ['20260231T120000Z','20260229','19000229','20260431']) assert.strictEqual(calendar.parseDateValue(value),null,value)
@@ -774,7 +731,6 @@ assert.strictEqual(feedEvents[1].start.allDay, true)
     for(const offset of ['+2460','-0060','+126199']) assert.strictEqual(calendar.parseOffsetMinutes(offset),null,offset)
     assert.strictEqual(calendar.parseOffsetMinutes('+010521'),65.35)
 }
-
 
 {
   const fields = calendar.parseDateValue("00990228T123000Z")

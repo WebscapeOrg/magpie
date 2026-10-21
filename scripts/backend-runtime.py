@@ -66,8 +66,9 @@ def api_pin():
         require(type(value) is int and 0 < value <= 2147483647, "Invalid backend API version.")
     require(latest - released in (0, 1), "Invalid backend API version.")
     unreleased = contract.get("unreleased", {}).get("methods", []) if isinstance(contract.get("unreleased"), dict) else None
-    require(isinstance(unreleased, list) and all(isinstance(m, str) for m in unreleased), "Invalid backend API contract.")
-    return released, latest, unreleased, hashlib.sha256(raw).hexdigest()
+    require(isinstance(unreleased, list) and all(isinstance(method, str) for method in unreleased), "Invalid backend API contract.")
+    return dict(requiredApiVersion=released, latestApiVersion=latest,
+                unreleasedMethods=unreleased, contractHash=hashlib.sha256(raw).hexdigest())
 
 
 def safe_path(path, directory=False, create=False):
@@ -378,7 +379,7 @@ def run(command):
     try:
         required = pin()
         result["requiredVersion"] = required
-        result["requiredApiVersion"], result["latestApiVersion"], result["unreleasedMethods"], result["contractHash"] = api_pin()
+        result.update(api_pin())
         development = os.environ.get("OMAMAIL_BIN", "")
         executable = Path(development) if development else BINARY
         result["executable"] = str(executable)

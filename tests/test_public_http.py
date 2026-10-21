@@ -2,6 +2,8 @@
 import base64
 import http.server
 import io
+import json
+import struct
 import os
 from pathlib import Path
 import signal
@@ -149,6 +151,74 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, *_args):
         pass
+
+
+class RasterMemory(unittest.TestCase):
+    def fetch(self, data, mime):
+        with patch.object(transport, "response_for") as request:
+            response = request.return_value.__enter__.return_value
+            response.status = 200
+            response.getheader.side_effect = lambda name, default=None: {
+                "Content-Type": mime, "Content-Length": str(len(data))
+            }.get(name, default)
+            response.read.return_value = data
+            return transport.fetch_image("https://example.com/synthetic-raster")
+
+    def test_shared_raster_vectors_reject_before_data_uri_encoding(self):
+        rows = json.loads((ROOT / "tests/fixtures/raster.json").read_text())
+        for row in rows:
+            data = base64.b64decode(row["data"], validate=True)
+            with self.subTest(name=row["name"]):
+                self.assertEqual(transport.decoded_bytes(data, row["mime"]), row["decodedBytes"])
+                if row["decodedBytes"] is None:
+                    with patch.object(transport.base64, "b64encode") as encode:
+                        with self.assertRaises(transport.Refused):
+                            self.fetch(data, row["mime"])
+                        encode.assert_not_called()
+                else:
+                    self.assertEqual(self.fetch(data, row["mime"]),
+                                     "data:" + row["mime"] + ";base64," + row["data"])
+
+    def test_gif_payload_skipping_keeps_metadata_work_bounded(self):
+        rows = json.loads((ROOT / "tests/fixtures/raster.json").read_text())
+        original = next(base64.b64decode(row["data"]) for row in rows
+                        if row["mime"] == "image/gif" and row["decodedBytes"] == 48)
+        offset = 13 + (3 * (1 << ((original[10] & 7) + 1)) if original[10] & 0x80 else 0)
+        comment = b"\x21\xfe" + (b"\xff" + b"x" * 255) * 300 + b"\0"
+        data = original[:offset] + comment + original[offset:]
+        self.assertEqual(transport.decoded_bytes(data, "image/gif"), 48)
+        self.assertTrue(self.fetch(data, "image/gif").startswith("data:image/gif;base64,"))
+        excessive_control = original[:offset] + b"\x21\xfe\0" * 23000 + original[offset:]
+        with patch.object(transport.base64, "b64encode") as encode:
+            with self.assertRaises(transport.Refused):
+                self.fetch(excessive_control, "image/gif")
+            encode.assert_not_called()
+
+    def test_jpeg_metadata_payload_skipping_does_not_limit_the_whole_file(self):
+        rows = json.loads((ROOT / "tests/fixtures/raster.json").read_text())
+        original = next(base64.b64decode(row["data"]) for row in rows
+                        if row["mime"] == "image/jpeg" and row["decodedBytes"] == 48)
+        segment = b"\xff\xe1" + struct.pack(">H", 50002) + b"x" * 50000
+        data = original[:2] + segment * 2 + original[2:]
+        self.assertEqual(transport.decoded_bytes(data, "image/jpeg"), 48)
+        self.assertEqual(self.fetch(data, "image/jpeg"),
+                         "data:image/jpeg;base64," + base64.b64encode(data).decode())
+
+    def test_small_encoded_png_cannot_reach_the_ui_with_oversized_dimensions(self):
+        data = PNG[:16] + struct.pack(">II", 100000, 100000) + PNG[24:]
+        with patch.object(transport.base64, "b64encode") as encode:
+            with self.assertRaises(transport.Refused):
+                self.fetch(data, "image/png")
+            encode.assert_not_called()
+
+    def test_truncated_raster_metadata_cannot_reach_the_ui(self):
+        for data, mime in [(PNG[:24], "image/png"), (b"GIF89a", "image/gif"),
+                           (b"BM", "image/bmp"), (b"RIFF\x04\0\0\0WEBP", "image/webp"),
+                           (b"\xff\xd8\xff\xc0\0\x11\x08", "image/jpeg")]:
+            with self.subTest(mime=mime), patch.object(transport.base64, "b64encode") as encode:
+                with self.assertRaises(transport.Refused):
+                    self.fetch(data, mime)
+                encode.assert_not_called()
 
 
 class LocalHTTP(unittest.TestCase):

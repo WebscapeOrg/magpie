@@ -16,7 +16,7 @@ const context = {
 }
 context.root = context
 vm.createContext(context)
-for (const name of ["newHandle", "abortRequest", "usesBackend", "backendRead", "rememberResources", "listMessages", "getMessages", "getMessage", "forget"])
+for (const name of ["newHandle", "abortRequest", "usesBackend", "backendRead", "rememberResources", "listMessages", "readFullPage", "getMessages", "getMessage", "forget"])
   vm.runInContext(method(name), context)
 let pending, request
 context.backend = { executable: "/bin/omamail", call(method, params, callback) {

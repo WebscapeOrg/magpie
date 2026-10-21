@@ -108,58 +108,46 @@ Item {
     return handle
   }
 
-  /** A whole page with no round trips at all: the listing that produced these
-   * ids carried every field a row needs, so this is the cache answering.
-   *
-   * Deferred rather than answered on the spot even though the answer is in
-   * hand. Every caller is written against a callback that arrives later, and
-   * running one partway through the function that started it is a re-entry the
-   * Gmail client never produces.
+  function readFullPage(ids, callback, handle, progress) {
+    var results = new Array(ids.length)
+    var remaining = ids.length
+    var firstError = ""
+    if (remaining === 0) {
+      Qt.callLater(function() { if (root && !handle.aborted) callback([], "") })
+      return handle
+    }
+    function readAt(index) {
+      var child = root.getMessage(ids[index], true, function(payload, error) {
+        if (handle.aborted) return
+        if (error && !firstError) firstError = error
+        results[index] = payload
+        if (payload && typeof progress === "function") progress([payload])
+        remaining--
+        if (remaining > 0) return
+        callback(results.filter(function(message) { return !!message }), firstError)
+      })
+      handle.children.push(child)
+    }
+    for (var index = 0; index < ids.length; index++) readAt(index)
+    return handle
+  }
+
+  /** Full reads fetch bodies; summary reads use resources already supplied by the listing.
+   * Cached results are deferred to preserve the asynchronous callback contract.
    */
   function getMessages(ids, full, callback, existingHandle, progress) {
     var handle = existingHandle || newHandle()
     var list = Array.isArray(ids) ? ids : []
     if (typeof callback !== "function") return handle
-
-    if (full === true) {
-      var results = new Array(list.length)
-      var remaining = list.length
-      var firstError = ""
-      if (remaining === 0) {
-        Qt.callLater(function() { if (root && !handle.aborted) callback([], "") })
-        return handle
-      }
-      for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
-        (function(index) {
-          var child = root.getMessage(list[index], true, function(payload, error) {
-            if (handle.aborted) return
-            if (error && !firstError) firstError = error
-            results[index] = payload
-            if (payload && typeof progress === "function") progress([payload])
-            remaining--
-            if (remaining > 0) return
-            var ordered = []
-            for (var nestedIndex = 0; nestedIndex < results.length; nestedIndex++) {
-              if (results[nestedIndex]) ordered.push(results[nestedIndex])
-            }
-            callback(ordered, firstError)
-          })
-          handle.children.push(child)
-        })(itemIndex)
-      }
-      return handle
-    }
+    if (full === true) return readFullPage(list, callback, handle, progress)
 
     Qt.callLater(function() {
       if (!root || handle.aborted) return
       var output = []
       for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
-        if (root.usesBackend()) {
-          var resource = root.messageResources[String(list[itemIndex])]
-          if (resource) output.push(resource)
-          continue
-        }
-
+        if (!root.usesBackend()) continue
+        var resource = root.messageResources[String(list[itemIndex])]
+        if (resource) output.push(resource)
       }
       if (output.length > 0 && typeof progress === "function") progress(output)
       callback(output, output.length > 0 || list.length === 0 ? ""

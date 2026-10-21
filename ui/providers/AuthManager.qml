@@ -202,6 +202,7 @@ Item {
     if (changed) {
       // A different client means a different keyring entry and a different
       // grant; whatever is in memory belongs to the old one.
+      cancelLogin()
       resetMemorySession()
       savedSessionPresent = false
       refreshRetryAttempt = 0
@@ -272,10 +273,24 @@ Item {
   property string unnamedRefreshToken: ""
 
   onAccountIdChanged: {
-    if (accountId === "" || unnamedRefreshToken === "") return
-    var held = unnamedRefreshToken
-    unnamedRefreshToken = ""
-    storeRefreshToken(held)
+    if (accountId !== "" && unnamedRefreshToken !== "") {
+      var held = unnamedRefreshToken
+      unnamedRefreshToken = ""
+      storeRefreshToken(held)
+      return
+    }
+    cancelLogin()
+    resetMemorySession()
+    savedSessionPresent = false
+    grantedScope = ""
+    sessionChecked = false
+    refreshRetryAttempt = 0
+    refreshRetry.stop()
+    finishWaiters("", "The mailbox changed before its session was loaded")
+    var boundAccount = accountId
+    Qt.callLater(function() {
+      if (root.accountId === boundAccount && boundAccount !== "") root.restoreSession()
+    })
   }
 
   function storeRefreshToken(refreshToken) {
@@ -321,7 +336,9 @@ Item {
     backend.call("auth.token", { provider: "gmail", accountId: accountId, resource: "mail" }, function(result, error) {
       if (serial !== root.tokenRequestSerial) return
       root.tokenRequest = null
-      var signedOut = error === "gmail_invalid_token" || error === "gmail_token_invalid" || error === "gmail_token_missing" || error === "gmail_unauthorized"
+      var reason = String(error && error.message || "")
+      var signedOut = reason === "gmail_invalid_token" || reason === "gmail_token_invalid"
+        || reason === "gmail_token_missing" || reason === "gmail_unauthorized"
       callback(OAuth.parseTokenResponse(error ? 400 : 200,
         error ? JSON.stringify({ error: signedOut ? "invalid_grant" : "temporarily_unavailable" }) : JSON.stringify(result), ""))
     })

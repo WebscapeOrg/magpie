@@ -63,7 +63,7 @@ fn key(params: &serde_json::Map<String, Value>) -> Result<CredentialKey, &'stati
         account_id,
         kind,
     };
-    key.attributes().map_err(map_input_error)?;
+    key.attributes().map_err(map_error)?;
     Ok(key)
 }
 
@@ -96,22 +96,14 @@ fn parse(method: &str, params: &Value) -> Result<Request, &'static str> {
                 .get("secret")
                 .and_then(Value::as_str)
                 .ok_or("invalid_params")?;
-            let secret = Secret::new(text.as_bytes().to_vec()).map_err(map_input_error)?;
+            let secret = Secret::new(text.as_bytes().to_vec()).map_err(map_error)?;
             Ok(Request::Put(key, secret))
         }
         _ => Err("unknown_method"),
     }
 }
 
-fn map_input_error(error: Error) -> &'static str {
-    match error {
-        Error::InvalidKey | Error::InvalidSecret | Error::TooLarge => "invalid_params",
-        Error::Missing => "credential_missing",
-        Error::Unavailable | Error::Ambiguous => "credential_store_unavailable",
-    }
-}
-
-fn map_store_error(error: Error) -> &'static str {
+fn map_error(error: Error) -> &'static str {
     match error {
         Error::Missing => "credential_missing",
         Error::InvalidKey | Error::InvalidSecret | Error::TooLarge => "invalid_params",
@@ -133,16 +125,16 @@ async fn call_with_store(
             .map_err(|_| "credential_store_unavailable")?
         {
             Ok(secret) => {
-                Ok(json!({"found":true,"secret":secret.text().map_err(map_store_error)?}))
+                Ok(json!({"found":true,"secret":secret.text().map_err(map_error)?}))
             }
             Err(Error::Missing) => Ok(json!({"found":false})),
-            Err(error) => Err(map_store_error(error)),
+            Err(error) => Err(map_error(error)),
         },
         Request::Put(key, secret) => {
             tokio::task::spawn_blocking(move || store.put(&key, secret.as_slice()))
                 .await
                 .map_err(|_| "credential_store_unavailable")?
-                .map_err(map_store_error)?;
+                .map_err(map_error)?;
             Ok(json!({"stored":true}))
         }
         Request::Delete(key) => match tokio::task::spawn_blocking(move || store.delete(&key))
@@ -151,7 +143,7 @@ async fn call_with_store(
         {
             Ok(()) => Ok(json!({"deleted":true})),
             Err(Error::Missing) => Ok(json!({"deleted":false})),
-            Err(error) => Err(map_store_error(error)),
+            Err(error) => Err(map_error(error)),
         },
     }
 }

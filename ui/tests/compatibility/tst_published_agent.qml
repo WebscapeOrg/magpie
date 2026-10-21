@@ -61,8 +61,8 @@ Item {
       account.auth.passwordChecked = true; account.auth.password = "synthetic-password"
       tryCompare(account, "ready", true)
       account.profile = {email:"ada@example.test"}
-      account.messages = [{id:"1:INBOX",subject:"Thursday",from:{email:"bob@example.test"},
-        to:[{email:"ada@example.test"}],cc:[],unread:false,labelIds:["INBOX"]}]
+      account.messages = [{id:"1:INBOX",subject:"Thursday",from:{email:"bob@example.test",display:"Bob Example"},
+        time:"10:00",to:[{email:"ada@example.test"}],cc:[],unread:false,labelIds:["INBOX"]}]
       app.opened = true
     }
     function enabledButton(item, name) {

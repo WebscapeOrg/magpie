@@ -26,7 +26,7 @@ case "$dir" in
   /*) ;;
   *) usage ;;
 esac
-case "$dir" in */../*|*/./*|*/..|*/.|*//*) usage ;; esac
+case "$dir" in */|*/../*|*/./*|*/..|*/.|*//*) usage ;; esac
 component=$dir
 while [ "$component" != / ]; do
   [ ! -L "$component" ] || usage
@@ -80,6 +80,7 @@ case "$command" in
   touch)
     name=${3:-}
     safe_name "$name" || usage
+    [ ! -L "$dir/$name" ] || usage
     [ -f "$dir/$name" ] && touch -m -- "$dir/$name"
     ;;
   prune)

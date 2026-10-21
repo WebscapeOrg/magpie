@@ -31,11 +31,27 @@ class CachePaths(unittest.TestCase):
             before = outside.stat().st_mode
             linked = root/'linked'
             linked.symlink_to(outside, target_is_directory=True)
-            result = subprocess.run([str(SCRIPT), 'put', str(linked), 'mail.json'],
-                                    input='{"body":"synthetic"}\n', text=True, capture_output=True)
+            for suffix in ('', '/'):
+                with self.subTest(suffix=suffix):
+                    result = subprocess.run([str(SCRIPT), 'put', str(linked)+suffix, 'mail.json'],
+                                            input='{"body":"synthetic"}\n', text=True, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(list(outside.iterdir()), [])
+                    self.assertEqual(outside.stat().st_mode, before)
+
+    def test_touch_cannot_change_a_linked_file_outside_the_cache(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            account = root/'omamail/bodies/account'
+            account.mkdir(parents=True)
+            outside = root/'keep'
+            outside.write_text('KEEP')
+            os.utime(outside, ns=(1_000_000_000, 1_000_000_000))
+            (account/'mail.json').symlink_to(outside)
+            result = subprocess.run([str(SCRIPT), 'touch', str(account), 'mail.json'], capture_output=True)
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(list(outside.iterdir()), [])
-            self.assertEqual(outside.stat().st_mode, before)
+            self.assertEqual(outside.stat().st_mtime_ns, 1_000_000_000)
+            self.assertEqual(outside.read_text(), 'KEEP')
 
     def test_put_prune_touch_and_clear_keep_the_expected_account_scope(self):
         with tempfile.TemporaryDirectory() as temporary:

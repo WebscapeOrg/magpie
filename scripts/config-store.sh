@@ -26,6 +26,10 @@ umask 077
 config_home=${XDG_CONFIG_HOME:-$HOME/.config}
 target_dir="$config_home/omamail"
 target="$target_dir/$name"
+[ ! -L "$target_dir" ] || {
+  printf '%s\n' 'refusing a symbolic link for the private config directory' >&2
+  exit 5
+}
 
 IFS= read -r payload
 if [ -z "$payload" ]; then
@@ -58,7 +62,9 @@ fi
 mkdir -p "$target_dir"
 chmod 700 "$target_dir" 2>/dev/null || true
 
-tmp="$target.tmp.$$"
+tmp=$(mktemp "$target.tmp.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
 printf '%s\n' "$payload" > "$tmp"
 chmod 600 "$tmp"
 mv -f "$tmp" "$target"

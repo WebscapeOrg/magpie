@@ -189,6 +189,72 @@ fn without_bcc(body: &[u8]) -> Vec<u8> {
     }
     out
 }
+async fn move_messages(wire: &mut Wire, uids: &str, target: &str, boxes: &Mailboxes) -> Result<()> {
+    if boxes
+        .capabilities
+        .iter()
+        .any(|value| value.eq_ignore_ascii_case("MOVE"))
+    {
+        command(wire, &format!("UID MOVE {uids} {}", quote(target)?)).await?;
+        return Ok(());
+    }
+    command(wire, &format!("UID COPY {uids} {}", quote(target)?)).await?;
+    command(wire, &format!("UID STORE {uids} +FLAGS.SILENT (\\Deleted)")).await?;
+    command(wire, &format!("UID EXPUNGE {uids}")).await?;
+    Ok(())
+}
+async fn apply_group(
+    wire: &mut Wire,
+    folder: &str,
+    uids: &[u32],
+    boxes: &Mailboxes,
+    changes: &(Vec<String>, Vec<String>, Option<String>),
+) -> Result<()> {
+    let (add, remove, destination) = changes;
+    command(wire, &format!("SELECT {}", quote(folder)?)).await?;
+    let set = uids
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    for (mode, flags) in [("+", add), ("-", remove)] {
+        if flags.is_empty() {
+            continue;
+        }
+        command(
+            wire,
+            &format!("UID STORE {set} {mode}FLAGS.SILENT ({})", flags.join(" ")),
+        )
+        .await?;
+    }
+    if let Some(target) = destination
+        && target != folder
+    {
+        move_messages(wire, &set, target, boxes).await?;
+    }
+    Ok(())
+}
+async fn cleanup_previous_draft(wire: &mut Wire, params: &Value, folder: &str) -> &'static str {
+    let Some(id) = params["draftId"].as_str().filter(|id| !id.is_empty()) else {
+        return "";
+    };
+    let Ok((uid, previous_folder)) = message_id(id) else {
+        return "The updated draft was saved, but the old copy could not be identified";
+    };
+    if previous_folder != folder {
+        return "The updated draft was saved, but the old copy could not be identified";
+    }
+    let cleanup = async {
+        command(wire, &format!("SELECT {}", quote(folder)?)).await?;
+        delete_uid(wire, uid).await
+    }
+    .await;
+    if cleanup.is_ok() {
+        ""
+    } else {
+        "The updated draft was saved, but the old copy could not be removed"
+    }
+}
 pub(super) fn validate(method: &str, params: &Value) -> Result<()> {
     match method {
         "imap.createFolder" => {
@@ -326,91 +392,38 @@ pub(super) async fn call_planned(
         None
     };
     let (mut wire, key) = acquire(params).await?;
-    let result = if let Some(command_text) = folder_command {
+    if let Some(command_text) = folder_command {
         command(&mut wire, &command_text).await?;
         read::invalidate().await;
+        release(wire, key).await;
+        return Ok(json!({}));
+    }
+    let boxes = match planned {
+        Some(boxes) => boxes.clone(),
+        None => mailboxes(&mut wire, params).await?,
+    };
+    let result = if let Some(groups) = groups {
+        let changes = plan(method, params, &boxes)?;
+        for (folder, uids) in groups {
+            apply_group(&mut wire, &folder, &uids, &boxes, &changes).await?;
+            // Invariant: only acknowledged groups enter the external ledger;
+            // later errors and cancellation must not invite retrying successes.
+            if let Some(completed) = completed_folders.as_mut() {
+                completed.push(folder);
+            }
+        }
+        json!({})
+    } else if let Some(body) = draft {
+        let folder = resolve(&boxes, "\\Drafts")?;
+        append(&mut wire, &folder, &body, "\\Draft").await?;
+        let warning = cleanup_previous_draft(&mut wire, params, &folder).await;
+        json!({"saved":true,"warning":warning})
+    } else if let Some((uid, folder)) = deleting {
+        command(&mut wire, &format!("SELECT {}", quote(&folder)?)).await?;
+        delete_uid(&mut wire, uid).await?;
         json!({})
     } else {
-        let boxes = match planned {
-            Some(boxes) => boxes.clone(),
-            None => mailboxes(&mut wire, params).await?,
-        };
-        if let Some(groups) = groups {
-            let (add, remove, destination) = plan(method, params, &boxes)?;
-            for (folder, uids) in groups {
-                command(&mut wire, &format!("SELECT {}", quote(&folder)?)).await?;
-                let set = uids
-                    .iter()
-                    .map(u32::to_string)
-                    .collect::<Vec<_>>()
-                    .join(",");
-                for (mode, flags) in [("+", &add), ("-", &remove)] {
-                    if !flags.is_empty() {
-                        command(
-                            &mut wire,
-                            &format!("UID STORE {set} {mode}FLAGS.SILENT ({})", flags.join(" ")),
-                        )
-                        .await?;
-                    }
-                }
-                if let Some(target) = &destination
-                    && target != &folder
-                {
-                    if boxes
-                        .capabilities
-                        .iter()
-                        .any(|v| v.eq_ignore_ascii_case("MOVE"))
-                    {
-                        command(&mut wire, &format!("UID MOVE {set} {}", quote(target)?)).await?;
-                    } else {
-                        command(&mut wire, &format!("UID COPY {set} {}", quote(target)?)).await?;
-                        command(
-                            &mut wire,
-                            &format!("UID STORE {set} +FLAGS.SILENT (\\Deleted)"),
-                        )
-                        .await?;
-                        command(&mut wire, &format!("UID EXPUNGE {set}")).await?;
-                    }
-                }
-                // Invariant: Record only a fully acknowledged group. Keep the ledger
-                // outside this future so later errors and deadline cancellation
-                // cannot discard earlier successes or invite their retry.
-                if let Some(completed) = completed_folders.as_mut() {
-                    completed.push(folder);
-                }
-            }
-            json!({})
-        } else if let Some(body) = draft {
-            let folder = resolve(&boxes, "\\Drafts")?;
-            append(&mut wire, &folder, &body, "\\Draft").await?;
-            let warning = if let Some(id) = params["draftId"].as_str().filter(|id| !id.is_empty()) {
-                if let Ok((uid, previous_folder)) = message_id(id)
-                    && previous_folder == folder
-                {
-                    let cleanup = async {
-                        command(&mut wire, &format!("SELECT {}", quote(&folder)?)).await?;
-                        delete_uid(&mut wire, uid).await
-                    }
-                    .await;
-                    if cleanup.is_ok() {
-                        ""
-                    } else {
-                        "The updated draft was saved, but the old copy could not be removed"
-                    }
-                } else {
-                    "The updated draft was saved, but the old copy could not be identified"
-                }
-            } else {
-                ""
-            };
-            json!({"saved":true,"warning":warning})
-        } else if let Some((uid, folder)) = deleting {
-            command(&mut wire, &format!("SELECT {}", quote(&folder)?)).await?;
-            delete_uid(&mut wire, uid).await?;
-            json!({})
-        } else {
-            return Err("method_not_found");
-        }
+        return Err("method_not_found");
     };
     release(wire, key).await;
     Ok(result)

@@ -556,23 +556,23 @@ where
     F: FnMut(CredentialKey, Secret) -> Fut,
     Fut: std::future::Future<Output = Result<(), &'static str>>,
 {
-    if let Some(rotated) = token["refresh_token"]
+    let Some(rotated) = token["refresh_token"]
         .as_str()
         .filter(|value| !value.is_empty() && *value != refresh)
-    {
-        if rotated.len() > 16384 || rotated.chars().any(char::is_control) {
-            return Err("auth_invalid_response");
-        }
-        if read_only {
-            return Ok(());
-        }
-        put(
-            key,
-            Secret::new(rotated.as_bytes().to_vec()).map_err(store_error)?,
-        )
-        .await?;
+    else {
+        return Ok(());
+    };
+    if rotated.len() > 16384 || rotated.chars().any(char::is_control) {
+        return Err("auth_invalid_response");
     }
-    Ok(())
+    if read_only {
+        return Ok(());
+    }
+    put(
+        key,
+        Secret::new(rotated.as_bytes().to_vec()).map_err(store_error)?,
+    )
+    .await
 }
 
 #[cfg(test)]

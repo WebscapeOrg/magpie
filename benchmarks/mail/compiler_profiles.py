@@ -9,7 +9,7 @@ import subprocess
 import time
 
 from corpus import corpus
-from run import html_semantics, mime_semantics, stats
+from run import html_semantics, measured_cases, mime_semantics, stats
 
 
 def main():
@@ -18,21 +18,21 @@ def main():
     parser.add_argument("--speed", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    payload = json.dumps(dict(cases=corpus(), samples=31, batch=3, phases=["mime", "readprep"]))
+    payload = dict(cases=corpus(), samples=31, batch=3, phases=["mime", "readprep"])
     outputs = {}
     binaries = {}
     load = os.getloadavg()
     for name, path in [("size", args.size), ("speed", args.speed)]:
-        result = subprocess.run([str(path.resolve())], input=payload, text=True,
+        result = subprocess.run([str(path.resolve())], input=json.dumps(payload), text=True,
                                 capture_output=True, check=True, timeout=180)
-        outputs[name] = json.loads(result.stdout)["cases"]
+        outputs[name] = measured_cases(json.loads(result.stdout), payload)
         binaries[name] = dict(sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
                               bytes=path.stat().st_size)
     rows = []
     for size, speed in zip(outputs["size"], outputs["speed"], strict=True):
-        assert (size["name"], size["phase"]) == (speed["name"], speed["phase"])
         normalize = mime_semantics if size["phase"] == "mime" else html_semantics
-        assert normalize(size["result"]) == normalize(speed["result"])
+        if normalize(size["result"]) != normalize(speed["result"]):
+            raise RuntimeError("Compiler profiles produced unequal output: " + size["name"])
         rows.append(dict(name=size["name"], phase=size["phase"],
                          size=stats(size), speed=stats(speed)))
     report = dict(measuredAt=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

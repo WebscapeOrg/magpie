@@ -20,5 +20,6 @@ pub mod platform;
 pub mod process;
 pub mod providers;
 pub mod public_http;
+pub(crate) mod raster;
 pub mod sync;
 pub mod tls;

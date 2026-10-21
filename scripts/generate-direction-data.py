@@ -32,7 +32,7 @@ def classes():
         raise ValueError("Pinned Unicode source hash mismatch")
     text = source.decode("utf-8")
     result = bytearray([LEFT_TO_RIGHT]) * CODE_POINTS
-    # Unicode's missing defaults apply before any explicit class assignment.
+    # Algorithm: Unicode's missing defaults apply before any explicit class assignment.
     for pattern in (r"^# @missing:\s*" + ENTRY, r"^" + ENTRY):
         for match in re.finditer(pattern, text, re.MULTILINE):
             start = int(match[1], 16)

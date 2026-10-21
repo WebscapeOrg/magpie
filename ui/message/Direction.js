@@ -1,7 +1,7 @@
 .pragma library
 .import "DirectionData.js" as Bidi
 
-// Qt handles paragraph layout; this module excludes client-added subject/body
+// Invariant: Qt handles paragraph layout; this module excludes client-added subject/body
 // prefixes and applies the user's direction preference. Modes match settings labels.
 var AUTO = "Auto"
 var LEFT_TO_RIGHT = "Left to right"
@@ -10,7 +10,7 @@ var MODE_DEFAULT = AUTO
 
 var LTR = "ltr"
 var RTL = "rtl"
-// An absent answer leaves Qt free to resolve each paragraph.
+// Invariant: An absent answer leaves Qt free to resolve each paragraph.
 var UNKNOWN = ""
 
 function normalizeMode(value) {
@@ -47,7 +47,8 @@ function directionOfCode(code) {
   return LTR
 }
 
-// Skip isolates for first-strong selection. Preserve the app's explicit
+// Algorithm: Unicode UAX #9 P2/P3 (https://www.unicode.org/reports/tr9/tr9-51.html).
+// Invariant: Preserve the app's explicit
 // embedding/override policy; Qt handles the remaining bidirectional algorithm.
 function strongDirectionOf(text) {
   var source = String(text === undefined || text === null ? "" : text)
@@ -84,7 +85,7 @@ function strongDirectionOf(text) {
   return UNKNOWN
 }
 
-// Only recognized client prefixes and list tags are skipped; an arbitrary
+// Invariant: Only recognized client prefixes and list tags are skipped; an arbitrary
 // word before a colon is part of the subject.
 var REPLY_PREFIX = new RegExp(
   "^[\\s\\u200E\\u200F]*(?:"
@@ -97,7 +98,7 @@ var REPLY_PREFIX = new RegExp(
 
 function withoutReplyPrefixes(subject) {
   var text = String(subject === undefined || subject === null ? "" : subject)
-  // Limit cleanup work for untrusted stacks of client-added prefixes.
+  // Invariant: Limit cleanup work for untrusted stacks of client-added prefixes.
   for (var index = 0; index < 12; index++) {
     var stripped = text.replace(REPLY_PREFIX, "")
     if (stripped === text) break
@@ -117,7 +118,7 @@ function resolve(text, mode) {
   return strongDirectionOf(text)
 }
 
-// Auto leaves native Qt fields to resolve their own content direction.
+// Invariant: Auto leaves native Qt fields to resolve their own content direction.
 function forced(mode) {
   var chosen = normalizeMode(mode)
   if (chosen === RIGHT_TO_LEFT) return RTL
@@ -132,7 +133,7 @@ function resolveSubject(subject, mode) {
   return subjectDirectionOf(subject)
 }
 
-// Generated image markers are client text and must not choose body direction.
+// Invariant: Generated image markers are client text and must not choose body direction.
 var IMAGE_MARKERS = /^(?:\s*\[image(?:\s+\d+)?\])+/
 
 function withoutImageMarkers(text) {
@@ -159,7 +160,7 @@ function attributeFor(direction) {
   return " dir=\"" + String(direction) + "\""
 }
 
-// Qt rich text uses physical margin properties, not margin-inline-start/end.
+// Invariant: Qt rich text uses physical margin properties, not margin-inline-start/end.
 function startEdge(direction) {
   return alignsRight(direction) ? "right" : "left"
 }

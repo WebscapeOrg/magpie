@@ -16,6 +16,7 @@ Item {
   TestCase {
     name: "PublishedAgentFlow"
     when: windowShown
+    readonly property int publishedApi: Number(Quickshell.env("OMAMAIL_TEST_AGENT_API"))
     property var fixture
     property var rpcErrors: []
     property var requests: []
@@ -36,16 +37,18 @@ Item {
     }
     function initTestCase() {
       verify(Quickshell.env("OMAMAIL_TEST_AGENT_URL") !== "", "Use the published-binary test wrapper")
+      verify(publishedApi >= 5, "The wrapper must provide the verified executable API")
       fixture = BackendFixture.install(service)
       var answers = {}
       var methods = ["agent.jobStart", "agent.jobsList", "agent.jobShow", "agent.jobsProjection"]
+      if (publishedApi >= 6) methods.push("agent.providerStatus")
       for (var i = 0; i < methods.length; i++) answers[methods[i]] = forward
       answers["agent.context"] = function(params) {
         return {payload:{accountId:owner,account:"ada@example.test",messageId:"1:INBOX",
           subject:"Thursday",message:"Can we meet Thursday at 10?",prompt:params.prompt}}
       }
       fixture.answers = answers
-      BackendFixture.markReady(service, 5)
+      BackendFixture.markReady(service, publishedApi)
       var list = Accounts.add(Accounts.emptyList(), {email:"ada@example.test",provider:"imap",
         imap:{imapHost:"imap.example.test",imapPort:993,smtpHost:"smtp.example.test",smtpPort:465,
           username:"ada@example.test",aliases:[],insecure:false},label:"",signature:""})
@@ -62,6 +65,12 @@ Item {
         to:[{email:"ada@example.test"}],cc:[],unread:false,labelIds:["INBOX"]}]
       app.opened = true
     }
+    function enabledButton(item, name) {
+      var found = item.objectName === name && item.enabled && item.visible ? item : null
+      var children = item.children || []
+      for (var i = 0; i < children.length; i++) found = enabledButton(children[i], name) || found
+      return found
+    }
     function awaitAnswer(panel, previous) {
       tryVerify(function() { return panel.job && panel.job.id !== previous && panel.job.state === "done" }, 15000)
       tryVerify(function() { return panel.output.indexOf("Synthetic Claude reply") >= 0 }, 5000)
@@ -71,8 +80,8 @@ Item {
     }
     function test_reader_and_composer_keep_claude_with_the_published_pin() {
       tryCompare(service, "agentAvailable", true)
-      verify(!service.backendCanChooseAgent)
-      verify(!service.backendCanAgentProposals)
+      compare(service.backendCanChooseAgent, publishedApi >= 6)
+      compare(service.backendCanAgentProposals, publishedApi >= 6)
       app.cursorId = "1:INBOX"
       verify(app.runShortcut("askAgent", "Alt+G"), "Published-pin user can open AI from the mailbox")
       verify(app.agentPrompt.opened)
@@ -92,9 +101,9 @@ Item {
       first = awaitAnswer(app.composeAgent, "")
       verify(app.composeAgent.submit("Make it shorter", false))
       awaitAnswer(app.composeAgent, first)
-      var replace = findChild(app.composeAgent, "agent-replace")
-      verify(replace.visible)
-      mouseClick(replace)
+      var action = publishedApi >= 6 ? "agent-apply-draft" : "agent-replace"
+      tryVerify(function() { return enabledButton(app.composeAgent, action) !== null })
+      mouseClick(enabledButton(app.composeAgent, action))
       compare(editor.text, "Synthetic Claude reply")
       compare(to.text, "bob@example.test")
       var starts = requests.filter(function(r) { return r.method === "agent.jobStart" })
@@ -104,13 +113,16 @@ Item {
         compare(starts[i].params.model, undefined)
         var payload = starts[i].params.payload
         if (typeof payload === "string") payload = JSON.parse(payload)
-        compare(payload.envelope, undefined)
-        compare(payload.draftUpdate, undefined)
-        compare(payload.mailUpdate, undefined)
+        if (publishedApi < 6) {
+          compare(payload.envelope, undefined)
+          compare(payload.draftUpdate, undefined)
+          compare(payload.mailUpdate, undefined)
+        }
       }
       compare(fixture.requests.filter(function(r) {
-        return r.method === "agent.providerStatus" || r.method === "outbox.enqueue" || r.method === "message.compose"
-      }).length, 0, "No API-6 availability call and no send")
+        return r.method === "outbox.enqueue" || r.method === "message.compose"
+      }).length, 0, "Reading and inserting the answer must never send mail")
+      compare(fixture.requests.some(function(r) { return r.method === "agent.providerStatus" }), publishedApi >= 6)
     }
   }
 }

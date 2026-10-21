@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Production Service/App/AgentRunner flow against the pinned API-5 executable.
+"""Production Service/App/AgentRunner flow against the pinned published executable.
 
 Pass a checksum-verified published binary explicitly. Claude is a synthetic CLI;
 no real mailbox, model, keyring or terminal is used. The loopback bridge admits
-only the four agent methods needed by the fixture.
+only the agent methods needed by the fixture.
 """
 import argparse
 import http.server
@@ -19,12 +19,26 @@ import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED = {'agent.jobStart', 'agent.jobsList', 'agent.jobShow', 'agent.jobsProjection'}
+ALLOWED = {'agent.jobStart', 'agent.jobsList', 'agent.jobShow', 'agent.jobsProjection', 'agent.providerStatus'}
+
+
+def expected_contract(legacy_version):
+    if legacy_version:
+        return {'version': legacy_version, 'apiVersion': 5}
+    contract = json.loads((ROOT/'backend-api.json').read_text())
+    return {'version': (ROOT/'backend-version').read_text().strip(),
+            'apiVersion': contract['releasedApiVersion']}
+
+
+def verify_contract(info, expected):
+    assert info.get('version') == expected['version'], (info, expected)
+    assert type(info.get('apiVersion')) is int and info['apiVersion'] == expected['apiVersion'], (info, expected)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
+    parser.add_argument('--legacy-api5-version', help='Explicit historical version for the API-5 compatibility path')
     parser.add_argument('--runner', default=shutil.which('qmltestrunner6') or '/usr/lib/qt6/bin/qmltestrunner')
     args = parser.parse_args()
     binary = str(args.binary.resolve())
@@ -43,11 +57,22 @@ def main():
             path.write_text('#!'+sys.executable+'\n'+source+'\n')
             path.chmod(0o700)
         tool('omarchy-default-agent', 'print("claude")')
-        tool('claude', '''import json, sys
+        tool('claude', '''import json, subprocess, sys
 from pathlib import Path
 sys.stdin.read()
 with Path.home().joinpath('launches.jsonl').open('a') as log:
     log.write(json.dumps(sys.argv[1:])+'\\n')
+if '--mcp-config' in sys.argv:
+    config = json.loads(sys.argv[sys.argv.index('--mcp-config')+1])
+    server = config.get('mcpServers', {}).get('omamail')
+    if server:
+        requests = [dict(jsonrpc='2.0', id=1, method='initialize', params={}),
+                    dict(jsonrpc='2.0', id=2, method='tools/call', params={'name':'propose_draft',
+                        'arguments':{'subject':'Synthetic subject', 'body':'Synthetic Claude reply'}})]
+        reply = subprocess.run([server['command'], *server['args']],
+            input=''.join(json.dumps(request)+'\\n' for request in requests),
+            text=True, capture_output=True, check=True, timeout=10)
+        assert not json.loads(reply.stdout.splitlines()[-1])['result'].get('isError'), reply.stdout
 session = '11111111-2222-3333-4444-555555555555'
 print(json.dumps({'type':'system','subtype':'init','session_id':session}), flush=True)
 print(json.dumps({'type':'result','subtype':'success','result':'Synthetic Claude reply','session_id':session}), flush=True)
@@ -60,8 +85,7 @@ print(json.dumps({'type':'result','subtype':'success','result':'Synthetic Claude
                 return {'result': reply['result']}
             return {'error': {'code': -32000, 'message': str(reply.get('error'))}}
         info = rpc('system.info', {})['result']
-        assert info['version'] == (ROOT/'backend-version').read_text().strip(), info
-        assert info['apiVersion'] == 5, 'This regression specifically exercises the API-5 compatibility path'
+        verify_contract(info, expected_contract(args.legacy_api5_version))
         secret = secrets.token_urlsafe(24)
         started = []
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -93,7 +117,7 @@ print(json.dumps({'type':'result','subtype':'success','result':'Synthetic Claude
         mock = imports/'Quickshell/Quickshell.qml'
         endpoint = f'http://127.0.0.1:{server.server_port}/{secret}'
         mock.write_text(mock.read_text().replace('function env(name) { return "" }',
-            'function env(name) { return name === "OMAMAIL_TEST_AGENT_URL" ? '+json.dumps(endpoint)+' : "" }'))
+            'function env(name) { if (name === "OMAMAIL_TEST_AGENT_API") return '+json.dumps(str(info['apiVersion']))+'; return name === "OMAMAIL_TEST_AGENT_URL" ? '+json.dumps(endpoint)+' : "" }'))
         try:
             result = subprocess.run([args.runner, '-input', str(ROOT/'ui/tests/compatibility/tst_published_agent.qml'),
                                      '-import', str(imports)], env=env, timeout=75)
@@ -110,7 +134,7 @@ print(json.dumps({'type':'result','subtype':'success','result':'Synthetic Claude
         launches = [json.loads(line) for line in (root/'launches.jsonl').read_text().splitlines()]
         assert len(launches) == 4, launches
         assert sum('--resume' in argv for argv in launches) == 2, launches
-        print(f'Published {info["version"]}/API 5: reader/composer entry, four real jobs, two Claude continuations, insertion and no send PASS')
+        print(f'Published {info["version"]}/API {info["apiVersion"]}: reader/composer entry, four real jobs, two Claude continuations, insertion and no send PASS')
 
 
 if __name__ == '__main__':

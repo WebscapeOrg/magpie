@@ -50,17 +50,20 @@ ApplicationWindow {
     return Math.min(value, Math.max(minimum, available))
   }
 
-  function restoreWindowSize() {
-    var saved = ({})
+  function savedWindowSize() {
     var path = shellAdapter.configPath("window-size.json")
-    if (path !== "" && root.nativeFileStore && typeof root.nativeFileStore.read === "function") {
-      var result = root.nativeFileStore.read(path)
-      if (result && result.ok === true) {
-        try { saved = JSON.parse(String(result.text || "")) }
-        catch (error) { saved = ({}) }
-      }
-    }
-    if (!saved || typeof saved !== "object" || Array.isArray(saved)) saved = ({})
+    if (path === "" || !root.nativeFileStore || typeof root.nativeFileStore.read !== "function")
+      return ({})
+    var result = root.nativeFileStore.read(path)
+    if (!result || result.ok !== true) return ({})
+    var saved
+    try { saved = JSON.parse(String(result.text || "")) }
+    catch (error) { return ({}) }
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : ({})
+  }
+
+  function restoreWindowSize() {
+    var saved = savedWindowSize()
     normalWindowWidth = boundedWindowDimension(saved.width, 1024, minimumWidth,
       availableWindowWidth)
     normalWindowHeight = boundedWindowDimension(saved.height, 768, minimumHeight,
@@ -118,7 +121,7 @@ ApplicationWindow {
     activationFallback.stop()
     var target = pendingActivation
     pendingActivation = null
-    // Use the account registry's validation path before acknowledging the
+    // Invariant: Use the account registry's validation path before acknowledging the
     // durable native route. A stale cold-start activation still opens the
     // ordinary window without navigating to its values.
     var accepted = mailService.openNotification(String(target.accountId), String(target.messageId))
@@ -133,7 +136,7 @@ ApplicationWindow {
     objectName: "activation-fallback"
     interval: 5000
     repeat: false
-    // Account storage may be temporarily unavailable. Never leave a cold
+    // Invariant: Account storage may be temporarily unavailable. Never leave a cold
     // notification launch windowless; retain the durable route so a later
     // successful registry read can still validate and navigate it.
     onTriggered: root.openInitialWindow()
@@ -181,7 +184,7 @@ ApplicationWindow {
     standaloneWindowChrome: true
   }
 
-  // The frameless window has no native close button and no menu bar, so the
+  // Invariant: The frameless window has no native close button and no menu bar, so the
   // platform's own close chord — Cmd+W here, Ctrl+W elsewhere — is the one
   // thing the desktop still expects to work. It leaves the window the way the
   // app's own Back does at the root: through the host, not around it.
@@ -206,18 +209,18 @@ ApplicationWindow {
       && root.visibility !== Window.FullScreen
     color: Qt.rgba(mailApp.background.r, mailApp.background.g,
       mailApp.background.b, 0)
-    // The frame is a hairline in device pixels, the way a compositor draws
+    // Invariant: The frame is a hairline in device pixels, the way a compositor draws
     // one. A logical pixel doubles on a Retina display and reads as a heavy
     // rule beside native windows.
     border.width: mailApp.borderWidth / Math.max(1, Screen.devicePixelRatio)
-    // The palette's own border role rather than the control border: a
+    // Invariant: The palette's own border role rather than the control border: a
     // control's edge is the foreground at 40%, which on a light palette is a
     // dark line around the whole window.
     border.color: Commons.Color.border
     antialiasing: false
   }
 
-  // A frameless window gets no resize affordance from the platform, so each
+  // Invariant: A frameless window gets no resize affordance from the platform, so each
   // corner is a handle: it shows the diagonal cursor and hands the drag to
   // the window system, which keeps its own snapping and minimum size.
   Repeater {
@@ -260,7 +263,7 @@ ApplicationWindow {
     function onReopenRequested() {
       if (!mailApp.opened) shellAdapter.summon(manifestAdapter.value.id, "{}")
     }
-    // The host saw the platform close chord before Qt did — on macOS it takes
+    // Invariant: The host saw the platform close chord before Qt did — on macOS it takes
     // Cmd+W off the event stream ahead of the input method, which otherwise
     // swallows the chord while a composition is pending. Same exit as the
     // Shortcut below.

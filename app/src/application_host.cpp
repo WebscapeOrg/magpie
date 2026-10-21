@@ -35,7 +35,7 @@ ApplicationHost::ApplicationHost(
     std::unique_ptr<NotificationPlatform> notificationPlatform, QObject *parent)
     : QObject(parent), m_backendPath(std::move(backendPath)),
       m_store(std::move(settingsPath)),
-      m_notifications(std::make_unique<NotificationService>(
+      m_notifications(std::make_unique<Notifications>(
           std::move(notificationPlatform),
           QFileInfo(m_store.path()).dir().filePath(
               QStringLiteral("notification-routes.json"))))
@@ -48,18 +48,18 @@ ApplicationHost::ApplicationHost(
 #endif
         {QStringLiteral("systemTray"), false},
         {QStringLiteral("notifications"), m_notifications->available()},
-        // The Dock keeps a running application reachable after its window is
+        // Invariant: The Dock keeps a running application reachable after its window is
         // shut; elsewhere a windowless process has no such door.
 #ifdef Q_OS_MACOS
         {QStringLiteral("reopen"), true}};
 #else
         {QStringLiteral("reopen"), false}};
 #endif
-    connect(m_notifications.get(), &NotificationService::errorChanged, this,
+    connect(m_notifications.get(), &Notifications::errorChanged, this,
             &ApplicationHost::notificationErrorChanged);
-    connect(m_notifications.get(), &NotificationService::activated, this,
+    connect(m_notifications.get(), &Notifications::activated, this,
             &ApplicationHost::activateFromNotification);
-    // A window shut with the close chord leaves the process running for its
+    // Invariant: A window shut with the close chord leaves the process running for its
     // notifications. Activating the application again with nothing on screen
     // is the desktop's way of asking for the window back; on macOS Qt reports
     // a Dock click as exactly that, even when the process was already active.
@@ -72,8 +72,8 @@ ApplicationHost::ApplicationHost(
     defaults.insert(QStringLiteral("unifiedMailboxes"), false);
     QString error;
     const QVariantMap saved = m_store.load(&error);
-    for (auto it = saved.cbegin(); it != saved.cend(); ++it)
-        defaults.insert(it.key(), it.value());
+    for (auto setting = saved.cbegin(); setting != saved.cend(); ++setting)
+        defaults.insert(setting.key(), setting.value());
     m_settings = defaults;
 }
 

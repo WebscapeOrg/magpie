@@ -3,7 +3,7 @@
 #include <QIcon>
 #include <QByteArray>
 
-// The plated application icon, read out of the macOS ICNS container.
+// Invariant: The plated application icon, read out of the macOS ICNS container.
 //
 // An ICNS file is a list of chunks, each a four-byte type, a big-endian
 // length that includes the eight-byte header, and a payload; the modern

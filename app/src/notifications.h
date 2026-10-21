@@ -55,16 +55,16 @@ QString notificationPlatformAlias(const QString &activationNamespace,
 QString normalizeNotificationText(QString text);
 QString notificationMarkupText(const QString &text);
 
-class NotificationService final : public QObject {
+class Notifications final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool available READ available CONSTANT)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
 
 public:
-    explicit NotificationService(
+    explicit Notifications(
         std::unique_ptr<NotificationPlatform> platform = {},
         QString routingPath = {}, QObject *parent = nullptr);
-    ~NotificationService() override;
+    ~Notifications() override;
 
     bool available() const;
     QString error() const { return m_error; }
@@ -84,7 +84,7 @@ private:
     };
 
     void setError(const QString &error);
-    void setDeliveryError(const QString &token, quint64 revision,
+    void setDeliveryError(quint64 revision,
                           const QString &error);
     void deliverySucceeded(const QString &token, quint64 revision);
     void deliveryFailed(const QString &token, quint64 revision,
@@ -105,7 +105,6 @@ private:
     QList<QString> m_revisionOrder;
     QString m_routingPath;
     QString m_error;
-    QString m_errorToken;
     quint64 m_errorRevision = 0;
     quint64 m_nextRevision = 0;
     QString m_lastActivatedToken;

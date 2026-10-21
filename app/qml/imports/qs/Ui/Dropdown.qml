@@ -36,8 +36,8 @@ Item {
   implicitHeight: Math.max(rowHeight, labelText.visible ? labelText.implicitHeight : 0)
 
   function indexForValue(wanted) {
-    for (var i = 0; i < options.length; i++)
-      if (String(options[i].value) === String(wanted)) return i
+    for (var optionIndex = 0; optionIndex < options.length; optionIndex++)
+      if (String(options[optionIndex].value) === String(wanted)) return optionIndex
     return -1
   }
 
@@ -71,9 +71,6 @@ Item {
     palette.window: root.background
     font.family: root.fontFamily
     font.pixelSize: Style.font.bodySmall
-    // One row per option at the shell's popup row height: the cursor row takes
-    // the hover fill, the chosen one a check, and neither is coloured with the
-    // accent.
     delegate: QQC.ItemDelegate {
       id: option
       required property var modelData

@@ -4,12 +4,12 @@
 
 class QWindow;
 
-// Platform window setup that QML cannot reach. On macOS this keeps the
+// Invariant: Platform window setup that QML cannot reach. On macOS this keeps the
 // existing backing store during live move/resize so the window server does
 // not wait on a full Qt Quick frame for every pointer event.
 void prepareNativeWindow(QWindow *window);
 
-// Watch for the platform close chord on `window` at the native layer and call
+// Invariant: Watch for the platform close chord on `window` at the native layer and call
 // `onClose` in its place. On macOS Cocoa hands Cmd+W to Qt through keyDown:,
 // after the key window's performKeyEquivalent: (which Qt answers only for
 // Ctrl+Tab) and the main menu. Qt then tries it as a shortcut only while no

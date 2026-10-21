@@ -28,7 +28,7 @@ QtObject {
   readonly property color border: theme.border
   readonly property color onAccent: theme.onAccent
 
-  // "light", "dark", or "" to follow the desktop. Set by the standalone
+  // Docs: "light", "dark", or "" to follow the desktop. Set by the standalone
   // window from its appearance setting; an Omarchy theme overrides both.
   readonly property QtObject tooltip: QtObject {
     readonly property color text: root.popups.text
@@ -68,7 +68,7 @@ QtObject {
     if (!isFinite(amount)) amount = 1
     return Qt.rgba(value.r, value.g, value.b, Math.max(0, Math.min(1, amount)))
   }
-  // A menu is a piece of the window, not a raised card: without a shell.toml
+  // Invariant: A menu is a piece of the window, not a raised card: without a shell.toml
   // saying otherwise it sits on the window's own background, and only its
   // border separates it from what is behind.
   readonly property QtObject popups: QtObject {
@@ -84,14 +84,14 @@ QtObject {
   }
 
   function updateWatches(store, paths) {
-    var i
+    var pathIndex
     if (watchedStore && typeof watchedStore.watch === "function") {
-      for (i = 0; i < watchedPaths.length; i++) watchedStore.watch(watchedPaths[i], false)
+      for (pathIndex = 0; pathIndex < watchedPaths.length; pathIndex++) watchedStore.watch(watchedPaths[pathIndex], false)
     }
     watchedStore = store
     watchedPaths = paths
     if (watchedStore && typeof watchedStore.watch === "function") {
-      for (i = 0; i < watchedPaths.length; i++) watchedStore.watch(watchedPaths[i], true)
+      for (pathIndex = 0; pathIndex < watchedPaths.length; pathIndex++) watchedStore.watch(watchedPaths[pathIndex], true)
     }
   }
 
@@ -106,7 +106,7 @@ QtObject {
     }
     var stateCurrent = home + "/.local/state/omarchy/current"
     var legacyCurrent = home + "/.config/omarchy/current"
-    // A stale legacy theme must never replace an invalid current theme. It is
+    // Invariant: A stale legacy theme must never replace an invalid current theme. It is
     // consulted only when the state/current entry itself does not exist.
     var rootPath = typeof store.exists === "function" && store.exists(stateCurrent)
       ? stateCurrent : legacyCurrent
@@ -115,7 +115,7 @@ QtObject {
     var userShellPath = home + "/.config/omarchy/shell.toml"
     var paths = [stateCurrent, legacyCurrent, colorsPath, shellPath, userShellPath]
     var sameWatches = watchedStore === store && watchedPaths.length === paths.length
-    for (var i = 0; sameWatches && i < paths.length; i++) sameWatches = watchedPaths[i] === paths[i]
+    for (var pathIndex = 0; sameWatches && pathIndex < paths.length; pathIndex++) sameWatches = watchedPaths[pathIndex] === paths[pathIndex]
     if (!sameWatches) updateWatches(store, paths)
     var result = store.read(colorsPath) || ({})
     var shellResult = store.read(shellPath) || ({})
@@ -125,7 +125,7 @@ QtObject {
     var nextShellTheme = ShellTheme.resolve(
       shellResult.ok === true ? String(shellResult.text || "") : "",
       userShellResult.ok === true ? String(userShellResult.text || "") : "")
-    // Both complete values are prepared before either singleton observes the
+    // Invariant: Both complete values are prepared before either singleton observes the
     // reload, so no partially parsed shell configuration can leak into UI.
     hasOmarchyTheme = parsedTheme !== null
     theme = nextTheme

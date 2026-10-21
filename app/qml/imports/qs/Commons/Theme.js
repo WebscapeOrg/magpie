@@ -1,6 +1,6 @@
 .pragma library
 
-// Standalone application roles derived from Omarchy's colors.toml. Parsing is
+// Invariant: Standalone application roles derived from Omarchy's colors.toml. Parsing is
 // deliberately all-or-nothing: mixing one broken user role with fallback
 // colours produces a palette that belongs to neither theme.
 var DARK_FALLBACK = {
@@ -11,7 +11,7 @@ var DARK_FALLBACK = {
   mode: "dark"
 }
 
-// Flexoki Light, the warm light palette gpui-omarchy and the Omamail website
+// Docs: Flexoki Light, the warm light palette gpui-omarchy and the Omamail website
 // use outside Omarchy. Status colours are already dark enough to read as text
 // on the paper background.
 var LIGHT_FALLBACK = {
@@ -37,43 +37,43 @@ function rgb(value) {
 
 function hex(values) {
   var result = "#"
-  for (var i = 0; i < 3; i++) {
-    var part = Math.max(0, Math.min(255, Math.round(values[i]))).toString(16)
+  for (var channelIndex = 0; channelIndex < 3; channelIndex++) {
+    var part = Math.max(0, Math.min(255, Math.round(values[channelIndex]))).toString(16)
     result += part.length === 1 ? "0" + part : part
   }
   return result
 }
 
 function mix(first, second, amount) {
-  var a = rgb(first)
-  var b = rgb(second)
-  return hex([a[0] + (b[0] - a[0]) * amount, a[1] + (b[1] - a[1]) * amount,
-    a[2] + (b[2] - a[2]) * amount])
+  var firstChannels = rgb(first)
+  var secondChannels = rgb(second)
+  return hex([firstChannels[0] + (secondChannels[0] - firstChannels[0]) * amount, firstChannels[1] + (secondChannels[1] - firstChannels[1]) * amount,
+    firstChannels[2] + (secondChannels[2] - firstChannels[2]) * amount])
 }
 
 function luminance(value) {
   var values = rgb(value)
-  var total = [0.2126, 0.7152, 0.0722]
+  var channelWeights = [0.2126, 0.7152, 0.0722]
   var result = 0
-  for (var i = 0; i < 3; i++) {
-    var channel = values[i] / 255
+  for (var channelIndex = 0; channelIndex < 3; channelIndex++) {
+    var channel = values[channelIndex] / 255
     channel = channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4)
-    result += channel * total[i]
+    result += channel * channelWeights[channelIndex]
   }
   return result
 }
 
 function contrast(first, second) {
-  var a = luminance(first)
-  var b = luminance(second)
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  var firstLuminance = luminance(first)
+  var secondLuminance = luminance(second)
+  return (Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05)
 }
 
 function readableStatus(value, background, light) {
   if (!light || contrast(value, background) >= 4.5) return value
   var candidate = value
-  for (var i = 1; i <= 20; i++) {
-    candidate = mix(value, "#000000", i / 20)
+  for (var mixStep = 1; mixStep <= 20; mixStep++) {
+    candidate = mix(value, "#000000", mixStep / 20)
     if (contrast(candidate, background) >= 4.5) return candidate
   }
   return "#000000"
@@ -87,8 +87,8 @@ function onAccent(accent) {
 function parse(raw) {
   var values = {}
   var lines = String(raw || "").split(/\r?\n/)
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i].replace(/^\s+|\s+$/g, "")
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    var line = lines[lineIndex].replace(/^\s+|\s+$/g, "")
     if (line === "" || line.charAt(0) === "#") continue
     var match = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^#\s][^\s]*))\s*(?:#.*)?$/)
     if (!match) return null
@@ -112,10 +112,10 @@ function parse(raw) {
     mode: values.mode
   }
   var required = ["background", "foreground", "accent", "red", "yellow", "green"]
-  for (var j = 0; j < required.length; j++) if (!validHex(mapped[required[j]])) return null
+  for (var requiredIndex = 0; requiredIndex < required.length; requiredIndex++) if (!validHex(mapped[required[requiredIndex]])) return null
   var optional = ["lighter_background", "dark_background", "bright_foreground", "selection", "muted"]
-  for (var k = 0; k < optional.length; k++) {
-    var optionalValue = mapped[optional[k]]
+  for (var optionalIndex = 0; optionalIndex < optional.length; optionalIndex++) {
+    var optionalValue = mapped[optional[optionalIndex]]
     if (optionalValue !== undefined && !validHex(optionalValue)) return null
   }
   if (mapped.mode !== undefined && mapped.mode !== "dark" && mapped.mode !== "light") return null

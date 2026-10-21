@@ -95,7 +95,7 @@ void NotificationTest::plainTextAndOpaqueIdentifiers()
     auto *fake = platform.get();
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    NotificationService service(std::move(platform),
+    Notifications service(std::move(platform),
         directory.filePath(QStringLiteral("routes.json")));
 
     const QString hostileId = QStringLiteral("account\\\";$(touch never):邮件");
@@ -120,9 +120,9 @@ void NotificationTest::duplicateIdRoutesToNewestTarget()
     auto *fake = platform.get();
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    NotificationService service(std::move(platform),
+    Notifications service(std::move(platform),
         directory.filePath(QStringLiteral("routes.json")));
-    QSignalSpy activated(&service, &NotificationService::activated);
+    QSignalSpy activated(&service, &Notifications::activated);
 
     QVERIFY(service.show(QStringLiteral("same"), QStringLiteral("first"), {},
                          QStringLiteral("account-1"), QStringLiteral("message-1")));
@@ -148,9 +148,9 @@ void NotificationTest::deliveryFailuresAreNonFatalAndObservable()
     fake->immediateError = QStringLiteral("permission denied");
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    NotificationService service(std::move(platform),
+    Notifications service(std::move(platform),
         directory.filePath(QStringLiteral("routes.json")));
-    QSignalSpy changed(&service, &NotificationService::errorChanged);
+    QSignalSpy changed(&service, &Notifications::errorChanged);
 
     QVERIFY(!service.show(QStringLiteral("id"), {}, {}, QStringLiteral("account"),
                           QStringLiteral("message")));
@@ -180,7 +180,7 @@ void NotificationTest::asynchronousFailureRemovesTheDurableRoute()
         auto platform = std::make_unique<FakeNotificationPlatform>();
         auto *fake = platform.get();
         fake->currentActivationNamespace = activationNamespace;
-        NotificationService service(std::move(platform), path);
+        Notifications service(std::move(platform), path);
         QVERIFY(service.show(QStringLiteral("failed-id"), QStringLiteral("title"), {},
                              QStringLiteral("account"), QStringLiteral("message")));
         fake->assignAlias(fake->shown.constLast(), alias,
@@ -192,8 +192,8 @@ void NotificationTest::asynchronousFailureRemovesTheDurableRoute()
     auto restartedPlatform = std::make_unique<FakeNotificationPlatform>();
     restartedPlatform->currentActivationNamespace = activationNamespace;
     restartedPlatform->pending = {token, alias};
-    NotificationService restarted(std::move(restartedPlatform), path);
-    QSignalSpy activated(&restarted, &NotificationService::activated);
+    Notifications restarted(std::move(restartedPlatform), path);
+    QSignalSpy activated(&restarted, &Notifications::activated);
     QTest::qWait(10);
     QCOMPARE(activated.size(), 0);
 }
@@ -207,7 +207,7 @@ void NotificationTest::staleAsynchronousFailureKeepsTheReplacementRoute()
     {
         auto platform = std::make_unique<FakeNotificationPlatform>();
         auto *fake = platform.get();
-        NotificationService service(std::move(platform), path);
+        Notifications service(std::move(platform), path);
         QVERIFY(service.show(QStringLiteral("same"), {}, {},
                              QStringLiteral("account-old"), QStringLiteral("message-old")));
         const NativeNotification oldAttempt = fake->shown.constLast();
@@ -219,8 +219,8 @@ void NotificationTest::staleAsynchronousFailureKeepsTheReplacementRoute()
 
     auto restartedPlatform = std::make_unique<FakeNotificationPlatform>();
     restartedPlatform->pending = {token};
-    NotificationService restarted(std::move(restartedPlatform), path);
-    QSignalSpy activated(&restarted, &NotificationService::activated);
+    Notifications restarted(std::move(restartedPlatform), path);
+    QSignalSpy activated(&restarted, &Notifications::activated);
     QTRY_COMPARE(activated.size(), 1);
     QCOMPARE(activated[0][0].toString(), QStringLiteral("account-new"));
     QCOMPARE(activated[0][1].toString(), QStringLiteral("message-new"));
@@ -232,7 +232,7 @@ void NotificationTest::staleDeliveryDoesNotClearANewerFailure()
     QVERIFY(directory.isValid());
     auto platform = std::make_unique<FakeNotificationPlatform>();
     auto *fake = platform.get();
-    NotificationService service(std::move(platform),
+    Notifications service(std::move(platform),
         directory.filePath(QStringLiteral("routes.json")));
     QVERIFY(service.show(QStringLiteral("old"), {}, {},
                          QStringLiteral("account"), QStringLiteral("message-old")));
@@ -253,7 +253,7 @@ void NotificationTest::duplicateRefreshesTheDurableRouteLru()
     const QString token = notificationToken(QStringLiteral("recent"));
     {
         auto platform = std::make_unique<FakeNotificationPlatform>();
-        NotificationService service(std::move(platform), path);
+        Notifications service(std::move(platform), path);
         QVERIFY(service.show(QStringLiteral("recent"), {}, {},
                              QStringLiteral("account-old"), QStringLiteral("message-old")));
         for (int index = 0; index < 254; ++index) {
@@ -271,8 +271,8 @@ void NotificationTest::duplicateRefreshesTheDurableRouteLru()
 
     auto restartedPlatform = std::make_unique<FakeNotificationPlatform>();
     restartedPlatform->pending = {token};
-    NotificationService restarted(std::move(restartedPlatform), path);
-    QSignalSpy activated(&restarted, &NotificationService::activated);
+    Notifications restarted(std::move(restartedPlatform), path);
+    QSignalSpy activated(&restarted, &Notifications::activated);
     QTRY_COMPARE(activated.size(), 1);
     QCOMPARE(activated[0][0].toString(), QStringLiteral("account-new"));
     QCOMPARE(activated[0][1].toString(), QStringLiteral("message-new"));
@@ -284,7 +284,7 @@ void NotificationTest::nulTextIsRejectedBeforeThePlatformBoundary()
     auto *fake = platform.get();
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    NotificationService service(std::move(platform),
+    Notifications service(std::move(platform),
         directory.filePath(QStringLiteral("routes.json")));
     const QString body = QStringLiteral("before") + QChar::Null
         + QStringLiteral("after");
@@ -350,7 +350,7 @@ void NotificationTest::routesSurviveRestartAndEarlyActivation()
     const QString token = notificationToken(QStringLiteral("persistent-id"));
     {
         auto platform = std::make_unique<FakeNotificationPlatform>();
-        NotificationService service(std::move(platform), path);
+        Notifications service(std::move(platform), path);
         QVERIFY(service.show(QStringLiteral("persistent-id"), QStringLiteral("title"),
                              QStringLiteral("body"), QStringLiteral("account-1"),
                              QStringLiteral("message-1")));
@@ -364,8 +364,8 @@ void NotificationTest::routesSurviveRestartAndEarlyActivation()
 
     auto restartedPlatform = std::make_unique<FakeNotificationPlatform>();
     restartedPlatform->pending = {token};
-    NotificationService restarted(std::move(restartedPlatform), path);
-    QSignalSpy activated(&restarted, &NotificationService::activated);
+    Notifications restarted(std::move(restartedPlatform), path);
+    QSignalSpy activated(&restarted, &Notifications::activated);
     QTRY_COMPARE(activated.size(), 1);
     QCOMPARE(activated[0][0].toString(), QStringLiteral("account-1"));
     QCOMPARE(activated[0][1].toString(), QStringLiteral("message-1"));
@@ -384,7 +384,7 @@ void NotificationTest::platformActivationAliasSurvivesRestart()
         auto platform = std::make_unique<FakeNotificationPlatform>();
         auto *fake = platform.get();
         fake->currentActivationNamespace = activationNamespace;
-        NotificationService service(std::move(platform), path);
+        Notifications service(std::move(platform), path);
         QVERIFY(service.show(QStringLiteral("persistent-id"), QStringLiteral("title"),
                              {}, QStringLiteral("account"),
                              QStringLiteral("message")));
@@ -395,8 +395,8 @@ void NotificationTest::platformActivationAliasSurvivesRestart()
     auto restartedPlatform = std::make_unique<FakeNotificationPlatform>();
     restartedPlatform->currentActivationNamespace = activationNamespace;
     restartedPlatform->pending = {alias};
-    NotificationService restarted(std::move(restartedPlatform), path);
-    QSignalSpy activated(&restarted, &NotificationService::activated);
+    Notifications restarted(std::move(restartedPlatform), path);
+    QSignalSpy activated(&restarted, &Notifications::activated);
     QTRY_COMPARE(activated.size(), 1);
     QCOMPARE(activated[0][0].toString(), QStringLiteral("account"));
     QCOMPARE(activated[0][1].toString(), QStringLiteral("message"));
@@ -430,8 +430,8 @@ void NotificationTest::stalePlatformActivationNamespaceIsInvalidated()
         auto platform = std::make_unique<FakeNotificationPlatform>();
         auto *fake = platform.get();
         fake->currentActivationNamespace = oldNamespace;
-        NotificationService service(std::move(platform), path);
-        QSignalSpy activated(&service, &NotificationService::activated);
+        Notifications service(std::move(platform), path);
+        QSignalSpy activated(&service, &Notifications::activated);
         QVERIFY(service.show(QStringLiteral("id"), {}, {},
                              QStringLiteral("account"), QStringLiteral("message")));
         fake->assignAlias(fake->shown.constLast(), oldAlias,
@@ -444,8 +444,8 @@ void NotificationTest::stalePlatformActivationNamespaceIsInvalidated()
     auto restartedPlatform = std::make_unique<FakeNotificationPlatform>();
     restartedPlatform->currentActivationNamespace = newNamespace;
     restartedPlatform->pending = {oldAlias};
-    NotificationService restarted(std::move(restartedPlatform), path);
-    QSignalSpy activated(&restarted, &NotificationService::activated);
+    Notifications restarted(std::move(restartedPlatform), path);
+    QSignalSpy activated(&restarted, &Notifications::activated);
     QTest::qWait(10);
     QCOMPARE(activated.size(), 0);
 }
@@ -456,7 +456,7 @@ void NotificationTest::invalidRoutesNeverReachThePlatform()
     QVERIFY(directory.isValid());
     auto platform = std::make_unique<FakeNotificationPlatform>();
     auto *fake = platform.get();
-    NotificationService service(std::move(platform),
+    Notifications service(std::move(platform),
         directory.filePath(QStringLiteral("routes.json")));
 
     QVERIFY(!service.show(QStringLiteral("id"), QStringLiteral("title"), {},
@@ -473,7 +473,7 @@ void NotificationTest::failedReplacementKeepsThePreviousDurableRoute()
     auto platform = std::make_unique<FakeNotificationPlatform>();
     auto *fake = platform.get();
     {
-        NotificationService service(std::move(platform), path);
+        Notifications service(std::move(platform), path);
         QVERIFY(service.show(QStringLiteral("same"), QStringLiteral("first"), {},
                              QStringLiteral("account-old"),
                              QStringLiteral("message-old")));
@@ -486,8 +486,8 @@ void NotificationTest::failedReplacementKeepsThePreviousDurableRoute()
 
     auto restartedPlatform = std::make_unique<FakeNotificationPlatform>();
     restartedPlatform->pending = {token};
-    NotificationService restarted(std::move(restartedPlatform), path);
-    QSignalSpy activated(&restarted, &NotificationService::activated);
+    Notifications restarted(std::move(restartedPlatform), path);
+    QSignalSpy activated(&restarted, &Notifications::activated);
     QTRY_COMPARE(activated.size(), 1);
     QCOMPARE(activated[0][0].toString(), QStringLiteral("account-old"));
     QCOMPARE(activated[0][1].toString(), QStringLiteral("message-old"));
@@ -507,7 +507,7 @@ void NotificationTest::unsafeRouteFileIsRefused()
     QVERIFY(QFile::link(outside, route));
     auto platform = std::make_unique<FakeNotificationPlatform>();
     auto *fake = platform.get();
-    NotificationService service(std::move(platform), route);
+    Notifications service(std::move(platform), route);
 
     QVERIFY(!service.show(QStringLiteral("id"), QStringLiteral("title"), {},
                           QStringLiteral("account"), QStringLiteral("message")));
@@ -529,7 +529,7 @@ void NotificationTest::asynchronousFailureRemovesAReplacedRouteSymlink()
     const QString outside = directory.filePath(QStringLiteral("outside"));
     auto platform = std::make_unique<FakeNotificationPlatform>();
     auto *fake = platform.get();
-    NotificationService service(std::move(platform), route);
+    Notifications service(std::move(platform), route);
     QVERIFY(service.show(QStringLiteral("id"), {}, {},
                          QStringLiteral("account"), QStringLiteral("message")));
     QVERIFY(QFile::remove(route));
@@ -557,7 +557,7 @@ void NotificationTest::publicRouteFileIsNotLoaded()
     const QString token = notificationToken(QStringLiteral("id"));
     {
         auto platform = std::make_unique<FakeNotificationPlatform>();
-        NotificationService service(std::move(platform), path);
+        Notifications service(std::move(platform), path);
         QVERIFY(service.show(QStringLiteral("id"), QStringLiteral("title"), {},
                              QStringLiteral("account"), QStringLiteral("message")));
     }
@@ -566,8 +566,8 @@ void NotificationTest::publicRouteFileIsNotLoaded()
                                  | QFileDevice::ReadGroup | QFileDevice::ReadOther));
     auto platform = std::make_unique<FakeNotificationPlatform>();
     platform->pending = {token};
-    NotificationService service(std::move(platform), path);
-    QSignalSpy activated(&service, &NotificationService::activated);
+    Notifications service(std::move(platform), path);
+    QSignalSpy activated(&service, &Notifications::activated);
     QTest::qWait(10);
     QCOMPARE(activated.size(), 0);
     QVERIFY(service.error().contains(QStringLiteral("not private")));
@@ -579,7 +579,7 @@ void NotificationTest::publicRouteFileIsNotLoaded()
 void NotificationTest::nativePlatformIsSafeOutsideAnApplicationBundle()
 {
 #ifdef Q_OS_MACOS
-    NotificationService service;
+    Notifications service;
     QVERIFY(!service.available());
     QVERIFY(!service.show(QStringLiteral("id"), QStringLiteral("title"),
                           QStringLiteral("body"), {}, {}));

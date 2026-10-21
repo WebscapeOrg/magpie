@@ -22,14 +22,14 @@ void watchNativeCloseChord(QWindow *window, std::function<void()> onClose)
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
                                           handler:^NSEvent *(NSEvent *event) {
         if (!watched) return event;
-        // Cmd+W and nothing else held; Caps Lock does not change a chord.
+        // Invariant: Cmd+W and nothing else held; Caps Lock does not change a chord.
         const NSEventModifierFlags flags = event.modifierFlags
             & NSEventModifierFlagDeviceIndependentFlagsMask
             & ~NSEventModifierFlagCapsLock;
         if (flags != NSEventModifierFlagCommand) return event;
         if (![[event.charactersIgnoringModifiers lowercaseString] isEqualToString:@"w"])
             return event;
-        // Only the watched window's own chord: a panel or another window that
+        // Invariant: Only the watched window's own chord: a panel or another window that
         // is key keeps its Cmd+W, the way a menu's Close is validated against
         // the responder chain.
         auto *view = reinterpret_cast<NSView *>(watched->winId());

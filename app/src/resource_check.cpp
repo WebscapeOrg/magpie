@@ -180,7 +180,7 @@ bool waitForCleanExit(QProcess &process, QByteArray &stdoutBuffer,
         process.waitForFinished(qMin(10, remaining));
         QCoreApplication::processEvents();
     }
-    // A still-running flood must not be drained after the deadline: reading
+    // Invariant: A still-running flood must not be drained after the deadline: reading
     // while the child keeps writing can spin until the pipe finally stalls.
     if (process.state() != QProcess::NotRunning) {
         if (error) *error = QStringLiteral("Backend shutdown timed out");

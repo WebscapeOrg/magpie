@@ -52,7 +52,7 @@ This composition boundary is shaped by the shell entry-point contract and Qt's f
 
 Both hosts keep one persistent `omamail serve` process and communicate with newline-delimited JSON-RPC over stdin/stdout. `ui/backend/Backend.qml` owns correlation, protocol/API compatibility, cancellation, and frame assembly. The plugin resolves its exact private backend pin; a packaged standalone host resolves the exact backend beside its own executable. Only the explicit development mode used by `make app-run` accepts a source build through `OMAMAIL_BIN`.
 
-The Cargo `agent` feature is on by default for the Omarchy build. The standalone Make and release builds use `--no-default-features --features standalone`; agent worker commands and RPC methods are absent rather than hidden only in QML.
+The Cargo `agent` feature is on by default for the Omarchy build. The standalone Make and release builds use `--no-default-features --features standalone`, which also enables `agent`. Agent worker commands and RPC methods require a Unix target, so Linux and macOS include them and Windows omits them at compilation as well as in its UI capabilities.
 
 Credentials cross the UI/backend boundary through typed `credential.get`, `credential.put`, and `credential.delete` RPC methods. Rust validates the provider-specific key and secret bytes before calling Keychain, Secret Service, or Credential Manager. Secrets travel in the RPC body or subprocess stdin and must never be placed in argv, logs, settings, or notification routes.
 

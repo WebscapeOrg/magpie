@@ -45,7 +45,7 @@ Omamail has two hosts over one shared mail and calendar implementation: a [Quick
 
 Helper scripts and the plugin's private Rust backend belong here. The same executable exposes CLI commands over its shared business modules, and both hosts use its persistent stdio RPC service. The standalone release bundles the exact backend beside its host. Separate daemons, SDKs, and automatic system-wide integrations remain outside this boundary. The plugin must not install commands or integrations into global user paths when it loads. Omarchy's plugin installer deliberately [clones and validates plugins, and can enable them, without running installation hooks][plugin-installation].
 
-The first standalone scope includes mail, calendar, and native notifications. It deliberately exposes no tray, AI, or operating-system `mailto:` registration. Keep platform integration behind the native interfaces in `app/src/`; do not branch the shared UI by operating system.
+The standalone source includes mail, calendar, and native notifications, plus AI on Linux and macOS. Windows omits the AI worker commands and capability. The tray and operating-system `mailto:` registration remain disabled. Keep platform integration behind the native interfaces in `app/src/`; do not branch the shared UI by operating system.
 
 Programmatic access to mail may be useful, but it needs an integration boundary designed independently from the Quickshell plugin. Omarchy defines [IPC as the standard boundary for commands that communicate with the running shell][shell-ipc]; proposals that need a different lifecycle or ownership model should begin with a design discussion.
 
@@ -61,7 +61,7 @@ make app-run     # build and launch the standalone app from source resources
 make validate    # node tests, source regressions, QML tests, qmllint, manifest
 ```
 
-`make app-build` needs Rust, CMake 3.21 or newer, and Qt 6.5 or newer. On Linux, the Qt DBus development component is also required. It builds the backend with `--no-default-features --features standalone`, so the resulting process has no AI worker surface. `make app-run` sets only the development resource and bundled-backend overrides needed to run that build.
+`make app-build` needs Rust, CMake 3.21 or newer, and Qt 6.5 or newer. On Linux, the Qt DBus development component is also required. It builds the backend with `--no-default-features --features standalone`, which enables AI workers on Unix targets. `make app-run` sets only the development resource and bundled-backend overrides needed to run that build.
 
 `make validate` needs `node`, `python3`, Qt 6 QML test tooling (`qt6-declarative` on Arch, `qt6-declarative-dev-tools` and `qml6-module-qttest` on Debian and Ubuntu) and the `omarchy` CLI. It has to be green before you open the pull request, and green on your machine — nothing in CI runs it for you. Standalone changes must also pass `make test-app-qml` and the native platform gates described in [Backend runtime](docs/BACKEND-RUNTIME.md).
 
@@ -90,9 +90,9 @@ A change without a test that fails without it is not finished. Where one goes:
 
 | What you changed | Where the test goes |
 |------------------|---------------------|
-| Parsing, formatting, or a decision rule in `.js` | `tests/test_*.js`, run by `node` — no compositor needed |
+| Parsing, formatting, or a decision rule in `.js` | `ui/tests/test_*.js`, run by `node` — no compositor needed |
 | A script in `scripts/` | `tests/test_*.sh` or `tests/test_*.py` |
-| Focus, key routing, layout, or anything needing the QML engine | `tests/qml/tst_*.qml`, run offscreen |
+| Focus, key routing, layout, or anything needing the QML engine | `ui/tests/qml/tst_*.qml`, run offscreen |
 | Standalone host, adapter, packaging, or installer behavior | `app/tests/`, run on every affected native platform |
 | A rule that grep can enforce — no literal colours, no `LayoutMirroring` | `tests/test_source.sh` |
 
@@ -142,7 +142,7 @@ Then:
 ````markdown
 ## Verification
 
-`make validate` green. `tests/test_message.js` covers the 8-bit body with an
+`make validate` green. `ui/tests/test_message.js` covers the 8-bit body with an
 accent in it, and fails with the change reverted. Live: a Fastmail mailbox
 whose French subjects rendered as mojibake before and read correctly after.
 

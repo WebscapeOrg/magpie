@@ -1,5 +1,5 @@
 ---
-description: Review PRs in separate worktrees, fix small issues, and enforce a security gate
+description: Review PR product fit, design and security in separate worktrees
 argument-hint: [PR numbers, URLs, or a repository and queue filter]
 ---
 

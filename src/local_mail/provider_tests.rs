@@ -442,8 +442,7 @@ async fn low_space_refuses_body_download_and_preserves_saved_mail() {
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     gmail_http::with_test_transport(client, provider.origin.clone(), async {
         let gmail = gmail::Session::default();
-        let directory = super::tests::directory();
-        std::fs::copy("/tmp/fixture-seed/mail.sqlite", directory.join("mail.sqlite")).unwrap();
+        let directory = std::path::PathBuf::from("/tmp/mail-check/store");
         let store = store::Store::open(super::tests::open_directory(&directory)).unwrap();
         assert!(
             crate::platform::private_fs::available_bytes(store.directory()).unwrap()

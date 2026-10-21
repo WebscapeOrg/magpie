@@ -6,25 +6,19 @@ use std::{
 };
 static SERIAL: AtomicU64 = AtomicU64::new(0);
 pub(super) fn directory() -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!(
+    let parent = std::env::temp_dir().canonicalize().unwrap();
+    let name = format!(
         "magpie-local-{}-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
         SERIAL.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir(&path).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
-    }
-    path
+    );
+    crate::platform::private_fs::directories(&parent, &[&name], true).unwrap().unwrap();
+    parent.join(name)
 }
 pub(super) fn open_directory(path: &std::path::Path) -> File {
-    crate::platform::private_fs::directories(path, &[], false)
+    let path = path.canonicalize().unwrap();
+    crate::platform::private_fs::directories(path.parent().unwrap(), &[path.file_name().unwrap().to_str().unwrap()], false)
         .unwrap()
         .unwrap()
 }

@@ -328,6 +328,7 @@ Item {
   // an untouched root, so saving an address cannot reopen a dismissed form.
   readonly property var rootState: ({
     anyReady: anyReady,
+    accountReady: ready,
     hasSavedAccounts: !!service && service.hasSavedAccounts === true,
     setupUnderway: setupUnderway,
     provider: service ? String(service.providerId || "") : "",
@@ -335,11 +336,15 @@ Item {
   })
   property bool navUntouched: true
   property bool wasReady: false
+  property bool wasAccountReady: false
   onRootStateChanged: {
     var flipped = rootState.anyReady !== wasReady
+    var signedIn = rootState.accountReady && !wasAccountReady
     wasReady = rootState.anyReady
+    wasAccountReady = rootState.accountReady
     var editingUnreadyAccount = page === "setup" && !ready
-    if ((flipped && !editingUnreadyAccount) || (!rootState.anyReady && navUntouched)) resetNavigation()
+    var completedSetup = signedIn && page === "setup" && editingProvider === rootState.provider
+    if ((flipped && !editingUnreadyAccount) || completedSetup || (!rootState.anyReady && navUntouched)) resetNavigation()
   }
   function resetNavigation() {
     var next = Nav.rootFor(rootState)

@@ -1,10 +1,11 @@
 import QtQuick
 import QtTest
+import qs.Commons
 import "../../components" as Components
 
 Rectangle {
   id: host
-  color: "white"
+  color: Color.background
   width: 180
   height: 140
   Components.MagpieLogo {

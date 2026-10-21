@@ -3,10 +3,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
 
-// Where the window is, is a history. Every page is an entry on it, every Back
-// — the bar on a page, Escape, a draft closing — pops one, and the root is
-// what the window closes on. These are the rules `App.qml` applies on top of
-// `account/Navigation.js`, run against the real views with a fake service.
 Item {
   width: 1800
   height: 1300
@@ -162,7 +158,6 @@ Item {
       detailPainted = false
       detailLoading = true
     }
-    // What the fetch would deliver, delivered by the test when it wants it.
     function land() {
       detailLoading = false
       detailPainted = true
@@ -208,8 +203,7 @@ Item {
       return item
     }
 
-    // The window `App` measures itself by is the one it draws, not the test
-    // root: find it by its title to size it.
+    // Invariant: size the real App window; the test root is not its layout viewport.
     function appWindow() {
       return findMatching(app, function(item) { return item.title === "🐦 Magpie" })
     }
@@ -236,20 +230,13 @@ Item {
       waitForRendering(app)
     }
 
-    // The rail names the sections in the page's order, and the page reports
-    // where each begins, in that same order.
-    // By key rather than by position: these used to be `sections[2]` and
-    // friends, so adding a section renumbered assertions that had nothing to
-    // do with it.
+    // Invariant: find sections by stable keys so inserting another section does not shift assertions.
     function sectionY(page, key) {
       for (var index = 0; index < page.sections.length; index++)
         if (page.sections[index].key === key) return page.sections[index].y
       return -1
     }
 
-    // The wheel, at a real call site rather than against a Flickable a test
-    // built. `WheelScroller` is dropped into a dozen scrollers now and nothing
-    // covered any of them; this is the one with a fixture already.
     function test_the_settings_page_scrolls_a_notch_at_a_time() {
       app.openSettings()
       wait(50)
@@ -276,8 +263,6 @@ Item {
         verify(findChild(rail, "settings-section-" + keys[keyIndex]), "the rail has a row for " + keys[keyIndex])
     }
 
-    // A click scrolls the page to the section rather than opening another
-    // page: Settings stays one place in history, and the highlight follows.
     function test_a_click_scrolls_the_page_and_the_highlight_follows() {
       var rail = findChild(app, "settings-sidebar")
       var page = findChild(app, "settings-page")
@@ -288,11 +273,9 @@ Item {
         "the top of the page is the first section, whichever that is")
       compare(app.navKinds.join(","), "list,settings")
 
-      // The rail sits against the page, and the pair is centred in the area.
       var area = rail.parent
       verify(Math.abs((rail.x + rail.width + MailStyle.space(18)) - page.x) < 1, "the rail is against the page's left edge")
       verify(Math.abs(rail.x - (area.width - page.x - page.width)) < 1, "and the block is centred")
-      // Back belongs to the block too: on its left edge, above the rail.
       var back = findChild(app, "page-back")
       verify(back.visible)
       var railLeft = rail.mapToItem(back.parent, 0, 0).x
@@ -305,23 +288,18 @@ Item {
       compare(app.navKinds.join(","), "list,settings", "still one page in history")
       tryCompare(rail, "activeKey", "writing")
 
-      // Every section can be put at the top, the last included: the content
-      // is padded under the page for exactly that.
+      // Invariant: bottom padding lets the final settings heading reach the viewport top.
       mouseClick(findChild(rail, "settings-section-oauth"))
       tryVerify(function() { return Math.abs(view.contentY - sectionY(page, "oauth")) < 1 }, 1000,
         "the last heading reaches the top too")
       tryCompare(rail, "activeKey", "oauth")
 
-      // Scrolled by other means — the wheel, say — the highlight still
-      // follows the page, because the page is what it describes.
       view.contentY = 0
       tryCompare(rail, "activeKey", "display")
       view.contentY = sectionY(page, "mailboxes") + 5
       tryCompare(rail, "activeKey", "mailboxes")
     }
 
-    // Narrow, the rail has no room; the page keeps the whole width and its
-    // own scroll, which is all it ever had.
     function test_back_button_is_clickable_data() {
       return [{tag:"wide",width:980},{tag:"compact",width:600}]
     }

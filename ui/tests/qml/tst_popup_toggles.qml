@@ -44,10 +44,7 @@ Item {
     name: "PopupToggles"
     when: windowShown
 
-    // A popup that closes on a press outside itself is already closed by the
-    // press that reaches the control which opened it, so a plain
-    // `opened ? close() : open()` reopens it on the release and the control can
-    // never put its own popup away. Both of these read as a flicker.
+    // Invariant: outside-press dismissal precedes the trigger release; reopening on release breaks toggling.
     function test_the_from_menu_toggles_shut() {
       compose.begin("new", null, "", [])
       var button = findChild(compose, "compose-from-button")

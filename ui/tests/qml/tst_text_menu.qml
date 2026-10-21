@@ -2,8 +2,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Omamail
 
-// The menu a right-click opens on text: what it offers a reader, what more
-// it offers an editor, and the two rows a link adds to either.
 Item {
   width: 500
   height: 500
@@ -50,8 +48,6 @@ Item {
 
     function isActionAvailable(row) { return row.visible && row.enabled }
 
-    // ------------------------------------------------------------- reader
-
     function test_a_reader_offers_only_copy() {
       openMenu(false)
       compare(menu.opened, true)
@@ -77,8 +73,6 @@ Item {
       compare(copySpy.signalArguments[0][0], "hello")
       compare(menu.opened, false)
     }
-
-    // ------------------------------------------------------------- editor
 
     function test_an_editor_offers_cut_paste_and_select_all() {
       openMenu(true)
@@ -118,8 +112,6 @@ Item {
       compare(editor.selectedText, "hello world")
     }
 
-    // --------------------------------------------------------------- link
-
     function test_a_link_adds_open_and_copy_url() {
       openMenu(false, "https://example.com/a")
       compare(menu.openLinkRow.visible, true)
@@ -148,7 +140,6 @@ Item {
       compare(menu.cursorIndex, 0)
       editor.deselect()
       openMenu(true)
-      // Nothing selected: Cut and Copy are out, Paste is the first row.
       compare(menu.cursorIndex, menu.menuRows.indexOf(menu.pasteRow))
     }
   }

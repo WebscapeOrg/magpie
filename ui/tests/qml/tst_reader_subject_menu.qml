@@ -4,8 +4,6 @@ import qs.Commons
 import "../../components" as Omamail
 import "../../message/Html.js" as Html
 
-// A right-click on the reader's subject: one row, the subject as written,
-// copied through the host.
 Item {
   width: 900
   height: 600

@@ -2,19 +2,10 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Omamail
 
-// Wheel scrolling, against real scrollers.
-//
-// Every assertion here is paired with a bare scroller of the same shape and no
-// handler, and asserts the two *differ*. Four of the first round of these
-// passed with the component removed — they read `contentY` synchronously after
-// `mouseWheel`, before a bare Flickable had advanced a frame, so "it stopped at
-// the top" was true of nothing having happened yet. A control that has to move
-// differently is the only way to tell the two apart.
+// Invariant: allow the bare Flickable to advance before comparing its response with WheelScroller.
 Item {
   width: 500
   height: 1400
-
-  // ------------------------------------------------------------- handled
 
   Flickable {
     id: view
@@ -49,8 +40,6 @@ Item {
     Omamail.WheelScroller { view: headed }
   }
 
-  // --------------------------------------------------- the same, unhandled
-
   Flickable {
     id: bare
     x: 0; y: 1050; width: 400; height: 300
@@ -70,16 +59,11 @@ Item {
       bare.contentY = 0
     }
 
-    // ------------------------------------------------------- the distance
-
     function test_one_notch_moves_three_lines_worth() {
       mouseWheel(view, 200, 150, 0, -120)
       compare(view.contentY, 240)
     }
 
-    // The whole point. A high-resolution wheel reports one notch as many
-    // fractions, and they have to add up to the same distance — which is
-    // where a bare Flickable is eight times short.
     function test_a_finely_reporting_wheel_moves_the_same_distance() {
       for (var stepIndex = 0; stepIndex < 8; stepIndex++) mouseWheel(view, 200, 150, 0, -15)
       compare(view.contentY, 240, "eight fractions of a notch are still one notch")
@@ -95,8 +79,6 @@ Item {
       compare(view.contentY, 720)
     }
 
-    // Uncapped: ten notches as one event and as ten events agree. A per-event
-    // cap put the chunking dependence back at the coarse end.
     function test_a_free_spinning_wheel_is_not_capped() {
       mouseWheel(view, 200, 150, 0, -1200)
       compare(view.contentY, 2400)
@@ -112,11 +94,6 @@ Item {
       compare(view.contentY, 260)
     }
 
-    // ------------------------------------------------------- the bounds
-
-    // A margined view resting in its top margin, scrolled up. The old clamp
-    // had a floor of 0, so this moved *down* to 0 in answer to a scroll up and
-    // the margin could never be reached again.
     function test_a_scroll_up_in_the_top_margin_stays_there() {
       compare(margined.contentY, -50)
       mouseWheel(margined, 200, 150, 0, 120)
@@ -130,9 +107,6 @@ Item {
         "contentHeight + bottomMargin - height, not contentHeight - height")
     }
 
-    // A ListView with a header starts at a negative originY, where the old
-    // clamp turned the first notch into a jump to 0 — the height of the header
-    // rather than a notch — and then never let it back.
     function test_a_header_does_not_make_the_first_notch_a_jump() {
       compare(headed.originY, -200)
       compare(headed.contentY, -200)

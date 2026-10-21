@@ -4,10 +4,7 @@ import qs.Commons
 import qs.Commons as Commons
 import "../../components" as Mail
 
-// The chevron folds; it does not also open. Two tap handlers sit one inside
-// the other — the fold's inside the row's — and Qt hands the same tap to
-// both, so without the row asking where the tap landed, folding a parent
-// navigated to it. Driven with real pointer events on the real sidebar.
+// Invariant: nested tap handlers can both receive a tap; folding must not emit navigation.
 Item {
   width: 400
   height: 600

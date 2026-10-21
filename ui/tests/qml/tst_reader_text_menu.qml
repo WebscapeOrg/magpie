@@ -4,8 +4,6 @@ import qs.Commons
 import "../../components" as Omamail
 import "../../message/Html.js" as Html
 
-// A right-click on the message body: Copy for what is selected, and Open and
-// Copy URL when the click lands on a link.
 Item {
   width: 900
   height: 600
@@ -105,7 +103,6 @@ Item {
       return found
     }
 
-    // Where a run of text sits in the body, by the first character of it.
     function pointOf(editor, needle) {
       var plain = editor.getText(0, editor.length)
       var characterIndex = plain.indexOf(needle)

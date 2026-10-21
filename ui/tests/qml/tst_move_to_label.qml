@@ -5,10 +5,6 @@ import "BackendFixture.js" as BackendFixture
 import "NativeIntentFixture.js" as NativeIntentFixture
 import "../../account/Accounts.js" as Accounts
 
-// Moving a message to a label — archived under it on Gmail, into the folder
-// on IMAP — is reached three ways that all open the same picker: `v`, the
-// reader's button, and the row menu. The picker draws the labels as the
-// rail does, a child under its parent, and narrows to typed letters.
 Item {
   width: 900
   height: 600
@@ -128,9 +124,6 @@ Item {
       verify(record.modified[0].indexOf("+Work/2026") > 0, "moved under the label chosen: " + record.modified[0])
     }
 
-    // Opened from a row menu on a message outside the ticks, the move is
-    // that message's alone, the way Archive there is; from the keyboard,
-    // the ticks win.
     function test_a_menu_on_an_unticked_row_moves_that_row_alone() {
       seed()
       var picker = findChild(app, "label-picker")

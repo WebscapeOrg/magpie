@@ -1,11 +1,7 @@
 import QtQuick 2.15
 import QtTest 1.3
 
-// Focus ownership. A child that declares `focus: true` becomes the window's
-// activeFocusItem even while it is invisible — Qt does not exclude hidden items
-// — so a component holding focus it is not using becomes a sink for everything
-// that travels by focus rather than by Shortcut. That is what made Esc work
-// only sometimes: whether it worked depended on where the user last clicked.
+// Invariant: Qt can keep a hidden child as activeFocusItem; unused components must release focus.
 Item {
   id: host
   width: 300; height: 200
@@ -22,7 +18,6 @@ Item {
       event.accepted = true
     }
 
-    // Stands in for ComposeView: always instantiated, in use only sometimes.
     Item {
       id: compose
       anchors.fill: parent

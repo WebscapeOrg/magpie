@@ -17,8 +17,7 @@ Item {
         verify(service.copyText(values[i]))
         var command = Quickshell.detachedCommands[i]
         compare(command, ["wl-copy", "--", values[i]])
-        // The transport regression consumes the command actually emitted by
-        // Service, then runs wl-copy against an unavailable display.
+        // Invariant: test_clipboard.py consumes this marker and executes the emitted command against an unavailable display.
         console.log("OMAMAIL_CLIPBOARD_ARGUMENTS:" + JSON.stringify(command))
       }
     }

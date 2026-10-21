@@ -3,9 +3,7 @@ import QtTest
 import "../../account" as Accounts
 import "../../backend" as BackendModule
 
-// The composer's From row names an IMAP or Outlook mailbox's own address with
-// the entry's sender name, and only on a backend that names agent sends the
-// same way (API 7). A server-named mailbox keeps the name its server gave.
+// Invariant: API 7 aligns composer sender names with agent sends; server-named identities keep their server name.
 Item {
   Component {
     id: backendFactory

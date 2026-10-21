@@ -33,10 +33,7 @@ const hostileColor = { r: '" href="https://example.org/', g: Infinity, b: -1, a:
 const bounded = decodeURIComponent(icons.source("mail", hostileColor))
 assert.ok(!bounded.includes("example.org") && !bounded.includes("NaN") && !bounded.includes("Infinity"), "only bounded numeric color channels reach SVG")
 
-// Every icon a view asks for by name is defined. Scans the QML for the
-// literal names handed to ActionIcon, IconButton, IconTextButton and
-// ProviderLogo's fallback, so a typo in a view is a failed test rather than
-// an empty slot in the window.
+// Invariant: direct literal icon requests must fail validation on typos instead of leaving blank controls.
 const root = path.join(__dirname, "..")
 const files = [path.join(root, "App.qml")]
 for (const entry of fs.readdirSync(path.join(root, "components"))) {

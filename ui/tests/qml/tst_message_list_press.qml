@@ -4,13 +4,7 @@ import qs.Commons
 import qs.Commons as Commons
 import "../../components" as Mail
 
-// A press on a row survives the list being told its messages again.
-//
-// The list is handed a new array whenever anything about any message
-// changes — a row opened half a second ago comes back marked read, a poll
-// lands — and a Repeater fed the array itself tore every row down and built
-// it again. A pointer pressed on a row at that moment was pressed on
-// nothing: no release, no click, and the message did not open.
+// Invariant: summary refreshes must preserve the pressed delegate until release, or Qt cannot deliver its click.
 Item {
   width: 400
   height: 300
@@ -67,7 +61,6 @@ Item {
       verify(target && target.summary && target.summary.id === "2:INBOX", "the second row is on screen")
       var x = 20, y = target.y + target.height / 2
       mousePress(list, x, y)
-      // The second message comes back read, as it does after being opened.
       fakeService.messages = rows(false)
       wait(30)
       mouseRelease(list, x, y)

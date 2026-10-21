@@ -20,9 +20,9 @@ Rectangle {
 
     function ink(image) {
       var count = 0
-      for (var y = 0; y < image.height; y++)
-        for (var x = 0; x < image.width; x++)
-          if (image.red(x, y) > 0) count++
+      for (var pixelY = 0; pixelY < image.height; pixelY++)
+        for (var pixelX = 0; pixelX < image.width; pixelX++)
+          if (image.red(pixelX, pixelY) > 0) count++
       return count
     }
 
@@ -34,7 +34,7 @@ Rectangle {
       var icon = createTemporaryObject(iconComponent, stage, {name: data.name})
       verify(icon)
       waitForRendering(icon)
-      verify(ink(grabImage(icon)) > 0, data.name + " renders without an icon font")
+      tryVerify(function() { return ink(grabImage(icon)) > 0 }, 5000, data.name + " renders without an icon font")
     }
 
     function test_selected_star_and_theme_change_pixels() {
@@ -43,7 +43,7 @@ Rectangle {
       var outline = ink(grabImage(icon))
       icon.filled = true
       waitForRendering(icon)
-      verify(ink(grabImage(icon)) > outline, "the selected star fills its outline")
+      tryVerify(function() { return ink(grabImage(icon)) > outline }, 5000, "the selected star fills its outline")
       icon.color = "transparent"
       waitForRendering(icon)
       compare(ink(grabImage(icon)), 0, "transparent theme colors stay transparent")

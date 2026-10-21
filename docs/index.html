@@ -831,7 +831,7 @@ footer p:last-child { margin-bottom: 0; }
 
     <div class="command">
       <pre><span class="prompt">$ </span><span class="cmd">omarchy plugin add https://github.com/huacnlee/omamail.git --enable</span></pre>
-      <button type="button" class="copy" data-zh="复制" data-copy="omarchy plugin add https://github.com/huacnlee/omamail.git --enable">Copy</button>
+      <button type="button" class="copy" aria-live="polite" data-zh="复制" data-copy="omarchy plugin add https://github.com/huacnlee/omamail.git --enable">Copy</button>
     </div>
 
     <div class="actions">
@@ -1167,18 +1167,39 @@ footer p:last-child { margin-bottom: 0; }
   }
 
   var copy = document.querySelector(".copy");
-  if (copy && navigator.clipboard) {
-    copy.addEventListener("click", function () {
-      navigator.clipboard.writeText(copy.getAttribute("data-copy")).then(function () {
+  function selectCommand() {
+    var range = document.createRange();
+    range.selectNodeContents(document.querySelector(".command .cmd"));
+    var selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    var shortcut = /mac/i.test(navigator.platform || "") ? "⌘C" : "Ctrl+C";
+    copy.textContent = (lang === "zh" ? "按 " : "Press ") + shortcut;
+    copy.removeAttribute("data-state");
+    copy.disabled = false;
+  }
+  function copyCommand() {
+    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+      selectCommand();
+      return;
+    }
+    copy.disabled = true;
+    copy.textContent = lang === "zh" ? "正在复制…" : "Copying…";
+    try {
+      return navigator.clipboard.writeText(copy.getAttribute("data-copy")).then(function () {
         copy.textContent = copyLabels[lang];
         copy.setAttribute("data-state", "done");
+        copy.disabled = false;
         setTimeout(function () {
           copy.innerHTML = copy.getAttribute("data-" + lang);
           copy.removeAttribute("data-state");
         }, 1600);
-      });
-    });
+      }, selectCommand);
+    } catch (error) {
+      selectCommand();
+    }
   }
+  if (copy) copy.addEventListener("click", copyCommand);
 })();
 </script>
 

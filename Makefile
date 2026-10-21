@@ -115,6 +115,7 @@ backend:
 	cargo build --locked --release --target-dir "$(CURDIR)/target" --bin omamail
 
 test-js:
+	node --test tests/test_website.js
 	node ui/tests/test_inbox.js
 	node ui/tests/test_display.js
 	node app/tests/test_theme.js

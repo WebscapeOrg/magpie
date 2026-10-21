@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import configparser
+from contextlib import closing
 import json
 import os
 import re
@@ -78,18 +79,17 @@ def databases(profile: Path) -> list[Path]:
 def records(database: Path) -> list[dict[str, str]]:
     uri = "file:" + quote(str(database), safe="/") + "?mode=ro"
     try:
-        connection = sqlite3.connect(uri, uri=True, timeout=0.2)
-        rows = connection.execute(
-            """
-            SELECT card,
-                   MAX(CASE WHEN name = 'DisplayName' THEN value ELSE '' END),
-                   MAX(CASE WHEN name = 'PrimaryEmail' THEN value ELSE '' END),
-                   MAX(CASE WHEN name = 'SecondEmail' THEN value ELSE '' END)
-              FROM properties
-             GROUP BY card
-            """
-        ).fetchall()
-        connection.close()
+        with closing(sqlite3.connect(uri, uri=True, timeout=0.2)) as connection:
+            rows = connection.execute(
+                """
+                SELECT card,
+                       MAX(CASE WHEN name = 'DisplayName' THEN value ELSE '' END),
+                       MAX(CASE WHEN name = 'PrimaryEmail' THEN value ELSE '' END),
+                       MAX(CASE WHEN name = 'SecondEmail' THEN value ELSE '' END)
+                  FROM properties
+                 GROUP BY card
+                """
+            ).fetchall()
     except (OSError, sqlite3.Error):
         return []
 

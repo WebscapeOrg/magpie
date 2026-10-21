@@ -12,7 +12,7 @@ const calls = []
 const context = {
   auth: { accountId: "imap:synthetic@example.org", settings: {username:"synthetic",imapHost:"private.example.org"} },
   backend: { ready:true, call(method,params,callback) {calls.push({method,params:JSON.parse(JSON.stringify(params)),callback})} },
-  inFlight:0, oauthTransport:false, nativeRequestGeneration:0, nativeRequestPrefix:"test"
+  epoch:0, inFlight:0, oauthTransport:false, nativeRequestGeneration:0, nativeRequestPrefix:"test"
 }
 context.root = context
 vm.createContext(context)

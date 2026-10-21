@@ -65,10 +65,13 @@ Item {
     return handle
   }
 
-  function rememberResource(resource) {
+  function rememberResources(resources) {
     var next = {}
     for (var key in messageResources) next[key] = messageResources[key]
-    next[String(resource.id)] = resource
+    for (var index = 0; index < resources.length; index++) {
+      var resource = resources[index]
+      next[String(resource.id)] = resource
+    }
     messageResources = next
   }
 
@@ -80,8 +83,7 @@ Item {
         pageSize: Math.max(1, Math.min(100, Number(maxResults) || 25))
       }, function(result, error) {
         if (!error && result && Array.isArray(result.messages)) {
-          for (var i = 0; i < result.messages.length; i++)
-            root.rememberResource(result.messages[i])
+          root.rememberResources(result.messages)
         }
         if (typeof callback === "function") callback(result, error)
       }, handle)

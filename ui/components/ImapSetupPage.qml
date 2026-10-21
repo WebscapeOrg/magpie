@@ -340,6 +340,7 @@ Column {
     Text {
       id: errorText
       objectName: "imap-error"
+      textFormat: Text.PlainText
       width: parent.width
       visible: text !== ""
       text: ""

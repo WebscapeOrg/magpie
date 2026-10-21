@@ -16,7 +16,11 @@ const ROOT = path.dirname(__dirname)
 const IMPORT_SOURCE = '^\\s*\\.import\\s+"([^"]+)"\\s+as\\s+(\\w+)\\s*$'
 
 function load(relativePath) {
-  const file = path.join(ROOT, relativePath)
+  return loadModule(path.resolve(ROOT, relativePath), new Map())
+}
+
+function loadModule(file, libraries) {
+  if (libraries.has(file)) return libraries.get(file)
   const raw = fs.readFileSync(file, "utf8")
 
   const context = {}
@@ -30,7 +34,7 @@ function load(relativePath) {
 
   // QML resolves an import against the importing file's own directory.
   for (const [, target, qualifier] of imports) {
-    context[qualifier] = load(path.relative(ROOT, path.resolve(path.dirname(file), target)))
+    context[qualifier] = loadModule(path.resolve(path.dirname(file), target), libraries)
   }
 
   const source = raw
@@ -38,6 +42,7 @@ function load(relativePath) {
     .replace(new RegExp(IMPORT_SOURCE, "gm"), "")
 
   vm.runInContext(source, context)
+  if (/^\.pragma library\s*$/m.test(raw)) libraries.set(file, context)
   return context
 }
 

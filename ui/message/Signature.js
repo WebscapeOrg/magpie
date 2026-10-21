@@ -1,27 +1,13 @@
 .pragma library
 .import "Html.js" as Html
 
-// A signature imported from a file: a picture, or a page of markup somebody
-// else's tool wrote. What is stored is never the file. A picture is checked
-// to be the raster it claims and wrapped in one `<img>`; markup goes through
-// the same gate the reader trusts for a stranger's message — `Html.sanitize`,
-// which drops scripts, handlers and every fetch — and is then walked once
-// more here against a short list of what can never be in a signature, so
-// the argument does not rest on one pass. The formatting the file carries
-// — colours, faces, sizes, tables, alignment — is kept: it is what the
-// owner imported the file for. Scripts, styles blocks, forms, frames,
-// objects, event handlers, remote images and every address that is not a
-// public link, a mailto or an inline picture do not survive, and the count
-// of what was dropped is reported so the preview can say so.
+// Invariant: imported signature HTML passes both the shared sanitizer and a stricter signature policy.
 
 var MAX_HTML_BYTES = 256 * 1024
 var MAX_IMAGE_BYTES = 512 * 1024
 var MAX_DATA_IMAGES = 8
 
-// What can never be in a signature, whatever the sanitiser kept: elements
-// that run, embed, or take input, and attributes that name an address or a
-// handler. Everything else — inline style without a url(), class, colour,
-// face, size, alignment, table geometry — stays.
+// Invariant: signatures forbid executable, embedded, interactive, and remote-loading content while preserving safe formatting.
 var FORBIDDEN_ELEMENTS = ["script", "style", "iframe", "frame", "frameset", "object", "embed", "applet",
   "form", "input", "button", "select", "textarea", "option", "svg", "math", "template", "link", "meta",
   "base", "video", "audio", "source", "track", "canvas", "noscript"]
@@ -41,10 +27,10 @@ function base64Prefix(data, count) {
   var bytes = []
   var bits = 0
   var value = 0
-  for (var i = 0; i < text.length && bytes.length < count; i++) {
-    var ch = text.charAt(i)
-    if (ch === "=") break
-    var index = alphabet.indexOf(ch)
+  for (var characterIndex = 0; characterIndex < text.length && bytes.length < count; characterIndex++) {
+    var character = text.charAt(characterIndex)
+    if (character === "=") break
+    var index = alphabet.indexOf(character)
     if (index < 0) return []
     value = (value << 6) | index
     bits += 6
@@ -56,18 +42,16 @@ function base64Prefix(data, count) {
   return bytes
 }
 
-// The raster a base64 body is, by its first bytes, or "" for anything else.
-// The declared type is not consulted: an SVG named PNG is the case this
-// exists to refuse, because SVG is a document with scripts in it.
+// Invariant: inspect raster bytes rather than trust a declared image type; SVG must not be admitted as PNG.
 function rasterKind(base64) {
   var head = base64Prefix(base64, 16)
-  for (var r = 0; r < RASTERS.length; r++) {
-    var raster = RASTERS[r]
+  for (var rasterIndex = 0; rasterIndex < RASTERS.length; rasterIndex++) {
+    var raster = RASTERS[rasterIndex]
     var ok = head.length >= raster.magic.length
-    for (var i = 0; ok && i < raster.magic.length; i++) if (head[i] !== raster.magic[i]) ok = false
+    for (var headIndex = 0; ok && headIndex < raster.magic.length; headIndex++) if (head[headIndex] !== raster.magic[headIndex]) ok = false
     if (ok && raster.at12) {
       ok = head.length >= 16
-      for (var j = 0; ok && j < 4; j++) if (head[8 + j] !== raster.at12[j]) ok = false
+      for (var signatureIndex = 0; ok && signatureIndex < 4; signatureIndex++) if (head[8 + signatureIndex] !== raster.at12[signatureIndex]) ok = false
     }
     if (ok) return raster.mime
   }
@@ -80,7 +64,6 @@ function base64Bytes(base64) {
   return Math.floor(text.length * 3 / 4) - padding
 }
 
-// A picture as a signature: one image, its type read from its bytes.
 function importImage(base64, options) {
   var settings = options || {}
   var limit = Math.max(1, Math.floor(Number(settings.maxImageBytes) || MAX_IMAGE_BYTES))
@@ -107,36 +90,61 @@ function hrefOk(value) {
   return !!match && Html.isPublicHost(match[1])
 }
 
-// The second walk: drop what can never be here, count it, keep the rest.
-function prune(node, ctx) {
-  var kept = []
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
-    if (child.type === "text") { kept.push(child); continue }
-    if (child.type !== "element") { ctx.dropped++; continue }
-    var name = String(child.name || "").toLowerCase()
-    if (FORBIDDEN_ELEMENTS.indexOf(name) >= 0) { ctx.dropped++; continue }
-    var attrs = []
-    var list = Array.isArray(child.attrs) ? child.attrs : []
-    for (var a = 0; a < list.length; a++) {
-      var attr = list[a]
-      var attrName = String(attr.name || "").toLowerCase()
-      var value = String(attr.value === undefined ? "" : attr.value)
-      if (attrName.indexOf("on") === 0 || FORBIDDEN_ATTRIBUTES.indexOf(attrName) >= 0) { ctx.dropped++; continue }
-      if (attrName === "href" && !hrefOk(value)) { ctx.dropped++; continue }
-      if (attrName === "src") {
-        if (name !== "img" || !dataImageOk(value, ctx.imageLimit) || ctx.images >= MAX_DATA_IMAGES) { ctx.dropped++; continue }
-        ctx.images++
-      }
-      // A style that fetches, runs, or hides text is dropped whole: a
-      // signature has no business carrying invisible words.
-      if (attrName === "style" && /url\s*\(|expression\s*\(|@import|behavior\s*:|javascript:|display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?![.\d])|font-size\s*:\s*0(?![.\d])|font-size\s*:\s*0?\.\d|text-indent\s*:\s*-/i.test(value)) { ctx.dropped++; continue }
-      attrs.push({ name: attrName, value: value })
+function signatureAttributes(node, name, context) {
+  var attributes = []
+  var list = Array.isArray(node.attrs) ? node.attrs : []
+  for (var attributeIndex = 0; attributeIndex < list.length; attributeIndex++) {
+    var attribute = list[attributeIndex]
+    var attributeName = String(attribute.name || "").toLowerCase()
+    var value = String(attribute.value === undefined ? "" : attribute.value)
+    if (!signatureAttributeAllowed(attributeName, value, name, context)) {
+      context.dropped++
+      continue
     }
-    child.attrs = attrs
+    attributes.push({ name: attributeName, value: value })
+  }
+  return attributes
+}
+
+function signatureAttributeAllowed(attributeName, value, elementName, context) {
+  if (attributeName.indexOf("on") === 0 || FORBIDDEN_ATTRIBUTES.indexOf(attributeName) >= 0) return false
+  if (attributeName === "href") return hrefOk(value)
+  if (attributeName === "src") {
+    if (elementName !== "img" || !dataImageOk(value, context.imageLimit) || context.images >= MAX_DATA_IMAGES) return false
+    context.images++
+    return true
+  }
+  // Invariant: signature styles cannot fetch resources, execute content, or hide words.
+  if (attributeName === "style")
+    return !/url\s*\(|expression\s*\(|@import|behavior\s*:|javascript:|display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?![.\d])|font-size\s*:\s*0(?![.\d])|font-size\s*:\s*0?\.\d|text-indent\s*:\s*-/i.test(value)
+  return true
+}
+
+function prune(node, context) {
+  var kept = []
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
+    if (child.type === "text") {
+      kept.push(child)
+      continue
+    }
+    if (child.type !== "element") {
+      context.dropped++
+      continue
+    }
+    var name = String(child.name || "").toLowerCase()
+    if (FORBIDDEN_ELEMENTS.indexOf(name) >= 0) {
+      context.dropped++
+      continue
+    }
+    var attributes = signatureAttributes(child, name, context)
+    child.attrs = attributes
     child.name = name
-    if (name === "img" && attrs.filter(function(x) { return x.name === "src" }).length === 0) { ctx.dropped++; continue }
-    prune(child, ctx)
+    if (name === "img" && !attributes.some(function(attribute) { return attribute.name === "src" })) {
+      context.dropped++
+      continue
+    }
+    prune(child, context)
     kept.push(child)
   }
   node.children = kept
@@ -147,38 +155,32 @@ function sourceRemovals(source) {
   var count = 0
   var patterns = [/<\s*(script|style|iframe|object|embed|form|input|svg|template|link|meta)\b/gi,
     /\son[a-z]+\s*=/gi, /javascript\s*:/gi, /url\s*\(/gi, /\sbackground\s*=/gi]
-  for (var i = 0; i < patterns.length; i++) {
-    var found = text.match(patterns[i])
+  for (var patternIndex = 0; patternIndex < patterns.length; patternIndex++) {
+    var found = text.match(patterns[patternIndex])
     if (found) count += found.length
   }
   return count
 }
 
-// Markup as a signature. Returns what is stored (`html`), the plain text a
-// text-only client sees (`plain`), how many things were dropped, and a
-// problem where the file cannot be a signature at all.
 function importHtml(html, options) {
   var settings = options || {}
   var source = String(html === undefined || html === null ? "" : html)
   if (source.length > Math.max(1, Math.floor(Number(settings.maxHtmlBytes) || MAX_HTML_BYTES)))
     return { html: "", plain: "", dropped: 0, images: 0, problem: "That file is too large for a signature" }
   var cleaned = Html.sanitize(source, { allowRemoteImages: false, keepColors: true })
-  // What the sanitiser took out is counted from the source, since it reports
-  // only images: every script, frame, form and handler the file carried is a
-  // removal the preview should own up to.
-  var ctx = { dropped: sourceRemovals(source) + cleaned.blockedImages, images: 0,
+  // Docs: count non-image removals from the source because Html reports only blocked images.
+  var context = { dropped: sourceRemovals(source) + cleaned.blockedImages, images: 0,
     imageLimit: Math.max(1, Math.floor(Number(settings.maxImageBytes) || MAX_IMAGE_BYTES)) }
   var document = Html.parse(cleaned.html)
-  prune(document, ctx)
+  prune(document, context)
   var text = Html.serialize(document)
   var read = Html.readTree(document)
   var plain = String(read && read.text !== undefined ? read.text : read || "").replace(/[ \t]+\n/g, "\n").trim()
-  if (text.trim() === "" || (plain === "" && ctx.images === 0))
-    return { html: "", plain: "", dropped: ctx.dropped, images: 0, problem: "Nothing in that file can be a signature" }
-  return { html: text, plain: plain, dropped: ctx.dropped, images: ctx.images, problem: "" }
+  if (text.trim() === "" || (plain === "" && context.images === 0))
+    return { html: "", plain: "", dropped: context.dropped, images: 0, problem: "Nothing in that file can be a signature" }
+  return { html: text, plain: plain, dropped: context.dropped, images: context.images, problem: "" }
 }
 
-// What the preview says about the import.
 function importNote(result) {
   if (!result) return ""
   if (result.problem) return result.problem
@@ -188,9 +190,7 @@ function importNote(result) {
   return parts.length === 0 ? "Imported" : "Imported: " + parts.join(", ")
 }
 
-// The data: images a stored signature carries, each swapped for a cid: so
-// the message can carry them as parts; a client that hides data: images in
-// HTML mail still shows a related part.
+// Invariant: convert stored data images to CID parts for receiving clients that suppress data URLs.
 function inlineParts(html, prefix) {
   var text = String(html || "")
   var parts = []

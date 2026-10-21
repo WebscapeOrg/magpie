@@ -2,27 +2,14 @@
 .import "Direction.js" as Direction
 .import "Signature.js" as Signature
 
-// Everything that turns a Gmail API message resource into something a row or a
-// reader can show. Two things force real work here rather than a few property
-// reads:
-//
-//   - Gmail hands back part bodies as base64url and leaves the transfer
-//     encoding already undone, but the QML JS engine has no `atob` and
-//     `Qt.atob` is not available to a plain JS library, so base64 and UTF-8 are
-//     decoded by hand.
-//   - Gmail does *not* decode headers. A subject in any non-ASCII language
-//     arrives as an RFC 2047 encoded word, so "=?UTF-8?B?5L2g5aW9?=" has to
-//     become "你好" before it reaches a Text element.
+// Docs: providers share Gmail-shaped payloads; body data is base64url and headers can contain RFC 2047 words.
 
 var B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
-// A lookup table rather than indexOf per character. Decoding a 60 KB body
-// means 60 000 scans of a 64-character string otherwise, which measured at
-// ~9 ms in V8 and several times that in QML's engine — a visible stutter on
-// every message, in the process that draws the whole desktop.
+// Performance: one lookup per base64 character avoids repeatedly scanning the alphabet on the drawing thread.
 var B64_LOOKUP = (function() {
   var table = {}
-  for (var i = 0; i < B64_ALPHABET.length; i++) table[B64_ALPHABET.charAt(i)] = i
+  for (var index = 0; index < B64_ALPHABET.length; index++) table[B64_ALPHABET.charAt(index)] = index
   table["-"] = 62
   table["_"] = 63
   return table
@@ -33,15 +20,13 @@ function b64Index(character) {
   return value === undefined ? -1 : value
 }
 
-// Returns an array of byte values. Padding and stray whitespace or newlines —
-// both of which Gmail includes — are ignored rather than treated as an error.
 function base64ToBytes(text) {
   var input = String(text || "")
   var bytes = []
   var buffer = 0
   var bits = 0
-  for (var i = 0; i < input.length; i++) {
-    var value = B64_LOOKUP[input.charAt(i)]
+  for (var index = 0; index < input.length; index++) {
+    var value = B64_LOOKUP[input.charAt(index)]
     if (value === undefined) continue
     buffer = (buffer << 6) | value
     bits += 6
@@ -55,29 +40,28 @@ function base64ToBytes(text) {
 
 function bytesToUtf8(bytes) {
   var out = ""
-  var i = 0
+  var byteIndex = 0
   var length = bytes.length
-  while (i < length) {
-    var byte1 = bytes[i++]
+  while (byteIndex < length) {
+    var byte1 = bytes[byteIndex++]
     if (byte1 < 0x80) {
       out += String.fromCharCode(byte1)
       continue
     }
     var codePoint = -1
-    if (byte1 >= 0xc2 && byte1 <= 0xdf && i < length) {
-      codePoint = ((byte1 & 0x1f) << 6) | (bytes[i] & 0x3f)
-      i += 1
-    } else if (byte1 >= 0xe0 && byte1 <= 0xef && i + 1 < length) {
-      codePoint = ((byte1 & 0x0f) << 12) | ((bytes[i] & 0x3f) << 6) | (bytes[i + 1] & 0x3f)
-      i += 2
-    } else if (byte1 >= 0xf0 && byte1 <= 0xf4 && i + 2 < length) {
-      codePoint = ((byte1 & 0x07) << 18) | ((bytes[i] & 0x3f) << 12)
-        | ((bytes[i + 1] & 0x3f) << 6) | (bytes[i + 2] & 0x3f)
-      i += 3
+    if (byte1 >= 0xc2 && byte1 <= 0xdf && byteIndex < length) {
+      codePoint = ((byte1 & 0x1f) << 6) | (bytes[byteIndex] & 0x3f)
+      byteIndex += 1
+    } else if (byte1 >= 0xe0 && byte1 <= 0xef && byteIndex + 1 < length) {
+      codePoint = ((byte1 & 0x0f) << 12) | ((bytes[byteIndex] & 0x3f) << 6) | (bytes[byteIndex + 1] & 0x3f)
+      byteIndex += 2
+    } else if (byte1 >= 0xf0 && byte1 <= 0xf4 && byteIndex + 2 < length) {
+      codePoint = ((byte1 & 0x07) << 18) | ((bytes[byteIndex] & 0x3f) << 12)
+        | ((bytes[byteIndex + 1] & 0x3f) << 6) | (bytes[byteIndex + 2] & 0x3f)
+      byteIndex += 3
     }
     if (codePoint < 0) {
-      // Not valid UTF-8. Latin-1 is the only other thing this is likely to be,
-      // and showing the wrong accent beats showing a replacement block.
+      // Invariant: malformed UTF-8 bytes fall back individually to Latin-1 so message text remains readable.
       out += String.fromCharCode(byte1)
       continue
     }
@@ -93,26 +77,19 @@ function bytesToUtf8(bytes) {
 
 function bytesToLatin1(bytes) {
   var out = ""
-  for (var i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i])
+  for (var byteIndex = 0; byteIndex < bytes.length; byteIndex++) out += String.fromCharCode(bytes[byteIndex])
   return out
 }
 
-// Qt.atob is native C++ and skips the per-character base64 loop entirely. It
-// does not hand back raw bytes: Qt's implementation is QString::fromUtf8 over
-// the decoded bytes, so the result is already text. Measured on Qt 6.11 —
-// "Alex à l'école" comes back 14 characters with U+00E0 in it, not 16 bytes
-// with C3 A0. Decoding that text a second time as UTF-8 bytes is what turned
-// every accented calendar title and 8-bit mail body into CJK mojibake. The
-// pure JS path stays for the node tests, and as the fallback anywhere Qt is
-// absent.
+// Invariant: Qt.atob returns decoded QString text; decoding it again as byte values corrupts non-ASCII text.
 function decodeBase64Url(text) {
   var input = String(text || "")
   if (input === "") return ""
   if (typeof Qt !== "undefined" && typeof Qt.atob === "function") {
     try {
       return Qt.atob(input.replace(/-/g, "+").replace(/_/g, "/"))
-    } catch (e) {
-      // Fall through to the portable path rather than losing the message.
+    } catch (parseError) {
+
     }
   }
   return bytesToUtf8(base64ToBytes(input))
@@ -121,13 +98,13 @@ function decodeBase64Url(text) {
 function utf8Bytes(text) {
   var input = String(text || "")
   var bytes = []
-  for (var i = 0; i < input.length; i++) {
-    var code = input.charCodeAt(i)
-    if (code >= 0xd800 && code <= 0xdbff && i + 1 < input.length) {
-      var low = input.charCodeAt(i + 1)
+  for (var index = 0; index < input.length; index++) {
+    var code = input.charCodeAt(index)
+    if (code >= 0xd800 && code <= 0xdbff && index + 1 < input.length) {
+      var low = input.charCodeAt(index + 1)
       if (low >= 0xdc00 && low <= 0xdfff) {
         code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00)
-        i++
+        index++
       }
     }
     if (code < 0x80) bytes.push(code)
@@ -141,10 +118,10 @@ function utf8Bytes(text) {
 
 function bytesToBase64(bytes, urlSafe) {
   var out = ""
-  for (var i = 0; i < bytes.length; i += 3) {
-    var b0 = bytes[i]
-    var b1 = i + 1 < bytes.length ? bytes[i + 1] : -1
-    var b2 = i + 2 < bytes.length ? bytes[i + 2] : -1
+  for (var byteIndex = 0; byteIndex < bytes.length; byteIndex += 3) {
+    var b0 = bytes[byteIndex]
+    var b1 = byteIndex + 1 < bytes.length ? bytes[byteIndex + 1] : -1
+    var b2 = byteIndex + 2 < bytes.length ? bytes[byteIndex + 2] : -1
     out += B64_ALPHABET.charAt(b0 >> 2)
     out += B64_ALPHABET.charAt(((b0 & 0x03) << 4) | (b1 < 0 ? 0 : b1 >> 4))
     out += b1 < 0 ? "=" : B64_ALPHABET.charAt(((b1 & 0x0f) << 2) | (b2 < 0 ? 0 : b2 >> 6))
@@ -162,47 +139,30 @@ function encodeBase64(text) {
   return bytesToBase64(utf8Bytes(text), false)
 }
 
-// ------------------------------------------------------- RFC 2047 headers
-
 function decodeQuotedPrintableWord(text) {
   var input = String(text || "").replace(/_/g, " ")
   var bytes = []
-  for (var i = 0; i < input.length; i++) {
-    if (input.charAt(i) === "=" && i + 2 < input.length) {
-      var hex = input.substr(i + 1, 2)
+  for (var index = 0; index < input.length; index++) {
+    if (input.charAt(index) === "=" && index + 2 < input.length) {
+      var hex = input.substr(index + 1, 2)
       if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
         bytes.push(parseInt(hex, 16))
-        i += 2
+        index += 2
         continue
       }
     }
-    bytes.push(input.charCodeAt(i) & 0xff)
+    bytes.push(input.charCodeAt(index) & 0xff)
   }
   return bytes
 }
 
-// Whether these bytes are UTF-8 that a single-byte charset could not have
-// produced: at least one well-formed multi-byte sequence, and nothing
-// malformed anywhere.
-//
-// A charset header is a claim, and this is the evidence. Mail that declares
-// `us-ascii` or `iso-8859-1` while carrying UTF-8 is common enough that every
-// other client sniffs for it, and the two readings are never both plausible:
-// read as one byte each, the UTF-8 for "ń" is "Å" followed by a control
-// character, which is not something anybody wrote. Genuine Latin-1 and
-// Latin-2 text does not survive this test — a lone "ł" in ISO 8859-2 is 0xB3,
-// a continuation byte with no lead, which is malformed UTF-8 and hands the
-// decision back to the declaration.
-//
-// Strict on purpose. An overlong form, a surrogate or a truncated tail all
-// count as malformed, because each is likelier to be single-byte text that
-// happens to begin a sequence than UTF-8 worth trusting over the header.
+// Invariant: only fully valid multibyte UTF-8 overrides a declared single-byte charset.
 function looksLikeUtf8(bytes) {
   var values = bytes || []
   var multi = 0
-  var i = 0
-  while (i < values.length) {
-    var byte1 = values[i++]
+  var byteIndex = 0
+  while (byteIndex < values.length) {
+    var byte1 = values[byteIndex++]
     if (byte1 < 0x80) continue
     var needed = 0
     var codePoint = 0
@@ -216,17 +176,16 @@ function looksLikeUtf8(bytes) {
       needed = 3
       codePoint = byte1 & 0x07
     } else {
-      // 0x80-0xc1 is a continuation with no lead, or an overlong two-byte
-      // form; 0xf5 and above is past the last code point.
+
       return false
     }
-    if (i + needed > values.length) return false
-    for (var n = 0; n < needed; n++) {
-      var next = values[i + n]
+    if (byteIndex + needed > values.length) return false
+    for (var continuationIndex = 0; continuationIndex < needed; continuationIndex++) {
+      var next = values[byteIndex + continuationIndex]
       if (next < 0x80 || next > 0xbf) return false
       codePoint = (codePoint << 6) | (next & 0x3f)
     }
-    i += needed
+    byteIndex += needed
     if (needed === 1 && codePoint < 0x80) return false
     if (needed === 2 && codePoint < 0x800) return false
     if (needed === 3 && (codePoint < 0x10000 || codePoint > 0x10ffff)) return false
@@ -242,15 +201,11 @@ function decodeWordBytes(charset, bytes) {
   if (name.indexOf("iso-8859") === 0 || name.indexOf("windows-125") === 0
     || name.indexOf("us-ascii") === 0 || name === "")
     return looksLikeUtf8(bytes) ? bytesToUtf8(bytes) : bytesToLatin1(bytes)
-  // GB18030, Shift_JIS and friends need a table this plugin does not carry.
-  // UTF-8 decoding degrades to Latin-1 per byte, which at least keeps the
-  // ASCII parts of the header readable.
+  // Docs: unsupported multibyte charsets use the UTF-8/Latin-1 fallback because this portable path has no mapping tables.
   return bytesToUtf8(bytes)
 }
 
-// Adjacent encoded words are defined to join with the whitespace between them
-// dropped, which is what makes multi-word CJK subjects come out unspaced when
-// a naive decoder keeps it.
+// Invariant: RFC 2047 adjacent encoded words omit separating whitespace.
 function decodeHeaderValue(value) {
   var input = String(value === undefined || value === null ? "" : value)
   if (input.indexOf("=?") < 0) return input
@@ -273,15 +228,13 @@ function decodeHeaderValue(value) {
   return out
 }
 
-// ---------------------------------------------------------------- headers
-
 function headerValue(message, name) {
   var payload = message && message.payload ? message.payload : null
   var headers = payload && Array.isArray(payload.headers) ? payload.headers : []
   var wanted = String(name || "").toLowerCase()
-  for (var i = 0; i < headers.length; i++) {
-    if (String(headers[i].name || "").toLowerCase() === wanted)
-      return String(headers[i].value || "")
+  for (var headerIndex = 0; headerIndex < headers.length; headerIndex++) {
+    if (String(headers[headerIndex].name || "").toLowerCase() === wanted)
+      return String(headers[headerIndex].value || "")
   }
   return ""
 }
@@ -297,8 +250,7 @@ function unquote(value) {
   return text.replace(/\\(.)/g, "$1").trim()
 }
 
-// "Jane Doe <jane@example.com>", "<jane@example.com>" and a bare address all
-// have to end up as the same shape.
+// Invariant: parse mailbox structure before decoding display words; decoded punctuation must never create a recipient.
 function addressSyntax(value) {
   return String(value || "").replace(/=\?[^?\s]+\?[bq]\?[^?]*\?=/gi, function(word) {
     return new Array(word.length + 1).join(" ")
@@ -325,10 +277,10 @@ function parseAddressList(value) {
   var start = 0
   var inQuotes = false
   var inAngle = false
-  for (var i = 0; i < syntax.length; i++) {
-    var character = syntax.charAt(i)
+  for (var characterIndex = 0; characterIndex < syntax.length; characterIndex++) {
+    var character = syntax.charAt(characterIndex)
     if (inQuotes && character === "\\") {
-      i++
+      characterIndex++
       continue
     }
     if (character === "\"") inQuotes = !inQuotes
@@ -337,17 +289,17 @@ function parseAddressList(value) {
     else if (character === ">") inAngle = false
     if (inAngle) continue
     if (character === ":") {
-      start = i + 1
+      start = characterIndex + 1
       continue
     }
     if (character !== "," && character !== ";") continue
-    entries.push(raw.substring(start, i))
-    start = i + 1
+    entries.push(raw.substring(start, characterIndex))
+    start = characterIndex + 1
   }
   entries.push(raw.substring(start))
   var result = []
-  for (var j = 0; j < entries.length; j++) {
-    var parsed = parseAddress(entries[j])
+  for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+    var parsed = parseAddress(entries[entryIndex])
     if (parsed.email !== "") result.push(parsed)
   }
   return result
@@ -357,21 +309,19 @@ function formatAddressList(addresses, limit) {
   var list = Array.isArray(addresses) ? addresses : []
   var max = Math.max(1, Math.floor(Number(limit) || 3))
   var names = []
-  for (var i = 0; i < list.length && i < max; i++) names.push(list[i].display)
+  for (var listIndex = 0; listIndex < list.length && listIndex < max; listIndex++) names.push(list[listIndex].display)
   if (list.length > max) names.push("+" + (list.length - max))
   return names.join(", ")
 }
-
-// ------------------------------------------------------------------ bodies
 
 function partCharset(part) {
   var mime = String(part && part.mimeType ? part.mimeType : "")
   var match = mime.match(/charset="?([^";]+)"?/i)
   if (match) return match[1]
   var headers = part && Array.isArray(part.headers) ? part.headers : []
-  for (var i = 0; i < headers.length; i++) {
-    if (String(headers[i].name || "").toLowerCase() !== "content-type") continue
-    var found = String(headers[i].value || "").match(/charset="?([^";\s]+)"?/i)
+  for (var headerIndex = 0; headerIndex < headers.length; headerIndex++) {
+    if (String(headers[headerIndex].name || "").toLowerCase() !== "content-type") continue
+    var found = String(headers[headerIndex].value || "").match(/charset="?([^";\s]+)"?/i)
     if (found) return found[1]
   }
   return ""
@@ -383,11 +333,7 @@ function decodePart(part) {
   return decodeWordBytes(partCharset(part) || "utf-8", base64ToBytes(data))
 }
 
-// Images become a marker rather than nothing at all. Stripped outright — which
-// is what removing every tag does — a message built around its pictures reads as
-// a long run of unexplained blank space, with no way to tell an empty message
-// from one whose contents happen not to be text. The number is what lets the
-// reader offer the image itself when the marker is clicked.
+// Invariant: preserve image markers when flattening markup so a non-text message does not appear empty.
 var IMAGE_MARKER = /\[image (\d+)\]/g
 
 function htmlToText(html) {
@@ -395,10 +341,7 @@ function htmlToText(html) {
   return String(html || "")
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
-    // The reader does not use this numbering: MailAccount takes the body text
-    // and the picture list from one walk over Html.js's parse tree, so the two
-    // cannot disagree. What is left here serves decodeSnippet, where Gmail's
-    // snippet is escaped prose that never carried an image.
+    // Invariant: reader text and image IDs come from one Html walk; this fallback serves escaped snippets.
     .replace(/<img\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi, function() {
       imageCount++
       return "[image " + imageCount + "]"
@@ -422,9 +365,9 @@ function htmlToText(html) {
 
 function partHeader(part, wanted) {
   var headers = part && Array.isArray(part.headers) ? part.headers : []
-  for (var i = 0; i < headers.length; i++) {
-    if (String(headers[i].name || "").toLowerCase() === wanted)
-      return String(headers[i].value || "")
+  for (var headerIndex = 0; headerIndex < headers.length; headerIndex++) {
+    if (String(headers[headerIndex].name || "").toLowerCase() === wanted)
+      return String(headers[headerIndex].value || "")
   }
   return ""
 }
@@ -447,9 +390,7 @@ function isAttachment(part) {
   return disposition(part) === "attachment"
 }
 
-// Walks the MIME tree once and keeps the best text it saw. text/plain wins
-// outright; a text/html part is kept only as a fallback because converting it
-// always loses something.
+// Invariant: prefer text/plain; HTML flattening is a fallback because it loses formatting.
 function extractBody(payload) {
   var plain = ""
   var html = ""
@@ -459,7 +400,7 @@ function extractBody(payload) {
     var mime = String(part.mimeType || "").toLowerCase()
     var children = Array.isArray(part.parts) ? part.parts : []
     if (children.length > 0) {
-      for (var i = 0; i < children.length; i++) walk(children[i], depth + 1)
+      for (var childIndex = 0; childIndex < children.length; childIndex++) walk(children[childIndex], depth + 1)
       return
     }
     if (isAttachment(part)) return
@@ -473,9 +414,7 @@ function extractBody(payload) {
   return { text: "", source: "" }
 }
 
-// The same walk as extractBody, kept separate because the reader wants the
-// markup and the list row wants the flattened text, and neither should pay for
-// the other's work.
+// Performance: plain text and markup extraction stay separate so callers do not pay for both walks.
 function extractHtml(payload) {
   var found = ""
 
@@ -484,7 +423,7 @@ function extractHtml(payload) {
     var mime = String(part.mimeType || "").toLowerCase()
     var children = Array.isArray(part.parts) ? part.parts : []
     if (children.length > 0) {
-      for (var i = 0; i < children.length; i++) walk(children[i], depth + 1)
+      for (var childIndex = 0; childIndex < children.length; childIndex++) walk(children[childIndex], depth + 1)
       return
     }
     if (isAttachment(part)) return
@@ -509,16 +448,13 @@ function attachments(payload) {
         attachmentId: String(part.body.attachmentId)
       })
     }
-    for (var i = 0; i < children.length; i++) walk(children[i], depth + 1)
+    for (var childIndex = 0; childIndex < children.length; childIndex++) walk(children[childIndex], depth + 1)
   }
 
   walk(payload, 0)
   return found
 }
 
-// The part an attachment id names, or null. Gmail describes a part it will not
-// send — an id, a type and a size — and this is how the caller gets back to
-// what it was told about it once the octets arrive.
 function partForAttachment(payload, attachmentId) {
   var wanted = String(attachmentId || "")
   if (wanted === "") return null
@@ -531,7 +467,7 @@ function partForAttachment(payload, attachmentId) {
       return
     }
     var children = Array.isArray(part.parts) ? part.parts : []
-    for (var i = 0; i < children.length; i++) walk(children[i], depth + 1)
+    for (var childIndex = 0; childIndex < children.length; childIndex++) walk(children[childIndex], depth + 1)
   }
 
   walk(payload, 0)
@@ -551,52 +487,36 @@ function formatCount(count, singular) {
   return amount + " " + noun + (amount === 1 ? "" : "s")
 }
 
-// ------------------------------------------------------ RFC 822 → payload
-//
-// Gmail hands back a message already taken apart: a headers array, a MIME
-// tree, part bodies in base64url. An IMAP server hands back the message.
-//
-// So this rebuilds Gmail's shape from the wire format, and everything above —
-// `extractBody`, `extractHtml`, `attachments`, `summarize`, the whole reader —
-// goes on working without learning a second vocabulary. It is the single
-// adapter that lets one panel drive two very different services.
-//
-// The input is a *byte string*: one character per octet, which is what
-// `Imap.decodeResponse` produces. Anything else and a Content-Length or a
-// literal count would be measured in the wrong unit.
+// Docs: MIME input is a byte string, one character per octet; the result uses the shared provider payload shape.
 
 var MAX_MIME_DEPTH = 12
 
 function latin1Bytes(text) {
   var input = String(text || "")
   var bytes = []
-  for (var i = 0; i < input.length; i++) bytes.push(input.charCodeAt(i) & 0xff)
+  for (var index = 0; index < input.length; index++) bytes.push(input.charCodeAt(index) & 0xff)
   return bytes
 }
 
-// The body form of quoted-printable, which differs from the encoded-word form
-// above in two ways that matter: "_" is a literal underscore rather than a
-// space, and a "=" at the end of a line is a soft break that disappears.
+// Invariant: body quoted-printable preserves underscores and removes soft line breaks, unlike encoded-word decoding.
 function decodeQuotedPrintableBytes(text) {
   var input = String(text || "").replace(/=\r?\n/g, "")
   var bytes = []
-  for (var i = 0; i < input.length; i++) {
-    if (input.charAt(i) === "=" && i + 2 < input.length) {
-      var hex = input.substr(i + 1, 2)
+  for (var index = 0; index < input.length; index++) {
+    if (input.charAt(index) === "=" && index + 2 < input.length) {
+      var hex = input.substr(index + 1, 2)
       if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
         bytes.push(parseInt(hex, 16))
-        i += 2
+        index += 2
         continue
       }
     }
-    bytes.push(input.charCodeAt(i) & 0xff)
+    bytes.push(input.charCodeAt(index) & 0xff)
   }
   return bytes
 }
 
-// A header may be folded across several lines, each continuation beginning
-// with a space or a tab. Unfolding has to happen before anything looks for a
-// ":", or a long Subject becomes a header called "of the meeting".
+// Invariant: unfold header continuations before finding field separators.
 function unfoldHeaders(text) {
   return String(text || "").replace(/\r?\n[ \t]+/g, " ")
 }
@@ -604,13 +524,11 @@ function unfoldHeaders(text) {
 function parseHeaderBlock(text) {
   var lines = unfoldHeaders(text).split(/\r?\n/)
   var headers = []
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i]
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    var line = lines[lineIndex]
     if (line === "") continue
     var colon = line.indexOf(":")
-    // A line with no colon is not a header. It is what the first line of a
-    // message looks like when a server included the "From " envelope line, and
-    // keeping it would give every message a header with an empty name.
+
     if (colon <= 0) continue
     headers.push({
       name: line.substring(0, colon).trim(),
@@ -623,15 +541,13 @@ function parseHeaderBlock(text) {
 function headerFrom(headers, name) {
   var list = Array.isArray(headers) ? headers : []
   var wanted = String(name || "").toLowerCase()
-  for (var i = 0; i < list.length; i++) {
-    if (String(list[i].name || "").toLowerCase() === wanted) return String(list[i].value || "")
+  for (var listIndex = 0; listIndex < list.length; listIndex++) {
+    if (String(list[listIndex].name || "").toLowerCase() === wanted) return String(list[listIndex].value || "")
   }
   return ""
 }
 
-// A Content-Type parameter, quoted or bare. RFC 2231 continuations
-// (name*0=, name*1=) are not handled: they appear on long filenames, and a
-// truncated filename is a smaller loss than a parser that guesses.
+// Docs: RFC 2231 filename continuations are unsupported; ordinary quoted and bare parameters are parsed structurally.
 function contentTypeParam(value, name) {
   var text = String(value || "")
   var wanted = String(name || "").toLowerCase()
@@ -647,15 +563,11 @@ function contentTypeParam(value, name) {
 
 function mimeTypeOf(contentType) {
   var value = String(contentType || "").split(";")[0].trim().toLowerCase()
-  // No Content-Type at all means text/plain, which is what the RFC says and
-  // what a message from a script that forgot the header actually is.
+  // Invariant: absent Content-Type defaults to text/plain.
   return value === "" ? "text/plain" : value
 }
 
-// Splits a multipart body on its boundary. Everything before the first
-// delimiter is the preamble and everything after the closing one is the
-// epilogue; both are for clients that do not understand MIME, and neither is
-// part of the message.
+// Invariant: multipart delimiters begin a line; preambles and epilogues are outside all parts.
 function splitMultipart(body, boundary) {
   var text = String(body || "")
   var marker = String(boundary || "")
@@ -673,10 +585,7 @@ function splitMultipart(body, boundary) {
   return parts
 }
 
-// Only ever asked about a body whose own Content-Type has already been shown
-// to be wrong, so a guess is the best information there is. Deliberately
-// narrow: a plain-text message that happens to mention <brackets> should stay
-// plain text, and only a document that opens like markup is treated as markup.
+// Invariant: HTML sniffing is limited to a body whose declared type is already unusable.
 function looksLikeHtml(body) {
   return /^\s*(<!doctype\s+html|<html\b|<head\b|<body\b|<div\b|<table\b|<p\b)/i
     .test(String(body || ""))
@@ -686,17 +595,14 @@ function decodeTransfer(body, encoding) {
   var name = String(encoding || "").trim().toLowerCase()
   if (name === "base64") return base64ToBytes(body)
   if (name === "quoted-printable") return decodeQuotedPrintableBytes(body)
-  // 7bit, 8bit, binary, and anything unrecognised: the octets as they stand.
+  // Docs: unknown transfer encodings retain the original octets.
   return latin1Bytes(body)
 }
 
-// One MIME entity — headers, and either a body or children. `partId` is the
-// RFC 3501 part path ("1", "1.2"), which is what an attachment would be
-// fetched by if this plugin ever fetches one separately.
+// Docs: partId is the RFC 3501 MIME part path used for attachment identity.
 function parseMimeEntity(raw, partId, depth) {
   var text = String(raw || "")
-  // The first blank line ends the headers. CRLF is the standard; bare LF is
-  // what a surprising number of senders actually emit.
+  // Invariant: tolerate bare LF as well as RFC 5322 CRLF when separating headers from the body.
   var split = text.search(/\r?\n\r?\n/)
   var headerText = split < 0 ? text : text.substring(0, split)
   var body = ""
@@ -723,52 +629,39 @@ function parseMimeEntity(raw, partId, depth) {
   var boundary = contentTypeParam(contentType, "boundary")
   if (mimeType.indexOf("multipart/") === 0 && boundary !== "" && depth < MAX_MIME_DEPTH) {
     var chunks = splitMultipart(body, boundary)
-    for (var i = 0; i < chunks.length; i++) {
-      var childId = entity.partId === "" ? String(i + 1) : entity.partId + "." + String(i + 1)
-      entity.parts.push(parseMimeEntity(chunks[i], childId, depth + 1))
+    for (var chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      var childId = entity.partId === "" ? String(chunkIndex + 1) : entity.partId + "." + String(chunkIndex + 1)
+      entity.parts.push(parseMimeEntity(chunks[chunkIndex], childId, depth + 1))
     }
-    // A multipart whose boundary never appeared is not a container at all.
-    // Falling through decodes its body, but that is only half the repair:
-    // `extractBody` dispatches on `mimeType`, so an entity still labelled
-    // multipart is skipped by every reader and the message shows as blank.
-    // Relabelling is what makes those octets reachable.
+    // Invariant: a missing multipart boundary falls back to a leaf type so its body remains reachable.
     if (entity.parts.length > 0) return entity
     entity.mimeType = looksLikeHtml(body) ? "text/html" : "text/plain"
   }
 
   var bytes = decodeTransfer(body, headerFrom(headers, "Content-Transfer-Encoding"))
   entity.body.size = bytes.length
-  // base64url, because that is the shape `decodePart` decodes and the shape
-  // Gmail would have sent. Encoded from the byte array rather than from the
-  // string, so a Latin-1 body does not get re-encoded as UTF-8 on the way in.
+  // Invariant: preserve decoded byte values when converting to the provider payload's base64url representation.
   entity.body.data = bytesToBase64(bytes, true)
 
-  // An attachment needs an id before `attachments()` will list it. The part
-  // path is the honest one: it is what a later FETCH would ask for.
+  // Invariant: attachment listing requires a stable part ID even before any separate fetch.
   if (entity.filename !== "" || /attachment/i.test(disposition))
     entity.body.attachmentId = "part:" + entity.partId
 
   return entity
 }
 
-// The whole message. Returns the `payload` half of a Gmail message resource —
-// the caller supplies the id, the labels and the internal date, because those
-// come from the IMAP response rather than from the message itself.
+// Docs: parseMime returns payload only; provider metadata supplies IDs, labels, and receipt time.
 function parseRfc822(raw) {
   return parseMimeEntity(raw, "", 0)
 }
 
-// A list row's preview. Gmail sends one; IMAP has no equivalent, so it is made
-// from the body once the body is here. Long enough to be useful, short enough
-// that the cache is not storing the message twice.
+// Performance: derive a bounded IMAP preview once rather than cache a second full body.
 function buildSnippet(text) {
   return String(text || "")
     .replace(/\s+/g, " ")
     .trim()
     .substring(0, 200)
 }
-
-// ------------------------------------------------------------------- dates
 
 var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -790,8 +683,6 @@ function pad(value) {
   return (value < 10 ? "0" : "") + value
 }
 
-// Compact enough for a list row: minutes for the last hour, then the clock
-// time for today, a weekday for the last two days, and a date beyond it.
 function relativeTime(date, now) {
   if (!date) return ""
   var reference = now instanceof Date ? now : new Date(Number(now) || Date.now())
@@ -817,8 +708,6 @@ function fullTime(date) {
     + " " + pad(date.getHours()) + ":" + pad(date.getMinutes())
 }
 
-// ------------------------------------------------------------- row summary
-
 function labelIds(message) {
   return message && Array.isArray(message.labelIds) ? message.labelIds : []
 }
@@ -828,40 +717,23 @@ function hasLabel(message, label) {
 }
 
 function decodeSnippet(text) {
-  // Gmail's snippet is HTML-escaped even though it carries no markup.
+  // Invariant: Gmail snippets are entity-escaped prose even when they contain no markup.
   return htmlToText(String(text || "")).replace(/\s+/g, " ").trim()
 }
 
-// The conversation a row stands for:
-//
-//   { id, count, unread, flagged, memberIds }
-//
-// Every summary carries one, whatever provider it came from, so a row and a
-// cached row are the same shape and nothing above has to ask whether the block
-// is there. `memberIds` are the counted members oldest first and `count` is
-// their length — a count of 0 means the provider does not group its listing, or
-// does not know, and the row draws no badge. A conversation is never one
-// message: a count of 1 draws nothing either.
-//
-// `unread` and `flagged` are the whole conversation's, which is why the row's
-// own `unread` and `starred` below take them as well as the message's. A
-// provider that reports no block reports neither, so nothing changes for it.
+// Docs: every summary carries a provider-neutral conversation; memberIds are oldest first and count matches their length.
 function threadOf(message) {
   var source = message && message.thread && typeof message.thread === "object"
     ? message.thread : {}
   return normalizeThread(source, message ? message.threadId : "")
 }
 
-// A block in the shape above, whatever shape it arrived in: the ids trimmed
-// and emptied of blanks, the count their length, the flags read as booleans,
-// and `fallbackId` the thread id when the block names none. This is the one
-// normalisation; `Conversation.blockOf` reads a cached row through it too.
 function normalizeThread(block, fallbackId) {
   var source = block && typeof block === "object" ? block : {}
   var list = Array.isArray(source.memberIds) ? source.memberIds : []
   var ids = []
-  for (var i = 0; i < list.length; i++) {
-    var id = String(list[i] === undefined || list[i] === null ? "" : list[i]).trim()
+  for (var listIndex = 0; listIndex < list.length; listIndex++) {
+    var id = String(list[listIndex] === undefined || list[listIndex] === null ? "" : list[listIndex]).trim()
     if (id !== "") ids.push(id)
   }
   return {
@@ -880,7 +752,7 @@ function hasAttachments(message) {
     budget--
     if (isAttachment(part)) return true
     var parts = Array.isArray(part.parts) ? part.parts : []
-    for (var i = 0; i < parts.length; i++) if (walk(parts[i], depth + 1)) return true
+    for (var partIndex = 0; partIndex < parts.length; partIndex++) if (walk(parts[partIndex], depth + 1)) return true
     return false
   }
   return !!message && (message.hasAttachments === true || walk(message.payload, 0))
@@ -895,9 +767,7 @@ function summarize(message, now) {
     id: String(message && message.id ? message.id : ""),
     threadId: String(message && message.threadId ? message.threadId : ""),
     from: from,
-    // Reply-To and Message-ID only arrive with the full format, so a list row
-    // carries empty ones and the reader — which is where replying happens —
-    // carries the real values.
+    // Invariant: list metadata can omit Reply-To and Message-ID; full reader metadata supplies reply routing.
     replyTo: parseAddress(headerValue(message, "Reply-To")),
     messageId: headerValue(message, "Message-ID"),
     to: parseAddressList(headerValue(message, "To")),
@@ -910,12 +780,7 @@ function summarize(message, now) {
     time: relativeTime(date, now),
     fullTime: fullTime(date),
     thread: thread,
-    // The conversation's, not only the representative's. A thread whose unread
-    // reply is not the message the server returned for this view is still an
-    // unread row, and the representative is a counted member of its own
-    // conversation in every view that can produce one — so the two readings
-    // agree wherever both have an answer, and the message's own is what is left
-    // when the block has none.
+    // Invariant: conversation unread and flagged state comes from all counted members, not just the representative.
     unread: hasLabel(message, "UNREAD") || thread.unread,
     starred: hasLabel(message, "STARRED") || thread.flagged,
     important: hasLabel(message, "IMPORTANT"),
@@ -933,15 +798,13 @@ function summarize(message, now) {
 function draftAddressText(addresses) {
   var list = Array.isArray(addresses) ? addresses : []
   var out = []
-  for (var i = 0; i < list.length; i++) {
-    var email = String(list[i] && list[i].email ? list[i].email : "").trim()
+  for (var listIndex = 0; listIndex < list.length; listIndex++) {
+    var email = String(list[listIndex] && list[listIndex].email ? list[listIndex].email : "").trim()
     if (email !== "") out.push(email)
   }
   return out.join(", ")
 }
 
-// A full draft read has the same provider-neutral summary and body as any
-// message. Compose needs the addresses as editable text rather than row data.
 function draftFields(summary, body) {
   var source = summary || ({})
   var subject = String(source.subject || "")
@@ -951,8 +814,7 @@ function draftFields(summary, body) {
     to: draftAddressText(source.to),
     cc: draftAddressText(source.cc),
     bcc: draftAddressText(source.bcc),
-    // A Reply-To the draft was saved with comes back into the field it was
-    // typed in, or the next save would drop it.
+    // Invariant: preserve a saved draft's Reply-To field across another save.
     replyTo: String(source.replyTo && source.replyTo.email ? source.replyTo.email : ""),
     subject: subject === "(no subject)" ? "" : subject,
     body: String(body || ""),
@@ -961,21 +823,12 @@ function draftFields(summary, body) {
   }
 }
 
-// ------------------------------------------------------------- composition
-
-// A header value can never carry a line break. One would end the header and let
-// whatever followed be read as the next one, which is how a Bcc gets into a
-// message nobody wrote it into. Removed rather than rejected: the values that
-// reach here are addresses and subjects, and a stray newline in one of them is
-// not worth refusing to send over.
+// Invariant: outgoing header values cannot contain line breaks that would introduce another header.
 function headerSafe(value) {
   return String(value === undefined || value === null ? "" : value).replace(/[\r\n]+/g, " ")
 }
 
-// A display name is a phrase, not a header value: an encoded word may not sit
-// inside quotes, and an ASCII name carrying a comma or a dot is only legal
-// quoted. `foldHeader` cannot do this, because it encodes the whole value as
-// one word — `=?UTF-8?B?...?=` wrapped around `"Name" <a@b>` is not an address.
+// Invariant: encoded display words belong outside quotes; ASCII display punctuation uses a quoted phrase.
 function encodedPhrase(text) {
   var value = headerSafe(text).trim()
   if (value === "") return ""
@@ -984,17 +837,7 @@ function encodedPhrase(text) {
   return '"' + value.replace(/([\\"])/g, "\\$1") + '"'
 }
 
-// Written by hand rather than through `foldHeader` for the reason above. The
-// address still loses its line breaks, so a display name cannot smuggle a
-// second header in either.
-// One address as a header *value*: `"Name" <a@b.com>`, or the bare address when
-// there is no name to put in front of it.
-//
-// Split out from `fromHeader` because a provider composing a message rather
-// than parsing one needs the value without a field name — HEY's client builds a
-// To line this way, and pasting `fromHeader`'s output into one produced
-// `To: From: "Name" <a@b.com>`, which `parseAddress` then read as a display
-// name of `From: "Name"`.
+// Docs: addressHeader returns a mailbox header value, without a field name, so provider adapters can reuse it.
 function addressHeader(email, displayName) {
   var address = headerSafe(email).trim()
   var phrase = encodedPhrase(displayName)
@@ -1007,17 +850,12 @@ function fromHeader(email, displayName) {
 
 function foldHeader(name, value) {
   var text = headerSafe(value)
-  // Any non-ASCII in a header has to go back out as an encoded word, or Gmail
-  // rejects the raw message.
+  // Invariant: encode non-ASCII header values as RFC 2047 words for Gmail raw messages.
   if (/^[\x20-\x7e]*$/.test(text)) return name + ": " + text
   return name + ": =?UTF-8?B?" + encodeBase64(text) + "?="
 }
 
-// In-Reply-To and References carry a Message-ID, and a Message-ID is a string
-// off a message a stranger sent — it reaches here having been read out of their
-// headers and no further. It goes back out verbatim because a reply has to
-// thread, so it is cut down to what a message id can legally be first:
-// printable ASCII, on one line, no longer than a header may run.
+// Invariant: sender-controlled threading IDs must remain bounded, printable, and on one line.
 function referenceValue(value) {
   return headerSafe(value).replace(/[^\x20-\x7e]+/g, "").substring(0, 512).trim()
 }
@@ -1028,22 +866,11 @@ function quoteBody(summary, body) {
     : ""
   var lines = String(body || "").split("\n")
   var quoted = []
-  for (var i = 0; i < lines.length; i++) quoted.push("> " + lines[i])
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) quoted.push("> " + lines[lineIndex])
   return (header ? header + "\n" : "") + quoted.join("\n")
 }
 
-// The body a compose window opens with. Two blank lines to type into, then
-// whatever the user did not type but must be able to edit.
-//
-// A signature and a quote are the same kind of thing here — text placed under
-// the cursor rather than by it — so they are joined the same way instead of
-// being special-cased against each other. That is what keeps the signature
-// next to the words it signs: below the reply, above the quoted thread, rather
-// than stranded under a screen of somebody else's message.
-//
-// With no signature set this returns exactly what the caller used to build by
-// hand, which is what makes the field optional rather than a new shape of
-// draft.
+// Invariant: placed signatures precede quoted history and follow the editable reply space.
 function composeBody(signature, quoted) {
   var parts = []
   var sign = String(signature === undefined || signature === null ? "" : signature).trim()
@@ -1060,26 +887,21 @@ function replySubject(subject) {
   return "Re: " + (text || "(no subject)")
 }
 
-// A minimal RFC 5322 message. Gmail wants the whole thing base64url encoded in
-// a single `raw` field, so this returns the string ready for that.
-// Base64 body lines are wrapped at 76 characters as the RFC requires; Gmail
-// accepts longer lines but other receiving servers do not.
+// Invariant: MIME base64 lines wrap at 76 characters for receiving-server interoperability.
 function base64Body(text) {
   var encoded = encodeBase64(String(text || ""))
   var wrapped = []
-  for (var i = 0; i < encoded.length; i += 76) wrapped.push(encoded.substr(i, 76))
+  for (var index = 0; index < encoded.length; index += 76) wrapped.push(encoded.substr(index, 76))
   return wrapped.join("\r\n")
 }
 
-// Provider attachment bodies are base64url. MIME uses standard base64, but
-// changing alphabets does not require decoding the binary file through a text
-// string. Doing that would corrupt every byte sequence that is not UTF-8.
+// Invariant: convert base64 alphabets without decoding binary attachments through a text string.
 function mimeBase64(data) {
   var encoded = String(data || "").replace(/[\r\n\s]/g, "")
     .replace(/-/g, "+").replace(/_/g, "/")
   while (encoded.length % 4 !== 0) encoded += "="
   var wrapped = []
-  for (var i = 0; i < encoded.length; i += 76) wrapped.push(encoded.substr(i, 76))
+  for (var index = 0; index < encoded.length; index += 76) wrapped.push(encoded.substr(index, 76))
   return wrapped.join("\r\n")
 }
 
@@ -1089,10 +911,7 @@ function attachmentType(value) {
     ? type : "application/octet-stream"
 }
 
-// The separator only has to be a string the parts do not contain, and every
-// part here is base64 — an alphabet with no "_" in it, so a boundary carrying
-// one cannot occur inside a body however long it is. The caller may name it,
-// which is what lets a test read the message it built.
+// Invariant: generated boundaries contain an underscore absent from standard base64 bodies.
 function mimeBoundary(given) {
   var stated = String(given || "").replace(/[^A-Za-z0-9'()+_,\-.\/:=?]/g, "")
   if (stated !== "") return stated.substring(0, 60)
@@ -1100,46 +919,35 @@ function mimeBoundary(given) {
   return "=_Omamail_" + (new Date()).getTime().toString(36) + "_" + random
 }
 
-// The domain of an address, reduced to the characters a domain may hold, or
-// "" when the value carries none.
 function addressDomain(value) {
   var address = headerSafe(value).trim()
   var at = address.lastIndexOf("@")
   return at < 0 ? "" : address.substring(at + 1).replace(/[^A-Za-z0-9.-]/g, "")
 }
 
-// The domain half of a Message-ID is the sender's own, so the id agrees with
-// the address the message is from — or, when the From line is left for the
-// provider to fill in, the address the mailbox is signed in as. Gmail writes
-// its own From and the IMAP client puts the account on the envelope rather
-// than in the headers, so a compose window sending none is ordinary; a JMAP
-// server stores exactly the bytes it was handed, so there the fallback is what
-// keeps the id in the account's own domain.
+// Invariant: Message-ID uses the explicit sender domain or the signed-in mailbox domain.
 function messageIdDomain(from, accountAddress) {
   var domain = addressDomain(from) || addressDomain(accountAddress)
-  // RFC 2606 reserves .invalid, so a message with no address at all borrows no domain that belongs to somebody else.
+  // Invariant: RFC 2606 .invalid avoids borrowing a real domain when no sender domain is available.
   return domain === "" ? "omamail.invalid" : domain
 }
 
-// Unique by the rule mimeBoundary already uses, and the caller may state one, which is what lets a test read it.
-function messageIdValue(given, from, nowMs, accountAddress) {
+function messageIdValue(given, from, nowMilliseconds, accountAddress) {
   var stated = String(given === undefined || given === null ? "" : given)
-  // A stated id is this client's own choice rather than a stranger's, so one that is not an id is replaced.
+  // Invariant: replace a malformed caller-supplied Message-ID with a generated valid one.
   if (stated.length <= 250
       && /^<[A-Za-z0-9!#$%&'*+\/=?^_\x60{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+\/=?^_\x60{|}~-]+)*@[A-Za-z0-9!#$%&'*+\/=?^_\x60{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+\/=?^_\x60{|}~-]+)*>$/.test(stated))
     return stated
-  var now = Math.floor(Number(nowMs) || Date.now())
+  var now = Math.floor(Number(nowMilliseconds) || Date.now())
   var random = Math.floor(Math.random() * 0x100000000).toString(36)
   return "<" + now.toString(36) + "." + random + ".omamail@"
     + messageIdDomain(from, accountAddress) + ">"
 }
 
-// The date a message states, in RFC 5322's own shape: a numeric zone rather than toUTCString's obsolete GMT.
-function sentDate(given, nowMs) {
+// Invariant: outgoing Date uses RFC 5322 numeric timezone syntax.
+function sentDate(given, nowMilliseconds) {
   var stated = headerSafe(given).trim()
-  // JavaScript also parses ISO dates and shorthand spellings that are not
-  // legal header values, so a stated date needs this client's canonical shape
-  // and RFC 5322's semantic calendar constraints.
+  // Invariant: JavaScript date parsing accepts non-header syntax; validate canonical header shape and calendar fields first.
   var canonical = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), (0[1-9]|[12][0-9]|3[01]) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{4}) ([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9] [+-][0-9]{2}[0-5][0-9]$/
   var parts = stated.match(canonical)
   if (parts) {
@@ -1151,7 +959,7 @@ function sentDate(given, nowMs) {
         && calendar.getUTCDate() === day && WEEKDAYS[calendar.getUTCDay()] === parts[1])
       return stated
   }
-  var date = new Date(nowMs === undefined || nowMs === null ? Date.now() : Number(nowMs))
+  var date = new Date(nowMilliseconds === undefined || nowMilliseconds === null ? Date.now() : Number(nowMilliseconds))
   if (isNaN(date.getTime())) date = new Date()
   var offset = -date.getTimezoneOffset()
   var minutes = Math.abs(offset)
@@ -1161,32 +969,18 @@ function sentDate(given, nowMs) {
     + pad(Math.floor(minutes / 60)) + pad(minutes % 60)
 }
 
-// One method name, and nothing that could end the header early: this string
-// arrives from a calendar file somebody else wrote.
+// Invariant: an untrusted calendar method cannot introduce another MIME header.
 function calendarMethod(value) {
   var text = String(value || "").toUpperCase().replace(/[^A-Z]/g, "")
   return text === "" ? "REPLY" : text.substring(0, 20)
 }
 
-// Which way a message being sent runs.
-//
-// Qt resolves a compose field from the text already in it, so a writer sees
-// their own paragraph against the right edge as they type it — but none of
-// that travels with the message. A `text/plain` part states no direction at
-// all, and a client with nothing to read falls back to left-to-right, which is
-// why a Persian mail written here arrives in Gmail against the wrong edge.
-//
-// Read off the body by the same rule the reader uses, so a message arrives
-// looking the way it looked while it was written.
+// Invariant: an RTL plain-text message needs an HTML alternative to carry its direction to receiving clients.
 function outgoingDirection(body) {
   return Direction.resolve(body, Direction.AUTO)
 }
 
-// The body again as the least markup that can carry a direction: the text
-// escaped, its line breaks kept, and `dir` on the element every client reads
-// it from. Not a rendering of the message — a statement about it, which is why
-// nothing here styles anything. A recipient who prefers plain text still has
-// the plain part, unchanged and listed first.
+// Invariant: the HTML direction alternative escapes body text and preserves the plain-text alternative.
 function directionalHtmlBody(text, direction) {
   var body = String(text === undefined || text === null ? "" : text)
     .replace(/&/g, "&amp;")
@@ -1197,52 +991,39 @@ function directionalHtmlBody(text, direction) {
   return "<html><body dir=\"" + direction + "\">" + body + "</body></html>"
 }
 
-// A nested boundary the enclosing one cannot be mistaken for. `splitMultipart`
-// finds a delimiter by searching for "--" + boundary anywhere in the body, so
-// an inner boundary that began with the outer one would be found by the outer
-// scan too and the message would come apart at the wrong line. A prefix cannot
-// collide that way; a suffix can.
+// Invariant: RFC 2046 forbids a nested boundary beginning with the outer boundary; prefix the inner name instead of suffixing it.
 function nestedBoundary(outer) {
   return mimeBoundary("alt_" + String(outer || ""))
 }
 
-// The body with an HTML signature: the plain text as the plain part, and an
-// HTML part that is the same text escaped, paragraph by paragraph, with the
-// stored signature markup in place of the plain signature at the end. The
-// signature's data: images travel as related parts by cid, because Gmail's
-// web client draws no data: image in HTML mail and a related part it does.
-// `multipart/related` holds the alternative and the images; `mixed` holds
-// that and any attachments, as before.
+// Invariant: inline signature images use related CID parts because Gmail does not render data URLs in received HTML.
 function htmlBodyWithSignature(body, plainSignature, signatureHtml, direction) {
   var text = String(body === undefined || body === null ? "" : body)
   var sign = String(plainSignature === undefined || plainSignature === null ? "" : plainSignature).trim()
-  var dir = Direction.isRightToLeft(direction) ? " dir=\"rtl\"" : ""
-  // The first occurrence: the writer's own sign-off comes before any quote
-  // that happens to repeat it. A plain signature the writer took out of the
-  // body is not put back as markup — the two readings must say the same.
+  var directionAttribute = Direction.isRightToLeft(direction) ? " dir=\"rtl\"" : ""
+  // Invariant: replace the first sign-off only; a signature removed from plain text must not reappear in markup.
   var at = sign === "" ? -1 : text.indexOf(sign)
   if (sign !== "" && at < 0)
-    return "<html><body" + dir + ">" + escapedParagraphs(text) + "</body></html>"
+    return "<html><body" + directionAttribute + ">" + escapedParagraphs(text) + "</body></html>"
   var before, after
   if (at >= 0) {
     before = text.slice(0, at)
     after = text.slice(at + sign.length)
   } else {
-    // A signature that is only a picture has no words to find: it goes
-    // where the plain one would have, before the quote if there is one.
+    // Invariant: an image-only signature has no text marker and belongs before quoted history.
     var quoteAt = text.search(/(^|\n)>/)
     before = quoteAt >= 0 ? text.slice(0, quoteAt) : text
     after = quoteAt >= 0 ? text.slice(quoteAt) : ""
   }
-  return "<html><body" + dir + ">" + escapedParagraphs(before)
+  return "<html><body" + directionAttribute + ">" + escapedParagraphs(before)
     + String(signatureHtml || "") + escapedParagraphs(after) + "</body></html>"
 }
 
 function escapedParagraphs(text) {
   var lines = String(text || "").replace(/\r\n/g, "\n").split("\n")
   var out = []
-  for (var i = 0; i < lines.length; i++) {
-    out.push(lines[i].replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    out.push(lines[lineIndex].replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
   }
   var joined = out.join("<br>")
   return joined === "" ? "" : "<div>" + joined + "</div>"
@@ -1271,8 +1052,8 @@ function pushSignedBodyPart(lines, values, direction, boundary) {
   lines.push("")
   lines.push(base64Body(html))
   lines.push("--" + alt + "--")
-  for (var i = 0; i < swapped.parts.length; i++) {
-    var part = swapped.parts[i]
+  for (var index = 0; index < swapped.parts.length; index++) {
+    var part = swapped.parts[index]
     lines.push("--" + related)
     lines.push("Content-Type: " + part.mimeType)
     lines.push("Content-Transfer-Encoding: base64")
@@ -1296,9 +1077,7 @@ function pushBodyPart(lines, body, direction, boundary, values) {
     lines.push(base64Body(body))
     return
   }
-  // Least preferred first: a client that shows only one alternative should
-  // show the last it understands, and the HTML twin is the one that carries
-  // the direction.
+  // Invariant: MIME alternatives appear least preferred first so capable clients choose the directional HTML.
   lines.push("Content-Type: multipart/alternative; boundary=\"" + boundary + "\"")
   lines.push("")
   lines.push("--" + boundary)
@@ -1316,16 +1095,14 @@ function pushBodyPart(lines, body, direction, boundary, values) {
 
 function buildRawMessage(fields) {
   var values = fields || {}
-  // One reading of the clock for both headers, so a message cannot be dated a
-  // millisecond apart from the id that names it.
+  // Invariant: Date and Message-ID use one clock reading.
   var now = Date.now()
   var lines = []
   if (values.from) lines.push(fromHeader(values.from, values.fromName))
   lines.push(foldHeader("To", values.to || ""))
   if (values.cc) lines.push(foldHeader("Cc", values.cc))
   if (values.bcc) lines.push(foldHeader("Bcc", values.bcc))
-  // Where answers should go when that is not the sender: one header, folded
-  // like the rest, so a line break typed into it cannot start a second one.
+  // Invariant: Reply-To uses the same header-injection protection as other outgoing fields.
   if (values.replyTo) lines.push(foldHeader("Reply-To", values.replyTo))
   lines.push(foldHeader("Subject", values.subject || ""))
   var inReplyTo = referenceValue(values.inReplyTo)
@@ -1333,12 +1110,9 @@ function buildRawMessage(fields) {
     lines.push("In-Reply-To: " + inReplyTo)
     lines.push("References: " + (referenceValue(values.references) || inReplyTo))
   }
-  // Behind the addressing rather than in front of it: RFC 5322 makes header
-  // order insignificant outside the trace fields, so the raw form still opens
-  // with the From line everything that reads one here already expects.
-  // RFC 5322 requires a Date on a message this client originates, and the writer's clock is the one it means.
+  // Invariant: originated messages include Date while preserving the established From-first header order.
   lines.push("Date: " + sentDate(values.date, now))
-  // RFC 5322 asks every message for an id, and a relay told not to add missing headers relays none.
+  // Invariant: originate Message-ID because a relay may leave missing headers unchanged.
   lines.push("Message-ID: "
     + messageIdValue(values.messageId, values.from, now, values.accountAddress))
   lines.push("MIME-Version: 1.0")
@@ -1353,8 +1127,7 @@ function buildRawMessage(fields) {
     included.push(attachment)
   }
 
-  // Resolved once, here, so a message and the draft it was saved as cannot
-  // disagree about which way the same words run.
+  // Invariant: sent messages and saved drafts share one direction decision.
   var direction = outgoingDirection(values.body)
 
   if (!calendar && included.length === 0) {
@@ -1383,14 +1156,7 @@ function buildRawMessage(fields) {
     return lines.join("\r\n") + "\r\n"
   }
 
-  // `multipart/alternative`, not `mixed`: the calendar part and the sentence
-  // beside it are two readings of one answer, and a client that understands
-  // the first should not also show the second as a file to open. It is also
-  // the shape every calendar server recognises a reply in — and the reason no
-  // HTML twin joins it the way one joins an ordinary body. An RSVP's sentence
-  // is generated rather than composed, so there is no writer's direction to
-  // carry, and a third alternative is a shape some of those servers do not
-  // expect.
+  // Invariant: calendar replies use multipart/alternative for the human sentence and RFC 5546 payload.
   var boundary = mimeBoundary(values.boundary)
   lines.push("Content-Type: multipart/alternative; boundary=\"" + boundary + "\"")
   lines.push("")
@@ -1412,17 +1178,13 @@ function buildRawMessage(fields) {
 function buildSendPayload(fields) {
   var payload = { raw: encodeBase64Url(buildRawMessage(fields)) }
   if (fields && fields.threadId) payload.threadId = String(fields.threadId)
-  // The draft this message replaces, so a provider that can destroy it in the
-  // same request as the send or the save does not leave the old copy behind.
-  // Always present and empty when the compose window was not opened from one,
-  // because a client reading it asks whether there is one to destroy rather
-  // than whether the field exists.
+  // Invariant: send and save retain the replaced draft ID so capable providers can remove the previous copy atomically.
   payload.draftId = String((fields && fields.draftId) || "")
   var files = Array.isArray(fields && fields.attachments) ? fields.attachments : []
   var paths = []
-  for (var i = 0; i < files.length; i++) {
-    if (files[i] && files[i].path)
-      paths.push({ path: String(files[i].path), filename: String(files[i].filename || "") })
+  for (var fileIndex = 0; fileIndex < files.length; fileIndex++) {
+    if (files[fileIndex] && files[fileIndex].path)
+      paths.push({ path: String(files[fileIndex].path), filename: String(files[fileIndex].filename || "") })
   }
   if (paths.length > 0) payload.attachments = paths
   return payload

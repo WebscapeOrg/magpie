@@ -89,7 +89,7 @@ entries = {
     "ui/Service.qml": b"import QtQuick\nItem {}\n",
     "manifest.json": json.dumps({"version": metadata_version}).encode(),
     "plugins/platforms/libqxcb.so": elf(),
-    "share/applications/omamail.desktop": b"[Desktop Entry]\nExec=omamail\nIcon=omamail\n",
+    "share/applications/omamail.desktop": b"[Desktop Entry]\nType=Application\nName=Synthetic app\nExec=omamail\nIcon=omamail\n",
     "share/icons/hicolor/scalable/apps/omamail.svg": b"<svg/>",
     "release.json": json.dumps({
         "schemaVersion": 1, "version": metadata_version,
@@ -165,7 +165,7 @@ install_archive() {
 assert_old_install() {
   [ "$(cat "$OMAMAIL_INSTALL_ROOT/marker")" = valid ]
   [ "$(readlink "$OMAMAIL_BIN_DIR/omamail")" = "$OMAMAIL_INSTALL_ROOT/bin/omamail-app" ]
-  grep -Fq "Exec=\"$OMAMAIL_INSTALL_ROOT/bin/omamail-app\"" "$OMAMAIL_DESKTOP_DIR/omamail.desktop"
+  grep -Fq "Exec=/usr/bin/env -- \"$OMAMAIL_INSTALL_ROOT/bin/omamail-app\"" "$OMAMAIL_DESKTOP_DIR/omamail.desktop"
   [ ! -e "$OMAMAIL_LAUNCH_LOG" ]
   [ ! -e "$OMAMAIL_INSTALL_ROOT.previous" ]
   if find "$temp/install" -name '*.new.*' -print | grep -q .; then
@@ -281,6 +281,35 @@ printf 'preserve me\n' > "$user_data"
 [ ! -e "$OMAMAIL_DESKTOP_DIR/omamail.desktop" ]
 [ "$(cat "$user_data")" = 'preserve me' ]
 [ ! -e "$OMAMAIL_LAUNCH_LOG" ]
+
+python3 - "$installer" "$valid" "$valid_sums" "$temp" <<'PYTHON'
+import json, os
+from pathlib import Path
+import subprocess, sys, time
+try:
+    from gi.repository import Gio
+except ImportError:
+    print("Desktop Entry launch test SKIP: requires GLib Python bindings")
+    raise SystemExit(0)
+installer, archive, checksums, temporary = sys.argv[1:]
+root = Path(temporary)/'desktop-paths'
+installation = root/'space "quote" $dollar `tick` \\slash %u'
+env = dict(os.environ, OMAMAIL_INSTALL_ROOT=str(installation),
+           OMAMAIL_BIN_DIR=str(root/'bin'), OMAMAIL_DESKTOP_DIR=str(root/'applications'))
+subprocess.run([installer, '--archive', archive, '--checksums', checksums, '--version', '0.10.1'], env=env, check=True)
+executable = installation/'bin/omamail-app'
+marker = root/'launched.json'
+executable.write_text('#!'+sys.executable+'\nimport json,sys\nfrom pathlib import Path\nPath('+repr(str(marker))+').write_text(json.dumps(sys.argv))\n')
+application = Gio.DesktopAppInfo.new_from_filename(str(root/'applications/omamail.desktop'))
+assert application is not None, 'Desktop Entry must parse with a reserved-character installation path'
+application.launch([], None)
+deadline = time.monotonic()+3
+while not marker.exists() and time.monotonic() < deadline:
+    time.sleep(.01)
+assert marker.exists(), 'Desktop Entry must launch the exact installed executable'
+assert json.loads(marker.read_text()) == [str(executable)]
+print('Linux Desktop Entry reserved path launch PASS')
+PYTHON
 
 export OMAMAIL_TEST_OS=Darwin
 export OMAMAIL_TEST_ARCH=arm64

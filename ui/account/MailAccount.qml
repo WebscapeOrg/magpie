@@ -616,7 +616,6 @@ Item {
       } else {
         root.countHandle = root.summarizedRead(page.ids, false, function(payloads) {
           if (serial !== root.countSerial) return
-          var now = new Date()
           var summaries = []
           for (var i = 0; i < payloads.length; i++) {
             var summary = payloads[i].nativeSummary
@@ -1031,10 +1030,9 @@ Item {
     var finishing = false
 
     function summariesOf(payloads) {
-      var now = new Date()
       var summaries = []
       var list = Array.isArray(payloads) ? payloads : []
-      for (var i = 0; i < list.length; i++) summaries.push(list[i].nativeSummary)
+      for (var messageIndex = 0; messageIndex < list.length; messageIndex++) summaries.push(list[messageIndex].nativeSummary)
       return summaries
     }
 
@@ -1042,11 +1040,11 @@ Item {
       if (serial !== root.listSerial) return
       var fresh = []
       var list = Array.isArray(payloads) ? payloads : []
-      for (var i = 0; i < list.length; i++) {
-        var id = String(list[i] && list[i].id ? list[i].id : "")
+      for (var messageIndex = 0; messageIndex < list.length; messageIndex++) {
+        var id = String(list[messageIndex] && list[messageIndex].id ? list[messageIndex].id : "")
         if (id === "" || painted[id]) continue
         painted[id] = true
-        fresh.push(list[i])
+        fresh.push(list[messageIndex])
       }
       var summaries = summariesOf(fresh)
       if (summaries.length === 0) return
@@ -1145,8 +1143,8 @@ Item {
       if (serial !== root.listSerial) return
       var source = Array.isArray(ids) ? ids : []
       var wanted = []
-      for (var i = 0; i < source.length; i++) {
-        var id = String(source[i] || "")
+      for (var messageIndex = 0; messageIndex < source.length; messageIndex++) {
+        var id = String(source[messageIndex] || "")
         if (id === "" || requested[id]) continue
         requested[id] = true
         wanted.push(id)
@@ -1184,7 +1182,6 @@ Item {
     root.summarizedRead(ids, false, function(payloads, error) {
       if (serial !== root.listSerial) return
       root.listLoading = false
-      var now = new Date()
       var summaries = []
       var list = Array.isArray(payloads) ? payloads : []
       for (var i = 0; i < list.length; i++)
@@ -1520,8 +1517,8 @@ Item {
         root.memberHandle = null
         if (error || !payloads || payloads.length === 0) return
         var arrived = Object.create(null)
-        for (var j = 0; j < payloads.length; j++) {
-          var summary = payloads[j].nativeSummary
+        for (var messageIndex = 0; messageIndex < payloads.length; messageIndex++) {
+          var summary = payloads[messageIndex].nativeSummary
           if (summary && summary.id) arrived[summary.id] = summary
         }
         root.mergeMembers(arrived)
@@ -2950,7 +2947,6 @@ Item {
       root.inboxUnread = snapshot.estimate
       var summaries = []
       var payloads = prepared
-      var now = new Date()
       for (var i = 0; i < payloads.length; i++) {
         var summary = payloads[i].nativeSummary
         summary.unread = true

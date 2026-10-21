@@ -117,9 +117,9 @@ Item {
   function finishWaiters(token, error) {
     var pending = tokenWaiters.slice()
     tokenWaiters = []
-    for (var i = 0; i < pending.length; i++) {
-      try { pending[i](token || "", safeError(error)) }
-      catch (e) { /* consumers own their callback errors */ }
+    for (var waiterIndex = 0; waiterIndex < pending.length; waiterIndex++) {
+      try { pending[waiterIndex](token || "", safeError(error)) }
+      catch (error) { /* consumers own their callback errors */ }
     }
   }
 
@@ -325,7 +325,7 @@ Item {
   // ---------------------------------------------------------------- tokens
 
   // Native requests have a bounded deadline in the backend.
-  function postTokenRequest(body, previousRefreshToken, callback) {
+  function postTokenRequest(previousRefreshToken, callback) {
     var serial = ++tokenRequestSerial
     var request = { abort: function() { root.tokenRequestSerial++ } }
     tokenRequest = request
@@ -347,12 +347,7 @@ Item {
 
   function refreshWithToken(refreshToken, purpose) {
     refreshBusy = true
-    postTokenRequest(OAuth.formBody({
-      client_id: clientId,
-      client_secret: credentials.clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken
-    }), refreshToken, function(result) {
+    postTokenRequest(refreshToken, function(result) {
       refreshToken = ""
       root.refreshBusy = false
       root.sessionChecked = true
@@ -565,12 +560,4 @@ Item {
     onTriggered: root.restoreSession()
   }
 
-  // Whether a legacy entry is there at all. The matches come back on stdout
-  // and their attributes on stderr, so the two are counted apart and neither
-  // is read as the other's.
-  //
-  // Counted line by line rather than collected: a search keyed on the client
-  // alone loads every matching mailbox's token, and stdout carries all of
-  // them. Nothing here needs a secret, only how many of each line there were,
-  // so none is held.
 }

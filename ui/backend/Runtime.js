@@ -5,7 +5,7 @@ function decode(raw) {
     unreleasedMethods: [], contractHash: "", installedVersion: "",
     executable: "", error: "Could not read backend runtime status", development: false, cliInstalled: false }
   var value
-  try { value = JSON.parse(raw) } catch (e) { return failed }
+  try { value = JSON.parse(raw) } catch (error) { return failed }
   if (!value || ["ready", "missing", "mismatch", "unsupported", "error"].indexOf(value.state) < 0
       || typeof value.requiredVersion !== "string"
       || typeof value.installedVersion !== "string" || typeof value.error !== "string") return failed
@@ -18,7 +18,7 @@ function decode(raw) {
   if (typeof latest !== "number" || Math.floor(latest) !== latest
       || latest < value.requiredApiVersion || latest > value.requiredApiVersion + 1) latest = value.requiredApiVersion
   var unreleased = Array.isArray(value.unreleasedMethods)
-    ? value.unreleasedMethods.filter(function(m) { return typeof m === "string" && m !== "" }) : []
+    ? value.unreleasedMethods.filter(function(method) { return typeof method === "string" && method !== "" }) : []
   if (latest === value.requiredApiVersion) unreleased = []
   if (value.state === "ready" && (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(value.requiredVersion)
       || value.installedVersion !== value.requiredVersion

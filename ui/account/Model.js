@@ -2,20 +2,7 @@
 
 .import "Conversation.js" as Conversation
 
-// View models. Anything the panel decides — what the setup card should say,
-// whether a message still belongs in the list after an action, what the badge
-// reads — is decided here so the QML stays a description of the screen.
-//
-// What is *not* here is anything that differs between mail services. That is
-// `Provider.js`, and this file is the half that is the same whichever one an
-// account runs on.
-
-// The mailboxes themselves live in `Provider.js`, because which ones exist and
-// what selects them is a property of the mail service rather than of the view.
-// They were here first, and a copy left behind would be a second definition to
-// keep in step with the first — so the account hands its list down instead.
-
-// ------------------------------------------------------------ setup state
+// Shared presentation rules. Provider-specific facts live in providers/Registry.js.
 
 function mailboxAfterAccountSwitch(currentKey, targetMailboxes) {
   var key = String(currentKey || "")
@@ -99,8 +86,6 @@ function setupDetail(state, missingTools, reason, provider, authKind) {
   }
   if (state === "signing_in") {
     if (authKind === "password") return "Trying the server with those details."
-    if (authKind === "cli")
-      return "Finish the sign-in in your browser. This window updates by itself."
     return "Finish the sign-in in your browser. This window updates by itself."
   }
   if (state === "signed_out") {
@@ -647,9 +632,9 @@ function clampZoom(value) {
 // dragged". Anything else — a string, a negative, NaN from an old file — is 0,
 // so a bad value costs a default rather than a pane of no width.
 function paneWidth(value) {
-  var n = Math.floor(Number(value))
-  if (!isFinite(n) || n <= 0) return 0
-  return Math.min(n, 4000)
+  var widthPixels = Math.floor(Number(value))
+  if (!isFinite(widthPixels) || widthPixels <= 0) return 0
+  return Math.min(widthPixels, 4000)
 }
 
 function stringList(value) {
@@ -1738,15 +1723,15 @@ function toggleId(ids, id) {
 // Shift+click means. Either end unknown to the list means just the other.
 function idsBetween(list, fromId, toId) {
   var source = Array.isArray(list) ? list : []
-  var a = indexById(source, fromId)
-  var b = indexById(source, toId)
-  if (a < 0 && b < 0) return []
-  if (a < 0) a = b
-  if (b < 0) b = a
-  var lo = Math.min(a, b)
-  var hi = Math.max(a, b)
+  var fromIndex = indexById(source, fromId)
+  var toIndex = indexById(source, toId)
+  if (fromIndex < 0 && toIndex < 0) return []
+  if (fromIndex < 0) fromIndex = toIndex
+  if (toIndex < 0) toIndex = fromIndex
+  var firstIndex = Math.min(fromIndex, toIndex)
+  var lastIndex = Math.max(fromIndex, toIndex)
   var out = []
-  for (var i = lo; i <= hi; i++) out.push(source[i].id)
+  for (var rowIndex = firstIndex; rowIndex <= lastIndex; rowIndex++) out.push(source[rowIndex].id)
   return out
 }
 
@@ -1844,8 +1829,8 @@ function batchNote(count, actionLabel) {
 }
 
 function selectionStatus(count) {
-  var n = Math.max(0, Math.floor(Number(count) || 0))
-  return n === 0 ? "" : n + " selected"
+  var selectedCount = Math.max(0, Math.floor(Number(count) || 0))
+  return selectedCount === 0 ? "" : selectedCount + " selected"
 }
 
 // The rows whose request failed, put back where they were: each is taken
@@ -1902,11 +1887,11 @@ function batchFailureNote(asked, failed, actionLabel, error) {
 function labelTree(labels, collapsedPaths) {
   var all = Array.isArray(labels) ? labels : []
   var folded = Array.isArray(collapsedPaths) ? collapsedPaths : []
-  // Children keyed on a prototype-less object: a label named "constructor"
-  // or "__proto__" is a label, not a property of Object.
+  // Children keyed on leftName prototype-less object: leftName label named "constructor"
+  // or "__proto__" is leftName label, not leftName property of Object.
   var root = { children: Object.create(null), order: [] }
-  for (var i = 0; i < all.length; i++) {
-    var label = all[i]
+  for (var labelIndex = 0; labelIndex < all.length; labelIndex++) {
+    var label = all[labelIndex]
     if (!label || label.system) continue
     var delimiter = labelDelimiter(label)
     var full = String(label.name || label.rawName || "")
@@ -1914,9 +1899,9 @@ function labelTree(labels, collapsedPaths) {
     var parts = delimiter === "" ? [full] : full.split(delimiter)
     var node = root
     var path = ""
-    for (var p = 0; p < parts.length; p++) {
-      var part = parts[p]
-      if (part === "" && p > 0) continue
+    for (var partIndex = 0; partIndex < parts.length; partIndex++) {
+      var part = parts[partIndex]
+      if (part === "" && partIndex > 0) continue
       path = path === "" ? part : path + delimiter + part
       if (!node.children[part]) {
         node.children[part] = { name: part, path: path, label: null,
@@ -1931,18 +1916,18 @@ function labelTree(labels, collapsedPaths) {
 
   function subtreeUnread(node) {
     var sum = node.unread
-    for (var c = 0; c < node.order.length; c++) sum += subtreeUnread(node.children[node.order[c]])
+    for (var childIndex = 0; childIndex < node.order.length; childIndex++) sum += subtreeUnread(node.children[node.order[childIndex]])
     return sum
   }
 
   var out = []
   function walk(node, depth) {
-    var names = node.order.slice().sort(function(a, b) {
-      var left = a.toLowerCase(), right = b.toLowerCase()
+    var names = node.order.slice().sort(function(leftName, rightName) {
+      var left = leftName.toLowerCase(), right = rightName.toLowerCase()
       return left < right ? -1 : (left > right ? 1 : 0)
     })
-    for (var n = 0; n < names.length; n++) {
-      var child = node.children[names[n]]
+    for (var nameIndex = 0; nameIndex < names.length; nameIndex++) {
+      var child = node.children[names[nameIndex]]
       var hasChildren = child.order.length > 0
       var expanded = !hasChildren || folded.indexOf(child.path) < 0
       out.push({
@@ -2095,45 +2080,49 @@ function migrateMonitoredIds(monitored, before, after, oldPath, newPath, delimit
 // Apply every pending path change before consulting the final listing. An
 // intermediate name need never appear in that listing, and a surviving child
 // remains watched when its parent alone was deleted.
+function pathAfterLabelMoves(id, moves) {
+  var path = ""
+  for (var moveIndex = 0; moveIndex < moves.length; moveIndex++) {
+    var move = moves[moveIndex]
+    var before = Array.isArray(move.before) ? move.before : []
+    if (path === "") {
+      var oldIndex = indexById(before, id)
+      if (oldIndex >= 0) path = String(before[oldIndex].name || before[oldIndex].rawName || "")
+    }
+    var from = String(move.oldPath || "")
+    var to = String(move.newPath || "")
+    var delimiter = String(move.delimiter === undefined || move.delimiter === null ? "/" : move.delimiter)
+    if (from === "" || path === "") continue
+    if (path !== from && (delimiter === "" || path.indexOf(from + delimiter) !== 0)) continue
+    if (to === "") return ""
+    path = to + path.slice(from.length)
+  }
+  return path
+}
+
 function migrateMonitoredChanges(monitored, moves, after) {
   var ids = Array.isArray(monitored) ? monitored : []
   var now = Array.isArray(after) ? after : []
   var out = []
-  function pathOf(label) { return label ? String(label.name || label.rawName || "") : "" }
-  for (var k = 0; k < ids.length; k++) {
-    var id = String(ids[k] || "")
+  for (var idIndex = 0; idIndex < ids.length; idIndex++) {
+    var id = String(ids[idIndex] || "")
     if (id === "") continue
     if (indexById(now, id) >= 0) { out.push(id); continue }
-    var path = ""
-    for (var m = 0; m < moves.length; m++) {
-      var move = moves[m]
-      var before = Array.isArray(move.before) ? move.before : []
-      if (path === "") {
-        var old = indexById(before, id)
-        if (old >= 0) path = pathOf(before[old])
-      }
-      var from = String(move.oldPath || "")
-      var to = String(move.newPath || "")
-      var sep = String(move.delimiter === undefined || move.delimiter === null ? "/" : move.delimiter)
-      if (from !== "" && path !== "" && (path === from || (sep !== "" && path.indexOf(from + sep) === 0))) {
-        if (to === "") { path = ""; break }
-        path = to + path.slice(from.length)
-      }
-    }
+    var path = pathAfterLabelMoves(id, moves)
     if (path === "") continue
-    for (var j = 0; j < now.length; j++) {
-      if (pathOf(now[j]) === path && String(now[j].id || "") !== "") {
-        if (out.indexOf(String(now[j].id)) < 0) out.push(String(now[j].id))
-        break
-      }
+    for (var labelIndex = 0; labelIndex < now.length; labelIndex++) {
+      var label = now[labelIndex]
+      var labelPath = label ? String(label.name || label.rawName || "") : ""
+      var labelId = String(label && label.id || "")
+      if (labelPath !== path || labelId === "") continue
+      if (out.indexOf(labelId) < 0) out.push(labelId)
+      break
     }
   }
-  if (out.length === ids.length) {
-    var same = true
-    for (var n = 0; n < ids.length; n++) if (out[n] !== ids[n]) same = false
-    if (same) return ids
-  }
-  return out
+  if (out.length !== ids.length) return out
+  for (var comparisonIndex = 0; comparisonIndex < ids.length; comparisonIndex++)
+    if (out[comparisonIndex] !== ids[comparisonIndex]) return out
+  return ids
 }
 
 // "3 new in Receipts", or the two labels with the most, for the status line.

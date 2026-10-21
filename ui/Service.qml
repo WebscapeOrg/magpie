@@ -346,7 +346,7 @@ Item {
   // one named, with the runner rebuilding the prompt from it.
   function answerAgent(jobId, answer, fields) {
     if (!agentAvailable) return false
-    var job = agentRunner.jobFor2(jobId)
+    var job = agentRunner.jobById(jobId)
     if (!job || !job.canContinue || !canContinueAgentJob(job) || agentRunner.isActive(job) || !findAccount(job.accountId)
         || String(answer || "").trim() === "") return false
     agentContext.error = ""
@@ -411,7 +411,7 @@ Item {
   }
 
   function cancelAgentJob(jobId) {
-    var job = agentRunner.jobFor2(jobId)
+    var job = agentRunner.jobById(jobId)
     if (!job || !agentRunner.isActive(job) || agentRunner.cancelling) return false
     return agentRunner.cancelById(jobId)
   }
@@ -714,7 +714,6 @@ Item {
     persistSetting("unifiedCalendarView", value === true)
   }
 
-  // The default agent's command line, from Settings. Empty is no agent.
 
   function setShowBarIcon(value) {
     persistSetting("showBarIcon", value === true)
@@ -1809,10 +1808,7 @@ Item {
         move: canMoveToLabel })
     : (current ? current.unavailableActions : [])
 
-  // #91's set of attachments being saved, keyed the way the panel addresses a
-  // row: an account keys its own by the id it issued, so in a merged list the
-  // sets are joined and re-keyed rather than read off whichever mailbox is
-  // active — which would have shown a spinner on the wrong row, or none.
+  // Invariant: attachment progress uses account-qualified IDs in a unified view.
   readonly property var savingAttachmentIds: {
     if (!unified) return current ? current.savingAttachmentIds : ({})
     var _epoch = listEpoch
@@ -2511,21 +2507,12 @@ Item {
     return -1
   }
 
-  // Which row the setup page is editing. `activeIndex` is the override a row
-  // with no id needs — it cannot be named — and the active account's own
-  // position answers for every other row. One function because three callers
-  // used to spell this out for themselves and a fourth, the Remove button,
-  // spelled it differently: it asked `indexOfActiveAccount()` alone, so on the
-  // page of a freshly added mailbox it named the mailbox that was on screen
-  // before the add, and removing it deleted a working account.
+  // Invariant: an unnamed draft is addressed by its active index, never the saved mailbox behind it.
   function editingIndex() {
     return activeIndex >= 0 ? activeIndex : indexOfActiveAccount()
   }
 
-  // Routed and taken apart like every other action on a row: the composed id
-  // names the mailbox, and the account builds the address out of its own
-  // half of it. Sent to `current` it built one Gmail URL out of another
-  // mailbox's id.
+  // Invariant: a unified row resolves its owning mailbox before opening a provider URL.
   function openInBrowser(id) {
     var host = hostForId(id)
     if (host) host.openInBrowser(sourceIdFor(id))
@@ -2786,7 +2773,7 @@ Item {
     function forgetFinished() {}
     function historyFor() { return [] }
     function isActive() { return false }
-    function jobFor2() { return null }
+    function jobById() { return null }
     function refresh() {}
     function selectionJob() { return null }
     function show() {}

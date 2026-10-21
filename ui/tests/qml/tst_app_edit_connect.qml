@@ -105,6 +105,22 @@ Item {
       return { imap: imap, jmap: jmap }
     }
 
+    function test_deferred_connect_does_not_send_secret_to_new_selection() {
+      var hosts = twoRows()
+      mailService.switchTo(jmapId)
+      var beforeJmap = Transports.transports(hosts.jmap.api)
+      var beforeImap = Transports.transports(hosts.imap.api)
+      verify(mailService.configureCurrentAccountAndSignIn({email: "admin@example.test", provider: "jmap",
+        jmap: {sessionUrl: sessionUrl, authScheme: "basic"}}, "synthetic-jmap-password"))
+      mailService.switchTo(imapId)
+      wait(0)
+      compare(Transports.newSince(hosts.imap.api, beforeImap).filter(function(request) {
+        return request.method === "imap.verify"
+      }).length, 0,
+        "The JMAP password must never reach another account")
+      compare(Transports.newSince(hosts.jmap.api, beforeJmap).length, 1)
+    }
+
     function test_connect_on_an_edited_row_signs_that_row_in() {
       var hosts = twoRows()
 

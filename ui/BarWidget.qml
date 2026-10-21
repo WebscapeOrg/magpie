@@ -159,9 +159,6 @@ BarWidget {
     // service is what knows: it outlives the window and is told either way.
     readonly property bool windowOpen: root.previewOpen
       || (!!root.gmail && root.gmail.windowOpen)
-    readonly property color glyphColor: connected
-      ? root.foreground
-      : Qt.darker(root.foreground, 1.55)
     readonly property bool hasUnread: !!root.gmail && root.gmail.unreadTotal > 0
 
     iconComponent: Component {
@@ -173,8 +170,8 @@ BarWidget {
           anchors.centerIn: parent
           width: Style.font.iconLarge
           height: width
-          foreground: button.glyphColor
-          accent: button.glyphColor
+          foreground: button.foreground
+          accent: button.foreground
           opacity: button.connected ? 1 : 0.5
         }
         ActionIcon {

@@ -330,7 +330,8 @@ deepEqual(imap.searchPage([], 0, 25, true), {
 // BODY.PEEK, never BODY: reading the list must not mark the mailbox seen.
 const summaryFetch = imap.summaryFetchCommand([7, 9])
 assert.ok(summaryFetch.indexOf("BODY.PEEK[") >= 0, "the list fetch peeks")
-assert.ok(summaryFetch.indexOf("BODY[") < 0 || summaryFetch.indexOf("BODY.PEEK[") >= 0)
+assert.strictEqual(summaryFetch.indexOf("BODY["), -1,
+  "a list fetch must not also include a body read that marks the message seen")
 assert.ok(/^UID FETCH 7,9 /.test(summaryFetch))
 assert.ok(summaryFetch.indexOf("UID FLAGS INTERNALDATE RFC822.SIZE") >= 0)
 assert.strictEqual(imap.summaryFetchCommand([]), "")

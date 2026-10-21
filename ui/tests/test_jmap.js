@@ -1843,8 +1843,7 @@ const split = jmap.chunked(many, setLimit)
 assert.strictEqual(split.length, 2)
 assert.strictEqual(split[0].length, 500)
 deepEqual(split[1], ["id500"])
-assert.strictEqual(jmap.chunked(many, setLimit)
-  .reduce((total, chunk) => total + chunk.length, 0), 501,
+deepEqual(jmap.chunked(many, setLimit).flat(), many,
   "and every id is in exactly one of them")
 
 // ------------------------------------------------------------- set errors
@@ -2408,10 +2407,8 @@ assert.strictEqual(provider.capabilities.webBox, false)
 // vocabulary it is `undefined` here, and present it must be the `true` the
 // description declares — a registry that learned the word and dropped this
 // provider's answer would be one row per message on a mailbox that has threads.
-if (provider.capabilities.conversations !== undefined) {
-  assert.strictEqual(provider.capabilities.conversations, true,
-    "one row per conversation, from the server's own thread id")
-}
+assert.strictEqual(provider.capabilities.conversations, true,
+  "one row per conversation, from the server's own thread id")
 
 // IMAP's eight rows, keyed on RFC 8621 roles rather than on folder names, and
 // the last three optional because an account may have no such mailbox at all.

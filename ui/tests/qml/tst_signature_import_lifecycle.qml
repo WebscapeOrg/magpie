@@ -95,7 +95,7 @@ Item {
       fakeBackend.callback = null
     }
     function picked() { fakeService.pickerCallback({ok: true, paths: ["/synthetic/signature.png"]}) }
-    function read() { fakeBackend.callback({ok: true, mimeType: "image/png", data: "iVBORw0KGgoAAA=="}, null) }
+    function read() { fakeBackend.callback({ok: true, mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}, null) }
     function imported() { fakeBackend.callback({html: "<p>signature</p>", plain: "", images: 1, dropped: 0, problem: ""}, null) }
     function test_import_button_starts_the_owned_request() {
       var trigger = findChild(page, "settings-signature-import")

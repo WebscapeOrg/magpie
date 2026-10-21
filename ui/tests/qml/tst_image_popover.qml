@@ -36,7 +36,7 @@ Item {
 
     function test_prepared_raster_bytes_are_shown() {
       var sheet = popover()
-      var data = "data:image/png;base64,iVBORw0KGgo="
+      var data = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
       sheet.showPrepared("https://cdn.example.com/a.png", data)
       compare(sheet.source, data)
       compare(sheet.refused, false)

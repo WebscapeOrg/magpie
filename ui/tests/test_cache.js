@@ -241,7 +241,6 @@ assert.strictEqual(cache.isStale(NOW + 999999, NOW, 60000), false)
 // ------------------------------------------------------------- round trip
 
 const text = JSON.stringify(store)
-assert.ok(text.indexOf("\n") < 0 || true)
 const reloaded = JSON.parse(text)
 assert.strictEqual(cache.getQuery(reloaded, "in:inbox|25").estimate, 0)
 assert.strictEqual(reloaded.version, cache.VERSION)

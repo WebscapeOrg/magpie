@@ -2168,10 +2168,6 @@ Item {
               else if (root.page === "calendarDetail") { root.navUntouched = false; root.nav = Nav.pop(root.nav) }
             }
             onCreateAt: function(startMs) { eventComposer.beginAt(startMs) }
-            onCopyRequested: function(text) { root.copyText(text) }
-            onOpenRequested: function(url) {
-              if (root.service) root.service.openExternal(url)
-            }
             onEditRequested: function(sourceId, event) { eventComposer.beginEdit(sourceId, event) }
             onDeleteRequested: function(sourceId, event) { root.requestEventDelete(sourceId, event) }
           }

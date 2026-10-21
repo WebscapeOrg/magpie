@@ -17,6 +17,10 @@ Item {
     property string failure: "auth_consent_required"
     property bool hold: false
     property var pending: null
+    function identityToken() {
+      var claims = { preferred_username: "alice@example.test" }
+      return "h." + Qt.btoa(JSON.stringify(claims)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") + ".s"
+    }
     function call(method, params, callback) {
       calls = calls.concat([{method: method, params: params}])
       if (method === "auth.store") {
@@ -50,7 +54,7 @@ Item {
       }
       if (method === "auth.form" && params.endpoint === "token") {
         callback({status: 200, body: JSON.stringify({access_token: "graph-token",
-          refresh_token: "graph-refresh-token", expires_in: 3600, scope: Microsoft.GRAPH_SCOPES.join(" ")})}, null)
+          refresh_token: "graph-refresh-token", id_token: identityToken(), expires_in: 3600, scope: Microsoft.GRAPH_SCOPES.join(" ")})}, null)
         return
       }
       callback({}, null)
@@ -164,7 +168,7 @@ Item {
     function test_graph_device_grant_uses_the_serialized_backend_store() {
       var auth = fresh()
       auth.acceptGraphSignIn({accessToken: "graph-token", refreshToken: "device-graph-refresh",
-        expiresIn: 3600, scope: Microsoft.GRAPH_SCOPES.join(" ")})
+        expiresIn: 3600, idToken: fixture.identityToken(), scope: Microsoft.GRAPH_SCOPES.join(" ")})
       compare(fixture.calls.length, 1)
       compare(fixture.calls[0].method, "auth.store")
       compare(fixture.calls[0].params.accountId, auth.accountId)

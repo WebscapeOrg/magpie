@@ -3,7 +3,7 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { test } = require("node:test")
-const { load, ROOT } = require("./load")
+const { load, ROOT, deepEqual } = require("./load")
 
 function modules(sources, run) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "magpie-load-"))
@@ -43,5 +43,33 @@ test("scripts without pragma library remain local to each importer", () => {
     const script = read("Main.js")
     assert.equal(script.Left.next(), 1)
     assert.equal(script.Right.next(), 1)
+  })
+})
+
+for (const [name, actual, expected] of [
+  ["missing properties", { missing: undefined }, {}],
+  ["NaN", { count: NaN }, { count: null }],
+  ["Infinity", [Infinity], [null]],
+  ["negative zero", [-0], [0]],
+  ["array holes", Array(1), [null]]
+]) {
+  test("cross-realm comparisons preserve " + name, () => {
+    assert.throws(() => deepEqual(actual, expected), { code: "ERR_ASSERTION" })
+  })
+}
+
+test("cross-realm comparisons preserve nested values and assertion messages", () => {
+  modules({ "Values.js": "var record = { nested: [undefined, NaN, Infinity, -0] }" }, read => {
+    deepEqual(read("Values.js").record, { nested: [undefined, NaN, Infinity, -0] })
+    assert.throws(() => deepEqual([1], [2], "mailbox mismatch"), /mailbox mismatch/)
+  })
+})
+
+test("module failures identify the source file", () => {
+  modules({ "Broken.js": 'throw new Error("fixture failure")' }, (read, directory) => {
+    assert.throws(() => read("Broken.js"), error => {
+      assert.ok(error.stack.includes(path.join(directory, "Broken.js")))
+      return true
+    })
   })
 })

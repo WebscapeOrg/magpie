@@ -75,7 +75,6 @@ Item {
     }
 
     function dialog() {
-      var found = named(app, "")
       // The dialog carries the request it was opened for; find it by shape,
       // since it has no object name of its own.
       function walk(item) {

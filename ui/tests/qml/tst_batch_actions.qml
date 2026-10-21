@@ -3,7 +3,6 @@ import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
-import "BackendFixture.js" as BackendFixture
 import "NativeIntentFixture.js" as NativeIntentFixture
 import "ModelFixture.js" as NativeModel
 import "../../account/Accounts.js" as Accounts

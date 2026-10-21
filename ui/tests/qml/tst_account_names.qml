@@ -94,7 +94,6 @@ Item {
     // would not match the word above it.
     function test_the_initial_follows_the_name() {
       var all = rows()
-      var initial = null
       var found = []
       function walk(node) {
         if (!node) return

@@ -2,7 +2,6 @@
 import QtQuick
 import QtTest
 import "transports.js" as Transports
-import "../../message/Message.js" as Message
 import "../../providers" as Providers
 import "../../account" as Account
 

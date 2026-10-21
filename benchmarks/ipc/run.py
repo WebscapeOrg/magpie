@@ -137,8 +137,13 @@ Scope {
         load_before=os.getloadavg()
         process=subprocess.Popen([shutil.which('qs'),'--no-color','--path',str(temp/'shell.qml')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)
         try: output,_=process.communicate(timeout=250)
-        finally:
-            if process.poll() is None:os.killpg(process.pid,signal.SIGKILL);process.wait()
+        except subprocess.TimeoutExpired:
+            # The unreaped leader reserves its process-group identity, even if
+            # only a descendant still holds an output pipe open.
+            try: os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError: pass
+            process.communicate()
+            raise
         if process.returncode != 0 or 'IPC_BENCH_ERROR' in output:raise RuntimeError(output[-5000:])
         line=next((line.split('IPC_BENCH_RESULT ',1)[1] for line in output.splitlines() if 'IPC_BENCH_RESULT ' in line),None)
         if line is None:raise RuntimeError(output[-5000:])

@@ -21,6 +21,7 @@ from PIL import Image, ImageGrab
 
 ROOT = Path(__file__).resolve().parents[2]
 ACCOUNT = "desktop-fixture@example.test"
+STARTUP_TIMEOUT = 10
 
 
 def private(path, content):
@@ -184,6 +185,25 @@ def stop_process(process):
         process.wait(timeout=10)
 
 
+def readiness(process, name):
+    reply = queue.Queue(maxsize=1)
+    def read():
+        try:
+            reply.put(process.stdout.readline(4097))
+        except Exception as error:
+            reply.put(error)
+    threading.Thread(target=read, daemon=True).start()
+    try:
+        line = reply.get(timeout=STARTUP_TIMEOUT)
+    except queue.Empty:
+        raise RuntimeError(f"{name} readiness timed out") from None
+    if isinstance(line, Exception):
+        raise RuntimeError(f"{name} readiness failed") from line
+    if not line.endswith("\n") or len(line) > 4096 or not line.strip():
+        raise RuntimeError(f"{name} did not provide a complete readiness line")
+    return line.strip()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
@@ -211,11 +231,11 @@ def main():
         bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"], env=env,
                                stdout=subprocess.PIPE, stderr=cleanup.enter_context((output / "dbus.log").open("w")), text=True)
         cleanup.callback(stop_process, bus)
-        env["DBUS_SESSION_BUS_ADDRESS"] = bus.stdout.readline().strip()
+        env["DBUS_SESSION_BUS_ADDRESS"] = readiness(bus, "DBus")
         os.environ["DBUS_SESSION_BUS_ADDRESS"] = env["DBUS_SESSION_BUS_ADDRESS"]
         server = None
         if args.display_mode == "physical":
-            instances = json.loads(subprocess.check_output(["hyprctl", "instances", "-j"], text=True))
+            instances = json.loads(subprocess.check_output(["hyprctl", "instances", "-j"], text=True, timeout=10))
             if len(instances) != 1:
                 raise RuntimeError("Expected one available Hyprland session")
             env.update(HYPRLAND_INSTANCE_SIGNATURE=instances[0]["instance"], WAYLAND_DISPLAY=instances[0]["wl_socket"],
@@ -224,7 +244,7 @@ def main():
             server = subprocess.Popen(["Xvfb", "-displayfd", "1", "-screen", "0", "1920x1600x24", "-nolisten", "tcp"],
                                       stdout=subprocess.PIPE, stderr=cleanup.enter_context((output / "xvfb.log").open("w")), text=True)
             cleanup.callback(stop_process, server)
-            env.update(DISPLAY=":" + server.stdout.readline().strip(), QT_QPA_PLATFORM="xcb")
+            env.update(DISPLAY=":" + readiness(server, "Xvfb"), QT_QPA_PLATFORM="xcb")
         env.update(QT_SCALE_FACTOR=args.scale, OMAMAIL_DEVELOPMENT_RESOURCES="1",
                    OMAMAIL_BIN=str(binary), MAGPIE_DESKTOP_OPTIONS=str(output / "options.json"),
                    QT_ACCESSIBILITY="1", QT_LINUX_ACCESSIBILITY_ALWAYS_ON="1")
@@ -235,7 +255,7 @@ def main():
         if args.accessibility:
             subprocess.run(["gdbus", "call", "--session", "--dest", "org.a11y.Bus", "--object-path", "/org/a11y/bus",
                             "--method", "org.freedesktop.DBus.Properties.Set", "org.a11y.Status", "IsEnabled", "<true>"],
-                           check=True, capture_output=True, text=True, env=env)
+                           check=True, capture_output=True, text=True, env=env, timeout=10)
         launched = time.time() * 1000
         process = subprocess.Popen([str(driver), "-input", str(ROOT / "benchmarks/mail/tst_desktop.qml")],
                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

@@ -6,30 +6,30 @@ use super::*;
 impl Snapshot {
     pub(super) async fn verify_page(
         &mut self,
-        p: &Value,
+        params: &Value,
         cursor: Option<&Cursor>,
         limit: usize,
     ) -> Result<bool> {
         let offset = self.offset(cursor);
         let ordered = self.ordered.as_ref().ok_or("imap_invalid_response")?;
         let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-        for &(f, m) in ordered.iter().skip(offset).take(limit) {
-            if !self.verified.contains(&(f, m)) {
-                groups.entry(f).or_default().push(m);
+        for &(folder_index, message_index) in ordered.iter().skip(offset).take(limit) {
+            if !self.verified.contains(&(folder_index, message_index)) {
+                groups.entry(folder_index).or_default().push(message_index);
             }
         }
         let gate = gate(self.owner).await;
         let mut work = FuturesUnordered::new();
-        for (f, indices) in groups.into_iter().take(WORKERS) {
-            let folder = &self.folders[f];
+        for (folder_index, indices) in groups.into_iter().take(WORKERS) {
+            let folder = &self.folders[folder_index];
             let gate = gate.clone();
             work.push(worker(gate, async move {
                 let uids = indices
                     .iter()
-                    .map(|m| folder.messages[*m].uid.to_string())
+                    .map(|message_index| folder.messages[*message_index].uid.to_string())
                     .collect::<Vec<_>>()
                     .join(",");
-                let (mut wire, key) = acquire(p).await?;
+                let (mut wire, key) = acquire(params).await?;
                 let selected =
                     command(&mut wire, &format!("SELECT {}", quote(&folder.name)?)).await?;
                 if Some(validity(&selected)?) != folder.validity {
@@ -39,22 +39,27 @@ impl Snapshot {
                 let present = fetched_dates(&data)?;
                 release(wire, key).await;
                 Ok((
-                    f,
+                    folder_index,
                     indices
                         .into_iter()
-                        .map(|m| (m, present.contains_key(&folder.messages[m].uid)))
+                        .map(|message_index| {
+                            (
+                                message_index,
+                                present.contains_key(&folder.messages[message_index].uid),
+                            )
+                        })
                         .collect::<Vec<_>>(),
                 ))
             }));
         }
         let mut missing = BTreeSet::new();
         while let Some(result) = work.next().await {
-            let (f, results) = result?;
-            for (m, present) in results {
+            let (folder_index, results) = result?;
+            for (message_index, present) in results {
                 if present {
-                    self.verified.insert((f, m));
+                    self.verified.insert((folder_index, message_index));
                 } else {
-                    missing.insert((f, m));
+                    missing.insert((folder_index, message_index));
                 }
             }
         }
@@ -62,7 +67,7 @@ impl Snapshot {
         self.ordered
             .as_mut()
             .unwrap()
-            .retain(|i| !missing.contains(i));
+            .retain(|location| !missing.contains(location));
         // Deletion may bring more candidates into the page. Verify those on
         // the next continuation rather than returning a short or stale page.
         Ok(self
@@ -72,6 +77,6 @@ impl Snapshot {
             .iter()
             .skip(self.offset(cursor))
             .take(limit)
-            .all(|i| self.verified.contains(i)))
+            .all(|location| self.verified.contains(location)))
     }
 }

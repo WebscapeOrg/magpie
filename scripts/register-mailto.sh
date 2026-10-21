@@ -43,7 +43,7 @@ import sys
 import tempfile
 
 plugin, destination = sys.argv[1:]
-if any(ord(character) < 32 or ord(character) == 127 for character in plugin) or "=" in plugin:
+if any(ord(character) < 32 or ord(character) == 127 for character in plugin):
     raise SystemExit("register-mailto.sh: unsupported desktop path characters")
 
 def value(text):
@@ -53,11 +53,12 @@ def command(text):
     quoted = "".join("\\" + character if character in '\\"`$' else character for character in text)
     return value('"' + quoted.replace("%", "%%") + '"')
 
+launch = command('exec "$0" "$@"')
 content = f"""[Desktop Entry]
 Type=Application
 Name=🐦 Magpie
 Comment=Email client for Omarchy
-Exec=/usr/bin/env -- {command(plugin + '/scripts/mailto.sh')} %u
+Exec=/bin/sh -c {launch} {command(plugin + '/scripts/mailto.sh')} %u
 Icon={value(plugin + '/ui/assets/magpie.svg')}
 Terminal=false
 StartupNotify=false

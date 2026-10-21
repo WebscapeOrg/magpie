@@ -165,7 +165,7 @@ install_archive() {
 assert_old_install() {
   [ "$(cat "$OMAMAIL_INSTALL_ROOT/marker")" = valid ]
   [ "$(readlink "$OMAMAIL_BIN_DIR/omamail")" = "$OMAMAIL_INSTALL_ROOT/bin/omamail-app" ]
-  grep -Fq "Exec=/usr/bin/env -- \"$OMAMAIL_INSTALL_ROOT/bin/omamail-app\"" "$OMAMAIL_DESKTOP_DIR/omamail.desktop"
+  grep -Fq "\"$OMAMAIL_INSTALL_ROOT/bin/omamail-app\"" "$OMAMAIL_DESKTOP_DIR/omamail.desktop"
   [ ! -e "$OMAMAIL_LAUNCH_LOG" ]
   [ ! -e "$OMAMAIL_INSTALL_ROOT.previous" ]
   if find "$temp/install" -name '*.new.*' -print | grep -q .; then
@@ -293,7 +293,7 @@ except ImportError:
     raise SystemExit(0)
 installer, archive, checksums, temporary = sys.argv[1:]
 root = Path(temporary)/'desktop-paths'
-installation = root/'space "quote" $dollar `tick` \\slash %u'
+installation = root/'space "quote" $dollar `tick` \\slash %u equals=literal'
 env = dict(os.environ, OMAMAIL_INSTALL_ROOT=str(installation),
            OMAMAIL_BIN_DIR=str(root/'bin'), OMAMAIL_DESKTOP_DIR=str(root/'applications'))
 subprocess.run([installer, '--archive', archive, '--checksums', checksums, '--version', '0.10.1'], env=env, check=True)
@@ -302,7 +302,12 @@ marker = root/'launched.json'
 executable.write_text('#!'+sys.executable+'\nimport json,sys\nfrom pathlib import Path\nPath('+repr(str(marker))+').write_text(json.dumps(sys.argv))\n')
 application = Gio.DesktopAppInfo.new_from_filename(str(root/'applications/omamail.desktop'))
 assert application is not None, 'Desktop Entry must parse with a reserved-character installation path'
-application.launch([], None)
+context = Gio.AppLaunchContext()
+for name in os.environ:
+    context.unsetenv(name)
+for name in ('PATH', 'HOME'):
+    context.setenv(name, env[name])
+application.launch([], context)
 deadline = time.monotonic()+3
 while not marker.exists() and time.monotonic() < deadline:
     time.sleep(.01)

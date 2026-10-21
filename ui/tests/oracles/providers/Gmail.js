@@ -100,8 +100,8 @@ function searchQuery(text) {
 // already known to live there is outside the server search being previewed.
 function cachedSummaryInSearch(sourceQuery, summary) {
   var labels = summary && Array.isArray(summary.labelIds) ? summary.labelIds : []
-  for (var i = 0; i < labels.length; i++) {
-    var label = String(labels[i] || "").toUpperCase()
+  for (var itemIndex = 0; itemIndex < labels.length; itemIndex++) {
+    var label = String(labels[itemIndex] || "").toUpperCase()
     if (label === "SPAM" || label === "TRASH") return false
   }
   var source = String(sourceQuery || "").toLowerCase()

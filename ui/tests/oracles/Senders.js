@@ -14,23 +14,23 @@
 function asList(value) {
   if (value === undefined || value === null) return []
   if (Array.isArray(value)) return value
-  var n = value.length
-  if (typeof n !== "number" || n < 1) return []
-  var out = []
-  var i
-  for (i = 0; i < n; i++) {
-    if (value[i] !== undefined) out.push(value[i])
+  var length = value.length
+  if (typeof length !== "number" || length < 1) return []
+  var output = []
+  var itemIndex
+  for (itemIndex = 0; itemIndex < length; itemIndex++) {
+    if (value[itemIndex] !== undefined) output.push(value[itemIndex])
   }
-  return out
+  return output
 }
 
 function identities(mailboxes) {
   var rows = asList(mailboxes)
-  var out = []
+  var output = []
   var seen = ({})
-  var i
-  for (i = 0; i < rows.length; i++) {
-    var box = rows[i] || ({})
+  var itemIndex
+  for (itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var box = rows[itemIndex] || ({})
     if (box.ready !== true || box.canSend === false) continue
     var accountId = String(box.id || "")
     if (accountId === "") continue
@@ -40,15 +40,15 @@ function identities(mailboxes) {
       if (fallback === "") continue
       aliases = [{ email: fallback, displayName: String(box.displayName || "") }]
     }
-    var j
-    for (j = 0; j < aliases.length; j++) {
-      var alias = aliases[j] || ({})
+    var aliasIndex
+    for (aliasIndex = 0; aliasIndex < aliases.length; aliasIndex++) {
+      var alias = aliases[aliasIndex] || ({})
       var email = String(alias.email || "").trim()
       if (email === "") continue
       var key = accountId + "\n" + email.toLowerCase()
       if (seen[key]) continue
       seen[key] = true
-      out.push({
+      output.push({
         accountId: accountId,
         email: email,
         displayName: String(alias.displayName || ""),
@@ -56,7 +56,7 @@ function identities(mailboxes) {
       })
     }
   }
-  return out
+  return output
 }
 
 function visible(rows, accountId, mode) {
@@ -65,9 +65,9 @@ function visible(rows, accountId, mode) {
   if (kind === "new" || kind === "") return list
   var wanted = String(accountId || "")
   var kept = []
-  var i
-  for (i = 0; i < list.length; i++) {
-    if (String(list[i].accountId || "") === wanted) kept.push(list[i])
+  var itemIndex
+  for (itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (String(list[itemIndex].accountId || "") === wanted) kept.push(list[itemIndex])
   }
   return kept
 }

@@ -17,9 +17,9 @@ function person(value) {
 
 function people(value) {
   var rows = Array.isArray(value) ? value : []
-  var out = []
-  for (var i = 0; i < rows.length; i++) out.push(person(rows[i]))
-  return out
+  var output = []
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) output.push(person(rows[itemIndex]))
+  return output
 }
 
 function attachment(value) {
@@ -39,9 +39,9 @@ function attachment(value) {
 
 function attachments(value) {
   var rows = Array.isArray(value) ? value : []
-  var out = []
-  for (var i = 0; i < rows.length; i++) out.push(attachment(rows[i]))
-  return out
+  var output = []
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) output.push(attachment(rows[itemIndex]))
+  return output
 }
 
 function draft(value) {
@@ -112,13 +112,13 @@ function parse(raw) {
 // The other drafts parked for their send when the file was written: one
 // composer, several undo windows. Each that still says something is kept.
 function meaningful(values) {
-  var out = []
+  var output = []
   var list = Array.isArray(values) ? values : []
-  for (var i = 0; i < list.length; i++) {
-    var saved = draft(list[i])
-    if (hasMeaningfulDraft(saved)) out.push(saved)
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var saved = draft(list[itemIndex])
+    if (hasMeaningfulDraft(saved)) output.push(saved)
   }
-  return out
+  return output
 }
 
 function serialize(view, value, parked) {

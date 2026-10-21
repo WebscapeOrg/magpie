@@ -12,16 +12,16 @@ var ACTIVE = ["queued", "running"]
 // a line that is not JSON both mean "no jobs", not an error worth a notice.
 function parseJobs(text) {
   var parsed = null
-  try { parsed = JSON.parse(String(text || "")) } catch (e) { parsed = null }
+  try { parsed = JSON.parse(String(text || "")) } catch (error) { parsed = null }
   if (!Array.isArray(parsed)) return []
-  var out = []
-  for (var i = 0; i < parsed.length; i++) {
-    var job = parsed[i]
+  var output = []
+  for (var itemIndex = 0; itemIndex < parsed.length; itemIndex++) {
+    var job = parsed[itemIndex]
     if (!job || typeof job !== "object") continue
     if (String(job.id || "") === "") continue
-    out.push(job)
+    output.push(job)
   }
-  return out
+  return output
 }
 
 function isActive(job) {
@@ -30,7 +30,7 @@ function isActive(job) {
 
 function anyActive(jobs) {
   var list = Array.isArray(jobs) ? jobs : []
-  for (var i = 0; i < list.length; i++) if (isActive(list[i])) return true
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) if (isActive(list[itemIndex])) return true
   return false
 }
 
@@ -52,11 +52,11 @@ function jobFor(jobs, messageId, accountId) {
   var id = String(messageId || "")
   if (id === "") return null
   var newest = null
-  for (var i = 0; i < list.length; i++) {
-    if (!ownedBy(list[i], accountId)) continue
-    if (messageIdsOf(list[i]).indexOf(id) < 0) continue
-    if (isActive(list[i])) return list[i]
-    if (!newest || createdOrder(list[i]) > createdOrder(newest)) newest = list[i]
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (!ownedBy(list[itemIndex], accountId)) continue
+    if (messageIdsOf(list[itemIndex]).indexOf(id) < 0) continue
+    if (isActive(list[itemIndex])) return list[itemIndex]
+    if (!newest || createdOrder(list[itemIndex]) > createdOrder(newest)) newest = list[itemIndex]
   }
   return newest
 }
@@ -67,28 +67,28 @@ function jobFor(jobs, messageId, accountId) {
 function messageIdsOf(job) {
   if (!job) return []
   var many = Array.isArray(job.messageIds) ? job.messageIds : []
-  var out = []
-  for (var i = 0; i < many.length; i++) if (String(many[i] || "") !== "") out.push(String(many[i]))
+  var output = []
+  for (var itemIndex = 0; itemIndex < many.length; itemIndex++) if (String(many[itemIndex] || "") !== "") output.push(String(many[itemIndex]))
   var one = String(job.messageId || "")
-  if (one !== "" && out.indexOf(one) < 0) out.push(one)
-  return out
+  if (one !== "" && output.indexOf(one) < 0) output.push(one)
+  return output
 }
 
 function jobsByMessage(jobs, accountId) {
   var list = Array.isArray(jobs) ? jobs : []
-  var out = {}
-  for (var i = 0; i < list.length; i++) {
-    if (!ownedBy(list[i], accountId)) continue
-    var ids = messageIdsOf(list[i])
-    for (var k = 0; k < ids.length; k++) {
-      var id = ids[k]
-      var current = out[id]
-      if (!current || isActive(list[i])
-          || (!isActive(current) && createdOrder(list[i]) > createdOrder(current)))
-        out[id] = list[i]
+  var output = {}
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (!ownedBy(list[itemIndex], accountId)) continue
+    var ids = messageIdsOf(list[itemIndex])
+    for (var memberIndex = 0; memberIndex < ids.length; memberIndex++) {
+      var id = ids[memberIndex]
+      var current = output[id]
+      if (!current || isActive(list[itemIndex])
+          || (!isActive(current) && createdOrder(list[itemIndex]) > createdOrder(current)))
+        output[id] = list[itemIndex]
     }
   }
-  return out
+  return output
 }
 
 
@@ -105,10 +105,10 @@ function glyphState(job) {
 
 // What the agent last wrote while it works, or "" — the listing carries it
 // for a running job, so a row and a popup can show movement.
-function workingText(job, now, preparationStarted) {
+function workingText(job, nowMs, preparationStartedMs) {
   var active = isActive(job)
-  var start = active && Number(job.created) > 0 ? Number(job.created) * 1000 : preparationStarted
-  var seconds = Math.max(0, Math.floor((now - start) / 1000))
+  var startMs = active && Number(job.created) > 0 ? Number(job.created) * 1000 : preparationStartedMs
+  var seconds = Math.max(0, Math.floor((nowMs - startMs) / 1000))
   var duration = Math.floor(seconds / 60) + "m " + (seconds % 60) + "s"
   return "• " + (active ? "Working" : "Preparing") + " (" + duration
     + (active ? " • Esc to interrupt" : "") + " • / show commands)"
@@ -165,27 +165,27 @@ function finishedNote(job) {
 function newlyFinished(before, after) {
   var was = {}
   var earlier = Array.isArray(before) ? before : []
-  for (var i = 0; i < earlier.length; i++) was[String(earlier[i].id)] = isActive(earlier[i])
-  var out = []
+  for (var itemIndex = 0; itemIndex < earlier.length; itemIndex++) was[String(earlier[itemIndex].id)] = isActive(earlier[itemIndex])
+  var output = []
   var later = Array.isArray(after) ? after : []
-  for (var j = 0; j < later.length; j++) {
-    var id = String(later[j].id)
-    if (was[id] === true && !isActive(later[j])) out.push(later[j])
+  for (var nestedIndex = 0; nestedIndex < later.length; nestedIndex++) {
+    var id = String(later[nestedIndex].id)
+    if (was[id] === true && !isActive(later[nestedIndex])) output.push(later[nestedIndex])
   }
-  return out
+  return output
 }
 
 function addressLine(list) {
   var rows = Array.isArray(list) ? list : []
-  var out = []
-  for (var i = 0; i < rows.length; i++) {
-    var row = rows[i] || {}
+  var output = []
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var row = rows[itemIndex] || {}
     var email = String(row.email || "")
     var name = String(row.name || row.display || "")
-    if (email === "") { if (name !== "") out.push(name); continue }
-    out.push(name !== "" && name !== email ? name + " <" + email + ">" : email)
+    if (email === "") { if (name !== "") output.push(name); continue }
+    output.push(name !== "" && name !== email ? name + " <" + email + ">" : email)
   }
-  return out.join(", ")
+  return output.join(", ")
 }
 
 // The message as the agent receives it: the headers a reader would want,
@@ -232,14 +232,14 @@ function payload(summary, bodyText, account, folder, prompt, accountId) {
 // decides, not the shape of the id: an IMAP folder can be named "2026".
 function folderOf(messageId, mailboxKey, providerId) {
   var id = String(messageId || "")
-  var at = id.indexOf(":")
-  if (String(providerId || "") === "imap" && at > 0 && at < id.length - 1) return id.slice(at + 1)
+  var separatorIndex = id.indexOf(":")
+  if (String(providerId || "") === "imap" && separatorIndex > 0 && separatorIndex < id.length - 1) return id.slice(separatorIndex + 1)
   return String(mailboxKey || "")
 }
 
 function pluralizeMessages(count) {
-  var n = Math.max(0, Math.floor(Number(count) || 0))
-  return n === 1 ? "1 message" : n + " messages"
+  var messageCount = Math.max(0, Math.floor(Number(count) || 0))
+  return messageCount === 1 ? "1 message" : messageCount + " messages"
 }
 
 // A continuation: the answer to a job's question, or a follow-up ask. The
@@ -254,9 +254,9 @@ function continuationPayload(parentJob, answer) {
 function selectionPayload(summaries, account, folder, prompt, accountId) {
   var rows = Array.isArray(summaries) ? summaries : []
   var messages = []
-  for (var i = 0; i < rows.length; i++) {
-    if (!rows[i] || String(rows[i].id || "") === "") continue
-    messages.push({ messageId: String(rows[i].id), message: messageText(rows[i], rows[i].bodyText || "") })
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    if (!rows[itemIndex] || String(rows[itemIndex].id || "") === "") continue
+    messages.push({ messageId: String(rows[itemIndex].id), message: messageText(rows[itemIndex], rows[itemIndex].bodyText || "") })
   }
   return JSON.stringify({
     messageId: "",
@@ -273,7 +273,7 @@ function selectionPayload(summaries, account, folder, prompt, accountId) {
 // The pane's listing of one job's output, from `agent-job.py show`.
 function parseShown(text) {
   var parsed = null
-  try { parsed = JSON.parse(String(text || "")) } catch (e) { parsed = null }
+  try { parsed = JSON.parse(String(text || "")) } catch (error) { parsed = null }
   if (!parsed || typeof parsed !== "object" || !parsed.job) return null
   return { job: parsed.job, output: String(parsed.output || ""), transcript: chatEntries(parsed.transcript) }
 }
@@ -294,16 +294,16 @@ function wantsAttention(job, seen) {
 
 function anyAttention(jobs, seen) {
   var list = Array.isArray(jobs) ? jobs : []
-  for (var i = 0; i < list.length; i++) if (wantsAttention(list[i], seen)) return true
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) if (wantsAttention(list[itemIndex], seen)) return true
   return false
 }
 
 // messageId -> true for every message whose newest job wants attention.
 function attentionByMessage(jobs, seen, accountId) {
   var map = jobsByMessage(jobs, accountId)
-  var out = {}
-  for (var id in map) if (wantsAttention(map[id], seen)) out[id] = true
-  return out
+  var output = {}
+  for (var id in map) if (wantsAttention(map[id], seen)) output[id] = true
+  return output
 }
 
 function markSeen(seen, jobId) {
@@ -346,10 +346,10 @@ function isDraftJob(job) {
 // account, and an answer for Ada's draft must not be offered to Bob's.
 function draftJobs(jobs, accountId, draftKey) {
   var list = Array.isArray(jobs) ? jobs : []
-  var out = []
-  for (var i = 0; i < list.length; i++) if (isDraftJob(list[i]) && ownedBy(list[i], accountId) && String(draftKey || "") !== "" && String(list[i].draftKey || "") === String(draftKey)) out.push(list[i])
-  out.sort(function(a, b) { return createdOrder(b) - createdOrder(a) })
-  return out
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) if (isDraftJob(list[itemIndex]) && ownedBy(list[itemIndex], accountId) && String(draftKey || "") !== "" && String(list[itemIndex].draftKey || "") === String(draftKey)) output.push(list[itemIndex])
+  output.sort(function(left, right) { return createdOrder(right) - createdOrder(left) })
+  return output
 }
 
 // Draft scenarios fill the editable prompt before the owner submits it.
@@ -365,14 +365,14 @@ var DRAFT_ASKS = [
 
 var MAIL_TRANSFORM_FORMAT = "Use exactly this reply layout: Title: <mail title>, then a blank line, then Body: on its own line followed by the mail body. Do not include any other headers or commentary."
 function draftAsks() {
-  var out = []
-  for (var i = 0; i < DRAFT_ASKS.length; i++) {
-    var ask = DRAFT_ASKS[i]
+  var output = []
+  for (var itemIndex = 0; itemIndex < DRAFT_ASKS.length; itemIndex++) {
+    var ask = DRAFT_ASKS[itemIndex]
     var prompt = ask.prompt + " Work only on the mail title and body; do not rewrite addresses, dates, metadata, or this instruction."
     if (ask.id !== "review") prompt = prompt.replace("Answer with your review, not a rewrite.", "") + " " + MAIL_TRANSFORM_FORMAT
-    out.push({id: ask.id, label: ask.label, prompt: prompt})
+    output.push({id: ask.id, label: ask.label, prompt: prompt})
   }
-  return out
+  return output
 }
 
 // Explicit plaintext results are preserved exactly; incomplete or failed jobs
@@ -381,8 +381,8 @@ function draftAnswer(job, output, transcript) {
   if (!job || (isActive(job) && !job.resultReady) || glyphState(job) === "failed" || job.question) return ""
   var text = String(output || "")
   var rows = Array.isArray(transcript) ? transcript : []
-  for (var i = 0; i < rows.length; i++) {
-    if (rows[i].role === "user" && rows[i].text.indexOf(MAIL_TRANSFORM_FORMAT) >= 0) {
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    if (rows[itemIndex].role === "user" && rows[itemIndex].text.indexOf(MAIL_TRANSFORM_FORMAT) >= 0) {
       var body = /^Title: [^\r\n]*\r?\n\r?\nBody:\r?\n([\s\S]*)$/.exec(text)
       return body ? body[1] : ""
     }
@@ -392,10 +392,10 @@ function draftAnswer(job, output, transcript) {
 
 // A change indicator, never an authorization check. Ownership is draftKey + account.
 function draftFingerprint(fields) {
-  var v = fields || {}
-  var text = JSON.stringify([v.from || "", v.to || "", v.subject || "", v.body || ""])
+  var values = fields || {}
+  var text = JSON.stringify([values.from || "", values.to || "", values.subject || "", values.body || ""])
   var hash = 2166136261
-  for (var i = 0; i < text.length; i++) { hash ^= text.charCodeAt(i); hash = (hash * 16777619) >>> 0 }
+  for (var itemIndex = 0; itemIndex < text.length; itemIndex++) { hash ^= text.charCodeAt(itemIndex); hash = (hash * 16777619) >>> 0 }
   return String(hash)
 }
 
@@ -404,8 +404,8 @@ function selectionJob(jobs, ids, accountId) {
   if (wanted.length === 0) return null
   var newest = null
   var list = Array.isArray(jobs) ? jobs : []
-  for (var i = 0; i < list.length; i++) {
-    var job = list[i]
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var job = list[itemIndex]
     if (!ownedBy(job, accountId)) continue
     var actual = messageIdsOf(job).sort()
     if (JSON.stringify(actual) !== JSON.stringify(wanted)) continue
@@ -426,8 +426,8 @@ var MAIL_ASKS = [
 ]
 function mailAsks(multiple) {
   var asks = []
-  for (var i = 0; i < MAIL_ASKS.length; i++) {
-    var ask = MAIL_ASKS[i]
+  for (var itemIndex = 0; itemIndex < MAIL_ASKS.length; itemIndex++) {
+    var ask = MAIL_ASKS[itemIndex]
     asks.push({label: ask.label, prompt: ask.prompt + " Work only from the mail title and body."
       + (ask.label.indexOf("Translate") === 0 ? " " + MAIL_TRANSFORM_FORMAT : "")})
   }
@@ -438,13 +438,13 @@ function mailAsks(multiple) {
 
 function chatEntries(value) {
   var rows = Array.isArray(value) ? value : []
-  var out = []
-  for (var i = 0; i < rows.length; i++) {
-    var entry = rows[i]
+  var output = []
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var entry = rows[itemIndex]
     if (!entry || ["user", "assistant", "status"].indexOf(entry.role) < 0 || typeof entry.text !== "string") continue
-    out.push({role: entry.role, text: entry.text})
+    output.push({role: entry.role, text: entry.text})
   }
-  return out
+  return output
 }
 
 function createdOrder(job) {
@@ -456,8 +456,8 @@ function commandSuggestions(text, choices) {
   var match = /(?:^|\n)\/([a-z-]*)$/.exec(value)
   if (!match) return {start: -1, items: []}
   var items = []
-  for (var i = 0; i < choices.length; i++) {
-    var choice = choices[i]
+  for (var itemIndex = 0; itemIndex < choices.length; itemIndex++) {
+    var choice = choices[itemIndex]
     var command = String(choice.id || choice.label.toLowerCase().replace(/ /g, "-"))
     if (command.indexOf(match[1]) === 0 || choice.label.toLowerCase().indexOf(match[1]) === 0)
       items.push({command: command, label: choice.label, prompt: choice.prompt})
@@ -469,8 +469,8 @@ function historyFor(jobs, accountId, ids, draftKey) {
   var rows = Array.isArray(jobs) ? jobs : []
   var wanted = (Array.isArray(ids) ? ids.slice() : []).sort().join("\u001f")
   var groups = {}
-  for (var i = 0; i < rows.length; i++) {
-    var job = rows[i]
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var job = rows[itemIndex]
     if (!ownedBy(job, accountId)) continue
     if (draftKey) { if (!isDraftJob(job) || job.draftKey !== draftKey) continue }
     else if (isDraftJob(job) || messageIdsOf(job).sort().join("\u001f") !== wanted || wanted === "") continue
@@ -479,7 +479,7 @@ function historyFor(jobs, accountId, ids, draftKey) {
   }
   var result = []
   for (var key in groups) if (Object.prototype.hasOwnProperty.call(groups, key)) result.push(groups[key])
-  result.sort(function(a,b) { return createdOrder(b) - createdOrder(a) })
+  result.sort(function(left,right) { return createdOrder(right) - createdOrder(left) })
   return result
 }
 function historyLabel(job) {
@@ -491,8 +491,8 @@ function pendingJob(jobs, currentJob, scopeMatches, conversationId, previousId) 
   var rows = Array.isArray(jobs) ? jobs : []
   if (!rows.length && scopeMatches && currentJob) rows = [currentJob]
   var result = null
-  for (var i = 0; i < rows.length; i++) {
-    var job = rows[i]
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var job = rows[itemIndex]
     if (conversationId === "") {
       if (!scopeMatches || !currentJob || job.id !== currentJob.id || String(job.id) === previousId) continue
     } else if (String(job.conversationId || job.id) !== conversationId) continue
@@ -503,7 +503,7 @@ function pendingJob(jobs, currentJob, scopeMatches, conversationId, previousId) 
 function pendingLimit(messages, text) {
   if (messages.length >= 20) return "The queue is full. Wait for a reply or remove a pending message."
   var size = text.length
-  for (var i = 0; i < messages.length; i++) size += messages[i].length
+  for (var itemIndex = 0; itemIndex < messages.length; itemIndex++) size += messages[itemIndex].length
   if (text.length > 65536 || size > 262144) return "This pending message is too long. Shorten it before sending."
   return ""
 }

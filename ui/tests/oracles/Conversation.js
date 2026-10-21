@@ -120,20 +120,20 @@ function mergedSummaries(existing, additions, limit, kept) {
     if (held >= cap) {
       var survivors = {}
       var ids = Array.isArray(kept) ? kept : []
-      for (var k = 0; k < ids.length; k++) {
-        var wanted = trimmed(ids[k])
+      for (var memberIndex = 0; memberIndex < ids.length; memberIndex++) {
+        var wanted = trimmed(ids[memberIndex])
         if (wanted !== "" && source[wanted]) survivors[wanted] = source[wanted]
       }
       source = survivors
     }
   }
-  var out = {}
-  for (var key in source) out[key] = source[key]
+  var output = {}
+  for (var key in source) output[key] = source[key]
   for (var added in extra) {
     var id = trimmed(added)
-    if (id !== "" && extra[added]) out[id] = extra[added]
+    if (id !== "" && extra[added]) output[id] = extra[added]
   }
-  return out
+  return output
 }
 
 // The one summary this id resolves to, or null.
@@ -151,12 +151,12 @@ function summaryFor(summaries, id) {
 function missingMemberIds(block, summaries) {
   var thread = blockOf(block)
   if (!thread) return []
-  var out = []
-  for (var i = 0; i < thread.memberIds.length; i++) {
-    if (summaryFor(summaries, thread.memberIds[i])) continue
-    out.push(thread.memberIds[i])
+  var output = []
+  for (var itemIndex = 0; itemIndex < thread.memberIds.length; itemIndex++) {
+    if (summaryFor(summaries, thread.memberIds[itemIndex])) continue
+    output.push(thread.memberIds[itemIndex])
   }
-  return out
+  return output
 }
 
 // ------------------------------------------------------------ where it sits
@@ -179,8 +179,8 @@ var MAILBOX_OF_LABEL = [
 // sender is worse than naming none.
 function mailboxKeyOf(summary) {
   var labels = summary && Array.isArray(summary.labelIds) ? summary.labelIds : []
-  for (var i = 0; i < MAILBOX_OF_LABEL.length; i++) {
-    if (labels.indexOf(MAILBOX_OF_LABEL[i].label) >= 0) return MAILBOX_OF_LABEL[i].key
+  for (var itemIndex = 0; itemIndex < MAILBOX_OF_LABEL.length; itemIndex++) {
+    if (labels.indexOf(MAILBOX_OF_LABEL[itemIndex].label) >= 0) return MAILBOX_OF_LABEL[itemIndex].key
   }
   return ""
 }
@@ -201,8 +201,8 @@ function mailboxLabel(mailboxes, key) {
   var list = Array.isArray(mailboxes) ? mailboxes : []
   var wanted = trimmed(key)
   if (wanted === "") return ""
-  for (var i = 0; i < list.length; i++) {
-    if (list[i] && trimmed(list[i].key) === wanted) return String(list[i].label || "")
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (list[itemIndex] && trimmed(list[itemIndex].key) === wanted) return String(list[itemIndex].label || "")
   }
   return ""
 }
@@ -247,12 +247,12 @@ function stops(block, summaries, openId, viewKey, mailboxes) {
   var thread = blockOf(block)
   if (!thread) return []
   var open = trimmed(openId)
-  var out = []
+  var output = []
   var ids = railOrder(thread)
-  for (var i = 0; i < ids.length; i++) {
-    var id = ids[i]
+  for (var itemIndex = 0; itemIndex < ids.length; itemIndex++) {
+    var id = ids[itemIndex]
     var summary = summaryFor(summaries, id)
-    out.push({
+    output.push({
       id: id,
       known: !!summary,
       open: id === open,
@@ -264,7 +264,7 @@ function stops(block, summaries, openId, viewKey, mailboxes) {
       mailbox: summary ? mailboxNameFor(summary, viewKey, mailboxes) : ""
     })
   }
-  return out
+  return output
 }
 
 function pluralize(count, singular, plural) {
@@ -281,8 +281,8 @@ function caption(block, summaries) {
   var thread = blockOf(block)
   if (!thread || thread.count < MINIMUM_MEMBERS) return ""
   var unread = 0
-  for (var i = 0; i < thread.memberIds.length; i++) {
-    if (memberHasLabel(summaryFor(summaries, thread.memberIds[i]), "UNREAD"))
+  for (var itemIndex = 0; itemIndex < thread.memberIds.length; itemIndex++) {
+    if (memberHasLabel(summaryFor(summaries, thread.memberIds[itemIndex]), "UNREAD"))
       unread = unread + 1
   }
   var text = pluralize(thread.count, "message", "messages")

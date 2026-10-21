@@ -94,6 +94,7 @@ QML_FILES += ui/tests/qml/tst_setup_plaintext.qml
 QML_FILES += ui/tests/qml/tst_signature_import_lifecycle.qml
 QML_FILES += ui/tests/qml/NativeIntentBridge.qml
 QML_FILES += ui/tests/qml/tst_shell_fixtures.qml
+QML_FILES += ui/tests/qml/tst_magpie_logo.qml
 APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml app/tests/qml/tst_calendar_palette_bindings.qml
 APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)
@@ -208,6 +209,7 @@ test-shell-portable: test-shell-independent
 	python3 tests/test_public_http.py
 
 test-shell-independent:
+	python3 tests/test_low_space.py
 	python3 tests/test_register_mailto.py
 	python3 tests/test_qml_native_resources.py
 	python3 tests/test_published_agent_contract.py

@@ -112,6 +112,22 @@ Item {
       compare(successes, 0)
       compare(objects.auth.sessionBusy, false)
     }
+    function test_waiter_logout_blocks_later_secret_delivery_data() { return providers() }
+    function test_waiter_logout_blocks_later_secret_delivery(data) {
+      var objects = pair(data.protocol)
+      var successes = 0
+      var second = null
+      objects.auth.loginSucceeded.connect(function() { successes++ })
+      objects.auth.withCredentials(function() { objects.auth.logout() })
+      objects.auth.withCredentials(function(value, error) { second = { value: value, error: error } })
+      credentials.lookups[0]("old-account-secret", "")
+      verify(second !== null)
+      verify(!second.value, "no secret is delivered after an earlier waiter signs out")
+      verify(second.error !== "")
+      compare(objects.auth.loggedIn, false)
+      compare(successes, 0, "a keyring completion must not announce sign-in after a waiter signs out")
+      compare(credentials.writes.length, 0)
+    }
     function test_busy_sign_in_cannot_replace_the_pending_secret_data() { return providers() }
     function test_busy_sign_in_cannot_replace_the_pending_secret(data) {
       var objects = pair(data.protocol)

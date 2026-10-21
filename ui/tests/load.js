@@ -4,15 +4,7 @@ const vm = require("vm")
 
 const ROOT = path.dirname(__dirname)
 
-// The QML JS modules are plain scripts with two directives only the QML engine
-// understands: `.pragma library`, and `.import "Other.js" as Other` for the one
-// resource that is built out of others. Stripping the first and resolving the
-// second by hand leaves ordinary JavaScript, which runs in a vm context — so
-// the tests exercise exactly the file the shell loads rather than a copy.
-//
-// Paths are module-relative ("cache/Cache.js"), because the layout groups by
-// module rather than by file type and a bare filename would no longer say where
-// the thing lives.
+// Invariant: Tests execute repository QML scripts after resolving their QML directives.
 const IMPORT_SOURCE = '^\\s*\\.import\\s+"([^"]+)"\\s+as\\s+(\\w+)\\s*$'
 
 function load(relativePath) {
@@ -26,13 +18,8 @@ function loadModule(file, libraries) {
   const context = {}
   vm.createContext(context)
 
-  // Every match is collected before any of them is followed. A global regexp
-  // carries `lastIndex` between calls, so recursing out of the middle of an
-  // exec loop — which is exactly what following an import does — leaves the
-  // outer loop reading a position into a string it has never seen.
   const imports = [...raw.matchAll(new RegExp(IMPORT_SOURCE, "gm"))]
 
-  // QML resolves an import against the importing file's own directory.
   for (const [, target, qualifier] of imports) {
     context[qualifier] = loadModule(path.resolve(path.dirname(file), target), libraries)
   }
@@ -48,10 +35,7 @@ function loadModule(file, libraries) {
 
 module.exports = { load, ROOT }
 
-// Objects built inside the vm context have that realm's prototypes, so
-// assert.deepStrictEqual rejects them against literals declared out here.
-// Round-tripping through JSON compares the values, which is what the tests
-// are actually about.
+// Invariant: Comparing across VM realms must preserve undefined, non-finite numbers and sparse arrays.
 function plain(value) {
   return structuredClone(value)
 }

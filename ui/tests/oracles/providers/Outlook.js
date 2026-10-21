@@ -4,10 +4,7 @@
 .import "../../../providers/ImapProtocol.js" as Protocol
 .import "../../../providers/MicrosoftOAuth.js" as Microsoft
 
-// Outlook.com is an IMAP mailbox with a sign-in of its own. Keeping it as a
-// provider rather than a password preset matters: Microsoft no longer accepts
-// account passwords for personal mail, while the generic IMAP provider still
-// needs them for servers that do.
+// Invariant: Outlook shares IMAP mailbox rules but requires Microsoft OAuth rather than an account password.
 
 var ID = "outlook"
 var NAME = "Outlook"
@@ -33,10 +30,7 @@ function webHomeUrl() {
   return "https://outlook.live.com/mail/"
 }
 
-// The servers are Microsoft's and fixed here: a personal mailbox submits
-// through smtp-mail.outlook.com, a work or school one through
-// smtp.office365.com, and both read through outlook.office365.com. `send`
-// names Graph where a tenant has authenticated SMTP switched off.
+// Invariant: Outlook uses Microsoft's fixed IMAP host and chooses the SMTP host by tenant; Graph can supply sending.
 function settings(address, tenant, send) {
   var work = Microsoft.isWorkTenant(tenant)
   return Protocol.normalizeSettings({

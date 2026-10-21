@@ -81,10 +81,10 @@ Item {
     // fractions, and they have to add up to the same distance — which is
     // where a bare Flickable is eight times short.
     function test_a_finely_reporting_wheel_moves_the_same_distance() {
-      for (var i = 0; i < 8; i++) mouseWheel(view, 200, 150, 0, -15)
+      for (var stepIndex = 0; stepIndex < 8; stepIndex++) mouseWheel(view, 200, 150, 0, -15)
       compare(view.contentY, 240, "eight fractions of a notch are still one notch")
 
-      for (var j = 0; j < 8; j++) mouseWheel(bare, 200, 150, 0, -15)
+      for (var bareStepIndex = 0; bareStepIndex < 8; bareStepIndex++) mouseWheel(bare, 200, 150, 0, -15)
       wait(400)
       verify(bare.contentY < 60,
         "the same turn on a bare Flickable moves a fraction of it, which is the fault")
@@ -102,7 +102,7 @@ Item {
       compare(view.contentY, 2400)
 
       view.contentY = 0
-      for (var i = 0; i < 10; i++) mouseWheel(view, 200, 150, 0, -120)
+      for (var stepIndex = 0; stepIndex < 10; stepIndex++) mouseWheel(view, 200, 150, 0, -120)
       compare(view.contentY, 2400, "however the ten notches arrive")
     }
 

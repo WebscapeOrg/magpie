@@ -130,10 +130,10 @@ Item {
 
     function cursorOffset(id, delta) {
       if (messages.length === 0) return ""
-      var at = -1
-      for (var i = 0; i < messages.length; i++) if (messages[i].id === id) at = i
-      if (at < 0) return delta < 0 ? messages[messages.length - 1].id : messages[0].id
-      var next = at + delta
+      var currentIndex = -1
+      for (var index = 0; index < messages.length; index++) if (messages[index].id === id) currentIndex = index
+      if (currentIndex < 0) return delta < 0 ? messages[messages.length - 1].id : messages[0].id
+      var next = currentIndex + delta
       return messages[Math.max(0, Math.min(messages.length - 1, next))].id
     }
 
@@ -142,11 +142,11 @@ Item {
       selectionIsPreview = false
     }
     function refreshRecipientContacts() {}
-    function preferredSendAs(_r) { return null }
-    function loadAttachments(_i, _a, cb) { cb([], "") }
-    function fail(_t) {}
-    function note(_t) {}
-    function act(_i, _a, _q) { return true }
+    function preferredSendAs(_recipients) { return null }
+    function loadAttachments(_messageId, _attachments, callback) { callback([], "") }
+    function fail(_text) {}
+    function note(_text) {}
+    function act(_messageId, _action, _options) { return true }
     signal replySent()
   }
 
@@ -162,22 +162,22 @@ Item {
 
     // The FloatingWindow, found by its title the way the other App tests find
     // it: `children[0]` is not reliably the window.
-    function window() {
-      return having(app, function(it) { return it.title === "🐦 Magpie" })
+    function appWindow() {
+      return findMatching(app, function(item) { return item.title === "🐦 Magpie" })
     }
 
     // The reader panel, found by the one property only it has. It draws no
     // objectName and `children[0]` is not reliably anything.
     function readerView() {
-      return having(app, function(it) { return it.forceRichAnyway !== undefined })
+      return findMatching(app, function(item) { return item.forceRichAnyway !== undefined })
     }
 
-    function having(item, accept) {
+    function findMatching(item, accept) {
       if (!item) return null
       if (accept(item)) return item
       var children = item.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = having(children[i], accept)
+      for (var index = 0; index < children.length; index++) {
+        var found = findMatching(children[index], accept)
         if (found) return found
       }
       return null
@@ -185,8 +185,8 @@ Item {
 
     function init() {
       app.opened = true
-      window().width = 1200
-      window().height = 700
+      appWindow().width = 1200
+      appWindow().height = 700
       waitForRendering(app)
       app.resetNavigation()
       app.cursorId = ""
@@ -207,7 +207,7 @@ Item {
     }
 
     function test_real_j_and_k_keys_keep_focus_parked_while_opening_rows() {
-      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      var scope = findMatching(app, function(item) { return item.keyContext !== undefined })
       verify(scope)
       scope.applyContextFocus()
       wait(20)
@@ -251,7 +251,7 @@ Item {
     }
 
     function test_narrow_window_immediately_shows_reader() {
-      window().width = 700
+      appWindow().width = 700
       waitForRendering(app)
       compare(app.compact, true)
       app.moveCursor(1)

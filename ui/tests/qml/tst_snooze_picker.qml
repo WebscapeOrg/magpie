@@ -9,11 +9,11 @@ Item {
     anchors.fill: parent
     textColor: Qt.rgba(1,1,1,1); dimColor: Qt.rgba(0.7,0.7,0.7,1); accentColor: Qt.rgba(0.5,0.8,0.5,1); popupBackgroundColor: Qt.rgba(0.08,0.13,0.13,1); popupBorderColor: Qt.rgba(0.4,0.4,0.4,1); panelFontFamily: "sans-serif"
   }
-  SignalSpy { id: spy; target: picker; signalName: "snoozed" }
+  SignalSpy { id: snoozedSpy; target: picker; signalName: "snoozed" }
   TestCase {
     name: "SnoozePicker"
     when: windowShown
-    function init() { spy.clear() }
+    function init() { snoozedSpy.clear() }
     function cleanup() { findChild(picker, "snooze-popup").close() }
     function test_custom_validation_and_keyboard_escape() {
       picker.openAt("mail-id",950,800)
@@ -29,7 +29,7 @@ Item {
       verify(!!picker.chosenTime)
       keyClick(Qt.Key_Escape)
       tryCompare(picker,"opened",false)
-      compare(spy.count,0,"closing never mutates a mailbox")
+      compare(snoozedSpy.count,0,"closing never mutates a mailbox")
     }
     function test_preset_emits_original_id_and_local_eight_am_data() {
       return [{tag: "first", messageId: "first-id"}, {tag: "second", messageId: "second-id"}]
@@ -38,9 +38,9 @@ Item {
       picker.openAt(data.messageId,10,10)
       var expected=picker.choices[0].date
       picker.choose(expected)
-      compare(spy.count,1)
-      compare(spy.signalArguments[0][0],data.messageId)
-      compare(spy.signalArguments[0][1],expected.getTime())
+      compare(snoozedSpy.count,1)
+      compare(snoozedSpy.signalArguments[0][0],data.messageId)
+      compare(snoozedSpy.signalArguments[0][1],expected.getTime())
       compare(expected.getHours(),8)
     }
   }

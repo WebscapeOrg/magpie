@@ -41,19 +41,19 @@ Item {
 
     function cleanup() { menu.close() }
 
-    function show(editable, link) {
+    function openMenu(editable, link) {
       menu.close()
       menu.editable = editable
       menu.openAt(editor, 100, 100, link === undefined ? "" : link)
       wait(20)
     }
 
-    function shown(row) { return row.visible && row.enabled }
+    function isActionAvailable(row) { return row.visible && row.enabled }
 
     // ------------------------------------------------------------- reader
 
     function test_a_reader_offers_only_copy() {
-      show(false)
+      openMenu(false)
       compare(menu.opened, true)
       compare(menu.copyRow.visible, true)
       compare(menu.cutRow.visible, false)
@@ -64,13 +64,13 @@ Item {
     }
 
     function test_copy_is_disabled_without_a_selection() {
-      show(false)
+      openMenu(false)
       compare(menu.copyRow.enabled, false)
     }
 
     function test_copy_hands_over_the_selection_and_closes() {
       editor.select(0, 5)
-      show(false)
+      openMenu(false)
       compare(menu.copyRow.enabled, true)
       menu.copyRow.activated()
       compare(copySpy.count, 1)
@@ -81,18 +81,18 @@ Item {
     // ------------------------------------------------------------- editor
 
     function test_an_editor_offers_cut_paste_and_select_all() {
-      show(true)
+      openMenu(true)
       compare(menu.cutRow.visible, true)
       compare(menu.copyRow.visible, true)
       compare(menu.pasteRow.visible, true)
       compare(menu.selectAllRow.visible, true)
-      compare(shown(menu.pasteRow), true)
-      compare(shown(menu.selectAllRow), true)
+      compare(isActionAvailable(menu.pasteRow), true)
+      compare(isActionAvailable(menu.selectAllRow), true)
     }
 
     function test_cut_copies_the_selection_and_removes_it() {
       editor.select(0, 6)
-      show(true)
+      openMenu(true)
       compare(menu.cutRow.enabled, true)
       menu.cutRow.activated()
       compare(copySpy.count, 1)
@@ -101,19 +101,19 @@ Item {
     }
 
     function test_cut_is_disabled_without_a_selection() {
-      show(true)
+      openMenu(true)
       compare(menu.cutRow.enabled, false)
     }
 
     function test_paste_asks_the_owner() {
-      show(true)
+      openMenu(true)
       menu.pasteRow.activated()
       compare(pasteSpy.count, 1)
       verify(pasteSpy.signalArguments[0][0] === editor)
     }
 
     function test_select_all_selects_the_whole_text() {
-      show(true)
+      openMenu(true)
       menu.selectAllRow.activated()
       compare(editor.selectedText, "hello world")
     }
@@ -121,14 +121,14 @@ Item {
     // --------------------------------------------------------------- link
 
     function test_a_link_adds_open_and_copy_url() {
-      show(false, "https://example.com/a")
+      openMenu(false, "https://example.com/a")
       compare(menu.openLinkRow.visible, true)
       compare(menu.copyLinkRow.visible, true)
       compare(menu.copyRow.visible, true)
     }
 
     function test_open_link_hands_over_the_url() {
-      show(false, "https://example.com/a")
+      openMenu(false, "https://example.com/a")
       menu.openLinkRow.activated()
       compare(openSpy.count, 1)
       compare(openSpy.signalArguments[0][0], "https://example.com/a")
@@ -136,7 +136,7 @@ Item {
 
     function test_copy_url_copies_the_url_not_the_selection() {
       editor.select(0, 5)
-      show(true, "https://example.com/a")
+      openMenu(true, "https://example.com/a")
       menu.copyLinkRow.activated()
       compare(copySpy.count, 1)
       compare(copySpy.signalArguments[0][0], "https://example.com/a")
@@ -144,10 +144,10 @@ Item {
 
     function test_the_cursor_starts_on_the_first_usable_row() {
       editor.select(0, 5)
-      show(true, "https://example.com/a")
+      openMenu(true, "https://example.com/a")
       compare(menu.cursorIndex, 0)
       editor.deselect()
-      show(true)
+      openMenu(true)
       // Nothing selected: Cut and Copy are out, Paste is the first row.
       compare(menu.cursorIndex, menu.menuRows.indexOf(menu.pasteRow))
     }

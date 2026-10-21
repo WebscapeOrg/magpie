@@ -34,15 +34,15 @@ Item {
       var description=findChild(row,"message-description")
       var glyph=findChild(row,"message-attachment-indicator")
       var before=description.mapToItem(row,0,0)
-      var height=row.height
-      var lineHeight=description.height
+      var heightBeforePixels=row.height
+      var lineHeightPixels=description.height
       var subject=findChild(row,"message-subject").mapToItem(row,0,0)
       compare(glyph.visible,false)
       row.summary=Object.assign({},row.summary,{hasAttachments:true})
       waitForRendering(row)
       compare(glyph.visible,true)
-      compare(row.height,height)
-      compare(description.height,lineHeight)
+      compare(row.height,heightBeforePixels)
+      compare(description.height,lineHeightPixels)
       compare(description.mapToItem(row,0,0).y,before.y)
       compare(findChild(row,"message-subject").mapToItem(row,0,0).y,subject.y)
       verify(glyph.height<=description.height)
@@ -62,12 +62,12 @@ Item {
       waitForRendering(row)
       var description=findChild(row,"message-description")
       mouseMove(description,5,5)
-      var tip=findChild(row,"overview-tooltip")
-      tryCompare(tip,"visible",true)
-      verify(tip.width<=row.width)
-      compare(tip.contentItem.textFormat,Text.PlainText)
-      compare(tip.contentItem.wrapMode,Text.WordWrap)
-      verify(tip.contentItem.height>tip.fontSize*1.5)
+      var tooltip=findChild(row,"overview-tooltip")
+      tryCompare(tooltip,"visible",true)
+      verify(tooltip.width<=row.width)
+      compare(tooltip.contentItem.textFormat,Text.PlainText)
+      compare(tooltip.contentItem.wrapMode,Text.WordWrap)
+      verify(tooltip.contentItem.height>tooltip.fontSize*1.5)
       mouseMove(row,-20,-20)
       row.overviewState="";row.overviewReason=""
     }

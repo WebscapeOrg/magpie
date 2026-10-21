@@ -32,7 +32,7 @@ Item {
       property var auth: null
       property string email: ""
       function handle() { return ({ aborted: false }) }
-      function later(fn) { Qt.callLater(fn); return handle() }
+      function later(callback) { Qt.callLater(callback); return handle() }
       function listMessages() { return handle() }
       function getMessages() { return handle() }
       function getMessage() { return handle() }
@@ -54,7 +54,7 @@ Item {
       function createLabel() { return handle() }
       function renameLabel() { return handle() }
       function deleteLabel() { return handle() }
-      function abortRequest(h) { if (h) h.aborted = true }
+      function abortRequest(request) { if (request) request.aborted = true }
     }
   }
 
@@ -117,7 +117,7 @@ Item {
       app.cursorId = "1:INBOX"
       app.runShortcut("moveToLabel", "v")
       tryCompare(picker, "opened", true)
-      compare(picker.matchingLabels.map(function(l) { return l.id + "@" + l.depth }), ["Receipts@0", "Work@0", "Work/2026@1"],
+      compare(picker.matchingLabels.map(function(label) { return label.id + "@" + label.depth }), ["Receipts@0", "Work@0", "Work/2026@1"],
         "the tree, a child stepped in under its parent")
       keyClick(Qt.Key_2); keyClick(Qt.Key_0); keyClick(Qt.Key_2); keyClick(Qt.Key_6)
       compare(picker.matchingLabels.length, 1)

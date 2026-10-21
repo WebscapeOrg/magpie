@@ -1,0 +1,138 @@
+import QtQuick
+import QtTest
+import "../../components" as Omamail
+
+Item {
+  width: 900
+  height: 600
+
+  QtObject {
+    id: backend
+    property bool ready: true
+    property int apiVersion: 8
+    property var pending: []
+    property var calls: []
+    function call(method, parameters, callback) {
+      if (method === "message.composeText") {
+        callback({body: "", quote: ""}, null)
+        return
+      }
+      calls = calls.concat([{method: method, parameters: parameters}])
+      if (method === "attachment.forget") {
+        callback({ok: true}, null)
+        return
+      }
+      pending = pending.concat([{callback: callback, parameters: parameters}])
+    }
+    function finish() {
+      var request = pending[0]
+      pending = pending.slice(1)
+      request.callback({ok: true, filename: "notes.txt", mimeType: "text/plain",
+        size: 4, data: "dGVzdA==", path: request.parameters.path, handle: "retained-file"}, null)
+    }
+  }
+
+  QtObject {
+    id: mail
+    property var backend: backend
+    property string composeAccountId: "writer@example.test"
+    property string activeAccountId: composeAccountId
+    property var recipientContacts: []
+    property var sendAsAliases: []
+    property var sendIdentities: []
+    property var senderSources: []
+    property var sent: []
+    property var errors: []
+    function signatureFor(account) { return "" }
+    function preferredSendAs(recipients) { return {email: composeAccountId} }
+    function refreshRecipientContacts() {}
+    function findAccount(account) { return {providerId: "gmail"} }
+    function fail(message) { errors = errors.concat([message]) }
+    function send(fields) { sent = sent.concat([fields]); return "send-1" }
+  }
+
+  Omamail.ComposeView {
+    id: compose
+    anchors.fill: parent
+    service: mail
+    textColor: "#eeeeee"
+    backgroundColor: "#222222"
+    accentColor: "#e9a35f"
+    dimColor: "#aaaaaa"
+    dimmerColor: "#888888"
+    popupBackgroundColor: "#333333"
+    popupBorderColor: "#777777"
+    panelFontFamily: "monospace"
+  }
+
+  TestCase {
+    name: "ComposeAttachmentRecovery"
+    when: windowShown
+    function init() {
+      backend.pending = []
+      backend.calls = []
+      compose.attachmentReadPending = false
+      compose.attachmentHostPending = false
+      compose.reset()
+      mail.sent = []
+      mail.errors = []
+      backend.calls = []
+      compose.begin("new", null, "", [])
+    }
+    function test_restored_files_are_imported_for_the_owning_draft_data() {
+      return [{tag: "borrowed", owned: false}, {tag: "owned", owned: true}]
+    }
+    function test_restored_files_are_imported_for_the_owning_draft(data) {
+      compose.restoreDraft({accountId: mail.composeAccountId, draftKey: "recovered-draft",
+        draftAttachments: [{path: "/synthetic/notes.txt", owned: data.owned}]})
+      compare(backend.calls.length, 1)
+      compare(backend.calls[0].method, "attachment.import")
+      compare(backend.calls[0].parameters.accountId, mail.composeAccountId)
+      compare(backend.calls[0].parameters.draftKey, "recovered-draft")
+      backend.finish()
+      compare(compose.draftAttachments.length, 1)
+      compare(compose.draftAttachments[0].owned, data.owned)
+      compare(mail.errors.length, 0)
+    }
+    function test_retained_attachment_handles_do_not_reread_the_original_file() {
+      compose.restoreDraft({accountId: mail.composeAccountId, draftKey: "recovered-draft",
+        draftAttachments: [{path: "/removed/original.txt", handle: "retained-file", owned: false}]})
+      compare(backend.calls.length, 0)
+      compare(compose.draftAttachments.length, 1)
+      compare(compose.draftAttachments[0].handle, "retained-file")
+      compare(mail.errors.length, 0)
+    }
+    function test_submit_waits_for_attachment_import() {
+      compose.enqueueAttach("read", "/synthetic/notes.txt")
+      compare(backend.pending.length, 1)
+      compose.submit()
+      compare(mail.sent.length, 0, "Send must not dispatch while the attachment is absent")
+      verify(compose.opened)
+      backend.finish()
+      compose.submit()
+      compare(mail.sent.length, 1)
+      compare(mail.sent[0].attachments.length, 1)
+    }
+    function test_send_click_waits_for_import() {
+      compose.enqueueAttach("read", "/synthetic/notes.txt")
+      var button = findChild(compose, "compose-send-button")
+      verify(button)
+      mouseClick(button, button.width / 2, button.height / 2)
+      compare(mail.sent.length, 0)
+      backend.finish()
+      mouseClick(button, button.width / 2, button.height / 2)
+      compare(mail.sent.length, 1)
+      compare(mail.sent[0].attachments.length, 1)
+    }
+    function test_submit_waits_for_host_picker() {
+      compose.attachmentHostPending = true
+      compose.submit()
+      compare(mail.sent.length, 0)
+    }
+    function test_submit_waits_for_queued_attachment() {
+      compose.attachJobs = [{mode: "read", path: "/synthetic/notes.txt"}]
+      compose.submit()
+      compare(mail.sent.length, 0)
+    }
+  }
+}

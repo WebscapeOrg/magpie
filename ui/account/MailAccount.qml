@@ -2934,7 +2934,7 @@ Item {
   BackendSync {
     id: backendSync
     backend: root.backend
-    enabled: root.ready && root.nativePolling && !localMailbox.available
+    watchEnabled: root.ready && root.nativePolling && !localMailbox.available
     accountId: root.accountId
     query: Provider.unreadQuery(root.providerId)
     intervalSec: root.refreshIntervalSec

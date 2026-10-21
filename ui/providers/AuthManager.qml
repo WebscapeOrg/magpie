@@ -287,10 +287,8 @@ Item {
     refreshRetryAttempt = 0
     refreshRetry.stop()
     finishWaiters("", "The mailbox changed before its session was loaded")
-    var boundAccount = accountId
-    Qt.callLater(function() {
-      if (root.accountId === boundAccount && boundAccount !== "") root.restoreSession()
-    })
+    accountRestore.accountId = accountId
+    accountRestore.restart()
   }
 
   function storeRefreshToken(refreshToken) {
@@ -540,6 +538,15 @@ Item {
     nativePoll.stop()
     if (nativeFlow && backend) backend.call("auth.cancel", { id: nativeFlow }, function() {})
     nativeFlow = ""
+  }
+
+  Timer {
+    id: accountRestore
+    property string accountId: ""
+    interval: 0
+    onTriggered: {
+      if (accountId !== "" && root.accountId === accountId) root.restoreSession()
+    }
   }
 
   Timer {

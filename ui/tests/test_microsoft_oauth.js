@@ -179,7 +179,7 @@ assert.strictEqual(microsoft.signedInAs(idToken({ name: "Zoë ✓" })), "")
 assert.strictEqual(microsoft.signedInAs("not a token"), "")
 assert.strictEqual(microsoft.sameAccount(idToken({ preferred_username: "alice@example.test" }), "Alice@example.test"), true)
 assert.strictEqual(microsoft.sameAccount(idToken({ preferred_username: "bob@example.test" }), "alice@example.test"), false)
-assert.strictEqual(microsoft.sameAccount("", "alice@example.test"), true, "no name cannot be told and is let through")
+assert.strictEqual(microsoft.sameAccount("", "alice@example.test"), false, "a grant without identity cannot be assigned to a mailbox")
 // By id where the mail session's is known: a name means nothing then.
 assert.strictEqual(microsoft.accountKey(idToken({ tid: "tenant-1", oid: "user-1" })), "tenant-1/user-1")
 assert.strictEqual(microsoft.accountKey(idToken({ oid: "user-1" })), "")

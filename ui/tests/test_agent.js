@@ -217,21 +217,27 @@ assert.equal(a.pendingLimit(['one'], 'two'),'')
   assert.strictEqual(a.suggestionWhen({ startMs: sep12, endMs: sep12 + 3600000 }, new Date(2027, 0, 1).getTime()), "Sat 12 Sep 2026, 19:00–20:00")
   assert.strictEqual(a.suggestionWhen({ startMs: 0 }, thisYear), "")
 
-  // The composer's fields: a whole day becomes nine to ten, and says so.
+  // Invariant: the editor preserves the suggestion's exact calendar interval.
+  const allDayStart = new Date(2026, 9, 2).getTime()
+  const allDayEnd = new Date(2026, 9, 4).getTime()
+  assert.strictEqual(a.eventPrefill({ title: "Offsite", startMs: allDayStart, endMs: allDayEnd, allDay: true }).startMs,
+    allDayStart, "an all-day suggestion must not become a 09:00 timed meeting")
   const timed = a.eventPrefill({ title: "Dinner", startMs: sep12, endMs: sep12 + 7200000, location: "Luigi's", notes: "Table for 4" })
-  assert.deepEqual(copy(timed), { title: "Dinner", startMs: sep12, endMs: sep12 + 7200000, location: "Luigi's", description: "Table for 4", accountId: "" })
+  assert.deepEqual(copy(timed), { title: "Dinner", startMs: sep12, endMs: sep12 + 7200000, allDay: false, location: "Luigi's", description: "Table for 4", accountId: "" })
   const whole = a.eventPrefill({ title: "Offsite", startMs: new Date(2026, 9, 2).getTime(), endMs: new Date(2026, 9, 3).getTime(), allDay: true }, A)
-  assert.strictEqual(new Date(whole.startMs).getHours(), 9)
-  assert.strictEqual(whole.endMs - whole.startMs, 3600000)
-  assert.strictEqual(whole.description, "All day, as the message put it.")
+  assert.strictEqual(whole.startMs, new Date(2026, 9, 2).getTime())
+  assert.strictEqual(whole.allDay, true)
+  assert.strictEqual(whole.endMs, new Date(2026, 9, 3).getTime())
+  assert.strictEqual(whole.description, "")
   assert.strictEqual(whole.accountId, A, "and whose calendar")
-  // Two whole days, and an evening that runs past midnight: the form holds
-  // one day, so the notes carry what the message put.
+  // Invariant: multi-day and overnight spans retain their actual endpoints.
   const twoDays = a.eventPrefill({ title: "Offsite", startMs: new Date(2026, 9, 2).getTime(), endMs: new Date(2026, 9, 4).getTime(), allDay: true })
-  assert.strictEqual(twoDays.description, "All day through Sat 3 Oct, as the message put it.")
+  assert.strictEqual(twoDays.endMs, new Date(2026, 9, 4).getTime())
+  assert.strictEqual(twoDays.allDay, true)
+  assert.strictEqual(twoDays.description, "")
   const late = a.eventPrefill({ title: "Party", startMs: sep12, endMs: sep12 + 5 * 3600000, notes: "Bring wine" })
-  assert.strictEqual(new Date(late.endMs).getHours(), 23)
-  assert.strictEqual(new Date(late.endMs).getMinutes(), 59)
-  assert.strictEqual(late.description, "Bring wine\n\nThe message has it ending Sun 13 Sep, 00:00.")
+  assert.strictEqual(late.endMs, sep12 + 5 * 3600000)
+  assert.strictEqual(late.allDay, false)
+  assert.strictEqual(late.description, "Bring wine")
   assert.strictEqual(a.eventPrefill({ title: "T", startMs: sep12, endMs: sep12 + 3600000 }).accountId, "")
 }

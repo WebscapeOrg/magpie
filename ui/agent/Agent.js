@@ -334,30 +334,11 @@ function suggestionWhen(suggestion, nowMs) {
   return day(start) + ", " + clock(start) + " – " + day(end) + ", " + clock(end)
 }
 
-// Invariant: the single-day composer preserves all-day and cross-day suggestions in notes instead of dropping their original duration.
 function eventPrefill(suggestion, accountId) {
   var event = suggestion || {}
   var start = Number(event.startMs) || 0
   var end = Number(event.endMs) || 0
-  var notes = String(event.notes || "")
-  function add(line) { notes = (notes === "" ? "" : notes + "\n\n") + line }
-  function sameDay(left, right) {
-    return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate()
-  }
-  if (event.allDay === true) {
-    var at = new Date(start)
-    var last = end > start ? new Date(end - 1) : at
-    at.setHours(9, 0, 0, 0)
-    start = at.getTime()
-    end = start + 3600000
-    add(sameDay(last, at) ? "All day, as the message put it."
-      : "All day through " + suggestionWhen({ startMs: last.getTime(), endMs: last.getTime() }, Date.now()).split(",")[0] + ", as the message put it.")
-  } else if (end > start && !sameDay(new Date(start), new Date(end))) {
-    var dayEnd = new Date(start)
-    dayEnd.setHours(23, 59, 0, 0)
-    add("The message has it ending " + suggestionWhen({ startMs: end, endMs: end }, Date.now()) + ".")
-    end = dayEnd.getTime()
-  }
   return { title: String(event.title || ""), startMs: start, endMs: end > start ? end : start + 3600000,
-    location: String(event.location || ""), description: notes, accountId: String(accountId || "") }
+    allDay: event.allDay === true, location: String(event.location || ""),
+    description: String(event.notes || ""), accountId: String(accountId || "") }
 }

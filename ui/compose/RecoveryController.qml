@@ -2,22 +2,16 @@ import QtQuick
 import "Recovery.js" as Recovery
 import "../account/Navigation.js" as Nav
 
-// Reconcile a recovered composer with durable delivery receipts before reopening
-// it. A transport failure cannot turn a potentially sent message into a retry.
+// Invariant: reconcile durable delivery receipts before restoring drafts; transport failures cannot authorize resending.
 QtObject {
   id: controller
   required property var app
   required property var composer
   required property var recoveryTimer
   readonly property var composeRecoveryTimer: recoveryTimer
-  // A refusal the write provably never survived can go again on the revision
-  // this window already holds: the backend answered it and left the record
-  // alone, or the host refused to send it at all with too many requests in
-  // flight. A transport failure proves nothing — the write may have landed and
-  // taken the answer with it — and its reconnect re-reads the revision first.
+  // Invariant: retry the held revision only after a proven unsent refusal; an interrupted write requires rereading storage.
   readonly property var unsentRefusals: [-32000, -32011]
-  // Six attempts, doubling from one second to 32: an outage that outlasts that
-  // is not one more writes will fix, and the warning stays up to say so.
+
   readonly property int maxRecoveryRetries: 6
   property int recoveryRetries: 0
   readonly property Timer recoveryRetryTimer: Timer {
@@ -28,19 +22,13 @@ QtObject {
   readonly property var root: app
   readonly property var compose: composer
   readonly property var service: app ? app.service : null
-  // API 3 preserves explicit edit history, including a draft edited to empty.
-  // This requirement survives releases and later, unrelated API revisions.
+  // Invariant: explicit empty-draft edit history requires the fixed API 3 feature gate.
   readonly property bool recoverySupported: !!service && !!service.backend
     && service.backend.ready && service.backend.apiVersion >= 3
   readonly property bool recoveryNeedsUpdate: !!service && !!service.backend
     && service.backend.ready && !recoverySupported
   readonly property string recoveryUpdateNotice: "Draft recovery needs an updated backend. Keep this window open."
-  // The composer says one thing at a time, so a failed save hides whatever the
-  // window was already warning about. Remember that line for as long as the
-  // failure is the line on screen and put it back when a write lands. Anything
-  // else that speaks owns the slot from then on, and takes the memory with it:
-  // a warning raised after the failure is current, and must not be written over
-  // by what an older failure happened to cover.
+  // Invariant: restore an obscured notice only while the save-failure notice still owns the composer status.
   property bool recoverySaveFailurePending: false
   property string noticeBehindSaveFailure: ""
   property bool saveFailureHidUpdateNotice: false
@@ -122,7 +110,7 @@ QtObject {
       root.composeRecovery = updated
       root.composeRecoveryRevision++
       root.lastComposeRecoveryText = updated.active ? JSON.stringify(updated) : ""
-      // Recovery.empty() is presentation state; Rust only stores versioned records.
+      // Invariant: Recovery.empty() is presentation state; Rust stores versioned records.
       root.writeComposeRecovery(all.length ? JSON.stringify(updated) : '{"version":1,"active":false}')
       for (var receiptIndex = 0; receiptIndex < receipts.length; receiptIndex++) root.queueComposeReceiptAck(receipts[receiptIndex].accountId, receipts[receiptIndex].sendId, root.composeRecoveryRevision)
       Qt.callLater(root.restoreComposeRecovery)
@@ -132,8 +120,7 @@ QtObject {
 
   function queueComposeReceiptAck(accountId, sendId, revision) {
     if (accountId === "" || sendId === "") return
-    // Forget releases the payload, not the send ID/digest tombstone. Proposal
-    // receipts use the same durable-recovery gate as every other send.
+    // Invariant: forgetting releases payloads but retains send-ID/digest tombstones after recovery is durable.
     var next = root.composeReceiptAcks.filter(function(entry) { return entry.accountId !== accountId || entry.sendId !== sendId })
     next.push({accountId:accountId,sendId:sendId,revision:revision})
     root.composeReceiptAcks = next
@@ -237,10 +224,7 @@ QtObject {
     return root.composeRecoveryRevision
   }
 
-  // The editor only writes a payload whose text changed, so a refused save is
-  // the one write nothing else repeats. Drain again on a timer, which sends
-  // whatever the composer has queued by then — the failed text if nothing moved,
-  // the newer draft if it did.
+  // Invariant: unchanged draft text does not reschedule writes; a refused save needs its own retry timer.
   function scheduleComposeRecoveryRetry() {
     if (recoveryRetries >= maxRecoveryRetries) return
     recoveryRetries++
@@ -248,8 +232,7 @@ QtObject {
     recoveryRetryTimer.restart()
   }
 
-  // A write that lands is the only evidence that writing works, so it alone
-  // ends the ladder. A read says nothing about it.
+  // Invariant: only a successful write resets recovery retries; successful reads prove no write capability.
   function resetComposeRecoveryRetry() {
     recoveryRetries = 0
     recoveryRetryTimer.stop()
@@ -263,9 +246,7 @@ QtObject {
   function clearComposeRecovery(expectedRevision) {
     if (expectedRevision !== undefined
         && Number(expectedRevision) !== root.composeRecoveryRevision) return false
-    // The draft is going, so a line that warned about it has nothing to come back
-    // to. The failure's own warning is not the draft's and still needs the write
-    // that answers it, so the memory goes and the ownership stays.
+    // Invariant: clearing a draft discards its hidden notice but retains an unresolved save-failure notice.
     controller.noticeBehindSaveFailure = ""
     controller.saveFailureHidUpdateNotice = false
     composeRecoveryTimer.stop()
@@ -297,8 +278,7 @@ QtObject {
       if (!root) return
       root.composeWriting = false
       if (error || !result) {
-        // Keep the live draft. A stale process must never overwrite another
-        // instance's saved recovery just by retrying with a fresh revision.
+        // Invariant: stale processes must never overwrite another instance's recovery by retrying with a fresh revision.
         root.composeWriteQueued = true
         root.composeRecoveryConflict = !!error && error.message === "recovery_conflict"
         controller.showSaveFailureNotice()
@@ -311,8 +291,7 @@ QtObject {
       root.composeStorageRevision = String(result.revision || "")
       root.composeCommittedRevision = Math.max(root.composeCommittedRevision, mine)
       if (controller.recoverySaveFailurePending) {
-        // This write answers the warning about it, and the "needs an updated
-        // backend" line it may have covered, but not a delivery warning.
+        // Invariant: a successful save clears its own update/save warning, preserving unrelated delivery warnings.
         controller.showRecoveryNotice(
           controller.saveFailureHidUpdateNotice ? "" : controller.noticeBehindSaveFailure)
       } else if (root.composeRecoveryUpdateNoticePending) {

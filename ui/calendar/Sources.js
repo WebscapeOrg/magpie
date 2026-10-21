@@ -173,8 +173,7 @@ function withGoogleAccounts(list, accountSummaries) {
         break
       }
     }
-    // Discovery's primary entry carries permissions, identity and reminder
-    // defaults. Never replace it with a synthetic writable primary.
+    // Invariant: discovered primary-calendar metadata replaces legacy defaults so permissions and reminders survive.
     var hasDiscovery = next.sources.some(function(source) {
       return source && source.kind === "google" && source.accountId === accountId && source.discovered
     })
@@ -182,16 +181,11 @@ function withGoogleAccounts(list, accountSummaries) {
     next = add(next, {
       id: "google:" + accountId,
       kind: "google",
-      // Calendar errors name their source. The full address is load-bearing
-      // here: two Google accounts commonly share the same local part, and the
-      // mailbox's short display label cannot say which grant needs attention.
+      // Invariant: calendar errors retain the full mailbox address to distinguish accounts.
       name: trimmed(account.email || account.label || "Google Calendar"),
       accountId: accountId,
       enabled: saved ? saved.enabled !== false : true,
-      // A Google calendar accepts writes through the API. Older versions
-      // persisted readOnly on these synthesized sources, so it must not be
-      // inherited: keeping the stamp would hide Edit and Delete after an
-      // upgrade. Hand-configured CalDAV sources still keep their own flag.
+      // Invariant: historical Google backends display calendars without offering unsupported writes.
       readOnly: false,
       colorKey: saved ? saved.colorKey : Palette.defaultKey("google:" + accountId),
       remindersEnabled: saved ? saved.remindersEnabled : true,
@@ -202,9 +196,7 @@ function withGoogleAccounts(list, accountSummaries) {
   return next
 }
 
-// A Microsoft calendar comes with an Outlook or Microsoft 365 mailbox the
-// way a Google one comes with Gmail: one source per signed-in account, its
-// primary calendar, reached through the mailbox's own Graph token.
+// Invariant: Microsoft calendar sources retain the owning Outlook or Microsoft 365 account.
 function withMicrosoftAccounts(list, accountSummaries) {
   var next = copyList(list)
   var accounts = Array.isArray(accountSummaries) ? accountSummaries : []
@@ -221,10 +213,7 @@ function withMicrosoftAccounts(list, accountSummaries) {
       else if (source.kind === "microsoft" && source.discovered === true
           && trimmed(source.accountId) === accountId) discovered = true
     }
-    // Discovery names every calendar the account has, the primary one under
-    // this id when Graph flags it as the default. When Graph flags none, the
-    // primary calendar is already listed under its own id, and synthesizing
-    // another entry for it would fetch and draw the same calendar twice.
+    // Invariant: discovery preserves stable primary-calendar identity while adding secondary calendars.
     if (!saved && discovered) continue
     next = add(next, {
       id: "microsoft:" + accountId,
@@ -260,20 +249,11 @@ function accountSummary(accountId, accountSummaries) {
   return null
 }
 
-// A source that came with a mailbox the list of accounts no longer has.
-// Removing an account edits the account list and nothing else, so the
-// calendars discovered through it stay in calendars.json with nothing to sign
-// in as; the settings page offers to remove what it would otherwise only be
-// able to hide. A signed-out mailbox is still a mailbox.
 function orphaned(source, accountSummaries) {
   if (!comesWithAccount(source) || trimmed(source.accountId) === "") return false
   return accountSummary(source.accountId, accountSummaries) === null
 }
 
-// The name a calendar error reports its source under. A discovered calendar
-// is named the way its provider names it — every Outlook mailbox has a
-// "Calendar" — so its mailbox is named with it, where the address alone
-// said which account needed attention before discovery.
 function errorLabel(source, accountSummaries) {
   if (!source) return "Calendar"
   var name = trimmed(source.name) || trimmed(source.id) || "Calendar"
@@ -296,9 +276,7 @@ function sameUrl(left, right) {
   return comparableUrl(left) === comparableUrl(right)
 }
 
-// Replace the account-owned part of a source list with one bounded discovery
-// result. Saved visibility and theme colors follow a calendar's stable source
-// id; a hand-added iCloud CalDAV URL is adopted instead of drawn twice.
+// Invariant: discovery replaces only the target account's sources and stays bounded.
 function applyDiscovery(list, result) {
   var value = result || {}
   var provider = trimmed(value.provider).toLowerCase()
@@ -428,20 +406,15 @@ function groupByAccount(list, accountSummaries) {
   return groups
 }
 
-// A calendar a write can be offered on. A read-only source still draws its
-// events; it is not offered as somewhere to put one.
 function writable(source) {
   return !!source && source.readOnly !== true
 }
 
-// The redesigned views are shared; deep integration is currently Google-only.
-// Other providers retain their existing basic create/edit/delete paths.
+// Invariant: shared calendar views support multiple providers, but deep integration is Google-only.
 function nativeCalendarFeatures(source) {
   return !!source && source.kind === "google"
 }
 
-// The picker groups with the read-only calendars left out, and a group left
-// empty by that left out too.
 function writableGroups(groups) {
   var values = Array.isArray(groups) ? groups : []
   var out = []

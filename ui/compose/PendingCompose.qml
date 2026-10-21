@@ -1,6 +1,6 @@
 import QtQuick
 
-// A reply waits for the body, not merely the summary supplied by the list.
+// Invariant: a reply waits for its body; a list summary is insufficient quoted context.
 QtObject {
   required property var app
   required property var composer

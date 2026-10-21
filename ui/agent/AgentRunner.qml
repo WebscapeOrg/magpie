@@ -1,8 +1,7 @@
 import QtQuick
 import "Options.js" as Options
 
-// Presentation state for native background jobs. Rust owns process lifetime,
-// deadlines, persisted output and job validation; the UI owns the open result.
+// Invariant: Rust owns durable job and process lifetime; QML observes projections and acknowledges results.
 Item {
   id: root
   required property string pluginDir
@@ -21,8 +20,7 @@ Item {
       return
     }
     if (Number(backend.apiVersion) < 6) {
-      // The published backend still supports Claude through Omarchy's default.
-      // It validates that default at jobStart; providerStatus is API-6 only.
+      // Invariant: historical backends support Omarchy's default Claude before provider-status discovery.
       resolvedProvider = ""
       providerAvailable = selectedAgent === "System default" && selectedModel === ""
       availabilityError = providerAvailable ? ""
@@ -68,9 +66,7 @@ Item {
   property var seenIds: []
   property bool attention: false
   property var attentionByMessage: ({})
-  // Looks for events by account and message — running or finished — and how
-  // many are running: a look draws no row, so it is read from here and not
-  // from byMessage.
+  // Invariant: background event checks do not use the user-requested job indicator.
   property var eventLooks: ({})
   property int activeEventLooks: 0
   property int projectionSerial: 0
@@ -81,9 +77,7 @@ Item {
   }
   signal jobFinished(var job)
   signal failed(string text)
-  // A start that Rust refused, by its code, for a caller that asked quietly:
-  // a background look has nobody to tell and must not put an error on the
-  // status line every time a message opens.
+  // Invariant: quiet background start refusals must not overwrite the status line.
   signal startRefused(string code)
 
   property string lastError: ""

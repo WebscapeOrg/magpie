@@ -1,7 +1,6 @@
 import QtQuick
 
-// The desktop notification is an entry point, not the only action surface.
-// Keep delivered reminders actionable until acknowledged or the event ends.
+// Invariant: reminders remain actionable in the inbox after their desktop notification closes.
 QtObject {
   id: root
   required property var service

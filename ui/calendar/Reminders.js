@@ -2,8 +2,7 @@
 
 .import "Sources.js" as Sources
 
-// Reminder eligibility is independent of whether a calendar is drawn. Inputs
-// are normalized calendar resources, not mail's potentially stale invitation.
+// Invariant: reminder eligibility is independent of whether a calendar is currently drawn.
 function candidates(events, sources) {
   var byId = {}
   var values = sources && Array.isArray(sources.sources) ? sources.sources : []

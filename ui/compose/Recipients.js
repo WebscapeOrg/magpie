@@ -1,8 +1,6 @@
 .pragma library
 
-// A follow-up to our own message addresses its To list, not its author.
-// Only the draft owner's identities count as self; another mailbox on a
-// merged view can still be a real recipient. Never carry Bcc into a reply.
+// Invariant: replies to our own messages address the original To recipients.
 function replyFields(summary, mode, ownAddresses) {
   var source = summary || ({})
   var own = normalize(ownAddresses)

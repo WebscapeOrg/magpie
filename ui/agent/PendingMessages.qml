@@ -1,8 +1,7 @@
 import QtQuick
 import "Agent.js" as Agent
 
-// A session-only queue bound to one conversation. Requests leave the queue
-// only after their new turn appears, so a failed start cannot lose a message.
+// Invariant: queued requests remain bound to one conversation until explicitly sent or cancelled.
 QtObject {
   id: root
   property var service: null
@@ -74,8 +73,7 @@ QtObject {
       if (!busy) return
     }
     if (paused || !job || service.agentStarting || Agent.isActive(job)) return
-    // A queued draft request needs the editor's latest state, not a snapshot
-    // from when it was queued or a different editor after navigation.
+    // Invariant: queued draft requests use the editor's latest state at dispatch.
     if (scope.indexOf('["draft",') === 0 && !scopeMatches) return
     if (!job.canContinue) { paused = true; error = "Queue paused. Edit or remove pending messages to start again."; return }
     if (!service.answerAgent(String(job.id), messages[0], scopeMatches ? draftFields : null)) {

@@ -1,7 +1,6 @@
 .pragma library
 
-// This is a formatter, not an HTML sanitizer. Escape all source text first;
-// only fixed, attribute-free formatting tags can enter the returned document.
+// Invariant: source text is escaped before adding fixed attribute-free formatting tags.
 function escapeHtml(text) {
     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;")
         .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -31,8 +30,7 @@ function boldEnd(text, start) {
     return -1;
 }
 
-// Input is already escaped, including anything inside code spans. Code content
-// is copied directly rather than passed through the emphasis formatter again.
+// Invariant: escaped code spans bypass emphasis formatting.
 function inlineText(text, allowBold) {
     var output = "";
     var index = 0;

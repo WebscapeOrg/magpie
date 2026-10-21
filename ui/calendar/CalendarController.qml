@@ -27,16 +27,7 @@ Item {
   property double pendingRangeStart: 0
   property double pendingRangeEnd: 0
   property string refreshAccountId: ""
-  // The scope an answer belongs to, which is not always the mailbox.
-  //
-  // The cache is keyed by it and an in-flight refresh is checked against it, so
-  // it has to name what the visible calendar actually depends on. In the
-  // default mode that is the account; in the unified mode the same sources are
-  // shown whichever mailbox is open, so the account is not part of the
-  // question — keying by it stored one copy of the same events per account,
-  // spent the eight-range budget three times over, and made every mailbox
-  // switch a cache miss: the calendar blanked and every account's calendars
-  // were fetched again to redraw what was already on screen.
+  // Invariant: shared-calendar cache scope can outlive an individual mailbox selection.
   property string refreshScope: ""
   property var queue: []
   property var activeSource: null
@@ -64,15 +55,12 @@ Item {
   property bool creatingEvent: false
   property var eventSource: null
   property var eventDraft: null
-  // One write at a time, create or otherwise: the password lookup, the writer
-  // and the deadline all hold one operation's state, so update and delete
-  // share this guard with create rather than growing their own.
+  // Invariant: create, update and delete share one write slot, including credential lookup.
   property string writeOp: ""
   property var writeSource: null
   property var writeEvent: null
   property var writeDraft: null
-  // The address the current CalDAV write goes to, judged before the keyring
-  // is touched and carried to the writer that runs after it.
+
   property string writeUrl: ""
   property bool eventWriting: false
   readonly property var availableSources: Sources.withMicrosoftAccounts(Sources.withGoogleAccounts(
@@ -81,18 +69,12 @@ Item {
     && service.unifiedCalendarView === true
   readonly property var contextSources: unifiedCalendarView
     ? availableSources : Sources.forAccount(availableSources, accountId)
-  // One name for every mailbox, because the unified view is one view.
-  //
-  // A controller with no account is already showing every source — the bar
-  // preview is one, and `Sources.forAccount(list, "")` has always returned all
-  // of them — so the setting cannot change what it shows, and renaming its
-  // scope would orphan a cache entry and refetch every calendar to redraw what
-  // was already there.
+  // Performance: unified calendar views share one cache scope across mailboxes.
   readonly property string calendarScope: unifiedCalendarView && accountId !== ""
     ? "__unified__" : accountId
   readonly property var sourceGroups: Sources.groupByAccount(
     contextSources, service ? service.accountSummaries : [])
-  // The composer offers only calendars a write can run against.
+
   readonly property var writableSourceGroups: Sources.writableGroups(sourceGroups)
 
   Timer {
@@ -103,28 +85,14 @@ Item {
     onTriggered: root.nowMs = Date.now()
   }
 
-  // The one event worth reloading for, said once: what is on screen depends on
-  // the scope, so it is a change of scope that makes the answer stale. A
-  // mailbox switch under the unified view is not one, and neither is turning
-  // the setting on for a controller that had no mailbox to follow — watching
-  // the two inputs separately got both of those wrong in opposite directions.
   onCalendarScopeChanged: reloadVisibleRange()
 
-  // The calendars the scope would ask, as one string. Google and Microsoft
-  // calendars arrive with their account's sign-in, after a view that was
-  // already open asked for its range; and an account poll rebuilds the
-  // summaries twice a cycle with no calendar having come or gone, which a
-  // string compares away where the array would not.
   readonly property string enabledSourceKey: contextSources.sources.filter(function(source) {
     return root.sourceIncluded(source)
   }).map(function(source) { return String(source.id || "") }).join("\n")
   onEnabledSourceKeyChanged: reloadVisibleRange()
 
-  // No `eventCache.loaded` guard, and it is not missing. `refresh` refuses on
-  // an unloaded cache and `eventCache.onRestored` runs one as soon as it is
-  // there, so the only thing the guard changed was whether an empty list was
-  // assigned to a property that could not yet hold anything else: nothing can
-  // have been fetched before the cache loaded, because fetching needs it too.
+  // Invariant: refresh already waits for cache restoration; duplicating that guard loses source changes.
   function reloadVisibleRange() {
     if (!rangeStart || !rangeEnd) return
     setEvents(cachedEventsFor(calendarScope, rangeStart, rangeEnd))
@@ -135,12 +103,9 @@ Item {
   signal calendarSaved(bool ok, string error)
   signal discoveryFinished(bool ok, string error, int count)
   signal eventCreated(bool ok, string error)
-  // Somebody wants the composer open with these fields — the reader's
-  // suggested event, say. The composer listens; the controller only relays.
+  // Docs: composeRequested opens the event editor with prefilled fields; it does not write the event.
   signal composeRequested(var prefill)
-  // Whether the composer is open on something the owner has typed or is
-  // editing, which a request to open it with other fields must not clobber;
-  // and the word that it closed, written or not.
+  // Invariant: a held composer must not be replaced by another event suggestion.
   property bool composerHeld: false
   signal composeEnded()
   signal eventUpdated(bool ok, string error)
@@ -225,8 +190,7 @@ Item {
   }
 
   function discoveryFailure(error) {
-    // JSON-RPC codes are numeric; the backend's stable reason is its message.
-    // Match only known reasons and never display the raw diagnostic.
+    // Invariant: backend error codes are numeric; the stable refusal reason is carried in message.
     var code = String(error && error.message || error || "")
     if (code === "auth_signed_out" || code === "calendar_auth_refused")
       return "Sign in to this mailbox again"
@@ -316,8 +280,7 @@ Item {
     writeSources()
   }
 
-  // `scope` rather than an account id: in the unified view every mailbox reads
-  // the same entry, and asking for it by account would find nothing.
+  // Invariant: unified-view cache scope includes all source accounts.
   function cachedEventsFor(scope, startMs, endMs) {
     var values = sourcesForAccount(accountId).sources.filter(function(source) {
       return root.sourceIncluded(source)
@@ -385,10 +348,7 @@ Item {
     if (ok && rangeStart && rangeEnd) refresh(rangeStart, rangeEnd)
   }
 
-  // Guests, Meet and a changed repeat rule reach Google only through the API 6
-  // backend, which also carries sendUpdates and If-Match. An older backend
-  // would save the event without them and report success, so they are
-  // refused rather than dropped.
+  // Invariant: guests, Meet and recurrence edits require the fixed API 6 feature gate.
   function googleOptionsRefusal(fields) {
     if (service.backendCanGoogleCalendars === true) return ""
     if (fields.createMeet === true || fields.changeRecurrence === true
@@ -397,8 +357,7 @@ Item {
     return ""
   }
 
-  // Dragging writes without opening the editor, so it needs the revision
-  // check only the API 6 backend sends.
+  // Invariant: direct drag writes need the same fixed API gate as editor writes.
   function rescheduleRefusal(event) {
     var refusal = Calendar.writeRefusal(findSource(event && event.sourceId), event, "reschedule")
     if (refusal === "" && service.backendCanGoogleCalendars !== true)
@@ -449,7 +408,6 @@ Item {
     return true
   }
 
-  // What the delete confirmation asks: named, with a button per consequence.
   function deleteRequest(sourceId, event) {
     var request = Calendar.deleteRequest(event, findSource(String(sourceId || "")),
       service.backendCanGoogleCalendars === true)
@@ -458,7 +416,6 @@ Item {
     return request
   }
 
-  // The answer: the series, or this event with or without telling guests.
   function confirmDelete(request) {
     if (!request || !request.event) return false
     if (request.choice === "series") return deleteSeries(request.sourceId, request.event)
@@ -468,8 +425,7 @@ Item {
     return deleteEvent(request.sourceId, event)
   }
 
-  // A series is deleted by its own identity: an occurrence carries only the
-  // parent's id, so the parent is read first and deleted as itself.
+  // Invariant: deleting a series requires its master identity, not an occurrence ID.
   function deleteSeries(sourceId, occurrence) {
     var owner = findSource(sourceId)
     if (!owner || !occurrence || !occurrence.recurringEventId) return false
@@ -536,8 +492,7 @@ Item {
     writeUrl = ""
     if (op === "delete") eventDeleted(ok, String(error || ""))
     else eventUpdated(ok, String(error || ""))
-    // A delete is asked for from the detail, not the composer, so nothing
-    // else is listening: the failure has to land on the view's own banner.
+    // Invariant: detail-view deletes must not signal completion of an unrelated event composer.
     if (!ok) {
       lastError = String(error || "Could not write the event")
       lastErrorKind = ""
@@ -545,11 +500,7 @@ Item {
     if (ok && rangeStart && rangeEnd) refresh(rangeStart, rangeEnd)
   }
 
-  // The account's primary Microsoft calendar, which is the one calendar a
-  // backend from before discovery reaches: it ignores the identity and asks
-  // for /me/calendarView, and that is this calendar. Discovery stores its
-  // real Graph id under the same source id, so the id is what says which
-  // source may go on without one rather than being refused.
+  // Invariant: historical Microsoft access supports only the primary calendar identity.
   function isDefaultMicrosoftCalendar(source) {
     return !!source && source.kind === "microsoft"
       && String(source.id || "") === "microsoft:" + String(source.accountId || "")
@@ -606,8 +557,7 @@ Item {
 
   function startNativeWrite() {
     var fields = {}
-    // Undo belongs to the calendar the change was made in: a write that lands
-    // after the view moved to another account offers nothing to undo there.
+    // Invariant: undo remains owned by the calendar scope where the write began.
     var scope = calendarScope
     if (writeSource.kind === "caldav" || writeSource.kind === "icloud") {
       fields.href = String(writeEvent.href || Calendar.caldavEventUrl(writeSource.url, writeEvent))
@@ -1021,18 +971,13 @@ Item {
     path: root.configPath
     watchChanges: true
     printErrors: false
-    // No refresh here: a file that brings calendars changes
-    // `enabledSourceKey`, which reloads the range, and one that brings none
-    // leaves nothing to ask for.
+    // Invariant: source-key changes trigger refresh; also refreshing on file load would duplicate requests.
     onLoaded: {
       root.sourceList = Sources.load(text())
       root.sourcesLoaded = true
     }
     onFileChanged: reload()
-    // Hearing again that the file is absent is not a change. The file's
-    // directory is touched whenever the backend reads its registry, which a
-    // calendar refresh does, and announcing a fresh empty list started the
-    // next refresh.
+    // Invariant: repeated absent-file notifications must not restart refresh when backend registry reads touch the directory.
     onLoadFailed: {
       if (!root.sourceList || !Array.isArray(root.sourceList.sources)
           || root.sourceList.sources.length > 0)
@@ -1040,7 +985,6 @@ Item {
       root.sourcesLoaded = true
     }
   }
-
 
   Connections {
     target: root.sharedCache

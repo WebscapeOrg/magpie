@@ -1,9 +1,6 @@
 .pragma library
 
-// Version 2 added the Google item id required by update and delete; version 3
-// adds the original CalDAV resource required to preserve fields during PUT.
-// Older ranges cannot recover either value, so they are fetched again instead
-// of restoring rows that are unwritable or unsafe to edit.
+// Invariant: cache versions 2 and 3 added provider item identity and the full CalDAV resource required for writes.
 var VERSION = 3
 var MAX_RANGES = 32
 var MAX_EVENTS = 25000

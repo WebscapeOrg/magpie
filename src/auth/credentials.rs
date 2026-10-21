@@ -50,7 +50,9 @@ fn valid_account(provider: &str, account: &str) -> Result<(), &'static str> {
     if !account.starts_with(&format!("{provider}:"))
         || !account.contains('@')
         || account.len() > 1024
-        || account.chars().any(|character| character.is_control() || character.is_whitespace())
+        || account
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
     {
         return Err("auth_account_invalid");
     }
@@ -370,7 +372,9 @@ fn outlook_access(token: &Value) -> Result<&str, &'static str> {
         .filter(|value| {
             !value.is_empty()
                 && value.len() <= 16384
-                && !value.chars().any(|character| character.is_whitespace() || character.is_control())
+                && !value
+                    .chars()
+                    .any(|character| character.is_whitespace() || character.is_control())
         })
         .ok_or("auth_invalid_response")
 }
@@ -390,7 +394,10 @@ fn outlook_scopes(token: &Value, scope: &str) -> bool {
         })
 }
 
-async fn in_outlook_lane<Output, Operation, OperationFuture>(lane: AccountTokens, operation: Operation) -> Result<Output, &'static str>
+async fn in_outlook_lane<Output, Operation, OperationFuture>(
+    lane: AccountTokens,
+    operation: Operation,
+) -> Result<Output, &'static str>
 where
     Output: Send + 'static,
     Operation: FnOnce(tokio::sync::OwnedMutexGuard<Tokens>) -> OperationFuture + Send + 'static,
@@ -431,7 +438,8 @@ pub(super) async fn change_outlook(parameters: &Value, clear: bool) -> Result<Va
         .await
         .map_err(|_| "auth_account_invalid")??;
     let client = entry["clientId"].as_str().ok_or("auth_client_missing")?;
-    if parameters["clientId"] != client || client.is_empty() || client.chars().any(char::is_control) {
+    if parameters["clientId"] != client || client.is_empty() || client.chars().any(char::is_control)
+    {
         return Err("auth_client_invalid");
     }
     let token = if clear {
@@ -439,7 +447,9 @@ pub(super) async fn change_outlook(parameters: &Value, clear: bool) -> Result<Va
     } else {
         parameters["token"]
             .as_str()
-            .filter(|value| !value.is_empty() && value.len() <= 16384 && !value.chars().any(char::is_control))
+            .filter(|value| {
+                !value.is_empty() && value.len() <= 16384 && !value.chars().any(char::is_control)
+            })
             .ok_or("auth_secret_invalid")?
     };
     let lock = account_tokens(account, client, stored_tenant(&entry)).await?;
@@ -510,11 +520,15 @@ where
         || account.is_empty()
         || !account.contains('@')
         || account.len() > 1024
-        || account.chars().any(|character| character.is_control() || character.is_whitespace())
+        || account
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
         || token.is_empty()
         || client_id.chars().any(char::is_control)
         || token.len() > 16384
-        || token.chars().any(|character| character.is_whitespace() || character.is_control())
+        || token
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
     {
         return Err("auth_secret_invalid");
     }
@@ -1294,33 +1308,60 @@ mod tests {
     #[tokio::test]
     async fn token_cache_identity_preserves_field_boundaries() {
         let first = account_tokens(
-            "outlook:lane-fixture@example.org", "left:right", "consumers",
-        ).await.unwrap();
+            "outlook:lane-fixture@example.org",
+            "left:right",
+            "consumers",
+        )
+        .await
+        .unwrap();
         let second = account_tokens(
-            "outlook:lane-fixture@example.org:left", "right", "consumers",
-        ).await.unwrap();
+            "outlook:lane-fixture@example.org:left",
+            "right",
+            "consumers",
+        )
+        .await
+        .unwrap();
         let normalized = account_tokens(
-            "outlook:LANE-FIXTURE@example.org", "left:right", "consumers",
-        ).await.unwrap();
+            "outlook:LANE-FIXTURE@example.org",
+            "left:right",
+            "consumers",
+        )
+        .await
+        .unwrap();
         assert!(std::sync::Arc::ptr_eq(&first, &normalized));
-        assert!(!std::sync::Arc::ptr_eq(&first, &second),
-            "different account/client fields must not share cached credentials");
+        assert!(
+            !std::sync::Arc::ptr_eq(&first, &second),
+            "different account/client fields must not share cached credentials"
+        );
     }
 
     #[tokio::test]
     async fn token_cache_invalidation_matches_the_exact_account() {
         let account = "outlook:exact-fixture@example.org";
         let related = account_tokens(
-            "outlook:exact-fixture@example.org:alias", "client", "consumers",
-        ).await.unwrap();
-        related.lock().await.insert("mail".into(), (
-            "unrelated-token".into(),
-            TokenExpiry::after(Duration::from_secs(3600),
-                std::time::Instant::now(), std::time::SystemTime::now()),
-        ));
+            "outlook:exact-fixture@example.org:alias",
+            "client",
+            "consumers",
+        )
+        .await
+        .unwrap();
+        related.lock().await.insert(
+            "mail".into(),
+            (
+                "unrelated-token".into(),
+                TokenExpiry::after(
+                    Duration::from_secs(3600),
+                    std::time::Instant::now(),
+                    std::time::SystemTime::now(),
+                ),
+            ),
+        );
         invalidate(account).await.unwrap();
-        assert_eq!(related.lock().await.get("mail").unwrap().0, "unrelated-token",
-            "invalidating an account must preserve another account's token");
+        assert_eq!(
+            related.lock().await.get("mail").unwrap().0,
+            "unrelated-token",
+            "invalidating an account must preserve another account's token"
+        );
     }
 
     #[tokio::test]

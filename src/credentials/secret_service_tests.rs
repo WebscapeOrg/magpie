@@ -422,11 +422,21 @@ fn credentials_native_linux_reconnects_after_a_transport_failure() {
 fn credentials_native_linux_discards_a_failed_retry_session() {
     let fixture = Fixture::with_failures(false, true, 2);
     let shared = Shared::new().unwrap();
-    assert!(matches!(run_on(&shared, &key(), Operation::Get,
-        || fixture.client(), DEADLINE), Err(Error::Unavailable)));
+    assert!(matches!(
+        run_on(
+            &shared,
+            &key(),
+            Operation::Get,
+            || fixture.client(),
+            DEADLINE
+        ),
+        Err(Error::Unavailable)
+    ));
     assert_eq!(fixture.sessions.load(Ordering::SeqCst), 2);
-    assert!(slot(&shared).is_none(),
-        "a failed retry must not leave its unusable session cached");
+    assert!(
+        slot(&shared).is_none(),
+        "a failed retry must not leave its unusable session cached"
+    );
 }
 
 /// Invariant: Missing is an answer, not a transport failure: it must neither drop the

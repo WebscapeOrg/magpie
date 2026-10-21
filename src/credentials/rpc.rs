@@ -124,9 +124,7 @@ async fn call_with_store(
             .await
             .map_err(|_| "credential_store_unavailable")?
         {
-            Ok(secret) => {
-                Ok(json!({"found":true,"secret":secret.text().map_err(map_error)?}))
-            }
+            Ok(secret) => Ok(json!({"found":true,"secret":secret.text().map_err(map_error)?})),
             Err(Error::Missing) => Ok(json!({"found":false})),
             Err(error) => Err(map_error(error)),
         },

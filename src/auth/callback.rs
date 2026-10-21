@@ -80,7 +80,8 @@ impl Flows {
         let scopes: Vec<&str> = scopes
             .iter()
             .map(|value| {
-                value.as_str()
+                value
+                    .as_str()
                     .filter(|value| value.len() < 512 && !value.chars().any(char::is_whitespace))
                     .ok_or("invalid_params")
             })
@@ -165,7 +166,9 @@ async fn finish_google(mut response: Value, client_id: &str) -> Result<Value, &'
         .filter(|value| {
             value.contains('@')
                 && value.len() <= 1024
-                && !value.chars().any(|character| character.is_control() || character.is_whitespace())
+                && !value
+                    .chars()
+                    .any(|character| character.is_control() || character.is_whitespace())
         })
         .ok_or("auth_invalid_profile")?;
     let refresh = token["refresh_token"]
@@ -230,24 +233,28 @@ fn callback(request: &str, state: &str, port: u16) -> Result<String, &'static st
         || codes.len() != 1
         || codes[0].1.is_empty()
         || pairs.iter().any(|(key, _)| key == "error")
-        || codes[0]
-            .1
-            .chars()
-            .any(|character| !character.is_ascii() || character.is_ascii_control() || character.is_whitespace())
+        || codes[0].1.chars().any(|character| {
+            !character.is_ascii() || character.is_ascii_control() || character.is_whitespace()
+        })
     {
         return Err("auth_invalid_callback");
     }
     Ok(codes[0].1.to_string())
 }
 
-async fn read_callback(socket: &mut TcpStream, state: &str, port: u16) -> Result<String, &'static str> {
+async fn read_callback(
+    socket: &mut TcpStream,
+    state: &str,
+    port: u16,
+) -> Result<String, &'static str> {
     let mut request = Vec::new();
     let mut byte = [0];
     while request.len() < 16384 {
         if socket
             .read(&mut byte)
             .await
-            .map_err(|_| "auth_invalid_callback")? == 0
+            .map_err(|_| "auth_invalid_callback")?
+            == 0
         {
             break;
         }
@@ -423,7 +430,8 @@ mod tests {
 
     #[test]
     fn callback_checks_exact_route_host_and_single_state() {
-        let request_for = |path: &str, host: &str| format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n");
+        let request_for =
+            |path: &str, host: &str| format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n");
         assert_eq!(
             callback(
                 &request_for(

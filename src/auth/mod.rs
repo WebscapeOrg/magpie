@@ -34,12 +34,16 @@ fn client() -> Result<&'static reqwest::Client, &'static str> {
 
 fn destination(parameters: &Value) -> Result<String, &'static str> {
     let fields = parameters.as_object().ok_or("invalid_params")?;
-    if fields.keys()
+    if fields
+        .keys()
         .any(|key| !["provider", "endpoint", "tenant", "body"].contains(&key.as_str()))
     {
         return Err("invalid_params");
     }
-    match (parameters["provider"].as_str(), parameters["endpoint"].as_str()) {
+    match (
+        parameters["provider"].as_str(),
+        parameters["endpoint"].as_str(),
+    ) {
         (Some("gmail"), Some("token")) => Ok("https://oauth2.googleapis.com/token".into()),
         (Some("outlook"), Some(endpoint @ ("token" | "device"))) => {
             let tenant = parameters
@@ -95,7 +99,10 @@ async fn post_with_deadline(
         if status.is_redirection() {
             return Err("auth_redirect_refused");
         }
-        if response.content_length().is_some_and(|size| size > MAX_AUTH_PAYLOAD_BYTES as u64) {
+        if response
+            .content_length()
+            .is_some_and(|size| size > MAX_AUTH_PAYLOAD_BYTES as u64)
+        {
             return Err("auth_response_too_large");
         }
         let mut bytes = Vec::new();
@@ -176,7 +183,8 @@ impl Session {
         }
         let url = destination(parameters)?;
         let body = parameters["body"].as_str().ok_or("invalid_params")?;
-        if body.len() > MAX_AUTH_PAYLOAD_BYTES || body.bytes().any(|byte| byte < 32 || byte == 127) {
+        if body.len() > MAX_AUTH_PAYLOAD_BYTES || body.bytes().any(|byte| byte < 32 || byte == 127)
+        {
             return Err("invalid_params");
         }
         post(client()?, &url, body.into()).await
@@ -229,7 +237,11 @@ mod tests {
             assert!(socket.read(&mut request).await.unwrap() > 0);
             socket
                 .write_all(
-                    format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", MAX_AUTH_PAYLOAD_BYTES + 1).as_bytes(),
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                        MAX_AUTH_PAYLOAD_BYTES + 1
+                    )
+                    .as_bytes(),
                 )
                 .await
                 .unwrap();
@@ -301,7 +313,12 @@ mod tests {
             .build()
             .unwrap();
         assert_eq!(
-            post(&client, &format!("http://{address}"), "token=synthetic".into()).await,
+            post(
+                &client,
+                &format!("http://{address}"),
+                "token=synthetic".into()
+            )
+            .await,
             Err("auth_redirect_refused")
         );
         server.await.unwrap();

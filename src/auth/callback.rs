@@ -168,18 +168,18 @@ async fn finish_google(mut response: Value, client_id: &str) -> Result<Value, &'
                 && !value.chars().any(|character| character.is_control() || character.is_whitespace())
         })
         .ok_or("auth_invalid_profile")?;
-    if let Some(refresh) = token["refresh_token"].as_str().filter(|value| !value.is_empty()) {
-        credentials::store_google(client_id, account, refresh).await?;
-        // Invariant: The grant is already saved to the verified mailbox, before the UI
-        // starts any mailbox requests; never create an unnamed keyring item.
-        token
-            .as_object_mut()
-            .ok_or("auth_invalid_response")?
-            .remove("refresh_token");
-        response["body"] = Value::String(token.to_string());
-    } else {
-        return Err("auth_offline_access_missing");
-    }
+    let refresh = token["refresh_token"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .ok_or("auth_offline_access_missing")?;
+    credentials::store_google(client_id, account, refresh).await?;
+    // Invariant: The grant is already saved to the verified mailbox, before the UI
+    // starts any mailbox requests; never create an unnamed keyring item.
+    token
+        .as_object_mut()
+        .ok_or("auth_invalid_response")?
+        .remove("refresh_token");
+    response["body"] = Value::String(token.to_string());
     response["profile"] = profile;
     Ok(response)
 }

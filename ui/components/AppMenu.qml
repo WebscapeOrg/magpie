@@ -6,7 +6,6 @@ import qs.Commons
 import qs.Ui
 import "Menu.js" as Menu
 
-// Links out, plus the handful of actions that have no natural home on screen.
 Item {
   id: root
 
@@ -15,18 +14,11 @@ Item {
   required property color popupBorderColor
   required property string panelFontFamily
   property bool signedIn: false
-  // Whether this mailbox has a web address for what is on screen. Off, the row
-  // goes rather than opening something else's inbox.
   property bool canOpenWebInbox: false
-  // The rail carries the switcher, and the rail is gone at a narrow window —
-  // so at that size this menu is the only way left to reach it.
+  // Invariant: the account switcher remains reachable through this menu when the sidebar is hidden.
   property int accountCount: 1
-  // The menu is opened from wherever the account lives — the sidebar's user
-  // bar, or the status bar when the sidebar is hidden — so it carries no
-  // trigger of its own by default.
   property bool showTrigger: false
-  // Only the standalone host owns the application process. A plugin menu
-  // must never offer to terminate the shell that loaded it.
+  // Invariant: only the standalone host may offer Quit; a plugin must not terminate its shell.
   property bool canQuit: false
   property bool singlePane: true
   property bool hasAgent: true
@@ -40,9 +32,6 @@ Item {
   signal overviewRetryRequested()
   readonly property bool opened: menu.opened
 
-  // Positioned against the window rather than a button, and flipped when it
-  // would run off the bottom, since it opens from a bar at the bottom.
-  // Where the menu was asked to appear, kept because it cannot be placed yet.
   property real anchorX: 0
   property real anchorY: 0
   property int cursorIndex: -1
@@ -57,11 +46,7 @@ Item {
     place()
   }
 
-  // A Popup does not build its contents until it is first opened, so on the
-  // very first click its height is still zero: the "does it fit below?" test
-  // passed trivially and the menu was placed at the click and then grew off the
-  // bottom. That matters more now the trigger sits on the status line, where
-  // below is where there is no room at all.
+  // Invariant: popup content is created lazily; position again after its first height is known.
   function place() {
     if (!menu.visible) return
     var tall = menu.height > 0 ? menu.height : menu.implicitHeight
@@ -84,9 +69,6 @@ Item {
   signal markAllReadRequested()
   signal openWebRequested()
   signal shortcutsRequested()
-  // The two places the window is for, as a pair. The sidebar has both, but
-  // a narrow window has no sidebar, and then these rows are the only way
-  // from one to the other.
   signal inboxRequested()
   signal calendarRequested()
   signal setupRequested()
@@ -127,11 +109,7 @@ Item {
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
     onHeightChanged: root.place()
     onOpened: {
-      // No row lit until a key asks for one. Opening with the first row
-      // highlighted read as "this is where you are" once the first row
-      // became Inbox — on the calendar, a menu saying Inbox was selected.
-      // j/k from nowhere start at the first or last row, so the keyboard
-      // loses nothing.
+      // Invariant: opening the menu must not imply that Inbox is the current view.
       root.cursorIndex = -1
       root.place()
     }
@@ -247,8 +225,6 @@ Item {
 
       MenuRow {
         id: markRow
-        // "These" and not "all": it marks the messages that are loaded, which
-        // is what you are looking at, not every message the mailbox holds.
         text: "Mark these read"
         enabled: root.signedIn
         onActivated: { menu.close(); root.markAllReadRequested() }
@@ -309,8 +285,6 @@ Item {
     }
   }
 
-  // `enabled` is Item's own, and it already stops the handlers below from
-  // firing, so a disabled row only has to look disabled.
   component MenuRow: MenuActionRow {
     width: menu.width - menu.leftPadding - menu.rightPadding
     textColor: root.textColor

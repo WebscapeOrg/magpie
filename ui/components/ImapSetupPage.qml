@@ -7,14 +7,6 @@ import "../providers/ImapProtocol.js" as Imap
 import "../account/Accounts.js" as Accounts
 import "../account/Aliases.js" as Aliases
 
-// Connecting an ordinary mailbox: an address, a password, and — only if the
-// guess was wrong — the servers.
-//
-// The Gmail page next door is a walkthrough because Google genuinely requires
-// one. This is not that: for a known provider it is two fields, because the
-// hostnames are already known and typing them out is a way to get them wrong.
-// The servers are filled in from the address and shown behind a disclosure, so
-// they can be corrected without being in anyone's way.
 Column {
   id: root
 
@@ -35,8 +27,6 @@ Column {
   readonly property bool busy: !!auth && auth.loginBusy
   readonly property bool toolsMissing: !!auth && auth.toolsChecked && auth.missingTools.length > 0
 
-  // Recomputed as the address is typed, and only ever used to *fill* the
-  // fields — never to override something already typed into them.
   readonly property var suggestion: Imap.suggestedSettings(addressField.text)
 
   spacing: MailStyle.space(16)
@@ -53,16 +43,13 @@ Column {
     })
   }
 
-  // The address drives the servers until the user takes them over. Once a field
-  // has been edited by hand, a later change of address must not overwrite it —
-  // which is what `touched` records.
+  // Invariant: automatically suggested servers must not overwrite fields the user edited.
   property bool serversTouched: false
 
   function applySuggestion() {
     if (serversTouched) return
-    // onTextChanged runs before the readonly binding above is guaranteed to
-    // have observed the last keystroke. Derive from the field here, or typing
-    // the final "m" in .com can leave the server suggestion ending in .co.
+    // Invariant: onTextChanged can precede the suggestion binding; derive from the field’s current
+    // text.
     var current = Imap.suggestedSettings(addressField.text)
     imapHostField.text = current.imapHost
     imapPortField.text = String(current.imapPort)
@@ -87,24 +74,14 @@ Column {
       imapPortField.text = String(settings.imapPort)
       smtpHostField.text = settings.smtpHost
       smtpPortField.text = String(settings.smtpPort)
-      // Settings that came off disk are the user's own, so the address must not
-      // overwrite them.
+      // Invariant: persisted server settings are user choices and must not be overwritten by
+      // address suggestions.
       serversTouched = true
     }
   }
 
-  // The address is this mailbox's identity, not just a label on it:
-  // `Accounts.accountId` derives the account id from it, and anything that is
-  // not an address derives the empty id a pending row carries. That row then
-  // looks saved and behaves like a draft — it cannot be selected, switched to,
-  // signed, or removed, and there is no way back to it from inside the window.
-  // `validateSettings` cannot catch this: `setupSettings` folds the address
-  // into `username` and hands on no address at all. So it is checked here,
-  // against the same predicate that derives the id, while it is still a typo
-  // the user can see.
-  //
-  // Checked before the server settings because the form reads address first,
-  // and an error should name the first field to go back to.
+  // Invariant: setupSettings omits the address; validate it before accountId can turn an invalid
+  // address into a pending mailbox.
   function validatedAddress() {
     var address = addressField.text.trim()
     if (Accounts.isValidEmail(address)) return address
@@ -114,8 +91,8 @@ Column {
     return ""
   }
 
-  // Saved before the password is tried, so a mailbox that the server rejects
-  // still has its settings to correct rather than an empty form to fill again.
+  // Invariant: save configuration before trying credentials so rejected sign-in leaves an editable
+  // mailbox.
   function save() {
     if (!service) return
     var address = validatedAddress()
@@ -164,7 +141,6 @@ Column {
     }
   }
 
-  // ------------------------------------------------------------------ hero
 
   Column {
     width: parent.width
@@ -215,7 +191,6 @@ Column {
     }
   }
 
-  // -------------------------------------------------------------- the form
 
   Column {
     width: parent.width
@@ -253,13 +228,6 @@ Column {
       onAccepted: passwordField.forceActiveFocus()
     }
 
-    // What a provider wants instead of the website password. Shown as soon as
-    // the address names one, because someone typing their everyday password
-    // into this box will otherwise be told only that it was rejected. A box
-    // rather than a line of caption: a Gmail user who has just been refused by
-    // Google is about to be refused again, and this is the sentence that
-    // stops it — so it is drawn in body text, with the page that explains the
-    // app password one tap away.
     Rectangle {
       width: parent.width
       visible: root.suggestion.note !== ""
@@ -309,9 +277,6 @@ Column {
         id: passwordField
         anchors.left: parent.left
         anchors.right: parent.right
-        // Masked by default: this window is shoulder-surfable. Readable on
-        // demand, because an app password is a 16-character string nobody can
-        // check by memory.
         password: !root.passwordVisible
         rightPadding: horizontalPadding + MailStyle.space(26)
         foreground: root.textColor
@@ -351,10 +316,6 @@ Column {
     }
   }
 
-  // ------------------------------------------------------------ the servers
-  //
-  // Behind a disclosure, because for a known provider they are already right
-  // and four more fields on screen would suggest otherwise.
 
   Column {
     width: parent.width
@@ -424,9 +385,6 @@ Column {
         }
       }
 
-      // Only for the servers where the login name is not the address, which is
-      // common enough on self-hosted mail to be worth a field and rare enough
-      // to keep out of the way.
       Widgets.TextField {
         id: usernameField
         width: parent.width

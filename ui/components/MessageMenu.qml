@@ -6,9 +6,7 @@ import qs.Ui
 import "Menu.js" as Menu
 import "../account/Model.js" as Model
 
-// The list's right-click menu. It is a Popup rather than a child of the row
-// because the list scrolls inside a clipping Flickable, which would cut the
-// menu off at the column edge.
+// Invariant: the list’s clipping Flickable would cut off a child menu; use a popup.
 Item {
   id: root
 
@@ -21,10 +19,8 @@ Item {
   required property string panelFontFamily
 
   property string messageId: ""
-  // Opened from a stop on the conversation rail rather than from a row. A stop
-  // is one message: its summary is among the account's member summaries, and
-  // what it asks for reaches that message alone, where a row's menu reaches
-  // every counted member of the conversation the row stands for.
+  // Invariant: a rail stop targets one member, while a conversation row targets its counted
+  // members.
   property bool memberOnly: false
   property real anchorX: 0
   property real anchorY: 0
@@ -32,13 +28,8 @@ Item {
   readonly property var menuRows: [continueRow, replyRow, replyAllRow, forwardRow, archiveRow,
     unarchiveRow, moveRow,
     trashRow, spamRow, readRow, starRow, browserRow, aiRow]
-  // Whether this message is archived — out of the inbox and not somewhere
-  // that has its own verb. Read off the summary the menu was opened on rather
-  // than asked of the service, because the menu is about one message. IMAP
-  // synthesises all four of these from the folder, so one rule serves both
-  // kinds of provider. Spam counts as "its own verb" only where a spam verb
-  // exists: an IMAP Junk folder has no report-spam inverse to offer instead,
-  // so a Junk message there is the one spam case "Move to Inbox" still means.
+  // Invariant: spam has its own inverse only where the provider supports it; IMAP Junk otherwise
+  // remains eligible for Move to Inbox.
   readonly property var messageHost: !root.service ? null
     : typeof root.service.hostForId === "function"
       ? root.service.hostForId(root.messageId) : root.service
@@ -49,10 +40,6 @@ Item {
     && root.summary.isSent !== true
     && root.summary.isDraft !== true
 
-  // Whether the list it was opened from is a label's, and whether that label
-  // is one a message can be taken out of — which is the same question
-  // `labelChangesFor` asks, so the wording cannot promise a removal that does
-  // not happen.
   readonly property bool inLabelView: !!root.service
     && !!root.service.hasLabels
     && String(root.service.rawLabelId || "") !== ""
@@ -65,7 +52,6 @@ Item {
     for (var i = 0; i < list.length; i++) {
       if (list[i].id === messageId) return list[i]
     }
-    // A member the list drew no row for: the rail's own summaries.
     var members = service.memberSummaries
     if (members && typeof members === "object" && members[messageId]) return members[messageId]
     return null
@@ -74,8 +60,6 @@ Item {
   signal agentRequested(string id, real sceneX, real sceneY)
   signal composeRequested(string mode, string id)
   signal actionRequested(string action, string id)
-  // The same two, from a menu opened on a rail stop, so the owner can keep the
-  // list cursor where it is and scope the action to the one message.
   signal memberComposeRequested(string mode, string id)
   signal memberActionRequested(string action, string id)
 
@@ -182,25 +166,14 @@ Item {
         lineColor: root.textColor
       }
 
-      // Hidden rather than disabled where the provider has no such verb. IMAP
-      // archives by moving to a folder that may not exist, and has no junk
-      // verb the server learns anything from — a "Report spam" that quietly
-      // meant "move to a folder" would be a promise this cannot keep.
       MenuRow {
         id: archiveRow
         visible: (!root.service || root.service.canArchive) && !root.archived
         text: "Archive"
         onActivated: root.run("archive")
       }
-      // The other direction, and only where it would be the truth.
-      //
-      // `inInbox === false` alone put this row in Spam, Trash, Drafts and
-      // Sent, where adding INBOX is not what "move to the inbox" means:
-      // `labelChangesFor` removes neither SPAM nor TRASH, so a spam message
-      // would carry INBOX *and* SPAM and stay in Spam while the row claimed
-      // otherwise, and on IMAP the same press physically relocates a draft
-      // out of the Drafts folder. Spam has its own verb and trash has its own
-      // endpoint, for exactly this reason; archived mail is what is left.
+      // Invariant: adding INBOX does not remove SPAM or TRASH and can relocate IMAP drafts; this
+      // action applies only to archived mail.
       MenuRow {
         id: unarchiveRow
         visible: (!root.service || root.service.canArchive) && root.archived
@@ -209,8 +182,6 @@ Item {
       }
       MenuRow {
         id: moveRow
-        // A member of a conversation is not a row the picker can move on
-        // its own; the row above it is.
         visible: !!root.service && root.service.canMoveToLabel && !root.memberOnly
         text: "Move to..."
         onActivated: root.run("moveToLabel")
@@ -260,8 +231,6 @@ Item {
         }
       }
 
-      // Only where there is a web mailbox to open. An IMAP account has no
-      // address this plugin could know.
       MenuRow {
         id: browserRow
         visible: !root.service || root.service.canOpenOnWeb

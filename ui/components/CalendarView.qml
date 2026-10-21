@@ -55,8 +55,7 @@ Item {
   }
   onViewModeChanged: { monthOverflow.close(); monthHoverDelay.stop(); hoveredMonthDay = null; syncAgenda() }
   onDaysChanged: syncAgenda()
-  // The agenda's clock ticks every minute to drop finished events. Its model
-  // changes only when the list does, so a tick leaves the scroll where it was.
+  // Invariant: retain an unchanged agenda model so clock ticks do not reset its scroll.
   property var agendaEvents: []
   function syncAgenda() {
     var next = viewMode === "agenda" ? visibleEvents() : []
@@ -233,7 +232,6 @@ Item {
     })
   }
 
-  // Escape's first answer while the busy-day preview is up.
   function dismissPreview() {
     if (!monthOverflow.opened) return false
     monthOverflow.close()
@@ -477,7 +475,6 @@ Item {
           ActionIcon {
             anchors.centerIn: parent
             name: "refresh"
-            // The same size as the chevrons beside it and Check mail above.
             iconSize: Style.font.icon
             color: root.accentColor
 
@@ -583,12 +580,9 @@ Item {
       border.width: 1
       border.color: root.urgentColor
 
-      readonly property bool apiDisabled: root.controller
-        && root.controller.lastErrorKind === "googleApiDisabled"
-
       Text {
         anchors.left: parent.left
-        anchors.right: errorActions.visible ? errorActions.left : parent.right
+        anchors.right: parent.right
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.leftMargin: MailStyle.space(10)
@@ -602,36 +596,7 @@ Item {
         textFormat: Text.PlainText
       }
 
-      Row {
-        id: errorActions
-        anchors.right: parent.right
-        anchors.rightMargin: MailStyle.space(4)
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: MailStyle.space(4)
-        visible: calendarError.apiDisabled
 
-        IconTextButton {
-          objectName: "calendarErrorCopy"
-          text: "Copy"
-          tooltipText: "Copy this error"
-          foreground: root.textColor
-          accent: root.accentColor
-          fontFamily: root.panelFontFamily
-          fontSize: MailStyle.caption
-          onClicked: root.copyRequested(root.controller.lastError)
-        }
-
-        IconTextButton {
-          objectName: "calendarApiEnable"
-          text: "Enable API..."
-          tooltipText: "Open Google Cloud Calendar API setup..."
-          foreground: root.textColor
-          accent: root.accentColor
-          fontFamily: root.panelFontFamily
-          fontSize: MailStyle.caption
-          onClicked: root.openRequested(Calendar.googleCalendarApiUrl())
-        }
-      }
     }
 
     Text {
@@ -705,7 +670,6 @@ Item {
       readonly property real weekHeight: height / (root.days.length / 7)
       readonly property real eventTop: MailStyle.space(10) + monthFontMetrics.height
       readonly property real eventPitch: MailStyle.space(25)
-      // Leave space for an overflow link even when spanning events fill a week.
       readonly property int spanLimit: Math.max(0, Math.floor(
         (weekHeight - eventTop - MailStyle.space(5) - monthFontMetrics.height) / eventPitch))
       function visibleLanes(week) { return Math.min(spanLimit, root.monthSpans.laneCounts[week] || 0) }
@@ -1085,11 +1049,8 @@ Item {
     }
   }
 
-  // A hover preview, not a QQC.Popup: an open Popup takes every key before the
-  // window's shortcuts see it, focused or not (tst_popup_keys), so resting the
-  // pointer on a busy day would silence j, k and every view key until it left.
-  // An item drawn above the window keeps the keyboard with KeyRouter; Escape
-  // reaches it through goBack().
+  // Invariant: QQC.Popup consumes window shortcuts even without focus; a hover preview must leave
+  // KeyRouter active (tst_popup_keys).
   Rectangle {
     id: monthOverflow
     objectName: "calendar-month-overflow"
@@ -1121,8 +1082,7 @@ Item {
     }
     onOpenedChanged: if (opened) place()
     onHeightChanged: if (opened) place()
-    // Swallows clicks that miss an event, as the popup's background did, so
-    // one never lands on the month cell drawn underneath.
+    // Invariant: clicks between preview events must not activate the month cell below.
     MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: function(wheel) { wheel.accepted = true } }
     Item {
       anchors.fill: parent
@@ -1318,8 +1278,6 @@ Item {
     dimColor: root.dimColor
     panelFontFamily: root.panelFontFamily
     onClosed: root.closeDetail()
-    // Editing replaces the detail: the composer covers the view, and the
-    // event it rewrites is not the one these labels would go on showing.
     onEditRequested: function(sourceId, event) {
       root.closeDetail()
       root.editRequested(sourceId, event)

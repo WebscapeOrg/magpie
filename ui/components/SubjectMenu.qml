@@ -5,11 +5,6 @@ import qs.Commons
 import qs.Ui
 import "Menu.js" as Menu
 
-// The menu a right-click on the reader's subject opens: the subject as
-// written, copied whole. One row, the way AddressMenu is one pattern — Copy
-// goes out as a signal because the host owns the platform clipboard. The
-// empty subject refuses an open, the way AddressMenu refuses a line that
-// held no addresses.
 Item {
   id: root
 
@@ -18,13 +13,13 @@ Item {
   required property color popupBorderColor
   required property string panelFontFamily
 
-  // The subject the click landed on, set at open time rather than bound.
+  // Invariant: copy the subject selected when the menu opened, not a later message’s subject.
   property string subject: ""
   property int cursorIndex: -1
   readonly property bool opened: menu.opened
   readonly property var menuRows: [copyRow]
   readonly property alias copyRow: copyRow
-  // Exposed so a test can assert where the menu landed, the way copyRow is.
+  // Docs: popup geometry is exposed for placement regressions.
   readonly property alias popup: menu
 
   signal copyRequested(string subject)
@@ -37,9 +32,8 @@ Item {
 
   function openAt(text, sceneX, sceneY) {
     subject = String(text || "")
-    // A subject of only spaces is one the reader cannot show anything for; it
-    // is refused like an empty one. The text is still copied verbatim, so a
-    // real subject keeps the spacing it was sent with.
+    // Invariant: reject whitespace-only subjects but preserve the original spacing of copyable
+    // subjects.
     if (subject.trim() === "") return
     var local = root.mapFromGlobal(sceneX, sceneY)
     anchorX = local.x

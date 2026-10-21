@@ -5,9 +5,6 @@ import qs.Commons
 import qs.Ui
 import "Menu.js" as Menu
 
-// The menu an address opens on a right-click in the reader's header: copy
-// it, or find the mail from it or to it. A line with several addresses asks
-// which one first, then offers the same three rows for it.
 Item {
   id: root
 
@@ -17,7 +14,6 @@ Item {
   required property color popupBorderColor
   required property string panelFontFamily
 
-  // [{ name, email }] — what the line held. One means straight to the rows.
   property var addresses: []
   property string chosen: ""
   property bool canSearch: true
@@ -108,7 +104,8 @@ Item {
         }
       }
 
-      // The address the rows are about. A stranger wrote it.
+      // Invariant: sender-controlled addresses must remain plain text to prevent Qt resource
+      // loading.
       Text {
         width: menu.width - menu.leftPadding - menu.rightPadding
         leftPadding: MailStyle.space(9)
@@ -122,7 +119,6 @@ Item {
         elide: Text.ElideMiddle
       }
 
-      // Choosing: one row per address on the line.
       Column {
         id: pickRows
         visible: root.choosing

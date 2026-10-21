@@ -3,16 +3,7 @@ import "../controls" as Widgets
 import "../settings"
 import qs.Commons
 import qs.Ui
-import "../providers/Registry.js" as Provider
 
-// Connecting a HEY mailbox, which is a program and a button.
-//
-// There is no form here at all, and that is the point: HEY publishes no IMAP
-// and no API this plugin could sign in to, so Magpie reads it through `hey`,
-// the command line client 37signals ship — and `hey` owns the sign-in, the
-// token and the keyring entry it lives in. Everything this page can do is say
-// whether the program is there, start its browser flow, and be honest about
-// what HEY is not.
 Column {
   id: root
 
@@ -32,14 +23,12 @@ Column {
   readonly property bool signedIn: !!auth && auth.loggedIn
   readonly property bool busy: !!auth && auth.loginBusy
 
-  // The one line somebody has to run. Written out rather than run from here:
-  // this window would be piping a script from the internet into a shell on the
-  // user's behalf, which is a thing to decide in a terminal you are looking at.
+  // Invariant: this is a displayed installation command, not permission to pipe a remote script
+  // into a shell.
   readonly property string installCommand: "curl -fsSL https://hey.com/install-cli | bash"
 
   spacing: MailStyle.space(16)
 
-  // ------------------------------------------------------------------ hero
 
   ProviderHero {
     width: parent.width
@@ -52,17 +41,12 @@ Column {
     onWebsiteRequested: if (root.service) root.service.openProviderWebsite("hey")
   }
 
-  // --------------------------------------------------------- install first
 
   Column {
     width: parent.width
     visible: root.checked && !root.installed
     spacing: MailStyle.space(10)
 
-    // The name of the thing to install is also where to read about it. Split
-    // rather than set as rich text: only the client's name is the link, and a
-    // whole heading that opened a browser would be a heading somebody made
-    // clickable by accident.
     Row {
       spacing: 0
 
@@ -94,8 +78,6 @@ Column {
       wrapMode: Text.WordWrap
     }
 
-    // Selectable, because the whole point of the box is to get the line into a
-    // terminal. Read-only: nothing here runs what it holds.
     Rectangle {
       width: parent.width
       implicitHeight: commandText.implicitHeight + MailStyle.space(20)
@@ -141,7 +123,6 @@ Column {
     }
   }
 
-  // ---------------------------------------------------------- then sign in
 
   Column {
     width: parent.width
@@ -198,7 +179,6 @@ Column {
     }
   }
 
-  // ------------------------------------------------------------- connected
 
   Column {
     width: parent.width
@@ -239,11 +219,6 @@ Column {
     wrapMode: Text.WordWrap
   }
 
-  // ------------------------------------------------------- what HEY is not
-  //
-  // Said here rather than discovered later. Every one of these is a button this
-  // provider does not draw, and somebody who came from Gmail will look for two
-  // of them within a minute.
 
   Column {
     width: parent.width
@@ -290,8 +265,8 @@ Column {
     }
   }
 
-  // The sign-out above is `hey`'s own, because the token is `hey`'s. Said next
-  // to the button rather than after it has been pressed.
+  // Invariant: signing out affects the shared HEY CLI credential, including other applications that
+  // use it.
   Text {
     width: parent.width
     visible: root.signedIn

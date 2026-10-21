@@ -168,9 +168,15 @@ Item {
   Connections {
     target: root.auth
     function onVerifyRequested(settings, address, secret) {
+      var owner = root.auth
+      var generation = owner.sessionGeneration
       root.verifyCredentials(settings, address, secret, function(result, error, needsServer) {
-        if (root.auth) root.auth.completeSignIn(!error, result, error, needsServer)
+        if (root.auth === owner) owner.completeSignIn(!error, result, error, needsServer, generation)
       })
+    }
+    function onSessionGenerationChanged() {
+      root.abortRequest(root.verificationHandle)
+      root.verificationHandle = null
     }
     function onSettingsChanged() {
       if (Jmap.serverIdentity(root.auth ? root.auth.settings : null) !== root.serverIdentity) root.forgetServer()

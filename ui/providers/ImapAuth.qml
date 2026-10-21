@@ -51,6 +51,7 @@ Item {
   // them without knowing which provider it has.
   readonly property bool credentialsPresent: configured
   property bool loginBusy: false
+  property int sessionGeneration: 0
   property bool credentialLookupBusy: false
   property bool credentialWriteBusy: false
   property int credentialLookupSerial: 0
@@ -167,6 +168,7 @@ Item {
   // will answer everything else — rather than by being written down first and
   // failing silently later.
   function signIn(secret) {
+    if (loginBusy || credentialWriteBusy) return false
     if (platform && platform.canAccessCredentials === false) {
       lastError = "Install or update the mail backend before signing in"
       return false
@@ -192,6 +194,7 @@ Item {
       lastError = check.error
       return false
     }
+    sessionGeneration++
     lastError = ""
     loginBusy = true
     pendingPassword = value
@@ -202,7 +205,8 @@ Item {
   // The client owns the transport, so it performs the check and reports back.
   signal verifyRequested(var settings, string credentials)
 
-  function completeSignIn(ok, error) {
+  function completeSignIn(ok, error, generation) {
+    if (!loginBusy || (generation !== undefined && generation !== sessionGeneration)) return
     loginBusy = false
     if (!ok) {
       pendingPassword = ""
@@ -248,12 +252,16 @@ Item {
 
   function logout() {
     var boundAccount = accountId
+    cancelLogin()
+    credentialLookupSerial++
+    credentialLookupBusy = false
     password = ""
     pendingPassword = ""
     passwordChecked = true
     if (credentialWriteBusy && credentialWriteAccount === boundAccount)
       pendingCredentialDelete = boundAccount
     else deleteCredential(boundAccount)
+    finishWaiters("", "Signed out")
     loggedOut()
   }
 
@@ -270,9 +278,14 @@ Item {
   // `MailAccount` should not have to ask which provider it holds before
   // calling one.
   function beginLogin() { /* the setup form drives sign-in, not a browser */ }
-  function cancelLogin() { loginBusy = false }
+  function cancelLogin() {
+    sessionGeneration++
+    loginBusy = false
+    pendingPassword = ""
+  }
 
   onAccountIdChanged: {
+    cancelLogin()
     // A different mailbox has a different password. Dropping the one in memory
     // is what stops an account rename from leaving the previous account's
     // credential in front of the new one's server.

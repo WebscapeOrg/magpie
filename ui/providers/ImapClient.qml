@@ -18,6 +18,7 @@ Item {
 
   readonly property bool oauthTransport: !!auth && String(auth.authMode || "") === "oauth2"
 
+  property var verificationHandle: null
   property var nativeLabels: []
   property int nativeRequestGeneration: 0
   property string nativeRequestPrefix: Date.now().toString(36) + "-" + Math.random().toString(36).slice(2)
@@ -305,7 +306,7 @@ Item {
   }
 
   function verifyCredentials(settings, credentials, callback) {
-    nativeRequest("imap.folders", { refresh: true }, function(result, error) {
+    return nativeRequest("imap.folders", { refresh: true }, function(result, error) {
       if (!error) {
         root.folders = result.folders
         root.special = result.special
@@ -321,10 +322,15 @@ Item {
     target: root.auth
     function onVerifyRequested(settings, credentials) {
       var owner = root.auth
-      var generation = root.oauthTransport ? owner.sessionGeneration : undefined
-      root.verifyCredentials(settings, credentials, function(ok, error) {
+      var generation = owner.sessionGeneration
+      root.verificationHandle = root.verifyCredentials(settings, credentials, function(ok, error) {
+        root.verificationHandle = null
         if (root.auth === owner) owner.completeSignIn(ok, error, generation)
       })
+    }
+    function onSessionGenerationChanged() {
+      root.abortRequest(root.verificationHandle)
+      root.verificationHandle = null
     }
     function onSettingsChanged() {
       root.foldersLoaded = false

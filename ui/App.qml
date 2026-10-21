@@ -2394,6 +2394,7 @@ Item {
         id: statusBar
         objectName: "mail-notice"
         anchors.bottom: parent.bottom
+        anchors.bottomMargin: compose.visible ? compose.actionBarHeight + MailStyle.space(8) : 0
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(parent.width - MailStyle.space(28), MailStyle.space(720))
         height: visible ? noticeText.implicitHeight + MailStyle.space(16) : 0

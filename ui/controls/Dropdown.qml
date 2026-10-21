@@ -59,8 +59,8 @@ Item {
     return (o && typeof o === "object") ? String(o.label) : String(o)
   }
   function currentLabel() {
-    for (var i = 0; i < options.length; i++) {
-      if (optionValue(options[i]) === value) return optionLabel(options[i])
+    for (var optionIndex = 0; optionIndex < options.length; optionIndex++) {
+      if (optionValue(options[optionIndex]) === value) return optionLabel(options[optionIndex])
     }
     return value
   }
@@ -198,17 +198,17 @@ Item {
           model: root.options
           currentIndex: -1
 
-          function indexOfValue(v) {
-            for (var i = 0; i < root.options.length; i++)
-              if (root.optionValue(root.options[i]) === v) return i
+          function indexOfValue(selectedValue) {
+            for (var optionIndex = 0; optionIndex < root.options.length; optionIndex++)
+              if (root.optionValue(root.options[optionIndex]) === selectedValue) return optionIndex
             return -1
           }
 
           function selectCurrent() {
             if (currentIndex < 0 || currentIndex >= root.options.length) return
-            var v = root.optionValue(root.options[currentIndex])
-            root.value = v
-            root.changed(v)
+            var selectedValue = root.optionValue(root.options[currentIndex])
+            root.value = selectedValue
+            root.changed(selectedValue)
             popup.close()
           }
 

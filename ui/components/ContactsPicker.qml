@@ -73,10 +73,10 @@ Item {
 
   function place() {
     if (!menu.visible) return
-    var x = Math.max(MailStyle.space(8), Math.min(anchorX, root.width - menu.width - MailStyle.space(8)))
-    var y = Math.max(MailStyle.space(8), Math.min(anchorY, root.height - menu.implicitHeight - MailStyle.space(8)))
-    menu.x = x
-    menu.y = y
+    var menuX = Math.max(MailStyle.space(8), Math.min(anchorX, root.width - menu.width - MailStyle.space(8)))
+    var menuY = Math.max(MailStyle.space(8), Math.min(anchorY, root.height - menu.implicitHeight - MailStyle.space(8)))
+    menu.x = menuX
+    menu.y = menuY
   }
 
   QQC.Popup {

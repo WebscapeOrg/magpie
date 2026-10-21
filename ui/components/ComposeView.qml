@@ -469,13 +469,13 @@ DropArea {
     var global = fromButton.mapToGlobal(0, 0)
     var at = root.mapFromGlobal(global.x, global.y)
     var tall = fromMenu.height > 0 ? fromMenu.height : fromMenu.implicitHeight
-    var x = Math.max(0, Math.min(at.x, root.width - fromMenu.width))
-    var y = at.y + fromButton.height
-    if (y + tall > root.height) y = at.y - tall
-    if (y + tall > root.height) y = root.height - tall
-    if (y < 0) y = 0
-    fromMenu.x = x
-    fromMenu.y = y
+    var menuX = Math.max(0, Math.min(at.x, root.width - fromMenu.width))
+    var menuY = at.y + fromButton.height
+    if (menuY + tall > root.height) menuY = at.y - tall
+    if (menuY + tall > root.height) menuY = root.height - tall
+    if (menuY < 0) menuY = 0
+    fromMenu.x = menuX
+    fromMenu.y = menuY
   }
 
   function ownReplyAddresses() {

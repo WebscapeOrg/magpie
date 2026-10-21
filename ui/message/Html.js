@@ -2229,8 +2229,10 @@ function readerSmallImageCount(nodes) {
       count++
       continue
     }
-    if (node.name !== "a" || readerSmallImageCount(node.children) === 0) return 0
-    count += readerSmallImageCount(node.children)
+    if (node.name !== "a") return 0
+    var linkedImages = readerSmallImageCount(node.children)
+    if (linkedImages === 0) return 0
+    count += linkedImages
   }
   return count
 }

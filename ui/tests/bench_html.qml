@@ -5,7 +5,7 @@ import "bench_cases.js" as Bench
 
 QtObject {
   Component.onCompleted: {
-    console.log("QML — Qt " + qtVersion() + " on " + Qt.platform.os)
+    console.log("QML — " + Qt.platform.os)
 
     Bench.run({
       sanitize: function(source, options) { return Html.sanitize(source, options) },
@@ -23,9 +23,4 @@ QtObject {
     Qt.exit(0)
   }
 
-  function qtVersion() {
-
-    var packed = Qt.version !== undefined ? Qt.version : ""
-    return packed === "" ? "(unknown)" : packed
-  }
 }

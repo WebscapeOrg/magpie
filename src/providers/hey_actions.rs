@@ -91,7 +91,7 @@ fn prepare(method: &str, params: &Value) -> Result<(Vec<String>, Vec<u8>), &'sta
             if method != "hey.saveDraft" || !numeric(id) {
                 return Err("Invalid HEY draft id");
             }
-            // Newer official clients accept draft edit body from stdin, like compose.
+            // Invariant: Newer official clients accept draft edit body from stdin, like compose.
             // Never put private body text in --message / the process table.
             args.extend(["draft".into(), "edit".into(), id.into()]);
             for (flag, value) in [
@@ -169,14 +169,14 @@ fn execute(
     params: &Value,
     run: impl FnOnce(&[String], &[u8]) -> Result<Vec<u8>, &'static str>,
 ) -> Result<Value, &'static str> {
-    // Validate the complete batch before a subprocess can start.
+    // Invariant: Validate the complete batch before a subprocess can start.
     let (args, input) = prepare(method, params)?;
     let bytes = run(&args, &input)?;
     let answer: Value = serde_json::from_slice(&bytes).map_err(|_| "HEY returned invalid JSON")?;
     if answer["ok"] != true {
         return Err("HEY refused the request");
     }
-    // Mutation output is only an acknowledgement; do not forward diagnostics.
+    // Invariant: Mutation output is only an acknowledgement; do not forward diagnostics.
     Ok(json!({"ok":true}))
 }
 
@@ -227,7 +227,7 @@ fn decode_message(params: &Value) -> Result<Value, &'static str> {
         "draftId":params.get("draftId").cloned().unwrap_or(json!(""))});
     if thread.is_empty() {
         for (key, header) in [("to", "To"), ("cc", "Cc"), ("bcc", "Bcc")] {
-            // The official CLI accepts address lists. Pass the structural
+            // Invariant: The official CLI accepts address lists. Pass the structural
             // addresses, not decoded names for another parser to reinterpret.
             out[key] =
                 json!(crate::message::envelope::addresses(&mail.headers, header)?.join(", "));

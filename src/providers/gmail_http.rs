@@ -38,13 +38,13 @@ struct Request {
 const MAX_INPUT: usize = 64 * 1024;
 const MAX_RESPONSE: usize = 16 * 1024 * 1024;
 const DEADLINE: Duration = Duration::from_secs(20);
-// Only an explicit rate-limit refusal is retried; timeouts remain ambiguous.
+// Invariant: Only an explicit rate-limit refusal is retried; timeouts remain ambiguous.
 const RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(1);
 const RATE_LIMIT_RETRIES: usize = 3;
 static REQUEST_SERIAL: AtomicU64 = AtomicU64::new(0);
 static CLIENT: OnceLock<Result<reqwest::Client, &'static str>> = OnceLock::new();
 
-// The integration fixture exercises the real dispatcher, credential reader and
+// Invariant: The integration fixture exercises the real dispatcher, credential reader and
 // request serializer. This override exists only in test builds and only inside
 // its task scope; production has no environment/configuration bypass.
 #[cfg(test)]
@@ -286,7 +286,7 @@ async fn attempt(
                 .header(reqwest::header::CONTENT_TYPE, request.content_type)
                 .body(body);
         } else if empty_post {
-            // Bodyless Gmail trash/untrash requests still need explicit framing.
+            // Invariant: Bodyless Gmail trash/untrash requests still need explicit framing.
             // Some gateways reject a POST without Content-Length with HTTP 411.
             builder = builder.header(reqwest::header::CONTENT_LENGTH, "0");
         }
@@ -402,30 +402,34 @@ fn body_retry_after(body: &Value) -> Option<Duration> {
         messages.push(error["message"].as_str().unwrap_or(""));
     }
     for message in messages {
-        if let Some(captures) = pattern.captures(message) {
-            if let Ok(date) = chrono::DateTime::parse_from_rfc3339(&captures[1]) {
-                let duration = Duration::from_millis(
-                    (date.timestamp_millis() - chrono::Utc::now().timestamp_millis())
-                        .clamp(0, 86400000) as u64,
-                );
-                wait = wait.into_iter().chain(Some(duration)).max();
-            }
-        }
+        let Some(captures) = pattern.captures(message) else {
+            continue;
+        };
+        let Ok(date) = chrono::DateTime::parse_from_rfc3339(&captures[1]) else {
+            continue;
+        };
+        let duration = Duration::from_millis(
+            (date.timestamp_millis() - chrono::Utc::now().timestamp_millis()).clamp(0, 86400000)
+                as u64,
+        );
+        wait = wait.into_iter().chain(Some(duration)).max();
     }
     for detail in body["error"]["details"].as_array().into_iter().flatten() {
-        if detail["@type"] == "type.googleapis.com/google.rpc.RetryInfo" {
-            if let Some(seconds) = detail["retryDelay"]
-                .as_str()
-                .and_then(|s| s.strip_suffix('s'))
-                .and_then(|s| s.parse::<f64>().ok())
-                .filter(|s| s.is_finite() && *s >= 0.0)
-            {
-                wait = wait
-                    .into_iter()
-                    .chain(Some(Duration::from_secs_f64(seconds.min(86400.0))))
-                    .max();
-            }
+        if detail["@type"] != "type.googleapis.com/google.rpc.RetryInfo" {
+            continue;
         }
+        let Some(seconds) = detail["retryDelay"]
+            .as_str()
+            .and_then(|seconds| seconds.strip_suffix('s'))
+            .and_then(|seconds| seconds.parse::<f64>().ok())
+            .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+        else {
+            continue;
+        };
+        wait = wait
+            .into_iter()
+            .chain(Some(Duration::from_secs_f64(seconds.min(86400.0))))
+            .max();
     }
     wait
 }

@@ -86,33 +86,37 @@ fn encode(text: &str) -> String {
     out
 }
 pub fn snapshot() -> Value {
-    let mut out = json!({});
-    for p in super::list().as_array().unwrap() {
-        let id = p["id"].as_str().unwrap();
-        out[id] = json!({"capabilities":p["capabilities"],"queries":QUERIES[id],"nativeSync":true,"inheritedDefault":"in:inbox","addressSearch":matches!(id,"gmail"|"hey"|"imap"),"webHomeUrl":match id {"gmail"=>"https://mail.google.com/mail/u/0/","hey"=>"https://app.hey.com","outlook"=>"https://outlook.live.com/mail/",_=>""}});
+    let mut snapshot = json!({});
+    for provider in super::list().as_array().unwrap() {
+        let id = provider["id"].as_str().unwrap();
+        snapshot[id] = json!({"capabilities":provider["capabilities"],"queries":QUERIES[id],"nativeSync":true,"inheritedDefault":"in:inbox","addressSearch":matches!(id,"gmail"|"hey"|"imap"),"webHomeUrl":match id {"gmail"=>"https://mail.google.com/mail/u/0/","hey"=>"https://app.hey.com","outlook"=>"https://outlook.live.com/mail/",_=>""}});
     }
-    out
+    snapshot
 }
-pub fn resolve(p: &Value) -> Result<Value, &'static str> {
-    if !p.is_object() {
+pub fn resolve(params: &Value) -> Result<Value, &'static str> {
+    if !params.is_object() {
         return Err("invalid_params");
     }
-    let canonical = p["provider"].as_str().unwrap_or("").trim().to_lowercase();
+    let canonical = params["provider"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
     let id = provider(&Value::String(canonical)).to_owned();
-    let value = p["value"].as_str().unwrap_or("");
+    let value = params["value"].as_str().unwrap_or("");
     let text = value.trim();
     if ["value", "search", "defaultQuery"].iter().any(|key| {
-        p[*key]
-            .as_str()
-            .is_some_and(|v| v.len() > 32768 || v.chars().any(|c| c.is_control()))
+        params[*key].as_str().is_some_and(|value| {
+            value.len() > 32768 || value.chars().any(|character| character.is_control())
+        })
     }) {
         return Err("invalid_params");
     }
-    let result = match p["operation"].as_str().unwrap_or("query") {
+    let result = match params["operation"].as_str().unwrap_or("query") {
         "query" => {
-            let search_text = p["search"].as_str().unwrap_or("").trim();
-            let custom = p["defaultQuery"].as_str().unwrap_or("").trim();
-            let mailbox = p["mailbox"].as_str().unwrap_or("inbox");
+            let search_text = params["search"].as_str().unwrap_or("").trim();
+            let custom = params["defaultQuery"].as_str().unwrap_or("").trim();
+            let mailbox = params["mailbox"].as_str().unwrap_or("inbox");
             if !search_text.is_empty() {
                 search(&id, search_text)
             } else if mailbox == "inbox"
@@ -144,9 +148,13 @@ pub fn resolve(p: &Value) -> Result<Value, &'static str> {
             if text.is_empty() {
                 String::new()
             } else {
-                let to = p["field"] == "to";
+                let to = params["field"] == "to";
                 match id.as_str() {
-                    "gmail" if !text.chars().any(|c| c.is_whitespace() || c == '"') => {
+                    "gmail"
+                        if !text
+                            .chars()
+                            .any(|character| character.is_whitespace() || character == '"') =>
+                    {
                         format!("{}:{text}", if to { "to" } else { "from" })
                     }
                     "imap" => format!("search:{} {}", if to { "TO" } else { "FROM" }, quoted(text)),
@@ -209,7 +217,7 @@ mod tests {
         let cases: Value =
             serde_json::from_str(include_str!("../../tests/provider_domain_parity.json")).unwrap();
         for case in cases.as_array().unwrap() {
-            // Legacy fixtures predate account-wide IMAP search. Folder browsing
+            // Invariant: Legacy fixtures predate account-wide IMAP search. Folder browsing
             // is unchanged; only resolved search/address queries change scope.
             let expected = case["expected"].as_str().unwrap();
             let expected = if expected.starts_with("folder:INBOX ")

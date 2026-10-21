@@ -184,7 +184,7 @@ fn rollback_replays_later_intent_and_restores_settled_order() {
         &json!([{"operation":"rebaseIntents","args":[entries,1]}]),
         false,
     );
-    // Function descriptors deliberately survive native replay, unlike JSON's function omission.
+    // Invariant: Function descriptors deliberately survive native replay, unlike JSON's function omission.
     assert_eq!(result["summary"], oracle_value[0]["summary"]);
     assert_eq!(
         result["entries"][0]["before"],

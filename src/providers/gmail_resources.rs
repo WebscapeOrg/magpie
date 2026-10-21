@@ -68,7 +68,6 @@ pub(super) fn normalize(method: &str, answer: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn list_fields_include_mime_metadata_without_message_or_attachment_octets() {

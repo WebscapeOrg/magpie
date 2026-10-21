@@ -41,71 +41,73 @@ fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| (*s).into()).collect()
 }
 
-struct Query {
-    kind: String,
-    argument: String,
-    unseen: bool,
+enum Query {
+    Drafts,
+    Trash { unseen: bool },
+    Label(String),
+    Search(String),
+    Box { name: String, unseen: bool },
+}
+impl Query {
+    fn unseen(&self) -> bool {
+        matches!(
+            self,
+            Self::Trash { unseen: true } | Self::Box { unseen: true, .. }
+        )
+    }
 }
 fn query(raw: &str) -> Result<Query, &'static str> {
     let raw = raw.trim();
-    let (kind, argument, unseen) = if raw == "drafts:" {
-        ("drafts", "".into(), false)
-    } else if let Some(label) = raw.strip_prefix("label:") {
+    if raw == "drafts:" {
+        return Ok(Query::Drafts);
+    }
+    if let Some(label) = raw.strip_prefix("label:") {
         if !number(label.trim()) {
             return Err("Invalid HEY label");
         }
-        ("label", label.trim().into(), false)
-    } else if let Some(search) = raw.strip_prefix("search:") {
-        // CLI flag parsers can interpret positional strings beginning with '-'.
+        return Ok(Query::Label(label.trim().into()));
+    }
+    if let Some(search) = raw.strip_prefix("search:") {
+        // Invariant: CLI flag parsers can interpret positional strings beginning with '-'.
         if search.trim().starts_with('-') {
             return Err("HEY search cannot start with a flag");
         }
-        ("search", search.trim().into(), false)
+        return Ok(Query::Search(search.trim().into()));
+    }
+    let mut words = raw
+        .strip_prefix("box:")
+        .unwrap_or("imbox")
+        .split_whitespace();
+    let name = words.next().unwrap_or("imbox").to_lowercase();
+    let unseen = words.any(|word| word.eq_ignore_ascii_case("unseen"));
+    if name == "trash" {
+        return Ok(Query::Trash { unseen });
+    }
+    let name = if [
+        "imbox",
+        "feedbox",
+        "asidebox",
+        "laterbox",
+        "trailbox",
+        "bubblebox",
+    ]
+    .contains(&name.as_str())
+    {
+        name
     } else {
-        let mut words = raw
-            .strip_prefix("box:")
-            .unwrap_or("imbox")
-            .split_whitespace();
-        let box_name = words.next().unwrap_or("imbox").to_lowercase();
-        let unseen = words.any(|s| s.eq_ignore_ascii_case("unseen"));
-        if box_name == "trash" {
-            ("trash", "".into(), unseen)
-        } else {
-            (
-                "box",
-                if [
-                    "imbox",
-                    "feedbox",
-                    "asidebox",
-                    "laterbox",
-                    "trailbox",
-                    "bubblebox",
-                ]
-                .contains(&box_name.as_str())
-                {
-                    box_name
-                } else {
-                    "imbox".into()
-                },
-                unseen,
-            )
-        }
+        "imbox".into()
     };
-    Ok(Query {
-        kind: kind.into(),
-        argument,
-        unseen,
-    })
+    Ok(Query::Box { name, unseen })
 }
-fn command(q: &Query, cursor: &str) -> Vec<String> {
-    let mut args = match q.kind.as_str() {
-        "drafts" => strings(&["draft", "list", "--json"]),
-        "trash" => strings(&["search", "--in", "trash", "--json"]),
-        "label" => strings(&["label", &q.argument, "--json"]),
-        "search" => strings(&["search", &q.argument, "--json"]),
-        _ => strings(&["box", &q.argument, "--json"]),
+fn command(query: &Query, cursor: &str) -> Vec<String> {
+    let mut args = match query {
+        Query::Drafts => strings(&["draft", "list", "--json"]),
+        Query::Trash { .. } => strings(&["search", "--in", "trash", "--json"]),
+        Query::Label(label) => strings(&["label", label, "--json"]),
+        Query::Search(search) => strings(&["search", search, "--json"]),
+        Query::Box { name, .. } => strings(&["box", name, "--json"]),
     };
-    if q.unseen && q.kind == "box" {
+    if matches!(query, Query::Box { unseen: true, .. }) {
         args.extend(strings(&["--limit", "100"]));
     }
     if !cursor.is_empty() {
@@ -224,14 +226,14 @@ fn listing(q: &Query, data: &Value) -> Vec<Value> {
     entries
         .iter()
         .filter_map(|entry| {
-            if q.unseen && entry["seen"] == true {
+            if q.unseen() && entry["seen"] == true {
                 return None;
             }
             let posting = text(&entry["id"]);
             if !number(&posting) {
                 return None;
             }
-            if q.kind == "drafts" {
+            if matches!(q, Query::Drafts) {
                 return Some(resource(
                     &format!("draft:{posting}"),
                     entry,
@@ -242,7 +244,7 @@ fn listing(q: &Query, data: &Value) -> Vec<Value> {
                 ));
             }
             let search = data.is_array();
-            if q.unseen && search {
+            if q.unseen() && search {
                 return None;
             }
             let topic = if search {
@@ -284,7 +286,7 @@ fn listing(q: &Query, data: &Value) -> Vec<Value> {
         .collect()
 }
 
-// A thread response contains bodies, not the posting's subject, unread state,
+// Invariant: A thread response contains bodies, not the posting's subject, unread state,
 // or box. The UI may retain those fields from its listing, but a standalone
 // read must not invent them. Entry IDs are not routable posting:topic IDs.
 fn read_resource(id: &str, data: &Value, draft: bool) -> Result<Value, &'static str> {
@@ -312,7 +314,7 @@ fn read_resource(id: &str, data: &Value, draft: bool) -> Result<Value, &'static 
     Ok(resource(id, &Value::Null, &body, false, true, ""))
 }
 
-// Optional flags are negotiated only on an explicit unknown-flag refusal of a read.
+// Invariant: Optional flags are negotiated only on an explicit unknown-flag refusal of a read.
 // Mutations are never retried.
 async fn read_thread(id: &str, topic: &str) -> Result<Value, &'static str> {
     static DROPPED: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> = std::sync::OnceLock::new();
@@ -405,7 +407,7 @@ async fn login(method: &str) -> Result<Value, &'static str> {
 }
 
 async fn list_request(q: &Query, cursor: &str) -> Result<Value, &'static str> {
-    if q.kind != "drafts" {
+    if !matches!(q, Query::Drafts) {
         return run(&command(q, cursor)).await;
     }
     let program = super::hey_access::program()?;
@@ -424,7 +426,7 @@ async fn list_request(q: &Query, cursor: &str) -> Result<Value, &'static str> {
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let diagnostic = format!("{} {}", stdout, String::from_utf8_lossy(&output.stderr));
-    // The initial published CLI calls the read-only index `drafts`.
+    // Invariant: The initial published CLI calls the read-only index `drafts`.
     // No mutation is ever retried on a usage error.
     if diagnostic.contains("unknown command")
         && (diagnostic.contains("\\\"draft\\\"") || diagnostic.contains("\"draft\""))
@@ -551,18 +553,18 @@ pub async fn call(method: &str, params: &Value) -> Result<Value, &'static str> {
     let total = rows.len();
     let next = if offset.saturating_add(size) < total {
         format!("{}|{}", offset + size, cursor)
-    } else if q.unseen {
+    } else if q.unseen() {
         String::new()
     } else {
-        let next = match q.kind.as_str() {
-            "search" | "trash" if total > 0 => cursor
+        let next = match q {
+            Query::Search(_) | Query::Trash { .. } if total > 0 => cursor
                 .parse::<u64>()
                 .unwrap_or(1)
                 .checked_add(1)
                 .ok_or("Invalid HEY page cursor")?
                 .to_string(),
-            "search" | "trash" => String::new(),
-            "drafts" => text(&answer["meta"]["next_page"]),
+            Query::Search(_) | Query::Trash { .. } => String::new(),
+            Query::Drafts => text(&answer["meta"]["next_page"]),
             _ => text(&answer["data"]["next_page"]),
         };
         if next.is_empty() {

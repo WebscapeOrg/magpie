@@ -40,7 +40,7 @@ pub async fn connection_check(params: &Value) -> Result<Value, &'static str> {
     if !configured {
         return Ok(json!({"mail":false,"graph":false,"calendar":false}));
     }
-    // Each provider state machine is large enough to overflow the backend
+    // Performance: Each provider state machine is large enough to overflow the backend
     // worker's stack when nested in one combined future. Separate Tokio tasks
     // keep their state on the heap and let the independent probes overlap.
     let mail_account = account.clone();
@@ -51,7 +51,7 @@ pub async fn connection_check(params: &Value) -> Result<Value, &'static str> {
     });
     let graph_account = account.clone();
     let graph_and_calendar = tokio::spawn(async move {
-        // The frontend expires ordinary RPCs after 30 seconds. Bound the
+        // Invariant: The frontend expires ordinary RPCs after 30 seconds. Bound the
         // entire Graph chain, including token-lock and keyring waits, rather
         // than only the final HTTP request.
         within_graph_deadline(

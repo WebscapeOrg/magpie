@@ -318,7 +318,6 @@ mod tests {
         let (_, head) = queue.enqueue("one", Arc::clone(&one), job("a")).unwrap();
         let (_, behind) = queue.enqueue("one", Arc::clone(&one), job("b")).unwrap();
         let (_, other) = queue.enqueue("two", two, job("c")).unwrap();
-        // The other account's send is not behind this one's backoff.
         assert_eq!(other.await.unwrap(), Ok(json!({"account":"two"})));
         assert_eq!(next(&mut events).await["accountId"], "two");
         tokio::task::yield_now().await;
@@ -329,7 +328,7 @@ mod tests {
             next(&mut events).await["error"],
             "gmail_session_invalidated"
         );
-        // The head was mid-backoff: it is refused before its resend, not resent.
+        // Invariant: The head was mid-backoff: it is refused before its resend, not resent.
         assert_eq!(head.await.unwrap(), Err("gmail_session_invalidated"));
         assert_eq!(
             sent.lock()
@@ -346,7 +345,7 @@ mod tests {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let queue = Queue::new(scripted(vec![], Arc::clone(&sent)));
         let session = Arc::new(AccountSession::new());
-        // Fill without draining by never yielding to the drainer.
+        // Algorithm: Fill without draining by never yielding to the drainer.
         {
             let mut accounts = queue.inner.accounts.lock().unwrap();
             let line = accounts.entry("one".into()).or_default();

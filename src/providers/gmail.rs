@@ -53,7 +53,7 @@ impl AccountSession {
         &self,
         refresh: impl FnOnce() -> F,
     ) -> Result<Arc<Token>, &'static str> {
-        // Refresh coalesces per account. Invalidation never waits on this lock.
+        // Invariant: Refresh coalesces per account. Invalidation never waits on this lock.
         let mut cached = self.token.lock().await;
         self.check()?;
         if let Some(token) = cached.as_ref().filter(|t| t.expires > Instant::now()) {
@@ -83,7 +83,7 @@ impl AccountSession {
     async fn reject(&self, rejected: &Arc<Token>) -> Result<(), &'static str> {
         let mut cached = self.token.lock().await;
         self.check()?;
-        // An old 401 cannot evict a new grant, even with identical token bytes.
+        // Invariant: An old 401 cannot evict a new grant, even with identical token bytes.
         if cached
             .as_ref()
             .is_some_and(|current| Arc::ptr_eq(current, rejected))
@@ -470,7 +470,7 @@ impl Session {
         }
         let account = field(params, "accountId", true)?.to_lowercase();
         if method == "gmail.invalidate" {
-            // Cache eviction, not keyring logout or an IPC ordering barrier.
+            // Invariant: Cache eviction, not keyring logout or an IPC ordering barrier.
             // New calls can authenticate again. In-flight HTTP cannot be recalled;
             // retired leases refuse its result and never refresh for a retry.
             if let Some(session) = self
@@ -528,7 +528,7 @@ impl Session {
                 field(params, "attachmentId", true)?,
             ],
         };
-        // Resolve the registered provider before any credential or network read.
+        // Invariant: Resolve the registered provider before any credential or network read.
         let accounts = tokio::task::spawn_blocking(crate::account::list_readonly)
             .await
             .map_err(|_| "session_failed")??;

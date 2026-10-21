@@ -10,7 +10,7 @@ use tokio::{
     time::Instant,
 };
 
-// 1,200 + 75 * 60 = 5,700 units in any minute, below Google's 6,000.
+// Invariant: 1,200 + 75 * 60 = 5,700 units in any minute, below Google's 6,000.
 const BURST: f64 = 1200.0;
 const UNITS_PER_SECOND: f64 = 75.0;
 const BACKGROUND_RESERVE: f64 = 600.0;

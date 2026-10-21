@@ -4,16 +4,16 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 fn block(row: &Value) -> Value {
-    let b = &row["thread"];
-    if !b.is_object() {
+    let thread = &row["thread"];
+    if !thread.is_object() {
         return Value::Null;
     }
-    let ids: Vec<_> = rows(&b["memberIds"])
+    let ids: Vec<_> = rows(&thread["memberIds"])
         .iter()
-        .map(|v| text(v).trim().to_owned())
-        .filter(|s| !s.is_empty())
+        .map(|value| text(value).trim().to_owned())
+        .filter(|member_id| !member_id.is_empty())
         .collect();
-    json!({"id":text(&b["id"]).trim(),"count":ids.len(),"memberIds":ids,"unread":b["unread"] == true,"flagged":b["flagged"] == true})
+    json!({"id":text(&thread["id"]).trim(),"count":ids.len(),"memberIds":ids,"unread":thread["unread"] == true,"flagged":thread["flagged"] == true})
 }
 pub fn action_scope(action: &str) -> &'static str {
     if [
@@ -99,7 +99,7 @@ pub(crate) fn action_targets_checked(
         .ok_or("mail_action_invalid_target")?
         .as_array()
         .ok_or("mail_action_invalid_target")?;
-    // An absent thread means this is an individual row. A present, empty
+    // Invariant: An absent thread means this is an individual row. A present, empty
     // member list is authoritative: provider applicability removed every
     // member, so restoring the representative would mutate the wrong mail.
     if members.is_empty() {
@@ -497,10 +497,10 @@ fn fuzzy(query: &str, hay: &str) -> i64 {
     score
 }
 
-pub fn apply(p: &Value) -> Result<Value, &'static str> {
-    if p["operation"] == "batch" {
-        let calls = rows(&p["calls"]);
-        if calls.len() > 128 || calls.iter().any(|c| c["operation"] == "batch") {
+pub fn apply(params: &Value) -> Result<Value, &'static str> {
+    if params["operation"] == "batch" {
+        let calls = rows(&params["calls"]);
+        if calls.len() > 128 || calls.iter().any(|call| call["operation"] == "batch") {
             return Err("model_batch_invalid");
         }
         return calls
@@ -509,13 +509,13 @@ pub fn apply(p: &Value) -> Result<Value, &'static str> {
             .collect::<Result<Vec<_>, _>>()
             .map(Value::Array);
     }
-    if p["operation"] == "action" {
-        return action(p);
+    if params["operation"] == "action" {
+        return action(params);
     }
-    let args = rows(&p["args"]);
-    // Declarative rebase copies a baseline into later entries. Check the
+    let args = rows(&params["args"]);
+    // Invariant: Declarative rebase copies a baseline into later entries. Check the
     // worst-case expansion before cloning that baseline repeatedly.
-    let operation = text(&p["operation"]);
+    let operation = text(&params["operation"]);
     let replay_entries = if operation == "rebaseIntents" {
         args.first().unwrap_or(&Value::Null)
     } else if operation == "intentsSettled" {
@@ -538,25 +538,25 @@ pub fn apply(p: &Value) -> Result<Value, &'static str> {
     {
         return Err("model_output_too_large");
     }
-    if args.iter().any(|a| rows(a).len() > 100_000) {
+    if args.iter().any(|argument| rows(argument).len() > 100_000) {
         return Err("model_too_many_rows");
     }
-    let a = |n: usize| args.get(n).unwrap_or(&Value::Null);
-    let s = |n| text(a(n));
-    Ok(match text(&p["operation"]).as_str() {
-        "fuzzyScore" => json!(fuzzy(&s(0), &s(1))),
+    let argument = |index: usize| args.get(index).unwrap_or(&Value::Null);
+    let string_argument = |index| text(argument(index));
+    Ok(match text(&params["operation"]).as_str() {
+        "fuzzyScore" => json!(fuzzy(&string_argument(0), &string_argument(1))),
         "filterRows" => {
-            let typed = s(1);
+            let typed = string_argument(1);
             let typed = typed.trim();
             let mut kept = Vec::new();
-            for (i, row) in rows(a(0)).iter().enumerate() {
+            for (index, row) in rows(argument(0)).iter().enumerate() {
                 if !row.is_object() {
                     continue;
                 }
                 let hay = ["name", "label", "email"]
                     .iter()
-                    .map(|k| text(&row[k]))
-                    .filter(|v| !v.is_empty())
+                    .map(|field| text(&row[field]))
+                    .filter(|value| !value.is_empty())
                     .collect::<Vec<_>>()
                     .join(" ");
                 let score = if typed.is_empty() {
@@ -568,79 +568,101 @@ pub fn apply(p: &Value) -> Result<Value, &'static str> {
                     continue;
                 }
                 let mut copy = row.clone();
-                copy["sourceIndex"] = json!(i);
+                copy["sourceIndex"] = json!(index);
                 copy["score"] = json!(score);
                 kept.push(copy);
             }
             if !typed.is_empty() {
-                kept.sort_by_key(|r| std::cmp::Reverse(r["score"].as_i64().unwrap_or(0)));
+                kept.sort_by_key(|row| std::cmp::Reverse(row["score"].as_i64().unwrap_or(0)));
             }
             json!(kept)
         }
         "railLabels" => {
-            let mut kept: Vec<_> = rows(a(0))
+            let mut kept: Vec<_> = rows(argument(0))
                 .iter()
-                .filter(|r| r.is_object() && r["system"] != true)
+                .filter(|row| row.is_object() && row["system"] != true)
                 .cloned()
                 .collect();
-            kept.sort_by_key(|r| (text(&r["name"]).to_lowercase(), text(&r["id"])));
+            kept.sort_by_key(|row| (text(&row["name"]).to_lowercase(), text(&row["id"])));
             json!(kept)
         }
-        "actionScope" => json!(action_scope(&s(0))),
-        "actionCapability" => json!(capability(&s(0))),
-        "labelTarget" => json!(target(&s(0))),
-        "isSystemLabelId" => json!(system(&s(0))),
-        "actionTargets" => action_targets(a(0), &s(1)),
-        "labelChangesFor" => changes(&s(0), &s(1)),
-        "threadAfterAction" => thread_action(a(0), &s(1)),
-        "threadAfterMemberChange" => thread_members(a(0), a(1)),
-        "rowWithThread" => with_thread(a(0), a(1)),
-        "applyLabelChange" => label_change(a(0), &s(1), &s(2), a(3)),
-        "survivesAction" => json!(survives(&s(0), &s(1), &s(2), *a(3) == true, &s(4), a(5))),
-        "rowHoldsMember" => json!(holds(a(0), &s(1))),
-        "rowIndexForMember" => json!(row_index(a(0), a(1)).map(|i| i as i64).unwrap_or(-1)),
-        "indexById" => json!(index(a(0), a(1)).map(|i| i as i64).unwrap_or(-1)),
-        "messageById" => index(a(0), a(2))
-            .map(|i| rows(a(0))[i].clone())
-            .or_else(|| index(a(1), a(2)).map(|i| rows(a(1))[i].clone()))
+        "actionScope" => json!(action_scope(&string_argument(0))),
+        "actionCapability" => json!(capability(&string_argument(0))),
+        "labelTarget" => json!(target(&string_argument(0))),
+        "isSystemLabelId" => json!(system(&string_argument(0))),
+        "actionTargets" => action_targets(argument(0), &string_argument(1)),
+        "labelChangesFor" => changes(&string_argument(0), &string_argument(1)),
+        "threadAfterAction" => thread_action(argument(0), &string_argument(1)),
+        "threadAfterMemberChange" => thread_members(argument(0), argument(1)),
+        "rowWithThread" => with_thread(argument(0), argument(1)),
+        "applyLabelChange" => label_change(
+            argument(0),
+            &string_argument(1),
+            &string_argument(2),
+            argument(3),
+        ),
+        "survivesAction" => json!(survives(
+            &string_argument(0),
+            &string_argument(1),
+            &string_argument(2),
+            *argument(3) == true,
+            &string_argument(4),
+            argument(5)
+        )),
+        "rowHoldsMember" => json!(holds(argument(0), &string_argument(1))),
+        "rowIndexForMember" => json!(
+            row_index(argument(0), argument(1))
+                .map(|index| index as i64)
+                .unwrap_or(-1)
+        ),
+        "indexById" => json!(
+            index(argument(0), argument(1))
+                .map(|index| index as i64)
+                .unwrap_or(-1)
+        ),
+        "messageById" => index(argument(0), argument(2))
+            .map(|index| rows(argument(0))[index].clone())
+            .or_else(|| {
+                index(argument(1), argument(2)).map(|index| rows(argument(1))[index].clone())
+            })
             .unwrap_or(Value::Null),
-        "removeById" => remove(a(0), a(1)),
-        "replaceById" => replace(a(0), a(1)),
-        "restoreRow" => restore(a(0), a(1), a(2), a(3)),
+        "removeById" => remove(argument(0), argument(1)),
+        "replaceById" => replace(argument(0), argument(1)),
+        "restoreRow" => restore(argument(0), argument(1), argument(2), argument(3)),
         "listAfterRestore" => {
-            if a(1).is_null() {
-                a(0).clone()
-            } else if index(a(0), &a(1)["id"]).is_some() {
-                replace(a(0), a(1))
-            } else if *a(2) == true && *a(3) != true {
-                restore(a(0), a(1), a(4), a(5))
+            if argument(1).is_null() {
+                argument(0).clone()
+            } else if index(argument(0), &argument(1)["id"]).is_some() {
+                replace(argument(0), argument(1))
+            } else if *argument(2) == true && *argument(3) != true {
+                restore(argument(0), argument(1), argument(4), argument(5))
             } else {
-                a(0).clone()
+                argument(0).clone()
             }
         }
         "previewAfterRestore" => {
-            if *a(2) == true {
-                if index(a(0), &a(1)["id"]).is_some() {
-                    replace(a(0), a(1))
+            if *argument(2) == true {
+                if index(argument(0), &argument(1)["id"]).is_some() {
+                    replace(argument(0), argument(1))
                 } else {
-                    restore(a(0), a(1), a(3), a(4))
+                    restore(argument(0), argument(1), argument(3), argument(4))
                 }
             } else {
-                remove(a(0), &a(1)["id"])
+                remove(argument(0), &argument(1)["id"])
             }
         }
         "restoreRows" => {
-            let mut out = a(0).clone();
-            for (i, row) in rows(a(1)).iter().enumerate() {
-                if !rows(a(2)).contains(&row["id"]) {
+            let mut out = argument(0).clone();
+            for (position, row) in rows(argument(1)).iter().enumerate() {
+                if !rows(argument(2)).contains(&row["id"]) {
                     continue;
                 }
                 if index(&out, &row["id"]).is_some() {
                     out = replace(&out, row);
                 } else {
-                    let at = rows(a(1))[i + 1..]
+                    let at = rows(argument(1))[position + 1..]
                         .iter()
-                        .find_map(|r| index(&out, &r["id"]))
+                        .find_map(|row| index(&out, &row["id"]))
                         .unwrap_or(rows(&out).len());
                     let mut list = rows(&out).to_vec();
                     list.insert(at, row.clone());
@@ -649,30 +671,31 @@ pub fn apply(p: &Value) -> Result<Value, &'static str> {
             }
             out
         }
-        "detailSummary" => detail(a(0), a(1)),
-        "sameSummaries" => json!(a(0) == a(1)),
-        "mergeSearchResults" => merge(a(0), a(1)),
+        "detailSummary" => detail(argument(0), argument(1)),
+        "sameSummaries" => json!(argument(0) == argument(1)),
+        "mergeSearchResults" => merge(argument(0), argument(1)),
         "searchProgress" => {
-            let live = merge(a(1), a(2));
-            json!({"visible":merge(a(0),&live),"live":live})
+            let live = merge(argument(1), argument(2));
+            json!({"visible":merge(argument(0),&live),"live":live})
         }
         "searchFinish" => {
             let settled = apply(&json!({"operation":"settledSearchResults","args":args}))?;
-            let missing =
-                apply(&json!({"operation":"missingSearchSummaryIds","args":[a(2),a(3)]}))?;
+            let missing = apply(
+                &json!({"operation":"missingSearchSummaryIds","args":[argument(2),argument(3)]}),
+            )?;
             json!({"settled":settled,"missing":missing})
         }
         "settledSearchResults" => {
-            let known: HashMap<_, _> = rows(a(1))
+            let known: HashMap<_, _> = rows(argument(1))
                 .iter()
-                .chain(rows(a(2)))
-                .filter(|r| !text(&r["id"]).is_empty())
-                .map(|r| (text(&r["id"]), r))
+                .chain(rows(argument(2)))
+                .filter(|row| !text(&row["id"]).is_empty())
+                .map(|row| (text(&row["id"]), row))
                 .collect();
             let mut budget = 16usize * 1024 * 1024;
             let mut sizes = HashMap::new();
             let mut page = Vec::new();
-            for wanted in rows(a(3)) {
+            for wanted in rows(argument(3)) {
                 let key = text(wanted);
                 let Some(row) = known.get(&key).copied() else {
                     continue;
@@ -686,82 +709,95 @@ pub fn apply(p: &Value) -> Result<Value, &'static str> {
                 page.push(row);
             }
             let page = json!(page);
-            if *a(4) == true {
-                merge(a(0), &page)
+            if *argument(4) == true {
+                merge(argument(0), &page)
             } else {
                 page
             }
         }
         "missingSearchSummaryIds" => {
-            let known: HashSet<_> = rows(a(0)).iter().map(|r| text(&r["id"])).collect();
+            let known: HashSet<_> = rows(argument(0))
+                .iter()
+                .map(|row| text(&row["id"]))
+                .collect();
             json!(
-                rows(a(1))
+                rows(argument(1))
                     .iter()
                     .filter(|id| !text(id).is_empty() && !known.contains(&text(id)))
                     .collect::<Vec<_>>()
             )
         }
-        "unreadCount" => json!(rows(a(0)).iter().filter(|r| r["unread"] == true).count()),
-        "newestDate" => json!(rows(a(0)).iter().map(time).max().unwrap_or(0)),
+        "unreadCount" => json!(
+            rows(argument(0))
+                .iter()
+                .filter(|row| row["unread"] == true)
+                .count()
+        ),
+        "newestDate" => json!(rows(argument(0)).iter().map(time).max().unwrap_or(0)),
         "newArrivals" => {
-            let floor = a(3).as_i64().unwrap_or(0);
+            let floor = argument(3).as_i64().unwrap_or(0);
             json!(
-                rows(a(0))
+                rows(argument(0))
                     .iter()
-                    .filter(|r| *a(2) == true
-                        && r["unread"] == true
-                        && r["inInbox"] == true
-                        && a(1)[text(&r["id"])] != true
-                        && (time(r) == 0 || time(r) >= floor))
+                    .filter(|row| *argument(2) == true
+                        && row["unread"] == true
+                        && row["inInbox"] == true
+                        && argument(1)[text(&row["id"])] != true
+                        && (time(row) == 0 || time(row) >= floor))
                     .collect::<Vec<_>>()
             )
         }
         "withoutIntent" => json!(
-            rows(a(0))
+            rows(argument(0))
                 .iter()
-                .filter(|e| e.is_object() && e["token"] != *a(1))
+                .filter(|entry| entry.is_object() && entry["token"] != *argument(1))
                 .collect::<Vec<_>>()
         ),
-        "rebaseIntents" => rebase(a(0), a(1)),
-        "anyIntentRemoved" => json!(rows(a(0)).iter().any(|e| e["removed"] == true)),
+        "rebaseIntents" => rebase(argument(0), argument(1)),
+        "anyIntentRemoved" => json!(
+            rows(argument(0))
+                .iter()
+                .any(|entry| entry["removed"] == true)
+        ),
         "intentsWith" => {
-            let mut out = a(0).as_object().cloned().unwrap_or_default();
-            let mut entries = rows(&out.get(&s(1)).cloned().unwrap_or(Value::Null)).to_vec();
-            entries.push(a(2).clone());
-            out.insert(s(1), json!(entries));
+            let mut out = argument(0).as_object().cloned().unwrap_or_default();
+            let mut entries =
+                rows(&out.get(&string_argument(1)).cloned().unwrap_or(Value::Null)).to_vec();
+            entries.push(argument(2).clone());
+            out.insert(string_argument(1), json!(entries));
             Value::Object(out)
         }
         "intentsSettled" => {
-            let mut out = a(0).as_object().cloned().unwrap_or_default();
-            let held = out.get(&s(1)).cloned().unwrap_or(json!([]));
-            let mut outcome = if *a(3) == true {
-                rebase(&held, a(2))
+            let mut out = argument(0).as_object().cloned().unwrap_or_default();
+            let held = out.get(&string_argument(1)).cloned().unwrap_or(json!([]));
+            let mut outcome = if *argument(3) == true {
+                rebase(&held, argument(2))
             } else {
                 Value::Null
             };
             if outcome.is_null() {
-                outcome = json!({"entries":rows(&held).iter().filter(|e| e["token"]!=*a(2)).collect::<Vec<_>>(),"summary":a(4)});
+                outcome = json!({"entries":rows(&held).iter().filter(|entry| entry["token"]!=*argument(2)).collect::<Vec<_>>(),"summary":argument(4)});
             }
             if rows(&outcome["entries"]).is_empty() {
-                out.remove(&s(1));
+                out.remove(&string_argument(1));
             } else {
-                out.insert(s(1), outcome["entries"].clone());
+                out.insert(string_argument(1), outcome["entries"].clone());
             }
             json!({"intents":out,"outcome":outcome})
         }
         "settledListsHeld" => {
-            let mut out = a(0).as_object().cloned().unwrap_or_default();
-            let held = out.get(&s(1));
-            let entry = json!({"messages":held.map(|h| &h["messages"]).unwrap_or(a(2)),"previews":held.map(|h| &h["previews"]).unwrap_or(a(3)),"pending":held.and_then(|h| h["pending"].as_u64()).unwrap_or(0).saturating_add(1)});
-            out.insert(s(1), entry);
+            let mut out = argument(0).as_object().cloned().unwrap_or_default();
+            let held = out.get(&string_argument(1));
+            let entry = json!({"messages":held.map(|h| &h["messages"]).unwrap_or(argument(2)),"previews":held.map(|h| &h["previews"]).unwrap_or(argument(3)),"pending":held.and_then(|h| h["pending"].as_u64()).unwrap_or(0).saturating_add(1)});
+            out.insert(string_argument(1), entry);
             Value::Object(out)
         }
         "settledListsReleased" => {
-            let mut out = a(0).as_object().cloned().unwrap_or_default();
-            if let Some(held) = out.get_mut(&s(1)) {
+            let mut out = argument(0).as_object().cloned().unwrap_or_default();
+            if let Some(held) = out.get_mut(&string_argument(1)) {
                 let count = held["pending"].as_u64().unwrap_or(0);
                 if count <= 1 {
-                    out.remove(&s(1));
+                    out.remove(&string_argument(1));
                 } else {
                     held["pending"] = json!(count - 1);
                 }

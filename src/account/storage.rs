@@ -88,7 +88,7 @@ fn call_at(root: &std::path::Path, method: &str, params: &Value) -> Result<Value
     let Some(dir) = crate::cache::directories(root, &["omamail"], writing)? else {
         return Ok(json!({"registry":registry(&[])?,"revision":revision(&[])}));
     };
-    // The lock inode remains stable while accounts.json is atomically replaced.
+    // Invariant: The lock inode remains stable while accounts.json is atomically replaced.
     let _lock = if writing {
         Some(
             crate::platform::private_fs::lock_exclusive(&dir, ".accounts.lock").map_err(

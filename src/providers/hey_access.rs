@@ -73,7 +73,7 @@ fn resolve_program() -> Option<PathBuf> {
             if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
                 return None;
             }
-            // Multicall shims such as mise select the tool from argv[0].
+            // Invariant: Multicall shims such as mise select the tool from argv[0].
             // Canonicalize only for identity checks, never for invocation.
             Some(candidate)
         })
@@ -85,7 +85,7 @@ pub fn program() -> Result<String, &'static str> {
         .ok_or("hey_unavailable")
 }
 
-// The official HEY client is not a Windows provider dependency. Never fall back
+// Invariant: The official HEY client is not a Windows provider dependency. Never fall back
 // to a private API or an unrelated executable with the same name.
 #[cfg(not(unix))]
 fn resolve_program() -> Option<PathBuf> {

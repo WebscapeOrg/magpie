@@ -124,7 +124,7 @@ pub fn merge(sources: &Value) -> Vec<Value> {
         .collect()
 }
 pub fn apply(p: &Value) -> Result<Value, &'static str> {
-    // Prefixes are repeated in every composed row and thread member. Count the
+    // Invariant: Prefixes are repeated in every composed row and thread member. Count the
     // projected representation before allocating any expanded identifiers.
     let mut budget = 16usize * 1024 * 1024;
     for source in rows(&p["sources"]) {

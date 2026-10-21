@@ -36,17 +36,6 @@ Item {
     name: "LabelPicker"
     when: windowShown
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
     function init() {
       if (picker.opened) keyClick(Qt.Key_Escape)
       host.chosenId = ""
@@ -61,7 +50,7 @@ Item {
     }
 
     function test_a_single_click_only_moves_the_cursor() {
-      var bills = named(picker.Window.window.contentItem, "label-picker-row-1")
+      var bills = findChild(picker.Window.window.contentItem, "label-picker-row-1")
       verify(bills)
 
       mouseClick(bills)
@@ -72,7 +61,7 @@ Item {
     }
 
     function test_a_double_click_activates_the_pointed_destination() {
-      var bills = named(picker.Window.window.contentItem, "label-picker-row-1")
+      var bills = findChild(picker.Window.window.contentItem, "label-picker-row-1")
       verify(bills)
 
       mouseDoubleClickSequence(bills)

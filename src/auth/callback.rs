@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::Mutex,
     task::JoinHandle,
 };
@@ -240,6 +240,32 @@ fn callback(request: &str, state: &str, port: u16) -> Result<String, &'static st
     Ok(codes[0].1.to_string())
 }
 
+async fn read_callback(socket: &mut TcpStream, state: &str, port: u16) -> Result<String, &'static str> {
+    let mut request = Vec::new();
+    let mut byte = [0];
+    while request.len() < 16384 {
+        if socket
+            .read(&mut byte)
+            .await
+            .map_err(|_| "auth_invalid_callback")? == 0
+        {
+            break;
+        }
+        request.push(byte[0]);
+        if request.ends_with(b"\r\n\r\n") {
+            break;
+        }
+    }
+    if !request.ends_with(b"\r\n\r\n") {
+        return Err("auth_invalid_callback");
+    }
+    callback(
+        std::str::from_utf8(&request).map_err(|_| "auth_invalid_callback")?,
+        state,
+        port,
+    )
+}
+
 async fn receive(listener: TcpListener, state: &str, port: u16) -> Result<String, &'static str> {
     loop {
         let (mut socket, peer) = listener
@@ -249,32 +275,10 @@ async fn receive(listener: TcpListener, state: &str, port: u16) -> Result<String
         if !peer.ip().is_loopback() {
             continue;
         }
-        let result = tokio::time::timeout(Duration::from_secs(3), async {
-            let mut request = Vec::new();
-            let mut byte = [0];
-            while request.len() < 16384 {
-                if socket
-                    .read(&mut byte)
-                    .await
-                    .map_err(|_| "auth_invalid_callback")?
-                    == 0
-                {
-                    break;
-                }
-                request.push(byte[0]);
-                if request.ends_with(b"\r\n\r\n") {
-                    break;
-                }
-            }
-            if !request.ends_with(b"\r\n\r\n") {
-                return Err("auth_invalid_callback");
-            }
-            callback(
-                std::str::from_utf8(&request).map_err(|_| "auth_invalid_callback")?,
-                state,
-                port,
-            )
-        })
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            read_callback(&mut socket, state, port),
+        )
         .await
         .unwrap_or(Err("auth_invalid_callback"));
         let body = "Sign-in received. You can close this page and return to Omamail.";

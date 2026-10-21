@@ -897,3 +897,25 @@ assert.strictEqual(accounts.namesSender("gmail"), false)
 assert.strictEqual(accounts.namesSender("jmap"), false)
 assert.strictEqual(accounts.namesSender("hey"), false)
 assert.strictEqual(accounts.namesSender(undefined), false)
+
+for (const settings of [
+  { sessionUrl: "https://mail.example.test/jmap/session" },
+  { username: "saved-user" },
+  { accountId: "saved-mailbox" }
+]) {
+  const damagedJmap = accounts.load(JSON.stringify({version: 1, activeId: "", accounts: [
+    {provider: "jmap", email: "damaged-address", jmap: settings}
+  ]}))
+  const withNewMailbox = accounts.add(damagedJmap, {provider: "gmail", email: "new@example.test"})
+  const persisted = accounts.savedOnly(withNewMailbox)
+  assert.strictEqual(persisted.accounts.length, 2,
+    "saving another mailbox must preserve a damaged JMAP account's server settings")
+  deepEqual(persisted.accounts[0].jmap, damagedJmap.accounts[0].jmap)
+  assert.strictEqual(damagedJmap.accounts.length, 1)
+  assert.strictEqual(accounts.savedOnly(accounts.add(accounts.emptyList(), {
+    provider: "jmap", email: "", pending: true, jmap: settings
+  })).accounts.length, 0, "explicit setup drafts must still remain in memory only")
+}
+assert.strictEqual(accounts.savedOnly(accounts.load(JSON.stringify({version: 1, accounts: [
+  {provider: "jmap", email: "", jmap: {authScheme: "basic"}}
+]}))).accounts.length, 0, "a default authentication scheme alone is an empty setup row")

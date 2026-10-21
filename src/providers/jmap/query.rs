@@ -1,20 +1,20 @@
 use serde_json::{Map, Value, json};
 pub(super) const ROLES: &[&str] = &["inbox", "archive", "sent", "drafts", "junk", "trash"];
-pub(super) fn string(v: &Value) -> &str {
-    v.as_str().unwrap_or("").trim()
+pub(super) fn string(value: &Value) -> &str {
+    value.as_str().unwrap_or("").trim()
 }
 pub(super) fn roles(boxes: &[Value]) -> Value {
     let mut map = Map::new();
     for role in ROLES {
         let exact = boxes
             .iter()
-            .find(|b| string(&b["role"]).eq_ignore_ascii_case(role));
+            .find(|mailbox| string(&mailbox["role"]).eq_ignore_ascii_case(role));
         let found = exact.or_else(|| {
-            boxes.iter().find(|b| {
-                if !string(&b["parentId"]).is_empty() {
+            boxes.iter().find(|mailbox| {
+                if !string(&mailbox["parentId"]).is_empty() {
                     return false;
                 }
-                let name = string(&b["name"]).to_lowercase();
+                let name = string(&mailbox["name"]).to_lowercase();
                 match *role {
                     "sent" => ["sent", "sent mail", "sent items", "sent messages"]
                         .contains(&name.as_str()),
@@ -40,7 +40,7 @@ pub(super) fn roles(boxes: &[Value]) -> Value {
         });
         map.insert(
             (*role).into(),
-            json!(found.map(|b| string(&b["id"])).unwrap_or("")),
+            json!(found.map(|mailbox| string(&mailbox["id"])).unwrap_or("")),
         );
     }
     Value::Object(map)
@@ -60,8 +60,8 @@ pub(super) fn filter(query: &str, roles: &Value) -> Result<Value, &'static str> 
     if kind == "text" {
         let exclude: Vec<_> = ["junk", "trash"]
             .iter()
-            .map(|k| string(&roles[k]))
-            .filter(|s| !s.is_empty())
+            .map(|role| string(&roles[role]))
+            .filter(|text| !text.is_empty())
             .collect();
         return Ok(if exclude.is_empty() {
             json!({"text":value})
@@ -95,7 +95,7 @@ pub(super) fn query(
 ) -> Value {
     let page = token
         .split_once('|')
-        .and_then(|(n, id)| n.parse::<u64>().ok().map(|n| (n, id)))
+        .and_then(|(position, id)| position.parse::<u64>().ok().map(|position| (position, id)))
         .unwrap_or((0, ""));
     let mut args = json!({"accountId":account,"filter":filter,"sort":[{"property":"receivedAt","isAscending":false}],"collapseThreads":true,"limit":limit,"calculateTotal":true});
     if !page.1.is_empty() && !by_position {
@@ -112,7 +112,7 @@ pub(super) fn page(args: &Value, limit: usize) -> Value {
         .into_iter()
         .flatten()
         .map(string)
-        .filter(|s| !s.is_empty())
+        .filter(|text| !text.is_empty())
         .collect();
     let position = args["position"].as_u64().unwrap_or(0);
     let end = position.saturating_add(ids.len() as u64);
@@ -130,40 +130,49 @@ pub(super) fn page(args: &Value, limit: usize) -> Value {
 pub(super) fn labels(boxes: &[Value]) -> Value {
     let roles = roles(boxes);
     let mut result = Vec::new();
-    for b in boxes {
-        let id = string(&b["id"]);
+    for mailbox in boxes {
+        let id = string(&mailbox["id"]);
         if id.is_empty() {
             continue;
         }
-        let mut parts = vec![string(&b["name"])];
+        let mut parts = vec![string(&mailbox["name"])];
         let mut seen = vec![id];
-        let mut current = b;
+        let mut current = mailbox;
         for _ in 0..32 {
             let parent = string(&current["parentId"]);
             if parent.is_empty() || seen.contains(&parent) {
                 break;
             }
             seen.push(parent);
-            let Some(found) = boxes.iter().find(|b| string(&b["id"]) == parent) else {
+            let Some(found) = boxes
+                .iter()
+                .find(|mailbox| string(&mailbox["id"]) == parent)
+            else {
                 break;
             };
             parts.insert(0, string(&found["name"]));
             current = found;
         }
-        let mut label = counts(b);
+        let mut label = counts(mailbox);
         label["name"] = json!(parts.join(" / "));
         label["rawName"] = json!(id);
         label["system"] = json!(ROLES.iter().any(|role| string(&roles[role]) == id));
-        result.push((b["sortOrder"].as_u64().unwrap_or(0), label));
+        result.push((mailbox["sortOrder"].as_u64().unwrap_or(0), label));
     }
-    result.sort_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then_with(|| string(&a.1["name"]).cmp(string(&b.1["name"])))
+    result.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| string(&left.1["name"]).cmp(string(&right.1["name"])))
     });
-    json!(result.into_iter().map(|(_, v)| v).collect::<Vec<_>>())
+    json!(
+        result
+            .into_iter()
+            .map(|(_, label)| label)
+            .collect::<Vec<_>>()
+    )
 }
-pub(super) fn counts(b: &Value) -> Value {
-    json!({"id":string(&b["id"]),"unread":b["unreadEmails"].as_u64().unwrap_or(0),"total":b["totalEmails"].as_u64().unwrap_or(0),"threadsUnread":b["unreadThreads"].as_u64().unwrap_or(0)})
+pub(super) fn counts(mailbox: &Value) -> Value {
+    json!({"id":string(&mailbox["id"]),"unread":mailbox["unreadEmails"].as_u64().unwrap_or(0),"total":mailbox["totalEmails"].as_u64().unwrap_or(0),"threadsUnread":mailbox["unreadThreads"].as_u64().unwrap_or(0)})
 }
 #[cfg(test)]
 mod tests {

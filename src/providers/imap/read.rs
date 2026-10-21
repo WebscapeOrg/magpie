@@ -175,8 +175,8 @@ pub(super) async fn invalidate() {
     BOXES.get_or_init(Default::default).lock().await.clear();
 }
 static BOXES: OnceLock<tokio::sync::Mutex<Vec<Cached>>> = OnceLock::new();
-fn cache_key(p: &Value) -> String {
-    json!([p["settings"], p["credential"], p["oauth"]]).to_string()
+fn cache_key(params: &Value) -> String {
+    json!([params["settings"], params["credential"], params["oauth"]]).to_string()
 }
 fn parse_folders(data: &[u8]) -> Result<Mailboxes> {
     let mut folders = Vec::new();
@@ -264,22 +264,25 @@ fn parse_folders(data: &[u8]) -> Result<Mailboxes> {
         capabilities,
     })
 }
-pub(super) async fn discover_mailboxes(w: &mut Wire) -> Result<Mailboxes> {
-    let mut data = command(w, "CAPABILITY").await?;
-    data.extend(command(w, "LIST \"\" \"*\"").await?);
+pub(super) async fn discover_mailboxes(wire: &mut Wire) -> Result<Mailboxes> {
+    let mut data = command(wire, "CAPABILITY").await?;
+    data.extend(command(wire, "LIST \"\" \"*\"").await?);
     parse_folders(&data)
 }
-pub(super) async fn mailboxes(w: &mut Wire, p: &Value) -> Result<Mailboxes> {
-    let key = cache_key(p);
+pub(super) async fn mailboxes(wire: &mut Wire, params: &Value) -> Result<Mailboxes> {
+    let key = cache_key(params);
     {
         let mut cache = BOXES.get_or_init(Default::default).lock().await;
         cache.retain(|c| c.since.elapsed() < Duration::from_secs(60));
-        if let Some(c) = cache.iter().find(|c| c.key == key && p["refresh"] != true) {
+        if let Some(c) = cache
+            .iter()
+            .find(|c| c.key == key && params["refresh"] != true)
+        {
             return Ok(c.boxes.clone());
         }
     }
     let epoch = EPOCH.load(std::sync::atomic::Ordering::SeqCst);
-    let boxes = discover_mailboxes(w).await?;
+    let boxes = discover_mailboxes(wire).await?;
     let mut cache = BOXES.get_or_init(Default::default).lock().await;
     if epoch != EPOCH.load(std::sync::atomic::Ordering::SeqCst) {
         return Ok(boxes);
@@ -479,20 +482,20 @@ fn page(
     let can_continue = next < ordered.len() || more;
     json!({"ids":ids,"threadIds":[],"nextPageToken":if can_continue{next.to_string()}else{String::new()},"estimate":if more{ordered.len().max(offset+limit+1)}else{ordered.len()}})
 }
-async fn list(w: &mut Wire, p: &Value, boxes: &Mailboxes) -> Result<Value> {
-    let limit = p["limit"].as_u64().unwrap_or(25).clamp(1, 100) as usize;
-    let offset = p["pageToken"]
+async fn list(wire: &mut Wire, params: &Value, boxes: &Mailboxes) -> Result<Value> {
+    let limit = params["limit"].as_u64().unwrap_or(25).clamp(1, 100) as usize;
+    let offset = params["pageToken"]
         .as_str()
         .unwrap_or("")
         .parse::<usize>()
         .unwrap_or(0)
         .min(10_000_000);
-    let (folder, criteria) = query(p["query"].as_str().unwrap_or(""))?;
+    let (folder, criteria) = query(params["query"].as_str().unwrap_or(""))?;
     let folder = resolve(boxes, &folder)?;
-    command(w, &format!("SELECT {}", quote(&folder)?)).await?;
+    command(wire, &format!("SELECT {}", quote(&folder)?)).await?;
     let mut found = Vec::new();
     let mut ceiling = None;
-    if let Some(token) = p["continuation"].as_str() {
+    if let Some(token) = params["continuation"].as_str() {
         if token.len() > 128 * 1024 {
             return Err("invalid_params");
         }
@@ -502,8 +505,8 @@ async fn list(w: &mut Wire, p: &Value, boxes: &Mailboxes) -> Result<Value> {
         let state: Value = serde_json::from_slice(&bytes).map_err(|_| "invalid_params")?;
         if state["folder"] != folder
             || state["criteria"] != criteria
-            || state["accountId"] != p["accountId"]
-            || state["requestToken"] != p["requestToken"]
+            || state["accountId"] != params["accountId"]
+            || state["requestToken"] != params["requestToken"]
         {
             return Err("invalid_params");
         }
@@ -531,7 +534,7 @@ async fn list(w: &mut Wire, p: &Value, boxes: &Mailboxes) -> Result<Value> {
         // Keep the compact, response-limited UID snapshot. Explicit UID batches
         // bound the larger date responses without walking gaps in sparse UIDs
         // or relying on sequence numbers that move when mail is expunged.
-        let mut snapshot: Vec<_> = fetched_dates(&command(w, "UID FETCH 1:* (UID)").await?)?
+        let mut snapshot: Vec<_> = fetched_dates(&command(wire, "UID FETCH 1:* (UID)").await?)?
             .into_keys()
             .collect();
         let mut dates = BTreeMap::new();
@@ -541,8 +544,9 @@ async fn list(w: &mut Wire, p: &Value, boxes: &Mailboxes) -> Result<Value> {
                 .map(u32::to_string)
                 .collect::<Vec<_>>()
                 .join(",");
-            let fetched =
-                fetched_dates(&command(w, &format!("UID FETCH {set} (UID INTERNALDATE)")).await?)?;
+            let fetched = fetched_dates(
+                &command(wire, &format!("UID FETCH {set} (UID INTERNALDATE)")).await?,
+            )?;
             // Ignore unsolicited updates outside this batch (including arrivals
             // after the snapshot), and drop messages expunged before this fetch.
             dates.extend(
@@ -563,7 +567,7 @@ async fn list(w: &mut Wire, p: &Value, boxes: &Mailboxes) -> Result<Value> {
             let first = window[0];
             let last = *window.last().unwrap();
             matches.extend(search_uids(
-                &command(w, &format!("UID SEARCH UID {first}:{last} {criteria}")).await?,
+                &command(wire, &format!("UID SEARCH UID {first}:{last} {criteria}")).await?,
             )?);
         }
         Ok((matches, dates))
@@ -713,10 +717,10 @@ fn parse_messages(data: &[u8], folder: &str, full: bool, boxes: &Mailboxes) -> R
         let mut size = 0u64;
         let mut raw = None;
         let mut has_attachments = false;
-        let mut i = 0;
-        while i + 1 < fields.len() {
-            let key = &fields[i];
-            let value = &fields[i + 1];
+        let mut field_index = 0;
+        while field_index + 1 < fields.len() {
+            let key = &fields[field_index];
+            let value = &fields[field_index + 1];
             if key.is("UID") {
                 uid = value.number()
             } else if key.is("FLAGS") {
@@ -739,7 +743,7 @@ fn parse_messages(data: &[u8], folder: &str, full: bool, boxes: &Mailboxes) -> R
             } else if key.text().to_ascii_uppercase().starts_with(b"BODY[") {
                 raw = Some(value.text())
             }
-            i += 2;
+            field_index += 2;
         }
         let Some(uid) = uid else { continue };
         let Some(raw) = raw else { continue };
@@ -748,8 +752,8 @@ fn parse_messages(data: &[u8], folder: &str, full: bool, boxes: &Mailboxes) -> R
     }
     Ok(result)
 }
-async fn messages(p: &Value) -> Result<Value> {
-    let ids = p["ids"].as_array().ok_or("invalid_params")?;
+async fn messages(params: &Value) -> Result<Value> {
+    let ids = params["ids"].as_array().ok_or("invalid_params")?;
     if ids.len() > 500 {
         return Err("invalid_params");
     }
@@ -758,7 +762,7 @@ async fn messages(p: &Value) -> Result<Value> {
         .map(|id| id.as_str().ok_or("invalid_params"))
         .collect::<Result<Vec<_>>>()?;
     let original_ids = ids.clone();
-    let offset = if let Some(token) = p["continuation"].as_str() {
+    let offset = if let Some(token) = params["continuation"].as_str() {
         if token.len() > 65536 {
             return Err("invalid_params");
         }
@@ -768,9 +772,9 @@ async fn messages(p: &Value) -> Result<Value> {
                 .map_err(|_| "invalid_params")?,
         )
         .map_err(|_| "invalid_params")?;
-        if cursor["accountId"] != p["accountId"]
-            || cursor["requestToken"] != p["requestToken"]
-            || cursor["ids"] != p["ids"]
+        if cursor["accountId"] != params["accountId"]
+            || cursor["requestToken"] != params["requestToken"]
+            || cursor["ids"] != params["ids"]
         {
             return Err("invalid_params");
         }
@@ -781,7 +785,7 @@ async fn messages(p: &Value) -> Result<Value> {
     } else {
         0
     };
-    let end = if p["progressive"] == true {
+    let end = if params["progressive"] == true {
         (offset + 10).min(ids.len())
     } else {
         ids.len()
@@ -792,11 +796,11 @@ async fn messages(p: &Value) -> Result<Value> {
         let (uid, folder) = message_id(id)?;
         groups.entry(folder).or_default().push(uid);
     }
-    let full = p["full"] == true;
+    let full = params["full"] == true;
     let futures = groups.into_iter().map(|(folder, uids)| async move {
-        let (mut w, key) = acquire(p).await?;
-        let boxes = mailboxes(&mut w, p).await?;
-        command(&mut w, &format!("SELECT {}", quote(&folder)?)).await?;
+        let (mut wire, key) = acquire(params).await?;
+        let boxes = mailboxes(&mut wire, params).await?;
+        command(&mut wire, &format!("SELECT {}", quote(&folder)?)).await?;
         let set = uids
             .iter()
             .map(u32::to_string)
@@ -808,11 +812,11 @@ async fn messages(p: &Value) -> Result<Value> {
             "HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID REPLY-TO LIST-UNSUBSCRIBE)"
         };
         let data = command(
-            &mut w,
+            &mut wire,
             &format!("UID FETCH {set} (UID FLAGS INTERNALDATE RFC822.SIZE BODYSTRUCTURE BODY.PEEK[{section}])"),
         )
         .await?;
-        release(w, key).await;
+        release(wire, key).await;
         tokio::task::spawn_blocking(move || parse_messages(&data, &folder, full, &boxes))
             .await
             .map_err(|_| "worker_failed")?
@@ -835,7 +839,7 @@ async fn messages(p: &Value) -> Result<Value> {
     }
     let ordered: Vec<_> = ids.iter().filter_map(|id| found.remove(*id)).collect();
     let continuation = if end < original_ids.len() && error.is_none() {
-        Some(URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({"accountId":p["accountId"],"requestToken":p["requestToken"],"ids":p["ids"],"offset":end})).map_err(|_|"invalid_params")?))
+        Some(URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({"accountId":params["accountId"],"requestToken":params["requestToken"],"ids":params["ids"],"offset":end})).map_err(|_|"invalid_params")?))
     } else {
         None
     };
@@ -865,16 +869,16 @@ fn status(data: &[u8]) -> Result<(u64, u64)> {
     }
     Err("imap_invalid_response")
 }
-pub(super) fn validate(method: &str, p: &Value) -> Result<()> {
+pub(super) fn validate(method: &str, params: &Value) -> Result<()> {
     match method {
         "imap.list" | "imap.listContinue" => {
-            query(p["query"].as_str().unwrap_or(""))?;
+            query(params["query"].as_str().unwrap_or(""))?;
         }
         "imap.count" => {
-            quote(string(p, "labelId")?)?;
+            quote(string(params, "labelId")?)?;
         }
         "imap.messages" => {
-            let ids = p["ids"].as_array().ok_or("invalid_params")?;
+            let ids = params["ids"].as_array().ok_or("invalid_params")?;
             if ids.len() > 500 {
                 return Err("invalid_params");
             }
@@ -883,22 +887,25 @@ pub(super) fn validate(method: &str, p: &Value) -> Result<()> {
             }
         }
         "imap.attachment" => {
-            message_id(string(p, "messageId")?)?;
-            string(p, "attachmentId")?;
+            message_id(string(params, "messageId")?)?;
+            string(params, "attachmentId")?;
         }
         _ => {}
     }
     Ok(())
 }
-pub(super) async fn call(method: &str, p: &Value) -> Result<Value> {
+pub(super) async fn call(method: &str, params: &Value) -> Result<Value> {
     if matches!(method, "imap.list" | "imap.listContinue")
-        && p["query"].as_str().unwrap_or("").starts_with("search:")
+        && params["query"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("search:")
     {
-        return search::call(p).await;
+        return search::call(params).await;
     }
     if method == "imap.attachment" {
-        let mut request = p.clone();
-        request["ids"] = json!([string(p, "messageId")?]);
+        let mut request = params.clone();
+        request["ids"] = json!([string(params, "messageId")?]);
         request["full"] = json!(true);
         request["progressive"] = json!(false);
         let data = messages(&request).await?;
@@ -913,32 +920,32 @@ pub(super) async fn call(method: &str, p: &Value) -> Result<Value> {
             payload["parts"]
                 .as_array()?
                 .iter()
-                .find_map(|p| part(p, id))
+                .find_map(|child| part(child, id))
         }
         return Ok(
-            json!({"data":part(&message["payload"],string(p,"attachmentId")?).ok_or("imap_attachment_missing")?}),
+            json!({"data":part(&message["payload"],string(params,"attachmentId")?).ok_or("imap_attachment_missing")?}),
         );
     }
     if method == "imap.messages" {
-        return messages(p).await;
+        return messages(params).await;
     }
     // Refuse malformed query/folder input before any credential-bearing socket.
     if matches!(method, "imap.list" | "imap.listContinue") {
-        query(p["query"].as_str().unwrap_or(""))?;
+        query(params["query"].as_str().unwrap_or(""))?;
     }
     if method == "imap.count" {
-        quote(string(p, "labelId")?)?;
+        quote(string(params, "labelId")?)?;
     }
-    let (mut w, key) = acquire(p).await?;
-    let boxes = mailboxes(&mut w, p).await?;
+    let (mut wire, key) = acquire(params).await?;
+    let boxes = mailboxes(&mut wire, params).await?;
     let result = match method {
         "imap.folders" => folders_value(&boxes),
-        "imap.list" | "imap.listContinue" => list(&mut w, p, &boxes).await?,
+        "imap.list" | "imap.listContinue" => list(&mut wire, params, &boxes).await?,
         "imap.count" => {
-            let id = string(p, "labelId")?;
+            let id = string(params, "labelId")?;
             let folder = resolve(&boxes, id)?;
             let data = command(
-                &mut w,
+                &mut wire,
                 &format!("STATUS {} (MESSAGES UNSEEN)", quote(&folder)?),
             )
             .await?;
@@ -953,7 +960,7 @@ pub(super) async fn call(method: &str, p: &Value) -> Result<Value> {
     {
         return Ok(result);
     }
-    release(w, key).await;
+    release(wire, key).await;
     Ok(result)
 }
 #[cfg(test)]

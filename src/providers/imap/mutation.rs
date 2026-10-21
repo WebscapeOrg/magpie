@@ -3,8 +3,8 @@ use super::read::{Mailboxes, mailboxes, message_id, resolve};
 use super::*;
 use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 use std::collections::BTreeMap;
-fn ids(p: &Value) -> Result<BTreeMap<String, Vec<u32>>> {
-    let entries = p["ids"].as_array().ok_or("invalid_params")?;
+fn ids(params: &Value) -> Result<BTreeMap<String, Vec<u32>>> {
+    let entries = params["ids"].as_array().ok_or("invalid_params")?;
     if entries.len() > 500 {
         return Err("invalid_params");
     }
@@ -15,8 +15,8 @@ fn ids(p: &Value) -> Result<BTreeMap<String, Vec<u32>>> {
     }
     Ok(groups)
 }
-fn strings(p: &Value, key: &str) -> Result<Vec<String>> {
-    p[key]
+fn strings(params: &Value, key: &str) -> Result<Vec<String>> {
+    params[key]
         .as_array()
         .ok_or("invalid_params")?
         .iter()
@@ -29,7 +29,7 @@ fn strings(p: &Value, key: &str) -> Result<Vec<String>> {
 }
 fn plan(
     method: &str,
-    p: &Value,
+    params: &Value,
     boxes: &Mailboxes,
 ) -> Result<(Vec<String>, Vec<String>, Option<String>)> {
     if method == "imap.trash" {
@@ -38,8 +38,8 @@ fn plan(
     if method == "imap.untrash" {
         return Ok((vec![], vec!["\\Deleted".into()], Some("INBOX".into())));
     }
-    let added = strings(p, "addLabelIds")?;
-    let removed = strings(p, "removeLabelIds")?;
+    let added = strings(params, "addLabelIds")?;
+    let removed = strings(params, "removeLabelIds")?;
     let has = |items: &[String], name: &str| items.iter().any(|v| v.eq_ignore_ascii_case(name));
     let target = if has(&removed, "INBOX") {
         added.first().cloned()
@@ -110,9 +110,9 @@ fn encoded_mailbox(name: &str) -> Result<String> {
     flush(&mut out, &mut run);
     Ok(out)
 }
-async fn append(w: &mut Wire, folder: &str, body: &[u8], flag: &str) -> Result<()> {
+async fn append(wire: &mut Wire, folder: &str, body: &[u8], flag: &str) -> Result<()> {
     write(
-        w,
+        wire,
         format!(
             "O1 APPEND {} ({flag}) {{{}}}\r\n",
             quote(folder)?,
@@ -121,22 +121,22 @@ async fn append(w: &mut Wire, folder: &str, body: &[u8], flag: &str) -> Result<(
         .as_bytes(),
     )
     .await?;
-    let answer = line(w).await?;
+    let answer = line(wire).await?;
     if !answer.starts_with(b"+") {
         return Err("imap_command_failed");
     }
-    write(w, body).await?;
-    write(w, b"\r\n").await?;
-    response(w, "O1", false).await?;
+    write(wire, body).await?;
+    write(wire, b"\r\n").await?;
+    response(wire, "O1", false).await?;
     Ok(())
 }
-async fn delete_uid(w: &mut Wire, uid: u32) -> Result<()> {
-    command(w, &format!("UID STORE {uid} +FLAGS.SILENT (\\Deleted)")).await?;
-    command(w, &format!("UID EXPUNGE {uid}")).await?;
+async fn delete_uid(wire: &mut Wire, uid: u32) -> Result<()> {
+    command(wire, &format!("UID STORE {uid} +FLAGS.SILENT (\\Deleted)")).await?;
+    command(wire, &format!("UID EXPUNGE {uid}")).await?;
     Ok(())
 }
-fn raw(p: &Value) -> Result<Vec<u8>> {
-    let text = string(p, "raw")?;
+fn raw(params: &Value) -> Result<Vec<u8>> {
+    let text = string(params, "raw")?;
     if text.len() > LIMIT * 4 / 3 + 4 {
         return Err("invalid_params");
     }
@@ -189,41 +189,41 @@ fn without_bcc(body: &[u8]) -> Vec<u8> {
     }
     out
 }
-pub(super) fn validate(method: &str, p: &Value) -> Result<()> {
+pub(super) fn validate(method: &str, params: &Value) -> Result<()> {
     match method {
         "imap.createFolder" => {
-            encoded_mailbox(string(p, "name")?)?;
+            encoded_mailbox(string(params, "name")?)?;
         }
         "imap.renameFolder" => {
-            let id = string(p, "id")?;
+            let id = string(params, "id")?;
             if id.is_empty() {
                 return Err("invalid_params");
             }
             quote(id)?;
-            encoded_mailbox(string(p, "name")?)?;
+            encoded_mailbox(string(params, "name")?)?;
         }
         "imap.deleteFolder" => {
-            let id = string(p, "id")?;
+            let id = string(params, "id")?;
             if id.is_empty() {
                 return Err("invalid_params");
             }
             quote(id)?;
         }
         "imap.modify" => {
-            ids(p)?;
-            strings(p, "addLabelIds")?;
-            strings(p, "removeLabelIds")?;
+            ids(params)?;
+            strings(params, "addLabelIds")?;
+            strings(params, "removeLabelIds")?;
         }
         "imap.trash" | "imap.untrash" => {
-            ids(p)?;
+            ids(params)?;
         }
         "imap.deleteDraft" => {
-            message_id(string(p, "id")?)?;
+            message_id(string(params, "id")?)?;
         }
         "imap.saveDraft" | "imap.send" => {
-            let body = raw(p)?;
+            let body = raw(params)?;
             if method == "imap.saveDraft"
-                && let Some(value) = p.get("draftId")
+                && let Some(value) = params.get("draftId")
             {
                 let id = value.as_str().ok_or("invalid_params")?;
                 if !id.is_empty() {
@@ -241,43 +241,43 @@ pub(super) fn validate(method: &str, p: &Value) -> Result<()> {
 }
 pub(super) async fn call(
     method: &str,
-    p: &Value,
+    params: &Value,
     sent: &std::sync::atomic::AtomicBool,
 ) -> Result<Value> {
-    call_planned(method, p, sent, None, None).await
+    call_planned(method, params, sent, None, None).await
 }
 pub(super) async fn call_planned(
     method: &str,
-    p: &Value,
+    params: &Value,
     sent: &std::sync::atomic::AtomicBool,
     planned: Option<&Mailboxes>,
     mut completed_folders: Option<&mut Vec<String>>,
 ) -> Result<Value> {
     if method == "imap.send" {
-        let body = raw(p)?;
-        if p["oauth"] == true && p["settings"]["send"] == "graph" {
+        let body = raw(params)?;
+        if params["oauth"] == true && params["settings"]["send"] == "graph" {
             let result = crate::auth::Session::default()
                 .call(
                     "outlook.graphSend",
-                    &json!({"accountId":p["accountId"],"raw":p["raw"]}),
+                    &json!({"accountId":params["accountId"],"raw":params["raw"]}),
                 )
                 .await?;
             sent.store(true, std::sync::atomic::Ordering::SeqCst);
             return Ok(result);
         }
-        let (from, recipients) = envelope(&body, string(&p["settings"], "username")?)?;
-        let mut submit = p.clone();
+        let (from, recipients) = envelope(&body, string(&params["settings"], "username")?)?;
+        let mut submit = params.clone();
         submit["from"] = json!(from);
         submit["recipients"] = json!(recipients);
         submit["body"] = json!(STANDARD.encode(without_bcc(&body)));
         super::send(&submit).await?;
         sent.store(true, std::sync::atomic::Ordering::SeqCst);
         let copy = async {
-            let (mut w, key) = acquire(p).await?;
-            let boxes = mailboxes(&mut w, p).await?;
+            let (mut wire, key) = acquire(params).await?;
+            let boxes = mailboxes(&mut wire, params).await?;
             let folder = resolve(&boxes, "\\Sent")?;
-            append(&mut w, &folder, &body, "\\Seen").await?;
-            release(w, key).await;
+            append(&mut wire, &folder, &body, "\\Seen").await?;
+            release(wire, key).await;
             Ok::<_, &'static str>(())
         }
         .await;
@@ -289,15 +289,15 @@ pub(super) async fn call_planned(
     let folder_command = match method {
         "imap.createFolder" => Some(format!(
             "CREATE {}",
-            quote(&encoded_mailbox(string(p, "name")?)?)?
+            quote(&encoded_mailbox(string(params, "name")?)?)?
         )),
         "imap.renameFolder" => Some(format!(
             "RENAME {} {}",
-            quote(string(p, "id")?)?,
-            quote(&encoded_mailbox(string(p, "name")?)?)?
+            quote(string(params, "id")?)?,
+            quote(&encoded_mailbox(string(params, "name")?)?)?
         )),
         "imap.deleteFolder" => {
-            let id = string(p, "id")?;
+            let id = string(params, "id")?;
             if id.is_empty() {
                 return Err("invalid_params");
             }
@@ -306,39 +306,39 @@ pub(super) async fn call_planned(
         _ => None,
     };
     let groups = if matches!(method, "imap.modify" | "imap.trash" | "imap.untrash") {
-        let groups = ids(p)?;
+        let groups = ids(params)?;
         if method == "imap.modify" {
-            strings(p, "addLabelIds")?;
-            strings(p, "removeLabelIds")?;
+            strings(params, "addLabelIds")?;
+            strings(params, "removeLabelIds")?;
         }
         Some(groups)
     } else {
         None
     };
     let draft = if method == "imap.saveDraft" {
-        Some(raw(p)?)
+        Some(raw(params)?)
     } else {
         None
     };
     let deleting = if method == "imap.deleteDraft" {
-        Some(message_id(string(p, "id")?)?)
+        Some(message_id(string(params, "id")?)?)
     } else {
         None
     };
-    let (mut w, key) = acquire(p).await?;
+    let (mut wire, key) = acquire(params).await?;
     let result = if let Some(command_text) = folder_command {
-        command(&mut w, &command_text).await?;
+        command(&mut wire, &command_text).await?;
         read::invalidate().await;
         json!({})
     } else {
         let boxes = match planned {
             Some(boxes) => boxes.clone(),
-            None => mailboxes(&mut w, p).await?,
+            None => mailboxes(&mut wire, params).await?,
         };
         if let Some(groups) = groups {
-            let (add, remove, destination) = plan(method, p, &boxes)?;
+            let (add, remove, destination) = plan(method, params, &boxes)?;
             for (folder, uids) in groups {
-                command(&mut w, &format!("SELECT {}", quote(&folder)?)).await?;
+                command(&mut wire, &format!("SELECT {}", quote(&folder)?)).await?;
                 let set = uids
                     .iter()
                     .map(u32::to_string)
@@ -347,7 +347,7 @@ pub(super) async fn call_planned(
                 for (mode, flags) in [("+", &add), ("-", &remove)] {
                     if !flags.is_empty() {
                         command(
-                            &mut w,
+                            &mut wire,
                             &format!("UID STORE {set} {mode}FLAGS.SILENT ({})", flags.join(" ")),
                         )
                         .await?;
@@ -361,15 +361,15 @@ pub(super) async fn call_planned(
                         .iter()
                         .any(|v| v.eq_ignore_ascii_case("MOVE"))
                     {
-                        command(&mut w, &format!("UID MOVE {set} {}", quote(target)?)).await?;
+                        command(&mut wire, &format!("UID MOVE {set} {}", quote(target)?)).await?;
                     } else {
-                        command(&mut w, &format!("UID COPY {set} {}", quote(target)?)).await?;
+                        command(&mut wire, &format!("UID COPY {set} {}", quote(target)?)).await?;
                         command(
-                            &mut w,
+                            &mut wire,
                             &format!("UID STORE {set} +FLAGS.SILENT (\\Deleted)"),
                         )
                         .await?;
-                        command(&mut w, &format!("UID EXPUNGE {set}")).await?;
+                        command(&mut wire, &format!("UID EXPUNGE {set}")).await?;
                     }
                 }
                 // Record only a fully acknowledged group. Keep the ledger
@@ -382,14 +382,14 @@ pub(super) async fn call_planned(
             json!({})
         } else if let Some(body) = draft {
             let folder = resolve(&boxes, "\\Drafts")?;
-            append(&mut w, &folder, &body, "\\Draft").await?;
-            let warning = if let Some(id) = p["draftId"].as_str().filter(|id| !id.is_empty()) {
+            append(&mut wire, &folder, &body, "\\Draft").await?;
+            let warning = if let Some(id) = params["draftId"].as_str().filter(|id| !id.is_empty()) {
                 if let Ok((uid, previous_folder)) = message_id(id)
                     && previous_folder == folder
                 {
                     let cleanup = async {
-                        command(&mut w, &format!("SELECT {}", quote(&folder)?)).await?;
-                        delete_uid(&mut w, uid).await
+                        command(&mut wire, &format!("SELECT {}", quote(&folder)?)).await?;
+                        delete_uid(&mut wire, uid).await
                     }
                     .await;
                     if cleanup.is_ok() {
@@ -405,14 +405,14 @@ pub(super) async fn call_planned(
             };
             json!({"saved":true,"warning":warning})
         } else if let Some((uid, folder)) = deleting {
-            command(&mut w, &format!("SELECT {}", quote(&folder)?)).await?;
-            delete_uid(&mut w, uid).await?;
+            command(&mut wire, &format!("SELECT {}", quote(&folder)?)).await?;
+            delete_uid(&mut wire, uid).await?;
             json!({})
         } else {
             return Err("method_not_found");
         }
     };
-    release(w, key).await;
+    release(wire, key).await;
     Ok(result)
 }
 #[cfg(test)]

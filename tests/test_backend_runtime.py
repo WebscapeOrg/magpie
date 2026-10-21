@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -393,6 +394,34 @@ touch linked
         result = self.manager.run("status")
         self.assertEqual(result["state"], "error")
         self.assertNotIn("secret", str(result))
+
+    def test_probe_retains_group_identity_until_descendants_stop(self):
+        self.old()
+        real_killpg = os.killpg
+        observed = []
+
+        def stop(group, signum):
+            try:
+                os.waitid(os.P_PID, group, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            except ChildProcessError:
+                self.fail("the version probe reaped its leader before signaling the group")
+            observed.append(group)
+            real_killpg(group, signum)
+
+        with patch.object(self.manager.os, "killpg", side_effect=stop):
+            self.assertEqual(self.manager.version_of(self.binary), "0.8.1")
+        self.assertEqual(len(observed), 1)
+
+    def test_successful_probe_stops_its_background_descendants(self):
+        self.old()
+        marker = self.root / "forbidden-write"
+        child = f"import time;from pathlib import Path;time.sleep(1);Path({str(marker)!r}).touch()"
+        self.binary.write_text(f"#!{sys.executable}\n" +
+            f"import subprocess,sys;subprocess.Popen([sys.executable,'-c',{child!r}]," +
+            "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);print('omamail 0.8.1')\n")
+        self.assertEqual(self.manager.version_of(self.binary), "0.8.1")
+        time.sleep(1.1)
+        self.assertFalse(marker.exists(), "a successful probe must also stop its descendants")
 
     def test_binary_symlink_refused_even_for_uninstall(self):
         self.old()

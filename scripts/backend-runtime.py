@@ -111,7 +111,14 @@ def version_of(executable):
                     break
                 output.extend(chunk)
                 require(len(output) <= 256, "Invalid backend version response.")
-        require(process.wait(timeout=max(0.01, deadline - time.monotonic())) == 0,
+        # Invariant: keep the leader waitable until cleanup has signaled its process group.
+        while True:
+            exited = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            if exited is not None:
+                break
+            require(time.monotonic() < deadline, "Backend version check timed out.")
+            time.sleep(0.01)
+        require(exited.si_code == os.CLD_EXITED and exited.si_status == 0,
                 "Backend version check failed.")
         match = re.fullmatch(rb"omamail ([^\r\n ]+)\n?", bytes(output))
         require(match is not None, "Invalid backend version response.")

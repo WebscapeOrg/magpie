@@ -1,5 +1,21 @@
 # Synthetic mail performance benchmarks
 
+## Original implementation versus current code
+
+`python3 benchmarks/mail/compare_ui.py --output /tmp/magpie-before-after.json` extracts the committed UI at `aeac13160f70a86f6419eaf2ceb1695fad078c7c` without changing the checkout, then exercises both versions with identical synthetic 100-row and 1,000-row lists. It times empty-to-populated completed frames, selection/reveal between opposite ends, and an unread-state update. Three fresh processes per version alternate order; each measures 31 samples after three warmups. Results retain each run's raw samples and source/harness hashes; the table uses the median of the three p95 values. Live row component counts are recorded separately. `--baseline COMMIT`, `--counts 100 1000`, `--repetitions 3` and `--runner /path/to/Qt6/qmltestrunner` make the inputs explicit.
+
+This is a comparison of actual old and new QML components, not a comparison of two compiler flags or two stages within the new implementation. The list starts with in-memory summaries and an already-running QML engine. It excludes network, disk, RPC, application startup and compositor presentation. Small completed-frame differences near Qt's frame interval are not evidence of a general application speedup. Local full-text search has no equivalent offline full-text baseline in the original implementation; do not invent one by comparing it with an assumed Gmail response time.
+
+`make verify-performance VERIFY_PROFILE=benchmarks` collects this comparison and the database cases below into a fresh result directory. The GitHub Actions `Performance verification` workflow runs the same profile and saves its logs and JSON as artifacts.
+
+## Local replica and completed Qt frames
+
+`cargo test --release --lib local_mail::tests::benchmark_local_queries -- --ignored --nocapture` creates a synthetic 100,000-message database and measures five searches returning 50 summaries. Set `MAGPIE_BENCH_MESSAGES=1000000` for the separate scale case or `MAGPIE_BENCH_BACKGROUND=1` to run concurrent durable body writes at a 25 ms minimum interval. Results include median/p95 and the actual background write count. Fixture import is a bulk transaction, not a Gmail download simulation. These measurements exclude UI, RPC and network latency.
+
+`python3 benchmarks/mail/ui_latency.py --output /tmp/magpie-paint.json` exercises the production list and reader components with Qt's offscreen software renderer at 1x scale. It measures completed render frames after switching between the ends of 10,000 loaded summaries and between two natively prepared HTML documents. It excludes RPC, disk, network, compositor presentation and application startup. Run without builds or other benchmarks to obtain a useful baseline.
+
+`python3 benchmarks/mail/compiler_profiles.py --size /path/to/size/mail_bench --speed /path/to/speed/mail_bench --output /tmp/magpie-profiles.json` compares two `mail_bench` examples with identical synthetic inputs and semantic outputs. Build one with the normal release profile and the other with `cargo build --release --config profile.release.opt-level=3 --example mail_bench --target-dir /tmp/magpie-speed-build`. It measures CPU processing only; retain current release settings unless an end-to-end comparison justifies changing them.
+
 ## Cached reader including QML transport
 
 [reader-pipeline-results.md](reader-pipeline-results.md) measures the current

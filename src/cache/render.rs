@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::VecDeque;
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PER_ACCOUNT: usize = 12;
-const MAX_ENTRIES: usize = 96;
+const MAX_ENTRIES: usize = 32;
 #[derive(Default)]
 pub struct RenderCache {
     entries: VecDeque<Entry>,

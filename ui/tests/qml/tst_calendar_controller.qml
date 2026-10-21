@@ -530,8 +530,9 @@ Item {
 
       mailService.unifiedCalendarView = true
 
-      compare(controller.pendingRangeStart, 1000)
-      compare(controller.pendingRangeEnd, 2000)
+      compare(controller.rangeStart, 1000)
+      compare(controller.rangeEnd, 2000)
+      compare(controller.pendingRangeStart, 0, "the visible range refreshes without waiting for an obsolete request")
     }
 
     function test_updating_a_caldav_password_refreshes_the_visible_range() {
@@ -541,8 +542,9 @@ Item {
       controller.updateCalendarPassword(controller.sourceList.sources[0], "new-secret")
       compare(mailService.credentialWrites, [{kind:"calendar-password",
         accountId:"caldav:team",clientId:"",secret:"new-secret"}])
-      compare(controller.pendingRangeStart, 1000)
-      compare(controller.pendingRangeEnd, 2000)
+      compare(controller.rangeStart, 1000)
+      compare(controller.rangeEnd, 2000)
+      compare(controller.pendingRangeStart, 0, "the visible range refreshes without waiting for an obsolete request")
     }
 
     // Google and Microsoft calendars arrive with their account's sign-in,

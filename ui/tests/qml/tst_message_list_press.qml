@@ -32,7 +32,7 @@ Item {
 
   Mail.MessageList {
     id: list
-    width: parent.width
+    anchors.fill: parent
     service: fakeService
     textColor: Commons.Color.foreground
     accentColor: Commons.Color.accent
@@ -63,7 +63,7 @@ Item {
     }
 
     function test_a_press_outlives_the_messages_being_told_again() {
-      var target = list.children[1]
+      var target = list.itemAtIndex(1)
       verify(target && target.summary && target.summary.id === "2:INBOX", "the second row is on screen")
       var x = 20, y = target.y + target.height / 2
       mousePress(list, x, y)

@@ -15,7 +15,7 @@ function bridge() {
     Chunks: load('backend/Chunks.js'), Compatibility: load('backend/Compatibility.js'),
     connected: true, ready: true, stopping: false, pending: {}, sequence: 0,
     queued: [], draining: false, uploadQueue: null,
-    unreleasedMethods: [], needsUpdate: false, responseTransfer: null,
+    unreleasedMethods: [], needsUpdate: false, responseTransfer: null, protocolInfo: null,
     shutdownStarted: false, shutdownFinished: false, quitRequested: false,
     shutdownCallbacks: [], shutdownFailure: null,
     shutdownDeadline: {restart(){}, stop(){}}, stopConfirmationDeadline: {restart(){}, stop(){}},
@@ -354,4 +354,20 @@ if(process.argv[2]) {
     console.log('real Rust transport: 225 RPCs plus 24 mixed large uploads passed')
   }
   testNative().catch(error=>{console.error(error);process.exitCode=1;backend.failPending('test failed');child.kill()})
+}
+
+{
+  const {backend, sent, errors} = bridge()
+  backend.protocolInfo = {apiVersion:8, methods:["system.info", "gmail.trash"]}
+  let result
+  backend.call("local.edit", {accountId:"synthetic@example.test"}, (value,error)=>result=error)
+  assert.strictEqual(result.message,"backend_needs_update")
+  assert.strictEqual(sent.length,0,"unsupported mutation must never reach the process")
+  assert.strictEqual(Object.keys(backend.pending).length,0)
+  assert.strictEqual(errors[0].method,"local.edit")
+  backend.call("local.edit", {payload:"x".repeat(210000)}, (value,error)=>result=error)
+  assert.strictEqual(result.message,"backend_needs_update")
+  assert.strictEqual(sent.length,0,"unsupported uploads must not reserve or transfer any payload")
+  backend.call("gmail.trash", {accountId:"synthetic@example.test",id:"synthetic"},()=>{})
+  assert.strictEqual(sent.length,1,"supported released actions remain available")
 }

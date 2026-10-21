@@ -79,34 +79,39 @@ function usedAddresses(text) {
 }
 
 function suggest(values, text, limit) {
+  return suggestIndexed(index(values),text,limit)
+}
+
+function index(values) {
+  var contacts = normalize(values)
+  var result = contacts.map(function(contact) {
+    return {contact:contact,email:contact.email.toLowerCase(),name:contact.name.toLowerCase(),
+      sort:(contact.name || contact.email).toLowerCase()}
+  })
+  result.sort(function(left,right) { return left.sort < right.sort ? -1 : left.sort > right.sort ? 1 : 0 })
+  return result
+}
+
+function suggestIndexed(contacts, text, limit) {
   var query = currentToken(text).toLowerCase()
   if (query === "") return []
-  var contacts = normalize(values)
   var used = usedAddresses(text)
-  var ranked = []
+  var count = Math.max(1, Math.floor(Number(limit) || 5))
+  var prefix = []
+  var matches = []
   for (var i = 0; i < contacts.length; i++) {
     var contact = contacts[i]
-    var email = contact.email.toLowerCase()
-    var name = contact.name.toLowerCase()
+    var email = contact.email
+    var name = contact.name
     if (used[email] || query === email) continue
     var emailAt = email.indexOf(query)
     var nameAt = name.indexOf(query)
     if (emailAt < 0 && nameAt < 0) continue
-    ranked.push({
-      contact: contact,
-      score: emailAt === 0 || nameAt === 0 ? 0 : 1
-    })
+    if (emailAt === 0 || nameAt === 0) prefix.push(contact.contact)
+    else if (matches.length < count) matches.push(contact.contact)
+    if (prefix.length >= count) break
   }
-  ranked.sort(function(left, right) {
-    if (left.score !== right.score) return left.score - right.score
-    var leftName = (left.contact.name || left.contact.email).toLowerCase()
-    var rightName = (right.contact.name || right.contact.email).toLowerCase()
-    return leftName < rightName ? -1 : (leftName > rightName ? 1 : 0)
-  })
-  var count = Math.max(1, Math.floor(Number(limit) || 5))
-  var out = []
-  for (var j = 0; j < ranked.length && j < count; j++) out.push(ranked[j].contact)
-  return out
+  return prefix.concat(matches).slice(0,count)
 }
 
 function address(contact) {

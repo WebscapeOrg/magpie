@@ -18,7 +18,14 @@ LIMIT = 65536
 # An exact, reviewed vocabulary, never a pattern that could admit a credential or
 # server text. tests/test_diagnostics.py flags new static backend identifiers;
 # review their source before adding them here, never derive this set at runtime.
-MESSAGES = set('''permission_required contacts_invalid contacts_permission_required contacts_response_limit contacts_unavailable inbox_gmail_required inbox_storage_invalid inbox_storage_unavailable inbox_unavailable overview_ai_unavailable overview_input_invalid overview_invalid_response overview_start_failed overview_unsupported_claim snooze_invalid_folder snooze_invalid_thread snooze_invalid_time snooze_limit snooze_missing snooze_pending_retry
+MESSAGES = set('''attachment_handle_invalid attachment_handle_unavailable attachment_provider_unsupported
+calendar_busy calendar_recurrence_too_large calendar_recurrence_unsupported gmail_not_found
+local_account_unknown local_content_invalid local_content_missing local_content_too_large
+local_disk_full local_disk_low local_edit_already_started local_edit_id_conflict local_edit_not_confirmed
+local_message_unavailable local_owner_unavailable local_schema_newer local_search_unsupported
+local_sqlite_update_required local_storage_corrupt local_storage_unavailable local_text_incomplete
+outbox_awaiting_connection outbox_connection_unavailable
+permission_required contacts_invalid contacts_permission_required contacts_response_limit contacts_unavailable inbox_gmail_required inbox_storage_invalid inbox_storage_unavailable inbox_unavailable overview_ai_unavailable overview_input_invalid overview_invalid_response overview_start_failed overview_unsupported_claim snooze_invalid_folder snooze_invalid_thread snooze_invalid_time snooze_limit snooze_missing snooze_pending_retry
 accounts_busy accounts_conflict accounts_invalid accounts_setup_replacement accounts_too_large
 accounts_unexpected_removal accounts_unreadable accounts_version_unsupported accounts_write_failed
 agent_active_limit agent_cancel_failed agent_choose_claude
@@ -166,13 +173,34 @@ def clean(event, existing=False):
             'message': message if isinstance(message, str) and message in MESSAGES else 'unknown_error'}
 
 
-GMAIL_OPERATIONS = set('''getProfile labels.list labels.get settings.sendAs.list
+GMAIL_OPERATIONS = set('''history.list getProfile labels.list labels.get settings.sendAs.list
 messages.list messages.get.full messages.get.metadata messages.attachments.get
 threads.get.full threads.get.metadata drafts.list messages.send messages.batchModify
 messages.modify messages.trash messages.untrash labels.create labels.update labels.delete
 drafts.create drafts.update drafts.delete oauth.refresh gmail.request'''.split())
 GMAIL_REASONS = {'unknown', 'localBudget', 'rateLimitExceeded', 'userRateLimitExceeded',
                  'dailyLimitExceeded', 'insufficientPermissions', 'domainPolicy', 'authError', 'sessionInvalidated'}
+
+
+def clean_rpc(event):
+    if (not isinstance(event, dict) or not isinstance(event.get('method'), str)
+            or event['method'] not in METHODS or type(event.get('success')) is not bool):
+        return None
+    result = {'method': event['method'], 'success': event['success']}
+    for key in ('process', 'request', 'queueUs', 'elapsedUs', 'requestBytes'):
+        value = event.get(key)
+        if type(value) is not int or not 0 <= value < 2**64:
+            return None
+        result[key] = value
+    if 'timeMs' in event:
+        value = event['timeMs']
+        if type(value) is not int or not 0 <= value < 2**64:
+            return None
+        result['timeMs'] = value
+    error = event.get('error')
+    if error is not None:
+        result['error'] = error if isinstance(error, str) and error in MESSAGES else 'unknown_error'
+    return result
 
 
 def clean_gmail(event):
@@ -182,7 +210,7 @@ def clean_gmail(event):
     vocabularies = {'operation': GMAIL_OPERATIONS,
                     'reason': GMAIL_REASONS,
                     'lane': {'interactive', 'background', 'poll', 'queue', 'auth'},
-                    'outcome': {'ok', 'gmail_rate_limited', 'gmail_unauthorized',
+                    'outcome': {'ok', 'gmail_not_found', 'gmail_rate_limited', 'gmail_unauthorized',
                                 'gmail_forbidden', 'gmail_length_required', 'gmail_http_failed',
                                 'gmail_timeout', 'gmail_response_too_large', 'gmail_invalid_response', 'gmail_session_invalidated'}}
     for key, allowed in vocabularies.items():
@@ -206,6 +234,8 @@ def clean_gmail(event):
         if value is not None and (type(value) is not int or not 0 <= value <= maximum):
             return None
         result[key] = value
+    if type(event.get('rpc')) is int and 0 <= event['rpc'] < 2**64:
+        result['rpc'] = event['rpc']
     return result
 
 
@@ -318,6 +348,23 @@ def main(mode):
             if gmail:
                 report += '\n\nRecent Gmail attempts (session numbers are process-local, not addresses):\n'
                 report += '\n'.join(json.dumps(event, ensure_ascii=True) for event in gmail)
+        try:
+            timings = json.loads(read(fd, 'rpc.json') or b'[]')
+        except (ValueError, OSError):
+            timings = []
+        if isinstance(timings, list):
+            timings = [safe for event in timings[-256:] if (safe := clean_rpc(event)) is not None]
+            if timings:
+                report += '\n\nRecent RPC timings (microseconds; generated request numbers):\n'
+                report += '\n'.join(json.dumps(event, ensure_ascii=True) for event in timings)
+        for filename in ('gmail-writer.json', 'rpc-writer.json'):
+            try:
+                writer = json.loads(read(fd, filename) or b'{}')
+                dropped = writer.get('dropped') if isinstance(writer, dict) else None
+                if type(dropped) is int and 0 <= dropped < 2**64:
+                    report += '\n' + filename + ': dropped records=' + str(dropped)
+            except (ValueError, OSError):
+                pass
         # Preserve the existing bounded report when the transport history is full.
         while len(report.encode('utf-8')) + 1 > LIMIT:
             lines = report.splitlines()

@@ -460,3 +460,45 @@ pub fn request(params: &Value) -> Result<Value> {
     }
     build(&params["fields"])
 }
+
+pub(crate) fn submission(fields: &Value, stamp: u64, seed: &str) -> Result<Value> {
+    use sha2::{Digest, Sha256};
+    let mut fields = fields.clone();
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(
+            serde_json::to_vec(&json!([fields, stamp, seed])).map_err(|_| "invalid_params")?
+        )
+    );
+    fields["boundary"] = json!(format!("=_Omamail_{}", &digest[..40]));
+    fields["messageId"] = json!(format!("<{digest}@omamail.invalid>"));
+    fields["date"] = json!(
+        chrono::DateTime::from_timestamp_millis(
+            i64::try_from(stamp).map_err(|_| "invalid_params")?
+        )
+        .ok_or("invalid_params")?
+        .format("%a, %d %b %Y %H:%M:%S %z")
+        .to_string()
+    );
+    build(&fields)
+}
+
+#[cfg(test)]
+mod submission_tests {
+    use super::*;
+    #[test]
+    fn explicit_send_replays_preserve_mime_and_changed_content_does_not() {
+        let fields = json!({"from":"a@example.org","to":"b@example.org","body":"one","attachments":[{"filename":"file.txt","data":"YQ"}]});
+        let first = submission(&fields, 1700000000000, "send-id").unwrap();
+        assert_eq!(
+            first,
+            submission(&fields, 1700000000000, "send-id").unwrap()
+        );
+        let mut changed = fields;
+        changed["body"] = json!("two");
+        assert_ne!(
+            first,
+            submission(&changed, 1700000000000, "send-id").unwrap()
+        );
+    }
+}

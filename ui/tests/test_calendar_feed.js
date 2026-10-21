@@ -781,3 +781,10 @@ console.log("test_calendar_feed.js ok")
   assert.strictEqual(made.graph.subject, "Plan")
   assert.strictEqual(made.recurring, false)
 }
+
+{
+  const days=[{startMs:0,endMs:100},{startMs:100,endMs:190},{startMs:190,endMs:300}]
+  const events=[null,{uid:'wide',start:{ms:-10},end:{ms:200}},{uid:'edge',start:{ms:100},end:{ms:190}},{uid:'instant',start:{ms:190}},{uid:'outside',start:{ms:300},end:{ms:400}}]
+  const indexed=feed.indexDays(events,days)
+  for (const day of days) assert.strictEqual(JSON.stringify(indexed[day.startMs]),JSON.stringify(feed.eventsOnDay(events,day)), 'day index preserves half-open boundaries and unequal day lengths')
+}

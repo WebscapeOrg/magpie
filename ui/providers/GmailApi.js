@@ -1,5 +1,24 @@
 .pragma library
 
+function localEditError(error) {
+  if (!error) return ""
+  var code = String(error.message || "")
+  if (code === "backend_needs_update" || code === "Invalid params" || code === "Method not found")
+    return "Magpie’s mail components do not match. Update the app and its backend together, then try again."
+  if (code === "local_disk_full" || code === "local_disk_low")
+    return "There is not enough free disk space to save this change. Free some space, then try again."
+  if (code === "local_account_unknown" || code === "auth_signed_out")
+    return "This account is no longer available. Reconnect the account, then try again."
+  if (code === "local_schema_newer" || code === "local_sqlite_update_required")
+    return "Your saved mail needs a newer backend. Update the app and its backend together."
+  if (code === "local_storage_corrupt")
+    return "Magpie could not read its saved mail. Report this storage error for help."
+  if (code === "local_storage_unavailable" || code === "cache_unsafe_path"
+      || code === "local_owner_unavailable" || code === "private_fs_busy")
+    return "Magpie could not access its saved mail. Report this storage error for help."
+  return "Magpie could not confirm this change. Check the message’s current state before trying again."
+}
+
 // URL construction and response shaping for the Gmail REST API. No transport
 // lives here — GmailApi.qml owns XMLHttpRequest, this file owns every string
 // and every decision about what a response means, which is what the tests can

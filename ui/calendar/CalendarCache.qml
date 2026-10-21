@@ -13,15 +13,23 @@ Item {
   property bool loaded: false
   property var backend: null
   property int epoch: 0
+  property double requestClock: 0
+  function reserve() {requestClock=Math.max(Date.now(),requestClock+1);return requestClock}
+  function knows(scope,start,end,id) {return Cache.coversSource(store,scope,start,end,id)}
 
   signal restored()
 
   function get(scope, startMs, endMs, sourceIds) {
     return Cache.eventsFor(store, scope, startMs, endMs, sourceIds)
   }
+  function covers(scope,startMs,endMs,sourceId) {
+    var range=store.ranges[Cache.rangeKey(scope,startMs,endMs)]
+    return !!range && Date.now()-Number(range.sourceTimes && range.sourceTimes[sourceId] || range.at)<60000
+      && Array.isArray(range.sources) && range.sources.indexOf(String(sourceId))>=0
+  }
 
-  function put(scope, startMs, endMs, events, refreshedSourceIds) {
-    store = Cache.putRange(store, scope, startMs, endMs, events, Date.now(), refreshedSourceIds)
+  function put(scope, startMs, endMs, events, refreshedSourceIds, requestAt) {
+    store = Cache.putRange(store, scope, startMs, endMs, events, Date.now(), refreshedSourceIds, requestAt)
     if (loaded) saveTimer.restart()
   }
 

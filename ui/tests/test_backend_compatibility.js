@@ -105,3 +105,23 @@ assert.strictEqual(compatibility.accepts({ protocol: 1, version: "0.9.0", apiVer
 assert.strictEqual(compatibility.accepts({ protocol: 1, version: "0.9.0", apiVersion: 2 }, "0.9.0", 1, "2"), false)
 assert.strictEqual(compatibility.accepts({ protocol: 1, version: "0.9.1", apiVersion: 2 }, "0.9.0", 1, 2), false, "the version is still the pin's")
 assert.strictEqual(compatibility.accepts({ protocol: 1, version: "0.9.0", apiVersion: 0 }, "0.9.0", 1, 2), false)
+
+const hash = "a".repeat(64)
+const step = {protocol: 1, version: "0.11.0", apiVersion: 8, contractHash: hash,
+  methods: ["system.info", "gmail.trash", "local.edit"]}
+assert.strictEqual(compatibility.usableApiVersion(step, 7, 8, hash), 8)
+for (const contractHash of [undefined, null, "", "b".repeat(64), "a".repeat(63), 8]) {
+  assert.strictEqual(compatibility.usableApiVersion({...step, contractHash}, 7, 8, hash), 7,
+    "a stale development build must not enable the current unreleased feature set")
+  assert.strictEqual(compatibility.usableApiVersion(step, 7, 8, contractHash), 7)
+}
+assert.strictEqual(compatibility.usableApiVersion(null, 7, 8, hash), 0)
+assert.strictEqual(compatibility.usableApiVersion({...step, apiVersion:7}, 7, 8, hash), 7)
+assert.strictEqual(compatibility.usableApiVersion({...step, apiVersion:9}, 7, 8, hash), 0)
+assert.strictEqual(compatibility.usableApiVersion({...step, contractHash:undefined}, 8, 8, hash), 8,
+  "released contracts retain their stable revision semantics")
+assert.strictEqual(compatibility.methodRefusal(step, "gmail.trash"), null)
+assert.strictEqual(compatibility.methodRefusal(step, "local.edit"), null)
+assert.strictEqual(compatibility.methodRefusal(null, "system.info"), null)
+assert.deepEqual(compatibility.methodRefusal(step, "local.watch"),
+  {code:-32012, message:"backend_needs_update"})

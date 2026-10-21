@@ -10,6 +10,10 @@ use std::{
 
 #[path = "gmail_diagnostics.rs"]
 mod diagnostics;
+
+pub(crate) async fn flush_diagnostics() {
+    diagnostics::flush().await;
+}
 #[path = "gmail_quota.rs"]
 mod quota;
 pub use quota::{Budget, Lane};
@@ -28,6 +32,7 @@ struct Request {
     operation: &'static str,
     cost: u32,
     budget: Option<(Arc<Budget>, Lane)>,
+    response_limit: usize,
 }
 
 const MAX_INPUT: usize = 64 * 1024;
@@ -239,6 +244,7 @@ async fn log_attempt(
         process: std::process::id(),
         session,
         request: serial,
+        rpc: crate::backend::diagnostics::current(),
         operation: request.operation.into(),
         lane: lane.into(),
         cost: request.cost,
@@ -313,6 +319,7 @@ async fn attempt(
                     "gmail_rate_limited"
                 }
                 403 => "gmail_forbidden",
+                404 => "gmail_not_found",
                 411 => "gmail_length_required",
                 429 => "gmail_rate_limited",
                 _ => "gmail_http_failed",
@@ -320,13 +327,13 @@ async fn attempt(
         }
         if response
             .content_length()
-            .is_some_and(|size| size > MAX_RESPONSE as u64)
+            .is_some_and(|size| size > request.response_limit as u64)
         {
             return Err("gmail_response_too_large");
         }
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(http_error)? {
-            if chunk.len() > MAX_RESPONSE - bytes.len() {
+            if chunk.len() > request.response_limit - bytes.len() {
                 return Err("gmail_response_too_large");
             }
             bytes.extend_from_slice(&chunk);
@@ -429,6 +436,7 @@ fn read_operation(path: &[&str], query: &[(String, String)]) -> (&'static str, u
         .any(|(k, v)| k == "format" && matches!(v.as_str(), "metadata" | "minimal"));
     match path {
         ["profile"] => ("getProfile", 1),
+        ["history"] => ("history.list", 2),
         ["labels"] => ("labels.list", 1),
         ["labels", _] => ("labels.get", 1),
         ["settings", "sendAs"] => ("settings.sendAs.list", 1),
@@ -469,6 +477,23 @@ pub async fn get_paced(
     let mut request = prepare_get(path, query, token)?;
     request.budget = Some((Arc::clone(budget), lane));
     execute(client()?, request, DEADLINE).await
+}
+
+pub(crate) async fn get_replica(
+    path: &[&str],
+    query: &[(String, String)],
+    token: &str,
+    budget: &Arc<Budget>,
+) -> Result<Value, &'static str> {
+    static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let _slot = SLOTS
+        .acquire()
+        .await
+        .map_err(|_| "gmail_session_invalidated")?;
+    let mut request = prepare_get(path, query, token)?;
+    request.budget = Some((budget.clone(), Lane::Background));
+    request.response_limit = 128 * 1024 * 1024;
+    execute(client()?, request, Duration::from_secs(60)).await
 }
 pub async fn write_paced(
     method: reqwest::Method,
@@ -557,6 +582,7 @@ fn prepare_get(
         operation,
         cost,
         budget: None,
+        response_limit: MAX_RESPONSE,
     })
 }
 
@@ -585,6 +611,7 @@ fn prepare_refresh(id: &str, secret: &str, token: &str) -> Result<Request, &'sta
         operation: "oauth.refresh",
         cost: 0,
         budget: None,
+        response_limit: MAX_RESPONSE,
     })
 }
 

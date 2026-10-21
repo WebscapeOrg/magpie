@@ -285,10 +285,34 @@ Item {
         name: "omamail",
         apiVersion: 1, protocol: 1,
         version: "0.8.2",
-        methods: ["system.info", "system.quit"]
+        methods: ["system.info", "system.quit", "agent.context", "agent.jobStart", "cache.resourcePut",
+          "gmail.read", "gmail.sendAs", "message.prepare", "providers.list", "request.upload",
+          "upload.begin", "upload.append", "upload.discard", "message.parseUpload", "cache.bodyPutUpload"]
       }, null)
       compare(backend.ready, true)
       return process
+    }
+
+    function test_partial_unreleased_backend_refuses_local_mutation_before_dispatch() {
+      var hash = "a".repeat(64)
+      var backend = createTemporaryObject(backendFactory, parent, {
+        expectedApiVersion: 7, latestApiVersion: 8, expectedContractHash: hash,
+        unreleasedMethods: ["local.edit"] })
+      var process = start(backend)
+      reply(process, requests(process)[0], {
+        protocol:1, version:"0.8.2", apiVersion:8,
+        methods:["system.info", "system.quit", "gmail.trash"] }, null)
+      verify(backend.ready)
+      compare(backend.apiVersion, 7)
+      verify(backend.needsUpdate)
+      var failure
+      backend.call("local.edit", {accountId:"synthetic@example.test", ids:["message"]},
+        function(result,error) {failure=error})
+      compare(failure.message,"backend_needs_update")
+      compare(requests(process).length,1,"the unsupported mutation must not be written")
+      backend.call("gmail.trash", {accountId:"synthetic@example.test", id:"message"}, function(){})
+      compare(requests(process).length,2)
+      compare(requests(process)[1].method,"gmail.trash")
     }
 
     function test_business_call_is_not_written_before_handshake() {
@@ -363,7 +387,9 @@ Item {
         name: "omamail",
         apiVersion: 1, protocol: 1,
         version: "0.8.1",
-        methods: ["system.info", "system.quit"]
+        methods: ["system.info", "system.quit", "agent.context", "agent.jobStart", "cache.resourcePut",
+          "gmail.read", "gmail.sendAs", "message.prepare", "providers.list", "request.upload",
+          "upload.begin", "upload.append", "upload.discard", "message.parseUpload", "cache.bodyPutUpload"]
       }, null)
       compare(backend.ready, false)
       compare(backend.failure, "Incompatible backend")
@@ -382,7 +408,9 @@ Item {
         name: "omamail",
         apiVersion: 1, protocol: 1,
         version: "0.8.1",
-        methods: ["system.info", "system.quit"]
+        methods: ["system.info", "system.quit", "agent.context", "agent.jobStart", "cache.resourcePut",
+          "gmail.read", "gmail.sendAs", "message.prepare", "providers.list", "request.upload",
+          "upload.begin", "upload.append", "upload.discard", "message.parseUpload", "cache.bodyPutUpload"]
       }, null)
       compare(backend.shutdownFinished, false,
         "a disconnected failure still waits for process exit acknowledgement")

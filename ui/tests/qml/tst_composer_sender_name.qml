@@ -12,7 +12,8 @@ Item {
     BackendModule.Backend {
       executable: "/synthetic/runtime/bin/omamail"
       expectedVersion: "0.8.2"
-      expectedApiVersion: 1
+      expectedApiVersion: 7
+      latestApiVersion: 8
       launchEnabled: false
     }
   }

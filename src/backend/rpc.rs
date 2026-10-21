@@ -110,23 +110,44 @@ async fn one(
     }
     // An expired queued request must not start a side effect: timeout_at polls
     // its future before checking the clock.
-    let result = if tokio::time::Instant::now() >= deadline {
-        Err("request_timed_out")
-    } else if request.method.starts_with("gmail.")
-        || (request.method == "request.upload"
-            && request.params["method"]
-                .as_str()
-                .is_some_and(|method| method.starts_with("gmail.")))
-    {
-        tokio::time::timeout_at(deadline, session.dispatch(&request.method, &request.params))
-            .await
-            .unwrap_or(Err("request_timed_out"))
-    } else {
-        // Legacy process operations have their own deadlines. Dropping a
-        // spawn_blocking join cannot cancel a running send; await it so quit
-        // remains a completion barrier and never reports a false cancellation.
-        session.dispatch(&request.method, &request.params).await
-    };
+    let began = std::time::Instant::now();
+    let request_number = super::diagnostics::next();
+    let queued = tokio::time::Instant::now()
+        .saturating_duration_since(deadline - std::time::Duration::from_secs(25))
+        .as_micros()
+        .min(u64::MAX as u128) as u64;
+    let result = super::diagnostics::CORRELATION
+        .scope(request_number, async {
+            if tokio::time::Instant::now() >= deadline {
+                Err("request_timed_out")
+            } else if request.method.starts_with("gmail.")
+                || (request.method == "request.upload"
+                    && request.params["method"]
+                        .as_str()
+                        .is_some_and(|method| method.starts_with("gmail.")))
+            {
+                tokio::time::timeout_at(
+                    deadline,
+                    session.dispatch(&request.method, &request.params),
+                )
+                .await
+                .unwrap_or(Err("request_timed_out"))
+            } else {
+                // Legacy process operations have their own deadlines. Dropping a
+                // spawn_blocking join cannot cancel a running send; await it so quit
+                // remains a completion barrier and never reports a false cancellation.
+                session.dispatch(&request.method, &request.params).await
+            }
+        })
+        .await;
+    super::diagnostics::record(
+        request_number,
+        &request.method,
+        queued,
+        began.elapsed(),
+        raw.len(),
+        result.as_ref().err().copied(),
+    );
     let quit = request.method == "system.quit" && result.is_ok();
     let Id::Present(id) = request.id else {
         return (None, quit);

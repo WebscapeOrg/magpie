@@ -3,6 +3,53 @@
 use super::*;
 use std::sync::Arc;
 
+pub(crate) async fn legacy_next(
+    account: &str,
+    cursor: &str,
+) -> Result<Option<(String, Option<Value>)>> {
+    let account = account.to_owned();
+    let cursor = cursor.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let root = cache_home()?;
+        let name = account_name(&account)?;
+        let Some(dir) = directories(&root, &["omamail", "resources", &name], false)? else {
+            return Ok(None);
+        };
+        let mut names = entries(&dir)?
+            .into_iter()
+            .map(|(_, name)| name)
+            .filter(|name| name > &cursor)
+            .collect::<Vec<_>>();
+        names.sort();
+        let Some(name) = names.into_iter().next() else {
+            return Ok(None);
+        };
+        let mut value = None;
+        if let Some(file) = regular(&dir, &name, false)? {
+            let mut bytes = Vec::new();
+            file.take(MAX_BODY as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "cache_unavailable")?;
+            if bytes.len() <= MAX_BODY {
+                if let Ok(record) = serde_json::from_slice::<Value>(&bytes) {
+                    let resource = &record["resource"];
+                    let id = resource["id"].as_str().unwrap_or("");
+                    if record["version"] == 1
+                        && record["accountId"] == account.to_lowercase()
+                        && valid(resource, id)
+                        && body_name(id)? == name
+                    {
+                        value = Some(resource.clone());
+                    }
+                }
+            }
+        }
+        Ok(Some((name, value)))
+    })
+    .await
+    .map_err(|_| "cache_unavailable")?
+}
+
 pub async fn read(account: &str, id: &str) -> Result<Option<Value>> {
     let params = json!({"accountId":account,"id":id});
     let value = tokio::task::spawn_blocking(move || call("cache.resourceRead", &params))

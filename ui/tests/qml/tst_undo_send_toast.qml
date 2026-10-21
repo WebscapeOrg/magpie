@@ -3,6 +3,7 @@ import QtTest 1.3
 import "../../components" as Omamail
 
 Item {
+  id: scene
   width: 500
   height: 200
 
@@ -41,6 +42,9 @@ Item {
     }
 
     function init() {
+      scene.width = 500
+      toast.awaitingConnection = false
+      toast.queuedCount = 1
       toast.secondsRemaining = 7
       undoSpy.clear()
     }
@@ -66,6 +70,21 @@ Item {
       verify(button)
       compare(button.text, "Undo  alt+z")
       mouseClick(button, button.width / 2, button.height / 2)
+      compare(undoSpy.count, 1)
+    }
+
+    function test_offline_send_keeps_keyboard_undo_and_fits_narrow_window() {
+      scene.width = 360
+      toast.awaitingConnection = true
+      wait(20)
+      var message = named(toast, "undo-send-message")
+      var button = named(toast, "undo-send-button")
+      compare(message.text, "Saved. Will send when connected.")
+      compare(button.text, "Undo  alt+z")
+      verify(toast.width <= scene.width)
+      verify(message.height > message.font.pixelSize)
+      button.forceActiveFocus()
+      keyClick(Qt.Key_Return)
       compare(undoSpy.count, 1)
     }
   }

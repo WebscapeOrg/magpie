@@ -42,3 +42,8 @@ for (const latestApiVersion of [undefined, "2", 3, 0, 1.5])
 assert.deepEqual(runtime.decode(status({ latestApiVersion: 1, unreleasedMethods: ["message.new"] })).unreleasedMethods, [],
   "no step, no unreleased methods")
 assert.strictEqual(runtime.decode("not json").latestApiVersion, 0)
+
+const hash = "a".repeat(64)
+assert.strictEqual(runtime.decode(status({contractHash:hash})).contractHash,hash)
+for (const contractHash of [undefined,null,"bad",7,"a".repeat(65)])
+  assert.strictEqual(runtime.decode(status({contractHash})).contractHash,"")

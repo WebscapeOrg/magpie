@@ -108,7 +108,7 @@ Scope {
   id:backend
   executable:BINARY
   expectedVersion:VERSION
-  expectedApiVersion: 1
+  expectedApiVersion: API_REVISION
   onReadyChanged:if(ready&&!root.began){root.began=true;Qt.callLater(root.nextCase)}
   onFailureChanged:if(failure!=="")root.fail(failure)
  }
@@ -170,7 +170,7 @@ def main():
             path=temp/key.lower();path.mkdir(mode=0o700);env[key]=str(path)
         config=Path(env['XDG_CONFIG_HOME'])/'omamail';config.mkdir(mode=0o700)
         registry=config/'accounts.json';registry.write_text(json.dumps({'version':1,'accounts':[{'provider':'gmail','email':'concurrency-benchmark@example.test'}],'activeId':'concurrency-benchmark@example.test'}));registry.chmod(0o600)
-        qml=QML.replace('PAYLOAD',json.dumps(cases)).replace('ROUNDS',str(args.rounds)).replace('OPERATIONS',str(args.operations)).replace('BINARY',json.dumps(str(binary))).replace('VERSION',json.dumps(version))
+        qml=QML.replace('API_REVISION',str(json.loads((ROOT/'backend-api.json').read_text())['apiVersion'])).replace('PAYLOAD',json.dumps(cases)).replace('ROUNDS',str(args.rounds)).replace('OPERATIONS',str(args.operations)).replace('BINARY',json.dumps(str(binary))).replace('VERSION',json.dumps(version))
         (temp/'shell.qml').write_text(qml)
         start=time.perf_counter();load=os.getloadavg()
         child=subprocess.Popen([shutil.which('qs'),'--no-color','--path',str(temp/'shell.qml')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)

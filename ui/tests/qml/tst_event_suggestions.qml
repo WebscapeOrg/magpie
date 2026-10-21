@@ -124,7 +124,7 @@ Item {
     }
 
     function initTestCase() {
-      BackendFixture.markReady(mailService)
+      BackendFixture.markReady(mailService, 2)
       listener = BackendFixture.install(mailService)
       // The read: Rust would fetch the message inside its account; here the
       // payload is built from what was asked, and the ask is recorded.
@@ -180,8 +180,7 @@ Item {
     function init() {
       if (Qt.platform.os !== "linux") { skip("The plugin agent backend is Linux-only"); return }
       added.clear(); dismissed.clear(); card.suggestions = []
-      mailService.backend.protocolInfo = { apiVersion: 2, protocol: 1, version: "0.0.0" }
-      mailService.backendRuntime.latestApiVersion = 2
+      BackendFixture.markReady(mailService, 2)
     }
 
     function test_a_dated_message_is_looked_at_once_when_asked() {

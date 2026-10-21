@@ -40,6 +40,9 @@ Item {
   property string refreshScope: ""
   property var queue: []
   property var activeSource: null
+  property int refreshSerial: 0
+  property int activeReads: 0
+  readonly property var sharedCache: service && service.calendarCache && service.backend && Number(service.backend.apiVersion)>=8 ? service.calendarCache : null
   property var passwordSaveQueue: []
   property string passwordToSave: ""
   property bool savingPassword: false
@@ -161,16 +164,14 @@ Item {
   function refresh(startMs, endMs) {
     var requestedStart = Number(startMs) || 0
     var requestedEnd = Number(endMs) || 0
-    if (loading) {
-      pendingRangeStart = requestedStart
-      pendingRangeEnd = requestedEnd
-      return
-    }
     pendingRangeStart = 0
     pendingRangeEnd = 0
     rangeStart = requestedStart
     rangeEnd = requestedEnd
-    if (!eventCache.loaded) return
+    setEvents(cachedEventsFor(calendarScope, rangeStart, rangeEnd))
+    refreshSerial++
+    if (!eventCache.loaded && !(sharedCache && sharedCache.loaded)) {loading=false;return}
+    activeReads = 0
     lastError = ""
     lastErrorKind = ""
     refreshAccountId = accountId
@@ -181,7 +182,7 @@ Item {
     })
     var sourceIds = queue.map(function(source) { return String(source.id || "") })
     loading = true
-    setEvents(eventCache.get(refreshScope, rangeStart, rangeEnd, sourceIds))
+    setEvents(cachedEventsFor(refreshScope, rangeStart, rangeEnd))
     processNext()
   }
 
@@ -321,8 +322,13 @@ Item {
     var values = sourcesForAccount(accountId).sources.filter(function(source) {
       return root.sourceIncluded(source)
     })
-    return eventCache.get(scope, startMs, endMs,
-      values.map(function(source) { return String(source.id || "") }))
+    var ids = values.map(function(source) { return String(source.id || "") })
+    if (sharedCache && sharedCache.loaded) {
+      var cached = sharedCache.get("sources",startMs,endMs,ids)
+      var missing=ids.filter(function(id){return !root.sharedCache.knows("sources",startMs,endMs,id)})
+      return cached.concat(eventCache.get(scope,startMs,endMs,missing))
+    }
+    return eventCache.get(scope,startMs,endMs,ids)
   }
 
   function findSource(sourceId) {
@@ -590,7 +596,7 @@ Item {
     params.source = source
     params.operation = operation
     var notifyConsent = microsoftConsentHandler(source && source.kind === "microsoft" ? source.accountId : "")
-    service.backend.call("calendar.request", params, function(result, error) {
+    service.backend.call(operation === "list" && Number(service.backend.apiVersion)>=8 ? "calendar.read" : "calendar.request", params, function(result, error) {
       var reason = ""
       if (error) {
         reason = notifyConsent(error) ? Microsoft.graphConsentMessage()
@@ -925,16 +931,17 @@ Item {
     })
   }
 
-  function replaceActiveSourceEvents(values) {
+  function replaceActiveSourceEvents(values, source) {
+    source = source || activeSource
     if (refreshScope !== calendarScope) return
-    var sourceId = activeSource ? String(activeSource.id || "") : ""
+    var sourceId = source ? String(source.id || "") : ""
     var next = events.filter(function(event) {
       return String(event && event.sourceId || "") !== sourceId
     })
     var additions = Array.isArray(values) ? values : []
     for (var i = 0; i < additions.length; i++) {
-      additions[i].sourceName = activeSource
-        ? String(activeSource.name || activeSource.id || "Calendar") : "Calendar"
+      additions[i].sourceName = source
+        ? String(source.name || source.id || "Calendar") : "Calendar"
       next.push(additions[i])
     }
     next.sort(Calendar.compareEvents)
@@ -955,64 +962,76 @@ Item {
 
   function processNext() {
     if (queue.length === 0) {
+      if (activeReads > 0) return
       activeSource = null
       loading = false
       var enabled = sourcesForAccount(refreshAccountId).sources.filter(function(source) {
         return root.sourceIncluded(source)
       }).map(function(source) { return String(source.id || "") })
       var allowed = {}
-      for (var i = 0; i < enabled.length; i++) allowed[enabled[i]] = true
-      if (refreshScope === calendarScope) setEvents(events.filter(function(event) {
+      for (var i=0;i<enabled.length;i++) allowed[enabled[i]]=true
+      if (refreshScope===calendarScope) setEvents(events.filter(function(event) {
         return allowed[String(event && event.sourceId || "")] === true
       }))
-      if (rangeStart && rangeEnd && refreshScope === calendarScope)
-        eventCache.put(refreshScope, rangeStart, rangeEnd, events,
-          contextSources.sources.filter(function(source) { return root.sourceIncluded(source) }).map(function(source) { return String(source.id) }))
-      var nextStart = pendingRangeStart
-      var nextEnd = pendingRangeEnd
-      pendingRangeStart = 0
-      pendingRangeEnd = 0
-      if (nextStart && nextEnd)
-        Qt.callLater(function() { root.refresh(nextStart, nextEnd) })
+      if (!sharedCache && rangeStart && rangeEnd && refreshScope===calendarScope)
+        eventCache.put(refreshScope,rangeStart,rangeEnd,events,enabled)
       return
     }
-    var pending = queue.slice()
-    activeSource = pending.shift()
-    queue = pending
-    if (activeSource.kind === "google") startGoogle()
-    else if (activeSource.kind === "microsoft") startGraph()
-    else if (activeSource.kind === "caldav" || activeSource.kind === "icloud") startPasswordLookup()
-    else failSource("The HEY CLI does not expose calendar events")
+    while (activeReads<2 && queue.length>0) {
+      var pending=queue.slice()
+      var source=pending.shift()
+      queue=pending
+      activeReads++
+      startNativeList(source,refreshSerial,rangeStart,rangeEnd)
+    }
   }
 
-  function startPasswordLookup() { startNativeList() }
-
-  function startNativeList() {
-    var fields = { start: new Date(rangeStart).toISOString(), end: new Date(rangeEnd).toISOString() }
-    if (activeSource.kind === "caldav" || activeSource.kind === "icloud")
-      fields.body = Calendar.caldavReport(rangeStart, rangeEnd)
-    nativeRequest(activeSource, "list", fields, function(result, error) {
-      if (error) { root.failSource(error); return }
-      var body = String(result && result.body || "")
-      var values = []
-      if (root.activeSource.kind === "caldav" || root.activeSource.kind === "icloud")
-        values = Calendar.eventsFromCaldav(body, root.activeSource.id, root.rangeStart, root.rangeEnd)
-      else {
-        var payload = null
-        try { payload = JSON.parse(body) } catch (e) {}
-        if (!payload) { root.failSource("The calendar returned an unreadable response"); return }
-        values = root.activeSource.kind === "google"
-          ? Calendar.eventsFromGoogle(payload, root.activeSource.id)
-          : Calendar.eventsFromGraph(payload, root.activeSource.id)
+  function startNativeList(source, serial, start, end) {
+    var requestedAt=sharedCache ? sharedCache.reserve() : Date.now()
+    var fields={start:new Date(start).toISOString(),end:new Date(end).toISOString()}
+    if (source.kind === "caldav" || source.kind === "icloud") fields.body=Calendar.caldavReport(start,end)
+    nativeRequest(source,"list",fields,function(result,error) {
+      var values=result && Array.isArray(result.events) ? result.events : null
+      if (!error && !values) {
+        var body=String(result && result.body || "")
+        if (source.kind === "caldav" || source.kind === "icloud") values=Calendar.eventsFromCaldav(body,source.id,start,end)
+        else {
+          var payload=null
+          try {payload=JSON.parse(body)} catch(e) {}
+          if (!payload) error="The calendar returned an unreadable response"
+          else values=source.kind === "google" ? Calendar.eventsFromGoogle(payload,source.id) : Calendar.eventsFromGraph(payload,source.id)
+        }
       }
-      root.replaceActiveSourceEvents(values)
+      if (!error && root.sharedCache) root.sharedCache.put("sources",start,end,values || [],[String(source.id)],requestedAt)
+      if (serial!==root.refreshSerial) return
+      root.activeReads--
+      if (error) {
+        root.lastError=Sources.errorLabel(source,root.service ? root.service.accountSummaries : []) + ": " + error
+      } else root.replaceActiveSourceEvents(values,source)
       root.processNext()
     })
   }
 
-  function startGraph() { startNativeList() }
-
-  function startGoogle() { startNativeList() }
+  function warmRange(start,end,stillVisible) {
+    if (!sharedCache || !sharedCache.loaded || !service || !service.backend || Number(service.backend.apiVersion)<8) return
+    var sources=sourcesForAccount(accountId).sources.filter(function(source){return root.sourceIncluded(source)})
+    var serial=refreshSerial
+    function next() {
+      if (!root || serial!==root.refreshSerial || root.loading || sources.length===0
+          || (typeof stillVisible === "function" && !stillVisible())) return
+      var source=sources.shift()
+      if (root.sharedCache.covers("sources",start,end,source.id)) {Qt.callLater(next);return}
+      var requestedAt=root.sharedCache.reserve()
+      var fields={start:new Date(start).toISOString(),end:new Date(end).toISOString()}
+      if(source.kind === "caldav" || source.kind === "icloud") fields.body=Calendar.caldavReport(start,end)
+      root.nativeRequest(source,"list",fields,function(result,error) {
+        if (!error && result && Array.isArray(result.events) && root.sharedCache)
+          root.sharedCache.put("sources",start,end,result.events,[String(source.id)],requestedAt)
+        Qt.callLater(next)
+      })
+    }
+    next()
+  }
 
   FileView {
     path: root.configPath
@@ -1039,6 +1058,11 @@ Item {
   }
 
 
+  Connections {
+    target: root.sharedCache
+    ignoreUnknownSignals: true
+    function onRestored() { if (root.rangeStart && root.rangeEnd && !root.loading) root.refresh(root.rangeStart,root.rangeEnd) }
+  }
   CalendarCache {
     id: eventCache
     backend: root.service ? root.service.backend : null

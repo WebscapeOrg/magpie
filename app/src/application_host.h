@@ -19,6 +19,7 @@ class ApplicationHost : public QObject {
     Q_PROPERTY(QVariantMap capabilities READ capabilities CONSTANT)
     Q_PROPERTY(QVariantMap settings READ settings NOTIFY settingsChanged)
     Q_PROPERTY(QString backendPath READ backendPath CONSTANT)
+    Q_PROPERTY(QVariantMap backendContract READ backendContract CONSTANT)
     Q_PROPERTY(QString notificationError READ notificationError
                NOTIFY notificationErrorChanged)
     Q_PROPERTY(QVariantMap pendingNotificationActivation
@@ -38,6 +39,7 @@ public:
     QVariantMap capabilities() const { return m_capabilities; }
     QVariantMap settings() const { return m_settings; }
     QString backendPath() const { return m_backendPath; }
+    QVariantMap backendContract() const;
     QString notificationError() const;
     QVariantMap pendingNotificationActivation() const
     {

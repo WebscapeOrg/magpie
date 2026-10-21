@@ -11,6 +11,7 @@ Item {
   property string bundledExecutable: ""
   property string bundledVersion: ""
   property int bundledApiVersion: 0
+  property var bundledContract: ({})
   property bool bundledMode: false
   property string developmentExecutable: ""
   state: "checking"
@@ -20,6 +21,7 @@ Item {
   // that step has. The handshake does not read these; `Backend` does.
   property int latestApiVersion: 0
   property var unreleasedMethods: []
+  property string contractHash: ""
   property string installedVersion: ""
   property string executable: ""
   property string error: ""
@@ -42,8 +44,9 @@ Item {
       // carries the released backend; `make app-run` builds this checkout's,
       // which answers with the unreleased step and was refused as incompatible.
       // Features still gate on the API the connected binary reports.
-      latestApiVersion = bundledApiVersion > 0 ? bundledApiVersion + 1 : 0
-      unreleasedMethods = []
+      latestApiVersion = Number(bundledContract.apiVersion || bundledApiVersion)
+      unreleasedMethods = bundledContract.unreleasedMethods || []
+      contractHash = String(bundledContract.contractHash || "")
       installedVersion = bundledVersion
       executable = bundledExecutable
       error = bundledExecutable !== "" && bundledVersion !== "" && bundledApiVersion > 0
@@ -83,6 +86,7 @@ Item {
     // A status from before the step was reported, or a harness's, has no step.
     latestApiVersion = typeof result.latestApiVersion === "number" ? result.latestApiVersion : result.requiredApiVersion
     unreleasedMethods = Array.isArray(result.unreleasedMethods) ? result.unreleasedMethods : []
+    contractHash = String(result.contractHash || "")
     installedVersion = result.installedVersion
     executable = exitCode === 0 ? result.executable : ""
     error = result.error

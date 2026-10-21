@@ -325,6 +325,7 @@ jobs:
       - name: Require exact pin and verify the released API against the published binary
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: huacnlee/omamail
           ARCH: ${{ matrix.arch }}
           SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |

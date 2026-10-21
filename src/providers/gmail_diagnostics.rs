@@ -4,6 +4,14 @@ use std::{io::Read, path::Path};
 const LIMIT: usize = 65536;
 const RECORDS: usize = 200;
 static OPERATIONS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static WRITER: std::sync::OnceLock<std::sync::mpsc::SyncSender<Command>> =
+    std::sync::OnceLock::new();
+static DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+enum Command {
+    Event(Event),
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -12,6 +20,8 @@ pub(super) struct Event {
     pub process: u32,
     pub session: u64,
     pub request: u64,
+    #[serde(default)]
+    pub rpc: u64,
     pub operation: String,
     pub lane: String,
     pub cost: u32,
@@ -31,6 +41,7 @@ impl Event {
             && matches!(
                 self.operation.as_str(),
                 "getProfile"
+                    | "history.list"
                     | "labels.list"
                     | "labels.get"
                     | "settings.sendAs.list"
@@ -74,6 +85,7 @@ impl Event {
             && matches!(
                 self.outcome.as_str(),
                 "ok" | "gmail_rate_limited"
+                    | "gmail_not_found"
                     | "gmail_unauthorized"
                     | "gmail_forbidden"
                     | "gmail_length_required"
@@ -95,18 +107,80 @@ pub(super) async fn record(event: Event) {
     if !ENABLED.try_with(|_| ()).is_ok() {
         return;
     }
-    let _ = tokio::task::spawn_blocking(move || {
-        let dirs = crate::platform::dirs::AppDirs::discover()?;
-        write(&dirs.state, event)
-    })
+    if !event.valid() {
+        return;
+    }
+    let writer = WRITER.get_or_init(|| {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(512);
+        let _ = std::thread::Builder::new()
+            .name("gmail-diagnostics".into())
+            .spawn(move || {
+                let mut batch = Vec::new();
+                let mut deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                loop {
+                    match receiver
+                        .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                    {
+                        Ok(Command::Event(event)) => batch.push(event),
+                        Ok(Command::Flush(done)) => {
+                            persist(&mut batch);
+                            let _ = done.send(());
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => persist(&mut batch),
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            persist(&mut batch);
+                            break;
+                        }
+                    }
+                    if batch.len() >= 64 || std::time::Instant::now() >= deadline {
+                        persist(&mut batch);
+                        deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                    }
+                }
+            });
+        sender
+    });
+    if writer.try_send(Command::Event(event)).is_err() {
+        DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+fn persist(batch: &mut Vec<Event>) {
+    if batch.is_empty() {
+        return;
+    }
+    let count = batch.len() as u64;
+    let events = std::mem::take(batch);
+    if crate::platform::dirs::AppDirs::discover()
+        .and_then(|dirs| write_batch(&dirs.state, events))
+        .is_err()
+    {
+        DROPPED.fetch_add(count, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+pub(super) async fn flush() {
+    let Some(writer) = WRITER.get() else { return };
+    let writer = writer.clone();
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        tokio::task::spawn_blocking(move || {
+            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            if writer.try_send(Command::Flush(sender)).is_ok() {
+                let _ = receiver.recv_timeout(std::time::Duration::from_secs(2));
+            }
+        }),
+    )
     .await;
 }
 
+#[cfg(test)]
 fn write(root: &Path, event: Event) -> Result<(), &'static str> {
+    write_batch(root, vec![event])
+}
+
+fn write_batch(root: &Path, batch: Vec<Event>) -> Result<(), &'static str> {
     use crate::platform::private_fs::{atomic_replace, directories, lock_exclusive, regular};
-    if !event.valid() {
-        return Ok(());
-    }
     let _operation = OPERATIONS.lock().map_err(|_| "cache_unavailable")?;
     let dir = directories(root, &["omamail", "diagnostics"], true)?.ok_or("cache_unavailable")?;
     let _lock = lock_exclusive(&dir, ".gmail.lock")?;
@@ -121,14 +195,17 @@ fn write(root: &Path, event: Event) -> Result<(), &'static str> {
         }
     }
     events.retain(Event::valid);
-    events.push(event);
+    events.extend(batch.into_iter().filter(Event::valid));
     if events.len() > RECORDS {
         events.drain(..events.len() - RECORDS);
     }
     loop {
         let bytes = serde_json::to_vec(&events).map_err(|_| "cache_unavailable")?;
         if bytes.len() <= LIMIT {
-            return atomic_replace(&dir, "gmail.json", &bytes);
+            atomic_replace(&dir, "gmail.json", &bytes)?;
+            return atomic_replace(&dir, "gmail-writer.json", &serde_json::to_vec(
+                &serde_json::json!({"dropped":DROPPED.load(std::sync::atomic::Ordering::Relaxed)})
+            ).map_err(|_| "cache_unavailable")?);
         }
         events.remove(0);
     }
@@ -147,6 +224,7 @@ mod tests {
             process: 1,
             session: 1,
             request: 1,
+            rpc: 1,
             operation: "messages.get.full".into(),
             lane: "interactive".into(),
             cost: 60,

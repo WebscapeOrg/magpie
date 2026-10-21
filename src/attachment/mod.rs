@@ -12,6 +12,7 @@ use std::{
 use unicode_normalization::UnicodeNormalization;
 mod pdf;
 pub mod thumbnail;
+pub(crate) mod vault;
 pub const MAX_BYTES: usize = 20 * 1024 * 1024;
 const ACTIVE_TEXT_MARKERS: &[&str] = &[
     "<!doctype",

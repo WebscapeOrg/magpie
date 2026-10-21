@@ -64,6 +64,25 @@ class Diagnostics(unittest.TestCase):
             self.assertIn(code, data)
         self.assertNotIn('unknown_error', data)
 
+    def test_rpc_failure_reason_and_time_survive_without_private_values(self):
+        self.call('record', [])
+        event = {'method':'local.edit', 'success':False, 'process':12, 'request':34,
+                 'queueUs':0, 'elapsedUs':23, 'requestBytes':80,
+                 'timeMs':1792590000000, 'error':'local_disk_full'}
+        values = [event, dict(event, error='SECRET-token\nprivate@example.test'),
+                  dict(event, method=['SECRET']), dict(event, timeMs='SECRET')]
+        path = self.folder / 'rpc.json'
+        path.write_text(json.dumps(values))
+        path.chmod(0o600)
+        self.call('open')
+        report = (self.folder / 'report.txt').read_text()
+        self.assertIn('local_disk_full', report)
+        self.assertIn('1792590000000', report)
+        self.assertIn('unknown_error', report)
+        self.assertNotIn('SECRET', report)
+        self.assertNotIn('private@example.test', report)
+        self.assertNotIn('SECRET', (self.root / 'state/launched').read_text())
+
     def test_gmail_report_preserves_transport_facts_and_discards_private_values(self):
         self.call('record', [self.event('gmail_rate_limited')])
         event = {'time': '2026-10-17T14:02:38Z', 'process': 123, 'session': 4,
@@ -100,6 +119,26 @@ class Diagnostics(unittest.TestCase):
         path.chmod(0o600)
         self.call('open')
         self.assertLessEqual((self.folder / 'report.txt').stat().st_size, 65536)
+
+    def test_rpc_report_only_keeps_generated_ids_timings_and_drop_counts(self):
+        self.call('record', [])
+        event = {'process': 12, 'request': 34, 'method': 'reader.open', 'queueUs': 56,
+                 'elapsedUs': 78, 'requestBytes': 90, 'success': True, 'accountId': 'SECRET-address',
+                 'params': {'body': 'SECRET-body'}}
+        rows = [event, dict(event, request='SECRET-caller-id'), dict(event, method='SECRET-method')]
+        for filename, value in [('rpc.json', rows), ('rpc-writer.json', {'dropped': 7, 'private': 'SECRET'}),
+                                ('gmail-writer.json', {'dropped': 9})]:
+            path = self.folder / filename
+            path.write_text(json.dumps(value))
+            path.chmod(0o600)
+        self.call('open')
+        report = (self.folder / 'report.txt').read_text()
+        self.assertIn('"request": 34', report)
+        self.assertIn('"elapsedUs": 78', report)
+        self.assertIn('rpc-writer.json: dropped records=7', report)
+        self.assertIn('gmail-writer.json: dropped records=9', report)
+        self.assertNotIn('SECRET', report)
+        self.assertNotIn('SECRET', (self.root / 'state/launched').read_text())
 
     def test_static_backend_error_vocabulary_does_not_drift(self):
         spec = importlib.util.spec_from_file_location('diagnostics', SCRIPT)

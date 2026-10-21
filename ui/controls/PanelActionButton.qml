@@ -46,9 +46,22 @@ BorderSurface {
   signal hovered(bool isHovered)
 
   activeFocusOnTab: focusable
-  Keys.onReturnPressed: if (focusable) root.clicked()
-  Keys.onEnterPressed: if (focusable) root.clicked()
-  Keys.onSpacePressed: if (focusable) root.clicked()
+  Accessible.role: Accessible.Button
+  Accessible.name: tooltipText
+  Accessible.onPressAction: if (root.enabled) root.clicked()
+  function acceptsActivation(event) {
+    return root.enabled && root.activeFocus && root.focusable
+      && (event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier
+      && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+  }
+  Keys.onShortcutOverride: function(event) {
+    if (root.acceptsActivation(event)) event.accepted = true
+  }
+  Keys.onPressed: function(event) {
+    if (!root.acceptsActivation(event)) return
+    event.accepted = true
+    root.clicked()
+  }
 
   implicitWidth: size
   implicitHeight: size
@@ -97,7 +110,7 @@ BorderSurface {
   }
 
   Widgets.PanelToolTip {
-    visible: root.tooltipText !== "" && mouse.containsMouse
+    visible: root.tooltipText !== "" && (mouse.containsMouse || root.activeFocus)
     text: root.tooltipText
     fontFamily: root.fontFamily
   }

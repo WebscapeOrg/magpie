@@ -26,6 +26,21 @@ function connectedApiVersion(info) {
   return typeof info.apiVersion === "number" ? info.apiVersion : 0
 }
 
+function usableApiVersion(info, released, latest, contractHash) {
+  var connected = connectedApiVersion(info)
+  if (connected <= released) return connected
+  if (connected !== latest || latest !== released + 1) return 0
+  if (typeof contractHash !== "string" || !/^[a-f0-9]{64}$/.test(contractHash)
+      || info.contractHash !== contractHash) return released
+  return connected
+}
+
+function methodRefusal(info, method) {
+  if (!info || !Array.isArray(info.methods)) return null
+  if (info.methods.indexOf(String(method || "")) >= 0) return null
+  return { code: -32012, message: NEEDS_UPDATE }
+}
+
 // Whether the checkout implements an API step the connected binary lacks.
 // True only with a binary connected: nothing to update until there is one.
 function needsUpdate(info, latestApiVersion) {

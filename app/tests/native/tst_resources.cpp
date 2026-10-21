@@ -1,5 +1,6 @@
 #include "app_icon.h"
 #include "resource_check.h"
+#include "backend_contract.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -59,6 +60,7 @@ private slots:
     void rejectsInvalidManifest();
     void smokeTestLoadsQmlHandshakesAndWritesReadyFile();
     void smokeRejectsMismatchedBackendApi();
+    void smokeRejectsMismatchedBackendContract();
     void smokeRejectsOversizedStdoutFrame();
     void smokeDrainsLargeStderr();
     void smokeBoundsBothChannelsAfterQuitReply();
@@ -164,7 +166,7 @@ void ResourcesTest::smokeTestLoadsQmlHandshakesAndWritesReadyFile()
     QVERIFY(ready.open(QIODevice::ReadOnly));
     const QJsonObject value = QJsonDocument::fromJson(ready.readAll()).object();
     QCOMPARE(value.value(QStringLiteral("version")).toString(), QStringLiteral(OMAMAIL_APP_VERSION));
-    QCOMPARE(value.value(QStringLiteral("apiVersion")).toInt(), 7);
+    QCOMPARE(value.value(QStringLiteral("apiVersion")).toInt(), OMAMAIL_BACKEND_API_VERSION);
 }
 
 void ResourcesTest::smokeRejectsMismatchedBackendApi()
@@ -178,6 +180,23 @@ void ResourcesTest::smokeRejectsMismatchedBackendApi()
     qunsetenv("OMAMAIL_SMOKE_FIXTURE");
     QVERIFY(error.contains(QStringLiteral("does not match")));
     QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("ready.json"))));
+}
+
+void ResourcesTest::smokeRejectsMismatchedBackendContract()
+{
+    if (OMAMAIL_BACKEND_API_VERSION == OMAMAIL_RELEASED_API_VERSION)
+        QSKIP("Released API compatibility uses the stable revision");
+    QTemporaryDir directory;
+    ResourcePaths paths = completeLayout(directory);
+    paths.backend = QCoreApplication::applicationFilePath();
+    const QString readyPath = directory.filePath(QStringLiteral("ready.json"));
+    qputenv("OMAMAIL_SMOKE_FIXTURE", "stale-contract");
+    QString error;
+    const bool ready = runSmokeTest(paths, readyPath, &error);
+    qunsetenv("OMAMAIL_SMOKE_FIXTURE");
+    QVERIFY(!ready);
+    QVERIFY(!QFileInfo::exists(readyPath));
+    QVERIFY(error.contains(QStringLiteral("does not match")));
 }
 
 void ResourcesTest::smokeRejectsOversizedStdoutFrame()
@@ -344,7 +363,9 @@ int main(int argc, char *argv[])
                 result = {{QStringLiteral("name"), QStringLiteral("omamail")},
                           {QStringLiteral("version"), QStringLiteral(OMAMAIL_APP_VERSION)},
                           {QStringLiteral("protocol"), 1},
-                          {QStringLiteral("apiVersion"), fixture == QByteArrayLiteral("stale-api") ? 6 : 7}};
+                          {QStringLiteral("apiVersion"), fixture == QByteArrayLiteral("stale-api") ? 6 : OMAMAIL_BACKEND_API_VERSION},
+                          {QStringLiteral("contractHash"), fixture == QByteArrayLiteral("stale-contract")
+                              ? QString(64, QLatin1Char('0')) : QStringLiteral(OMAMAIL_BACKEND_CONTRACT_HASH)}};
             } else {
                 result = {{QStringLiteral("quitReady"), true}};
             }

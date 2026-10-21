@@ -1053,3 +1053,70 @@ fn test_directories_retry_collisions_without_reusing_or_removing_existing_data()
         0o700
     );
 }
+
+#[test]
+fn restart_resumes_only_explicitly_authorized_never_started_sends() {
+    let row = |id: &str, state: &str, resume: bool| json!({"id":id,"accountId":"synthetic@example.org","provider":"gmail","state":state,"resumeUnsent":resume,"payload":{"raw":"synthetic"}});
+    let entries = recover(&[
+        row("waiting", "waiting", true),
+        row("sending", "sending", true),
+        row("legacy", "queued", false),
+    ])
+    .unwrap();
+    assert_eq!(entries[0]["state"], "waiting");
+    assert_eq!(entries[1]["state"], "unknown");
+    assert_eq!(entries[2]["state"], "cancelled");
+    assert!(
+        !waiting(&entries[1]),
+        "an uncertain delivery must never enter the worker's eligible set"
+    );
+    assert!(recover(&[row("unapproved", "waiting", false)]).is_err());
+}
+
+#[tokio::test]
+async fn cancelling_during_offline_preflight_never_calls_delivery() {
+    let dir = Temp::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let wait = gate.clone();
+    let signal = entered.clone();
+    let outbox = Outbox::with_root(
+        Arc::new(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(json!({})) })
+        }),
+        Some(dir.0.clone()),
+    )
+    .with_readiness(Arc::new(move |_, _| {
+        let wait = wait.clone();
+        let signal = signal.clone();
+        Box::pin(async move {
+            signal.notify_one();
+            wait.notified().await;
+            Ok(())
+        })
+    }));
+    let mut request = enqueue("offline", "a@example.org", 0);
+    request["resumeUnsent"] = json!(true);
+    outbox.call("outbox.enqueue", &request).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), entered.notified())
+        .await
+        .unwrap();
+    outbox
+        .call(
+            "outbox.undo",
+            &json!({"accountId":"a@example.org","sendId":"offline"}),
+        )
+        .await
+        .unwrap();
+    gate.notify_one();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        state(&outbox, "offline", "a@example.org").await,
+        "cancelled"
+    );
+    outbox.shutdown().await.unwrap();
+}

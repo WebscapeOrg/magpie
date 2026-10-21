@@ -23,28 +23,22 @@ Item {
     property bool canArchive: true
     property string contentDirection: "auto"
     property int loads: 0
+    property var agentJobs: ({})
+    property var agentAttentionByMessage: ({})
     function loadMore() { loads++; listLoading = true }
     function act(_id, _action) {}
     function toggleStar(_id) {}
   }
 
-  Flickable {
-    id: flick
-    anchors.fill: parent
-    contentWidth: width
-    contentHeight: list.implicitHeight + 16
-    clip: true
-    Mail.MessageList {
+  Mail.MessageList {
       id: list
-      scroller: flick
-      width: flick.width
+      anchors.fill: parent
       service: fakeService
       textColor: Commons.Color.foreground
       accentColor: Commons.Color.accent
       dimColor: Commons.Color.foreground
       urgentColor: Commons.Color.accent
       panelFontFamily: "monospace"
-    }
   }
 
   TestCase {
@@ -63,7 +57,7 @@ Item {
       var rows = []
       for (var i = 1; i <= 12; i++) rows.push(row(i + ":INBOX"))
       fakeService.messages = rows
-      flick.contentY = 0
+      list.contentY = 0
       wait(30)
       fakeService.hasMore = true
       fakeService.loads = 0
@@ -71,14 +65,14 @@ Item {
     }
 
     function test_the_foot_asks_for_the_next_page_once() {
-      verify(flick.contentHeight > flick.height, "the list is longer than the view")
+      verify(list.contentHeight > list.height, "the list is longer than the view")
       compare(fakeService.loads, 0)
-      flick.contentY = flick.contentHeight - flick.height
+      list.positionViewAtEnd()
       tryCompare(fakeService, "loads", 1, 1000, "reaching the foot asks for the page")
       // Staying at the foot, or wobbling on it, does not ask again while
       // the page is on its way.
-      flick.contentY = flick.contentY - 1
-      flick.contentY = flick.contentHeight - flick.height
+      list.contentY = list.contentY - 1
+      list.positionViewAtEnd()
       wait(20)
       compare(fakeService.loads, 1)
       // The page lands: the list grows, the foot moves away, and reaching
@@ -88,8 +82,8 @@ Item {
       for (var i = 13; i <= 24; i++) more.push(row(i + ":INBOX"))
       fakeService.messages = more
       wait(20)
-      verify(flick.contentY < flick.contentHeight - flick.height, "the foot moved away")
-      flick.contentY = flick.contentHeight - flick.height
+      verify(list.contentY < list.contentHeight - list.height, "the foot moved away")
+      list.positionViewAtEnd()
       tryCompare(fakeService, "loads", 2, 1000)
     }
 
@@ -104,7 +98,7 @@ Item {
       fakeService.hasMore = true
       fakeService.messages = [row("1:INBOX"), row("2:INBOX")]
       wait(30)
-      verify(flick.contentHeight <= flick.height, "shorter than the view")
+      verify(list.contentHeight <= list.height, "shorter than the view")
       fakeService.listLoading = false
       tryCompare(fakeService, "loads", 1, 1000, "the page that settled short is followed")
       compare(fakeService.listLoading, true, "and that ask is on its way")
@@ -123,14 +117,32 @@ Item {
 
     function test_no_more_means_no_ask() {
       fakeService.hasMore = false
-      flick.contentY = flick.contentHeight - flick.height
+      list.positionViewAtEnd()
       wait(20)
       compare(fakeService.loads, 0)
       compare(list.loadMoreIfAtFoot(), false)
     }
 
+    function test_large_lists_keep_delegates_bounded_and_rebind_identity() {
+      fakeService.hasMore = false
+      var values=[]
+      for (var i=0;i<10000;i++) values.push(row("synthetic-"+i))
+      fakeService.messages=values
+      wait(100)
+      compare(list.count,10000)
+      verify(list.contentItem.children.length<100,"only the viewport and nearby rows are instantiated")
+      list.reveal("synthetic-9999")
+      tryVerify(function(){return list.itemAtIndex(9999)!==null},1000)
+      compare(list.itemAtIndex(9999).summary.id,"synthetic-9999")
+      verify(list.contentItem.children.length<100,"recycling keeps the delegate count bounded")
+      list.reveal("synthetic-0")
+      tryVerify(function(){return list.itemAtIndex(0)!==null},1000)
+      compare(list.itemAtIndex(0).summary.id,"synthetic-0")
+      compare(fakeService.loads,0)
+    }
+
     function test_a_failed_page_waits_for_manual_retry() {
-      flick.contentY = flick.contentHeight - flick.height
+      list.positionViewAtEnd()
       tryCompare(fakeService, "loads", 1, 1000)
 
       // A failure ends the load without adding messages. Remaining at the

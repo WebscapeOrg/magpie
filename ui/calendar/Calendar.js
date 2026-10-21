@@ -1285,6 +1285,26 @@ function eventsOnDay(events, day) {
   return out
 }
 
+function indexDays(events, days) {
+  var result = {}
+  var ordered = (Array.isArray(events) ? events : []).slice().sort(compareEvents)
+  var dates = Array.isArray(days) ? days : []
+  for (var d=0;d<dates.length;d++) result[dates[d].startMs]=[]
+  for (var i=0;i<ordered.length;i++) {
+    var event=ordered[i]
+    if (!event || !event.start) continue
+    var end=event.end ? event.end.ms : event.start.ms+1
+    var low=0, high=dates.length
+    while (low<high) {
+      var middle=Math.floor((low+high)/2)
+      if (dates[middle].endMs<=event.start.ms) low=middle+1
+      else high=middle
+    }
+    for (var j=low;j<dates.length && dates[j].startMs<end;j++) result[dates[j].startMs].push(event)
+  }
+  return result
+}
+
 // Presentation only: retain timed endpoints for details, editing and writes.
 // Compare local calendar days rather than 24 hours across daylight-saving changes.
 function displayInAllDayLane(event) {

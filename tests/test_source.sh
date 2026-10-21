@@ -419,7 +419,7 @@ if "accountId: root.calendarAccountId" not in service:
 # one is open. Keying by the account there stored a copy of the same events per
 # account and turned every mailbox switch into a cache miss and a full refetch.
 controller = Path("calendar/CalendarController.qml").read_text()
-if "eventCache.get(refreshScope" not in controller or "eventCache.put(refreshScope" not in controller:
+if "cachedEventsFor(refreshScope" not in controller or "eventCache.get(scope" not in controller or "eventCache.put(refreshScope" not in controller:
     raise SystemExit("test_source.sh: the event cache must be keyed by the calendar scope, not the mailbox")
 # The reload watches the scope rather than the two things that go into it. A
 # mailbox switch under the unified view changes nothing on screen, and neither
@@ -515,15 +515,15 @@ grep -q 'onEnabledSourceKeyChanged: reloadVisibleRange()' calendar/CalendarContr
   || fail "calendar events must load automatically when a source is discovered"
 grep -q 'function onSourcesLoadedChanged' components/CalendarView.qml \
   || fail "the calendar view must refresh when its saved sources become ready"
-grep -q 'property double pendingRangeStart' calendar/CalendarController.qml \
-  || fail "a calendar range change during loading must be queued"
+grep -q 'rangeStart = requestedStart' calendar/CalendarController.qml \
+  || fail "a calendar range change must select the target range immediately"
 grep -q 'CalendarCache {' calendar/CalendarController.qml \
   || fail "CalendarController must restore events before refreshing the network"
 if grep -q '^    events = \[\]$' calendar/CalendarController.qml; then
   fail "Calendar refresh must not blank cached events before the network answers"
 fi
-grep -q 'root.refresh(nextStart, nextEnd)' calendar/CalendarController.qml \
-  || fail "the queued calendar range must run after the active refresh"
+grep -q 'serial!==root.refreshSerial' calendar/CalendarController.qml \
+  || fail "an old calendar response must not replace the selected range"
 grep -q '"calendar.request"' calendar/CalendarController.qml \
   || fail "calendar operations must use the bounded native backend"
 python3 - <<'PY'
@@ -620,7 +620,7 @@ grep -q 'id: dayHeaders' components/WeekCalendarView.qml \
 
 # Row fills reach the list/reader divider; content padding belongs inside a
 # row, not in a gutter that cuts every selected background short.
-grep -q 'width: listFlick\.width$' App.qml \
+grep -q 'width: root.width$' components/MessageList.qml \
   || fail "message rows must reach the list column edge"
 grep -q 'leadingBoundaryOverlap: listSplitter.visible ? listSplitter.width : 0' App.qml \
   || fail "the reader toolbar boundary must cross the splitter hit area to meet its visible rule"

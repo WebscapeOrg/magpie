@@ -267,7 +267,7 @@ touch linked
 
     def test_missing_status_never_downloads(self):
         result = self.manager.run("status")
-        self.assertEqual(result, dict(state="missing", requiredVersion="0.8.2", requiredApiVersion=1, latestApiVersion=1, unreleasedMethods=[], installedVersion="", executable=str(self.binary), error="", cliInstalled=False))
+        self.assertEqual(result, dict(state="missing", requiredVersion="0.8.2", requiredApiVersion=1, latestApiVersion=1, unreleasedMethods=[], contractHash=hashlib.sha256((self.root / "backend-api.json").read_bytes()).hexdigest(), installedVersion="", executable=str(self.binary), error="", cliInstalled=False))
         self.assertFalse(self.binary.parent.exists())
 
     def test_release_status_uses_only_local_pin_and_api_despite_newer_cargo(self):

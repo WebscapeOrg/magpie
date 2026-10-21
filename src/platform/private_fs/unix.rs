@@ -237,6 +237,25 @@ pub(crate) fn regular_readonly(dir: &File, name: &str) -> Result<Option<File>> {
     Ok(Some(file))
 }
 
+pub(crate) fn create_private(dir: &File, name: &str) -> Result<File> {
+    validate_owned_root(dir)?;
+    let name = cstr(name.as_ref())?;
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        return Err("cache_unsafe_path");
+    }
+    let file = unsafe { File::from_raw_fd(fd) };
+    validate_acl(&file, true)?;
+    Ok(file)
+}
+
 pub(crate) fn names(dir: &File) -> Result<Vec<String>> {
     let fd = unsafe {
         libc::openat(
@@ -379,6 +398,14 @@ pub(crate) fn atomic_replace(dir: &File, name: &str, bytes: &[u8]) -> Result<()>
 
 pub(crate) fn sync_dir(dir: &File) -> Result<()> {
     dir.sync_all().map_err(|_| "cache_unavailable")
+}
+
+pub(crate) fn available_bytes(dir: &File) -> Result<u64> {
+    let mut status: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstatvfs(dir.as_raw_fd(), &mut status) } != 0 {
+        return Err("cache_unavailable");
+    }
+    Ok((status.f_bavail as u64).saturating_mul(status.f_frsize as u64))
 }
 
 pub(crate) struct ExclusiveLock {

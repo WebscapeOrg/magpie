@@ -189,3 +189,13 @@ assert.strictEqual(api.webMessageUrl("18f3a", -1), "https://mail.google.com/mail
 assert.strictEqual(api.webSearchUrl("from:jane", 0), "https://mail.google.com/mail/u/0/#search/from%3Ajane")
 
 console.log("test_gmail_api.js ok")
+
+assert.strictEqual(api.localEditError(null), "")
+for (const message of ["backend_needs_update", "Invalid params", "Method not found"])
+  assert(api.localEditError({message}).includes("do not match"))
+for (const message of ["local_disk_full", "local_disk_low"])
+  assert(api.localEditError({message}).includes("disk space"))
+const uncertain = api.localEditError({message:"Backend request timed out"})
+assert(uncertain.includes("could not confirm"))
+assert(!uncertain.includes("kept as it was"),"a timeout does not prove rollback")
+assert(!api.localEditError({message:"private@example.test Bearer secret"}).includes("secret"))

@@ -99,7 +99,7 @@ Scope {
   id: backend
   executable: BINARY
   expectedVersion: VERSION
-  expectedApiVersion: 1
+  expectedApiVersion: API_REVISION
   onReadyChanged:if(ready&&!root.began){root.began=true;Qt.callLater(root.beginCase)}
   onFailureChanged:if(failure!=="")root.fail(failure)
  }
@@ -146,7 +146,7 @@ def main():
             path=temp/key.lower();path.mkdir(mode=0o700);env[key]=str(path)
         for module in ['backend','message']:shutil.copytree(ROOT/'ui'/module,temp/module)
         shutil.copytree(HERE/'baseline/ui',temp/'baseline')
-        qml=QML.replace('PAYLOAD',json.dumps(cases)).replace('SAMPLES',str(args.samples)).replace('BINARY',json.dumps(str(binary))).replace('VERSION',json.dumps(version))
+        qml=QML.replace('API_REVISION',str(json.loads((ROOT/'backend-api.json').read_text())['apiVersion'])).replace('PAYLOAD',json.dumps(cases)).replace('SAMPLES',str(args.samples)).replace('BINARY',json.dumps(str(binary))).replace('VERSION',json.dumps(version))
         (temp/'shell.qml').write_text(qml)
         load_before=os.getloadavg();start=time.perf_counter()
         process=subprocess.Popen([shutil.which('qs'),'--no-color','--path',str(temp/'shell.qml')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)

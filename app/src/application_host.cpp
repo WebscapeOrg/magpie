@@ -1,4 +1,5 @@
 #include "application_host.h"
+#include "backend_contract.h"
 
 #include "resource_check.h"
 
@@ -10,6 +11,7 @@
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QSet>
 #include <QStandardPaths>
@@ -81,6 +83,15 @@ void ApplicationHost::loadManifest(const QString &path)
     if (!file.open(QIODevice::ReadOnly)) return;
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
     if (document.isObject()) m_manifest = document.object().toVariantMap();
+}
+
+QVariantMap ApplicationHost::backendContract() const
+{
+    return {{QStringLiteral("apiVersion"), OMAMAIL_BACKEND_API_VERSION},
+            {QStringLiteral("releasedApiVersion"), OMAMAIL_RELEASED_API_VERSION},
+            {QStringLiteral("contractHash"), QStringLiteral(OMAMAIL_BACKEND_CONTRACT_HASH)},
+            {QStringLiteral("unreleasedMethods"), QJsonDocument::fromJson(
+                OMAMAIL_UNRELEASED_METHODS).array().toVariantList()}};
 }
 
 bool ApplicationHost::openExternal(const QString &urlOrPath)

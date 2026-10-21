@@ -15,15 +15,16 @@ Item {
   QtObject {
     id: service
     property var backend: backend
+    property bool windowOpen: true
     property var accountSummaries: [{id:"one@example.org"},{id:"two@example.org"}]
     property var messages: [{id:"one-message",sourceId:"shared-id",from:{email:"alex@example.com"}},{id:"two-message",sourceId:"shared-id",from:{email:"alex@example.com"}}]
     function hostForId(id) { return String(id).indexOf("two-")===0 ? second : first }
   }
-  Inbox.InboxTools { id: tools; service: service }
+  Inbox.InboxTools { id: tools; service: service; visibleRows: service.messages }
   TestCase {
     name: "InboxTools"
     when: windowShown
-    function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.snapshotsPending=({});tools.requesting=false }
+    function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.snapshotsPending=({});tools.requesting=false;service.windowOpen=true;tools.visibleRows=service.messages }
     function cleanup() { backend.ready=false }
     function test_admission_failure_explains_each_affected_row_without_leaking_error() {
       backend.apiVersion=8;backend.ready=true
@@ -39,6 +40,19 @@ Item {
       backend.ready=true;tools.refresh()
       compare(tools.available,false)
       compare(backend.calls.length,0)
+    }
+    function test_hidden_window_starts_no_overviews_or_avatar_fetches() {
+      service.windowOpen=false
+      backend.apiVersion=8;backend.ready=true
+      tools.refresh()
+      verify(!backend.calls.some(function(v){return v.method==="inbox.overviews" || v.method==="inbox.avatar"}))
+    }
+    function test_only_visible_rows_request_overviews_and_avatars() {
+      tools.visibleRows=[service.messages[0]]
+      backend.apiVersion=8;backend.ready=true
+      var jobs=backend.calls.filter(function(v){return v.method==="inbox.overviews" || v.method==="inbox.avatar"})
+      compare(jobs.length,2)
+      for (var i=0;i<jobs.length;i++) compare(jobs[i].params.accountId,first.accountId)
     }
     function test_pause_keeps_avatars_available_and_stops_new_overview_admission() {
       tools.paused=true

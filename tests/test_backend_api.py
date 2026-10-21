@@ -140,6 +140,7 @@ function storageSnapshot(directory = process.env.HOME) {
     assert.deepEqual(storageSnapshot(), before, method + ': disabled method has no effects');
   }
   if (!released) {
+    assert.equal(info.contractHash, require('crypto').createHash('sha256').update(fs.readFileSync(process.env.CONTRACT_ROOT + '/backend-api.json')).digest('hex'), 'compiled API contract matches the UI contract');
     for (const method of ['jmap.actionAvailability', 'jmap.actionRows']) {
       assert.ok(!info.methods.includes(method), 'internal planner is not advertised');
       const before = storageSnapshot();

@@ -96,6 +96,7 @@ Item {
   readonly property var monthSpans: Calendar.monthSpanLayout(controller ? controller.events : [], days)
   readonly property var days: Calendar.monthGridDays(
     visibleMonth.getFullYear(), visibleMonth.getMonth(), 1)
+  readonly property var monthEventsByDay: visible && viewMode === "month" ? Calendar.indexDays(controller ? controller.events : [],days) : ({})
   readonly property var weekDays: Calendar.weekDays(visibleWeek.getTime(), 1)
   readonly property var displayDays: viewMode === "day" ? weekDays.filter(function(day) {
     return day.isoDate === Calendar.isoDate(visibleWeek)
@@ -173,6 +174,7 @@ Item {
       }
     }
     function onLoadingChanged() {
+      if (!root.controller.loading && root.visible) warmAdjacent.restart()
       if (root.controller.loading || !root.detailEvent || root.controller.lastError !== "") return
       var source = root.controller.findSource(root.detailEvent.sourceId)
       if (source && source.enabled === false) return
@@ -262,6 +264,26 @@ Item {
       }
     }
     moveSelection(1)
+  }
+
+  Timer {
+    id: warmAdjacent
+    interval: 500
+    onTriggered: {
+      if (!root.visible || !root.controller || root.controller.loading || typeof root.controller.warmRange !== "function") return
+      for (var offset=-1;offset<=1;offset+=2) {
+        var adjacent
+        if (root.viewMode === "month" || root.viewMode === "agenda") {
+          var month=new Date(root.visibleMonth.getFullYear(),root.visibleMonth.getMonth()+offset,1)
+          adjacent=Calendar.monthGridDays(month.getFullYear(),month.getMonth(),1)
+        } else {
+          var day=new Date(root.visibleWeek)
+          day.setDate(day.getDate()+offset*7)
+          adjacent=Calendar.weekDays(day.getTime(),1)
+        }
+        root.controller.warmRange(adjacent[0].startMs,adjacent[adjacent.length-1].endMs,function() {return root.visible})
+      }
+    }
   }
 
   function refresh() {
@@ -703,8 +725,7 @@ Item {
           objectName: "calendar-month-day-" + modelData.isoDate
           required property var modelData
           required property int index
-          readonly property var dayEvents: Calendar.eventsOnDay(
-             root.controller ? root.controller.events : [], modelData).filter(function(event) {
+          readonly property var dayEvents: (root.monthEventsByDay[modelData.startMs] || []).filter(function(event) {
                return !Calendar.spansMultipleDays(event)
              })
           readonly property int week: Math.floor(index / 7)

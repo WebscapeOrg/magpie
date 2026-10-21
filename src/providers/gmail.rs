@@ -183,7 +183,80 @@ pub(crate) fn validate_message_id(id: &str) -> Result<(), &'static str> {
     super::gmail_http::validate_path_part(id).map_err(|_| "invalid_params")
 }
 
+pub(crate) fn normalize_labels(value: Value) -> Value {
+    resources::normalize("gmail.labels", value)
+}
+
 impl Session {
+    pub(crate) async fn replica_call(
+        &self,
+        account: &str,
+        operation: &str,
+        params: &Value,
+    ) -> Result<Value, &'static str> {
+        self.access_token(account).await?;
+        let budget = self.account(account)?.budget.clone();
+        let mut query = Vec::new();
+        let path = match operation {
+            "inventory" => {
+                query.extend([
+                    ("maxResults".into(), "500".into()),
+                    ("includeSpamTrash".into(), "true".into()),
+                    (
+                        "pageToken".into(),
+                        params["pageToken"].as_str().unwrap_or("").into(),
+                    ),
+                ]);
+                vec!["messages"]
+            }
+            "history" => {
+                query.extend([
+                    (
+                        "startHistoryId".into(),
+                        field(params, "historyId", true)?.into(),
+                    ),
+                    (
+                        "pageToken".into(),
+                        params["pageToken"].as_str().unwrap_or("").into(),
+                    ),
+                    ("maxResults".into(), "500".into()),
+                ]);
+                vec!["history"]
+            }
+            "content" | "minimal" => {
+                query.push((
+                    "format".into(),
+                    if operation == "minimal" {
+                        "minimal"
+                    } else {
+                        "full"
+                    }
+                    .into(),
+                ));
+                vec!["messages", field(params, "id", true)?]
+            }
+            "attachment" => vec![
+                "messages",
+                field(params, "id", true)?,
+                "attachments",
+                field(params, "attachmentId", true)?,
+            ],
+            "profile" => vec!["profile"],
+            "labels" => vec!["labels"],
+            _ => return Err("invalid_params"),
+        };
+        self.get_with(
+            account,
+            || refresh_grant(account.to_owned()),
+            |token| {
+                let budget = budget.clone();
+                let path = &path;
+                let query = &query;
+                async move { gmail_http::get_replica(path, query, &token, &budget).await }
+            },
+        )
+        .await
+    }
     /// Internal, read-only thread context. Never accepts a caller-selected URL.
     pub(crate) async fn thread_resources(
         &self,

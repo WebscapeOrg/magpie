@@ -10,6 +10,15 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(backend_contract_path "${CMAKE_CURRENT_SOURCE_DIR}/../backend-api.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${backend_contract_path}")
+file(READ "${backend_contract_path}" backend_contract)
+file(SHA256 "${backend_contract_path}" OMAMAIL_BACKEND_CONTRACT_HASH)
+string(JSON OMAMAIL_BACKEND_API_VERSION GET "${backend_contract}" apiVersion)
+string(JSON OMAMAIL_RELEASED_API_VERSION GET "${backend_contract}" releasedApiVersion)
+string(JSON OMAMAIL_UNRELEASED_METHODS GET "${backend_contract}" unreleased methods)
+configure_file(src/backend_contract.h.in backend_contract.h @ONLY)
+
 find_package(Qt6 6.5 REQUIRED COMPONENTS
   Core Gui Qml Quick QuickControls2 Network Test)
 
@@ -64,7 +73,7 @@ if(WIN32)
   target_compile_definitions(omamail_native PRIVATE
     _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 endif()
-target_include_directories(omamail_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(omamail_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(omamail_native PUBLIC
   OMAMAIL_APP_VERSION="${PROJECT_VERSION}"
   OMAMAIL_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."

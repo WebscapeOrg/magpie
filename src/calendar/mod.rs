@@ -5,6 +5,8 @@ use std::{sync::OnceLock, time::Duration};
 
 pub mod attendance;
 mod discovery;
+pub(crate) mod parse;
+pub(crate) mod reads;
 pub mod reminders;
 pub use discovery::discover;
 pub use discovery::google as discover_google;

@@ -7,17 +7,7 @@ import "../account/Model.js" as Model
 import "../account/Unified.js" as Unified
 import "../agent/Agent.js" as Agent
 
-// The message list. A Repeater in a Column rather than a ListView because the
-// panel already owns one Flickable and nesting a second scroller inside it
-// gives every wheel event two plausible targets.
-//
-// Hovering a row does not move the keyboard's cursor. A row reports its own
-// hover appearance (MessageRow.hot), and letting hover write `cursorId` as well
-// put the mouse and the keyboard in a fight the mouse won: pressing j scrolls
-// the list to follow the cursor, and Qt re-reports hover when content moves
-// under a pointer that has not moved — so the cursor was pulled straight back
-// to whatever the mouse happened to be resting on, and j went nowhere.
-Column {
+ListView {
   id: root
 
   required property var service
@@ -46,29 +36,41 @@ Column {
   width: parent ? parent.width : 0
   spacing: MailStyle.space(2)
 
-  // Where a row sits in this column's own coordinates, so the panel's scroller
-  // can bring it into view. Found by index rather than by asking the rows which
-  // one holds the cursor: the answer must not wait on a binding to propagate.
-  function boundsFor(id) {
-    if (!root.service) return null
+  clip: true
+  boundsBehavior: Flickable.StopAtBounds
+  reuseItems: true
+  cacheBuffer: height
+  topMargin: MailStyle.space(6)
+  bottomMargin: MailStyle.space(6)
+  model: root.service ? root.service.messages.length : 0
+
+  function updateVisibleRows() {
+    if (!visible || !service || !service.inboxTools) return
+    var first = indexAt(1, contentY + 1)
+    var last = indexAt(1, contentY + height - 1)
+    if (first < 0) first = 0
+    if (last < first) last = Math.min(count - 1, first + 20)
+    service.inboxTools.visibleRows = service.messages.slice(Math.max(0, first - 2), last + 3)
+  }
+  onContentYChanged: { Qt.callLater(updateVisibleRows); loadMoreSoon() }
+  onContentHeightChanged: loadMoreSoon()
+  onCountChanged: Qt.callLater(updateVisibleRows)
+  onVisibleChanged: Qt.callLater(updateVisibleRows)
+  Component.onCompleted: Qt.callLater(updateVisibleRows)
+
+  function reveal(id) {
     var index = Model.indexById(root.service.messages, id)
-    if (index < 0) return null
-    var item = rows.itemAt(index)
-    if (!item) return null
-    return ({ y: item.y, height: item.height })
+    if (index >= 0) positionViewAtIndex(index, ListView.Contain)
   }
 
-  // The model is a COUNT, not the array. The list is handed a new array
-  // whenever anything about any message changes — a row opened half a
-  // second ago comes back read, a poll lands — and a Repeater fed the array
-  // tore every row down and built it again each time: a pointer pressed on
-  // a row at that moment was pressed on nothing, and the click was lost.
-  // With the count, a row stays while its summary is read again by index.
-  Repeater {
-    id: rows
-    model: root.service.messages.length
+  function boundsFor(id) {
+    var index = Model.indexById(root.service.messages, id)
+    var item = itemAtIndex(index)
+    return item ? ({y:item.y, height:item.height}) : null
+  }
 
-    MessageRow {
+  delegate: MessageRow {
+      width: root.width
       required property int index
       // The array and its count change together, but a row's binding can be
       // asked between the two; an empty summary for that instant draws an
@@ -112,8 +114,9 @@ Column {
         root.menuRequested(modelData.id, sceneX, sceneY)
       }
     }
-  }
 
+  footer: Column {
+    width: root.width
   ListSkeleton {
     width: parent.width
     visible: Model.showInitialListSkeleton(root.service.listLoading,
@@ -170,23 +173,17 @@ Column {
     }
   }
 
-  // The scroller this list sits in, handed over by the panel that owns it:
-  // when its foot comes into view and there is more, the next page is asked
-  // for without a press, and never while a page is on its way, which is
-  // what keeps a slow server from being asked twice. A page that lands and
-  // still leaves the foot in view — a short mailbox, a merged list held
-  // back by a mailbox that has not caught up — is followed by the next
-  // once the list settles, until the foot is out of view or there is no
-  // more. Asked a moment later rather than in the signal itself: a cached
-  // page painted on the way into a live load can put the foot in view
-  // before that load has said it is running, and a page asked for from
-  // inside the load would race it.
-  property var scroller: null
+  }
+
+  property var scroller: root
   property int loadStartCount: -1
+  property int lastAutoCount: -1
 
   function loadMoreIfAtFoot() {
     if (!root.scroller || !root.service) return false
-    if (!root.scroller.atYEnd || !root.service.hasMore || root.service.listLoading) return false
+    var atFoot = root.scroller.atYEnd || root.scroller.contentY + root.scroller.height >= root.scroller.contentHeight - 1
+    if (!atFoot || !root.service.hasMore || root.service.listLoading || !root.count || root.lastAutoCount === root.count) return false
+    root.lastAutoCount = root.count
     root.service.loadMore()
     return true
   }
@@ -209,6 +206,7 @@ Column {
 
   Connections {
     target: root.service
+    function onMessagesChanged() { root.lastAutoCount = -1; Qt.callLater(root.updateVisibleRows) }
     function onListLoadingChanged() {
       if (root.service.listLoading) {
         root.loadStartCount = root.service.messages.length

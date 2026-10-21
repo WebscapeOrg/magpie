@@ -360,12 +360,19 @@ TestCase {
     compare(restarted.height, 710)
   }
 
-  function test_bad_window_size_uses_bounded_default() {
+  function test_bad_window_size_uses_bounded_default_data() {
+    return [{tag: "broken", contents: "{broken JSON"},
+      {tag: "null", contents: "null"}, {tag: "array", contents: "[]"},
+      {tag: "number", contents: "17"}, {tag: "string", contents: '"size"'}]
+  }
+
+  function test_bad_window_size_uses_bounded_default(data) {
     var path = "/fixture/config/omamail/window-size.json"
     host.files = ({})
-    host.files[path] = "{broken JSON"
+    host.files[path] = data.contents
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
+    compare(composition.windowSizeLoaded, true)
     compare(composition.width, Math.min(1024, Math.max(760, composition.availableWindowWidth)))
     compare(composition.height, Math.min(768, Math.max(520, composition.availableWindowHeight)))
     compare(composition.boundedWindowDimension(759, 1024, 760, 1920), 1024)

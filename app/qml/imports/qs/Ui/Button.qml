@@ -36,6 +36,7 @@ Rectangle {
     : Style.normalBorderFor(foreground, accent)
 
   Text {
+    textFormat: Text.PlainText
     id: label
     anchors.left: root.leftAlign ? parent.left : undefined
     anchors.leftMargin: root.leftAlign ? root.horizontalPadding : 0

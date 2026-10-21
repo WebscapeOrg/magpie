@@ -11,9 +11,10 @@ QtObject {
   property var store: Quickshell.fileStore
   property string _text: ""
   property string _watchedPath: ""
-  // The store announces a failed read as well as returning it. The read
-  // that this view started reports through its result alone.
-  property bool _reading: false
+  property var _watchedStore: null
+  // Invariant: synchronous operations report through their result; the store
+  // also emits failed, which must not report the same failure twice.
+  property bool _requestActive: false
 
   signal loaded()
   signal fileChanged()
@@ -24,10 +25,17 @@ QtObject {
   }
 
   function updateWatch() {
-    if (!store || typeof store.watch !== "function") return
-    if (_watchedPath !== "") store.watch(_watchedPath, false)
-    _watchedPath = watchChanges ? path : ""
-    if (_watchedPath !== "") store.watch(_watchedPath, true)
+    releaseWatch()
+    if (!store || typeof store.watch !== "function" || !watchChanges || path === "") return
+    _watchedStore = store
+    _watchedPath = path
+    _watchedStore.watch(_watchedPath, true)
+  }
+
+  function releaseWatch() {
+    if (_watchedStore && _watchedPath !== "") _watchedStore.watch(_watchedPath, false)
+    _watchedStore = null
+    _watchedPath = ""
   }
 
   function reload() {
@@ -35,9 +43,9 @@ QtObject {
       loadFailed()
       return
     }
-    _reading = true
+    _requestActive = true
     var result = store.read(path) || ({})
-    _reading = false
+    _requestActive = false
     if (!result.ok) {
       report(result.error)
       loadFailed()
@@ -55,7 +63,9 @@ QtObject {
       loadFailed()
       return
     }
+    _requestActive = true
     var result = store.write(path, _text, atomicWrites) || ({})
+    _requestActive = false
     if (!result.ok) {
       report(result.error)
       loadFailed()
@@ -79,7 +89,7 @@ QtObject {
       if (String(changedPath) === root.path) root.fileChanged()
     }
     function onFailed(failedPath, error) {
-      if (root._reading || String(failedPath) !== root.path) return
+      if (root._requestActive || String(failedPath) !== root.path) return
       root.report(error)
       root.loadFailed()
     }
@@ -89,8 +99,5 @@ QtObject {
     updateWatch()
     reload()
   }
-  Component.onDestruction: {
-    if (store && typeof store.watch === "function" && _watchedPath !== "")
-      store.watch(_watchedPath, false)
-  }
+  Component.onDestruction: releaseWatch()
 }

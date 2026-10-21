@@ -1,7 +1,6 @@
 #include "notifications.h"
 
 #include <QCryptographicHash>
-#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -25,6 +24,7 @@ namespace {
 constexpr qsizetype maximumRetainedTargets = 256;
 constexpr qint64 maximumRoutePlaintextBytes = 1024 * 1024;
 constexpr qint64 maximumRouteFileBytes = 2 * maximumRoutePlaintextBytes;
+constexpr qint64 activationDebounceMilliseconds = 5000;
 
 bool validRouteValue(const QString &value)
 {
@@ -338,10 +338,10 @@ void NotificationService::routeActivation(const QString &token)
 {
     const auto target = m_targets.constFind(token);
     if (target == m_targets.cend()) return;
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    if (token == m_lastActivatedToken && now - m_lastActivationTime < 5000) return;
+    if (token == m_lastActivatedToken && m_sinceActivation.isValid()
+        && m_sinceActivation.elapsed() < activationDebounceMilliseconds) return;
     m_lastActivatedToken = token;
-    m_lastActivationTime = now;
+    m_sinceActivation.start();
     emit activated(target->accountId, target->messageId);
 }
 

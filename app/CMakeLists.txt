@@ -177,15 +177,28 @@ if(BUILD_TESTING)
   target_compile_definitions(tst_process PRIVATE
     PYTHON_EXECUTABLE="${Python3_EXECUTABLE}"
     RPC_BACKEND_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/rpc_backend.py")
-  set_tests_properties(tst_resources tst_notifications PROPERTIES
+  set_tests_properties(tst_process tst_settings tst_resources tst_notifications PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
   add_test(NAME notification_source_boundary
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_notification_sources.py")
   add_test(NAME application_identity
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_identity.py")
+  find_program(PWSH_EXECUTABLE pwsh)
+  if(PWSH_EXECUTABLE)
+    add_test(NAME failure_assertions COMMAND "${PWSH_EXECUTABLE}"
+      -NoProfile -NonInteractive -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/Test-Assertions.ps1")
+  endif()
 
-  find_program(QMLTESTRUNNER_EXECUTABLE qmltestrunner HINTS "${QT6_INSTALL_PREFIX}/bin")
+  if(NOT QMLTESTRUNNER_EXECUTABLE AND TARGET Qt6::qmltestrunner)
+    set(QMLTESTRUNNER_EXECUTABLE "$<TARGET_FILE:Qt6::qmltestrunner>")
+  else()
+    find_program(QMLTESTRUNNER_EXECUTABLE qmltestrunner
+      HINTS "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_BINS}" "${QT6_INSTALL_PREFIX}/bin")
+  endif()
   if(QMLTESTRUNNER_EXECUTABLE)
+    add_test(NAME standalone_plain_labels
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_plain_labels.py"
+        "${QMLTESTRUNNER_EXECUTABLE}")
     add_test(NAME tst_host_contract COMMAND ${QMLTESTRUNNER_EXECUTABLE}
       -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/imports"
       -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/styles"
@@ -201,6 +214,14 @@ if(BUILD_TESTING)
       -import "${CMAKE_CURRENT_SOURCE_DIR}/tests/qml/imports"
       -input "${CMAKE_CURRENT_SOURCE_DIR}/tests/qml/tst_standalone_composition.qml")
     set_tests_properties(tst_standalone_composition PROPERTIES
+      ENVIRONMENT "QT_QPA_PLATFORM=offscreen;OMAMAIL_DEVELOPMENT_RESOURCES=1;QT_QUICK_CONTROLS_STYLE=Omamail;QT_QUICK_CONTROLS_FALLBACK_STYLE=Basic")
+    add_test(NAME tst_calendar_palette_bindings COMMAND ${QMLTESTRUNNER_EXECUTABLE}
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/imports"
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/styles"
+      -import "${CMAKE_BINARY_DIR}/qml"
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/tests/qml/imports"
+      -input "${CMAKE_CURRENT_SOURCE_DIR}/tests/qml/tst_calendar_palette_bindings.qml")
+    set_tests_properties(tst_calendar_palette_bindings PROPERTIES
       ENVIRONMENT "QT_QPA_PLATFORM=offscreen;OMAMAIL_DEVELOPMENT_RESOURCES=1;QT_QUICK_CONTROLS_STYLE=Omamail;QT_QUICK_CONTROLS_FALLBACK_STYLE=Basic")
   endif()
 endif()

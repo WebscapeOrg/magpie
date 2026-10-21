@@ -60,6 +60,7 @@ ApplicationWindow {
         catch (error) { saved = ({}) }
       }
     }
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) saved = ({})
     normalWindowWidth = boundedWindowDimension(saved.width, 1024, minimumWidth,
       availableWindowWidth)
     normalWindowHeight = boundedWindowDimension(saved.height, 768, minimumHeight,

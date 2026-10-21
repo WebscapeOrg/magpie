@@ -44,6 +44,7 @@ T.ToolTip {
   onHeightChanged: if (opened) Qt.callLater(reposition)
 
   contentItem: Text {
+    textFormat: Text.PlainText
     objectName: "omamail-tooltip-label"
     text: control.text
     color: Commons.Color.popups.text

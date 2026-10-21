@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QElapsedTimer>
 #include <QList>
 #include <QObject>
 #include <QString>
@@ -108,5 +109,5 @@ private:
     quint64 m_errorRevision = 0;
     quint64 m_nextRevision = 0;
     QString m_lastActivatedToken;
-    qint64 m_lastActivationTime = 0;
+    QElapsedTimer m_sinceActivation;
 };

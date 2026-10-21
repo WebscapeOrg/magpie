@@ -29,8 +29,7 @@ private:
     void restoreWatches();
 
     QFileSystemWatcher m_watcher;
-    QSet<QString> m_watchedFiles;
-    QHash<QString, bool> m_lastExists;
+    QHash<QString, qsizetype> m_watchSubscribers;
 };
 class SettingsStore final {
 public:

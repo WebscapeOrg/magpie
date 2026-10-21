@@ -33,6 +33,7 @@ Item {
   }
 
   Text {
+    textFormat: Text.PlainText
     id: glyph
     anchors.centerIn: parent
     text: root.iconText

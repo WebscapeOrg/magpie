@@ -1295,12 +1295,12 @@ function tooHeavyForRichText(html) {
 // image.
 var MIN_IMAGE_WIDTH = 40
 
-function fitting(heights, sides, widths, available, clampedHeightsOnly) {
+function fitting(options, available) {
   return {
-    heights: heights === true,
-    clampedHeightsOnly: clampedHeightsOnly === true,
-    sides: sides === true,
-    widths: widths === true,
+    heights: options.heights === true,
+    clampedHeightsOnly: options.clampedHeightsOnly === true,
+    sides: options.sides === true,
+    widths: options.widths === true,
     limit: Math.max(MIN_IMAGE_WIDTH, Math.floor(Number(available) || 0))
   }
 }
@@ -1456,15 +1456,15 @@ function preferredContentWidth(source, available) {
 }
 
 function stripImageHeights(html) {
-  return serialize(parse(html), fitting(true, false, false, 0))
+  return serialize(parse(html), fitting({ heights: true }, 0))
 }
 
 function compactHorizontal(html) {
-  return serialize(parse(html), fitting(false, true, false, 0))
+  return serialize(parse(html), fitting({ sides: true }, 0))
 }
 
 function relaxFixedWidths(html, available) {
-  return serialize(parse(html), fitting(false, false, true, available))
+  return serialize(parse(html), fitting({ widths: true }, available))
 }
 
 // Invariant: base dir and physical stylesheet sides must agree; changing margins alone can make Qt
@@ -1488,8 +1488,8 @@ function documentFor(bodyHtml, colors) {
 
   var root = documentTree(bodyHtml)
   // Invariant: content must fit the panel because it has no horizontal scrolling.
-  var fit = fitting(true, palette.compact === true,
-    maxImageWidthPixels >= MIN_IMAGE_WIDTH, maxImageWidthPixels, true)
+  var fit = fitting({ heights: true, sides: palette.compact === true,
+    widths: maxImageWidthPixels >= MIN_IMAGE_WIDTH, clampedHeightsOnly: true }, maxImageWidthPixels)
 
   return "<html><head><style type=\"text/css\">"
     + "body{color:" + foreground + ";background-color:" + background + ";}"

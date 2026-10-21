@@ -85,7 +85,7 @@ Item {
       var label = renderedText(page, expected)
       verify(label)
       compare(label.textFormat, Text.PlainText)
-      for (var x = 1; x < label.width; x += 3) compare(label.linkAt(x, label.height / 2), "")
+      for (var pixelX = 1; pixelX < label.width; pixelX += 3) compare(label.linkAt(pixelX, label.height / 2), "")
       runtime[data.field] = original
       runtime.development = false
     }

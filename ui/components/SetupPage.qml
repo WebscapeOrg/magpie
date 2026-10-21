@@ -304,6 +304,7 @@ Column {
         width: parent.width
         visible: !!root.service && root.service.signInProgress !== ""
         text: root.service ? root.service.signInProgress : ""
+        textFormat: Text.PlainText
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.caption
@@ -381,6 +382,7 @@ Column {
   Text {
     width: parent.width
     visible: root.detailVisible
+    textFormat: Text.PlainText
     text: "In Google Cloud, pick or create a project. Under APIs and Services, enable the Gmail API. "
       + "On the consent screen add the Gmail address you want to read as a test user, then press Publish app. "
       + "Under Credentials, create an OAuth client with application type Desktop app, and paste its client ID above.\n\n"
@@ -464,6 +466,7 @@ Column {
       Text {
         width: parent.width
         text: step.done && step.doneSummary !== "" ? step.doneSummary : step.title
+        textFormat: Text.PlainText
         color: step.done ? root.dimColor : root.textColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.bodySmall

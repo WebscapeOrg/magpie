@@ -114,7 +114,7 @@ pub fn validate(answer: &Value, messages: &Value) -> Result<Value, &'static str>
         let text = row["text"]
             .as_str()
             .filter(|s| {
-                !s.is_empty()
+                !s.trim().is_empty()
                     && s.chars().count() <= 140
                     && !s.chars().any(char::is_control)
                     && !s.contains(['<', '>'])
@@ -132,17 +132,17 @@ pub fn validate(answer: &Value, messages: &Value) -> Result<Value, &'static str>
                 .replace(['\u{2018}', '\u{2019}'], "'")
                 .replace(['\u{201c}', '\u{201d}'], "\"")
         };
-        if !normalized(&source.to_string()).contains(&normalized(evidence)) {
-            // JSON escaping can alter quoted source. Check original text fields too.
-            let found = source
+        let evidence = normalized(evidence);
+        let supported = !evidence.is_empty()
+            && source
                 .as_object()
                 .into_iter()
-                .flat_map(|v| v.values())
-                .filter_map(Value::as_str)
-                .any(|v| normalized(v).contains(&normalized(evidence)));
-            if !found {
-                return Err("overview_unsupported_claim");
-            }
+                .flat_map(|fields| fields.iter())
+                .filter(|(key, _)| key.as_str() != "id")
+                .filter_map(|(_, value)| value.as_str())
+                .any(|value| normalized(value).contains(&evidence));
+        if !supported {
+            return Err("overview_unsupported_claim");
         }
         out.push(json!({"id":id,"text":text}));
     }
@@ -153,6 +153,35 @@ pub fn validate(answer: &Value, messages: &Value) -> Result<Value, &'static str>
 mod tests {
     use super::*;
     use std::collections::VecDeque;
+
+    #[test]
+    fn review_overview_must_have_visible_text() {
+        let messages = json!([{"id":"a","body":"Payment received: R780."}]);
+        let answer =
+            json!({"overviews":[{"id":"a","text":"   ","evidence":"Payment received: R780."}]});
+        assert_eq!(
+            validate(&answer, &messages),
+            Err("overview_invalid_response")
+        );
+    }
+
+    #[test]
+    fn review_evidence_must_quote_nonempty_original_text() {
+        let messages = json!([{"id":"a","subject":"Invoice","body":"Payment received: R780."}]);
+        for evidence in [" \t\n ", "\"body\":", "R780.\",\"id\":\"a"] {
+            let answer =
+                json!({"overviews":[{"id":"a","text":"Pay R500 immediately","evidence":evidence}]});
+            assert!(
+                validate(&answer, &messages).is_err(),
+                "accepted {evidence:?}"
+            );
+        }
+        let answer = json!({"overviews":[{"id":"a","text":"R780 payment confirmed","evidence":"Payment received: R780."}]});
+        assert_eq!(
+            validate(&answer, &messages).unwrap()[0]["text"],
+            "R780 payment confirmed"
+        );
+    }
 
     #[test]
     fn evidence_accepts_typographic_quotes_but_not_changed_claims() {

@@ -149,64 +149,54 @@ pub fn decoded_header(value: &str) -> String {
     out.push_str(&value[end..]);
     out
 }
-pub fn address(value: &str) -> Value {
-    let raw = decoded_header(value);
-    let raw = raw.trim();
-    let mut name = String::new();
-    let email = if raw.ends_with('>') {
-        if let Some(at) = raw.rfind('<') {
-            let phrase = raw[..at].trim();
-            let phrase = phrase
-                .strip_prefix('"')
-                .and_then(|s| s.strip_suffix('"'))
-                .unwrap_or(phrase);
-            let mut chars = phrase.chars();
-            while let Some(c) = chars.next() {
-                name.push(if c == '\\' {
-                    chars.next().unwrap_or(c)
-                } else {
-                    c
-                });
-            }
-            name = name.trim().into();
-            raw[at + 1..raw.len() - 1].trim().to_owned()
-        } else {
-            raw.into()
-        }
-    } else {
-        raw.into()
-    };
-    if name.is_empty()
-        && let Some((local, _)) = email.split_once('@')
-        && !local.is_empty()
-    {
-        name = local.into();
+fn structural_addresses(value: &str) -> Option<mailparse::MailAddrList> {
+    let source = format!("From: {value}");
+    let (header, consumed) = mailparse::parse_header(source.as_bytes()).ok()?;
+    if consumed != source.len() {
+        return None;
     }
-    json!({"name":name,"email":email,"display":if name.is_empty(){&email}else{&name}})
+    mailparse::addrparse_header(&header).ok()
 }
+
+fn mailbox(single: &mailparse::SingleInfo) -> Value {
+    let email = single.addr.trim();
+    if email.chars().any(char::is_control) {
+        return json!({"name":"","email":"","display":""});
+    }
+    let name = single
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| email.split_once('@').map_or("", |(local, _)| local));
+    json!({"name":name,"email":email,"display":if name.is_empty(){email}else{name}})
+}
+
+pub fn address(value: &str) -> Value {
+    if let Some(single) = structural_addresses(value).and_then(|list| list.extract_single_info()) {
+        return mailbox(&single);
+    }
+    let display = decoded_header(value).trim().to_owned();
+    json!({"name":display,"email":"","display":display})
+}
+
 pub fn addresses(value: &str) -> Vec<Value> {
-    let mut quotes = false;
-    let mut angled = false;
-    let mut start = 0;
-    let mut result = Vec::new();
-    for (i, c) in value.char_indices() {
-        match c {
-            '"' => quotes = !quotes,
-            '<' => angled = true,
-            '>' => angled = false,
-            _ => {}
-        }
-        if c == ',' && !quotes && !angled {
-            if !value[start..i].trim().is_empty() {
-                result.push(address(&value[start..i]));
-            }
-            start = i + 1;
-        }
-    }
-    if !value[start..].trim().is_empty() {
-        result.push(address(&value[start..]));
-    }
-    result
+    let Some(parsed) = structural_addresses(value) else {
+        return Vec::new();
+    };
+    parsed
+        .iter()
+        .flat_map(|entry| match entry {
+            mailparse::MailAddr::Single(single) => std::slice::from_ref(single),
+            mailparse::MailAddr::Group(group) => group.addrs.as_slice(),
+        })
+        .map(mailbox)
+        .filter(|entry| {
+            entry["email"]
+                .as_str()
+                .is_some_and(|email| !email.is_empty())
+        })
+        .collect()
 }
 /// Legacy list snippet text semantics, separate from the reader's HTML tree walk.
 pub fn html_to_text(value: &str) -> String {
@@ -350,10 +340,14 @@ pub fn summarize(message: &Value, now: i64) -> Result<Value> {
 }
 fn has_attachments(message: &Value) -> bool {
     fn walk(part: &Value, depth: usize, budget: &mut usize) -> bool {
-        if depth > 12 || *budget == 0 { return false; }
+        if depth > 12 || *budget == 0 {
+            return false;
+        }
         *budget -= 1;
-        attachment(part) || part["parts"].as_array().is_some_and(|parts|
-            parts.iter().any(|part| walk(part, depth + 1, budget)))
+        attachment(part)
+            || part["parts"]
+                .as_array()
+                .is_some_and(|parts| parts.iter().any(|part| walk(part, depth + 1, budget)))
     }
     message["hasAttachments"] == true || walk(&message["payload"], 0, &mut 4000)
 }
@@ -599,6 +593,54 @@ pub fn request(method: &str, params: &Value) -> Result<Value> {
             )
         }
         _ => Err("unknown_method"),
+    }
+}
+
+#[cfg(test)]
+mod address_tests {
+    use super::*;
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    #[test]
+    fn review_encoded_display_text_never_becomes_a_reply_recipient() {
+        let encoded = format!(
+            "=?UTF-8?B?{}?=",
+            STANDARD.encode("Alias <forged@example.test>")
+        );
+        let message = json!({"payload":{"headers":[
+            {"name":"From","value":"Actual <actual@example.test>"},
+            {"name":"Reply-To","value":encoded},
+            {"name":"To","value":encoded}
+        ]}});
+        let summary = summarize(&message, 0).unwrap();
+        assert_eq!(summary["from"]["email"], "actual@example.test");
+        assert_eq!(summary["replyTo"]["email"], "");
+        assert_eq!(summary["to"], json!([]));
+        assert!(
+            address(&encoded)["display"]
+                .as_str()
+                .unwrap()
+                .contains("Alias")
+        );
+    }
+
+    #[test]
+    fn review_structural_mailboxes_survive_encoded_names_and_groups() {
+        let encoded = format!(
+            "=?UTF-8?B?{}?=",
+            STANDARD.encode("Alias <forged@example.test>, Team")
+        );
+        let parsed = address(&format!("{encoded} <actual@example.test>"));
+        assert_eq!(parsed["email"], "actual@example.test");
+        assert_eq!(parsed["name"], "Alias <forged@example.test>, Team");
+        let group = addresses("Team: one@example.test, \"Two, Example\" <two@example.test>;");
+        assert_eq!(
+            group
+                .iter()
+                .map(|entry| entry["email"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["one@example.test", "two@example.test"]
+        );
     }
 }
 

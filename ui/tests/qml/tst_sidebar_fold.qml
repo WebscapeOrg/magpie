@@ -16,7 +16,7 @@ Item {
     { id: "Work", name: "Work", rawName: "Work", delimiter: "/", unread: 0 },
     { id: "Work/2026", name: "Work/2026", rawName: "Work/2026", delimiter: "/", unread: 3 }
   ]
-  property var fake: ({
+  property var mailService: ({
     labels: labels, mailboxes: [{ key: "inbox", label: "Inbox", icon: "inbox" }],
     collapsedFolders: [], rawQuery: "", mailboxKey: "inbox", searchQuery: "", providerId: "imap"
   })
@@ -25,7 +25,7 @@ Item {
     id: sidebar
     width: 220
     height: 600
-    service: fake
+    service: mailService
     textColor: Commons.Color.foreground
     accentColor: Commons.Color.accent
     dimColor: Commons.Color.foreground
@@ -41,18 +41,18 @@ Item {
     name: "SidebarFold"
     when: windowShown
 
-    function named(item, name, out) {
-      if (item.objectName === name && item.visible) out.push(item)
+    function visibleNamed(item, name, matches) {
+      if (item.objectName === name && item.visible) matches.push(item)
       var children = item.children || []
-      for (var i = 0; i < children.length; i++) named(children[i], name, out)
-      return out
+      for (var index = 0; index < children.length; index++) visibleNamed(children[index], name, matches)
+      return matches
     }
 
     function textItem(item, value) {
       if (item.text === value && item.textFormat !== undefined) return item
       var children = item.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = textItem(children[i], value)
+      for (var index = 0; index < children.length; index++) {
+        var found = textItem(children[index], value)
         if (found) return found
       }
       return null
@@ -65,7 +65,7 @@ Item {
     }
 
     function test_the_chevron_folds_without_opening() {
-      var folds = named(sidebar, "fold", [])
+      var folds = visibleNamed(sidebar, "fold", [])
       compare(folds.length, 1, "only the parent carries a chevron")
       var fold = folds[0]
       mouseClick(fold, fold.width / 2, fold.height / 2)
@@ -96,12 +96,12 @@ Item {
     function test_shortcut_number_is_an_informational_chip() {
       sidebar.collapsed = true
       sidebar.numbersVisible = true
-      var chip = named(sidebar, "mailbox-shortcut-chip", [])[0]
+      var chip = visibleNamed(sidebar, "mailbox-shortcut-chip", [])[0]
       verify(chip, "the numbered mailbox draws its shortcut hint")
       verify(chip.x >= chip.parent.width / 2, "hint stays in the right corner")
       verify(chip.y < chip.parent.height / 4, "hint stays at the top")
       verify(chip.height < chip.parent.height / 2, "hint is smaller than the row icon")
-      verify(named(sidebar, "mailbox-entry-icon", [])[0].visible, "modifier preserves mailbox icon")
+      verify(visibleNamed(sidebar, "mailbox-entry-icon", [])[0].visible, "modifier preserves mailbox icon")
       verify(chip.color.a < Style.selectedFillFor(Commons.Color.foreground, Commons.Color.accent).a,
         "a shortcut hint must not use the much heavier selected-state fill")
     }

@@ -82,21 +82,21 @@ Item {
     name: "ReaderTextMenu"
     when: windowShown
 
-    function found(item, type) {
+    function findByType(item, typeName) {
       if (!item) return null
-      if (item.toString().indexOf(type) === 0) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var hit = found(values[i], type)
-        if (hit) return hit
+      if (item.toString().indexOf(typeName) === 0) return item
+      var children = item.children || []
+      for (var index = 0; index < children.length; index++) {
+        var match = findByType(children[index], typeName)
+        if (match) return match
       }
       return null
     }
 
-    function body() {
-      var edit = found(reader, "QQuickTextEdit")
-      verify(edit, "the reader draws its message in a TextEdit")
-      return edit
+    function bodyEditor() {
+      var editor = findByType(reader, "QQuickTextEdit")
+      verify(editor, "the reader draws its message in a TextEdit")
+      return editor
     }
 
     function menu() {
@@ -106,17 +106,17 @@ Item {
     }
 
     // Where a run of text sits in the body, by the first character of it.
-    function pointOf(edit, needle) {
-      var plain = edit.getText(0, edit.length)
-      var at = plain.indexOf(needle)
-      verify(at >= 0, "the body holds " + needle)
-      var rect = edit.positionToRectangle(at)
-      return { x: rect.x + 3, y: rect.y + rect.height / 2 }
+    function pointOf(editor, needle) {
+      var plain = editor.getText(0, editor.length)
+      var characterIndex = plain.indexOf(needle)
+      verify(characterIndex >= 0, "the body holds " + needle)
+      var rectangle = editor.positionToRectangle(characterIndex)
+      return { x: rectangle.x + 3, y: rectangle.y + rectangle.height / 2 }
     }
 
     function init() {
       menu().close()
-      body().deselect()
+      bodyEditor().deselect()
       mailService.copied = []
       mailService.opened = []
     }
@@ -124,9 +124,9 @@ Item {
     function cleanup() { menu().close() }
 
     function test_a_right_click_on_the_body_opens_the_menu() {
-      var edit = body()
-      var point = pointOf(edit, "Person 1")
-      mouseClick(edit, point.x, point.y, Qt.RightButton)
+      var editor = bodyEditor()
+      var point = pointOf(editor, "Person 1")
+      mouseClick(editor, point.x, point.y, Qt.RightButton)
       wait(20)
       compare(menu().opened, true)
       compare(menu().editable, false)
@@ -134,22 +134,22 @@ Item {
     }
 
     function test_a_right_click_keeps_the_selection_and_copy_copies_it() {
-      var edit = body()
-      var start = edit.getText(0, edit.length).indexOf("moved")
-      edit.select(start, start + 5)
-      var point = pointOf(edit, "Person 1")
-      mouseClick(edit, point.x, point.y, Qt.RightButton)
+      var editor = bodyEditor()
+      var start = editor.getText(0, editor.length).indexOf("moved")
+      editor.select(start, start + 5)
+      var point = pointOf(editor, "Person 1")
+      mouseClick(editor, point.x, point.y, Qt.RightButton)
       wait(20)
-      compare(edit.selectedText, "moved")
+      compare(editor.selectedText, "moved")
       compare(menu().copyRow.enabled, true)
       menu().copyRow.activated()
       compare(mailService.copied, ["moved"])
     }
 
     function test_a_right_click_on_a_link_offers_it() {
-      var edit = body()
-      var point = pointOf(edit, "Open the board")
-      mouseClick(edit, point.x, point.y, Qt.RightButton)
+      var editor = bodyEditor()
+      var point = pointOf(editor, "Open the board")
+      mouseClick(editor, point.x, point.y, Qt.RightButton)
       wait(20)
       compare(menu().opened, true)
       compare(menu().link, "https://example.com/board")
@@ -158,9 +158,9 @@ Item {
     }
 
     function test_open_link_opens_it_outside() {
-      var edit = body()
-      var point = pointOf(edit, "Open the board")
-      mouseClick(edit, point.x, point.y, Qt.RightButton)
+      var editor = bodyEditor()
+      var point = pointOf(editor, "Open the board")
+      mouseClick(editor, point.x, point.y, Qt.RightButton)
       wait(20)
       menu().openLinkRow.activated()
       compare(mailService.opened, ["https://example.com/board"])

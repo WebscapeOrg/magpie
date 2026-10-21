@@ -20,10 +20,10 @@ Item {
     ]
     property string accountEmail: "me@example.com"
     property string activeAccountId: "me@example.com"
-    function preferredSendAs(_r) { return null }
+    function preferredSendAs(_recipients) { return null }
     function switchTo(_id) { return true }
     function refreshRecipientContacts() {}
-    function send(_f) { return true }
+    function send(_fields) { return true }
   }
 
   Omamail.ComposeView {

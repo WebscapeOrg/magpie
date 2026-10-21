@@ -120,9 +120,9 @@ Item {
       log = next
     }
     function count(text) {
-      var n = 0
-      for (var i = 0; i < log.length; i++) if (log[i] === text) n++
-      return n
+      var matchCount = 0
+      for (var index = 0; index < log.length; index++) if (log[index] === text) matchCount++
+      return matchCount
     }
     function editingIndex() { return 0 }
     function addAccount(provider) {
@@ -201,7 +201,7 @@ Item {
     name: "SettingsSidebar"
     when: windowShown
 
-    function flick() {
+    function settingsScroller() {
       var page = findChild(app, "settings-page")
       var item = page
       while (item && String(item.toString()).indexOf("QQuickFlickable") < 0) item = item.parent
@@ -210,16 +210,16 @@ Item {
 
     // The window `App` measures itself by is the one it draws, not the test
     // root: find it by its title to size it.
-    function window() {
-      return having(app, function(it) { return it.title === "🐦 Magpie" })
+    function appWindow() {
+      return findMatching(app, function(item) { return item.title === "🐦 Magpie" })
     }
 
-    function having(item, accept) {
+    function findMatching(item, accept) {
       if (!item) return null
       if (accept(item)) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = having(values[i], accept)
+      for (var index = 0; index < values.length; index++) {
+        var found = findMatching(values[index], accept)
         if (found) return found
       }
       return null
@@ -229,7 +229,7 @@ Item {
       mailService.anyAccountReady = true
       mailService.hasSavedAccounts = true
       app.opened = true
-      window().width = MailStyle.space(980)
+      appWindow().width = MailStyle.space(980)
       app.backToList()
       app.resetNavigation()
       app.openSettings()
@@ -242,8 +242,8 @@ Item {
     // friends, so adding a section renumbered assertions that had nothing to
     // do with it.
     function sectionY(page, key) {
-      for (var i = 0; i < page.sections.length; i++)
-        if (page.sections[i].key === key) return page.sections[i].y
+      for (var index = 0; index < page.sections.length; index++)
+        if (page.sections[index].key === key) return page.sections[index].y
       return -1
     }
 
@@ -253,7 +253,7 @@ Item {
     function test_the_settings_page_scrolls_a_notch_at_a_time() {
       app.openSettings()
       wait(50)
-      var view = flick()
+      var view = settingsScroller()
       verify(view, "the page scrolls inside a Flickable")
       view.contentY = 0
 
@@ -268,12 +268,12 @@ Item {
       var rail = findChild(app, "settings-sidebar")
       verify(rail && rail.visible, "a wide window has a rail")
       var page = findChild(app, "settings-page")
-      var keys = page.sections.map(function(s) { return s.key })
+      var keys = page.sections.map(function(section) { return section.key })
       compare(keys.join(","), "display,backend,bar,reading,notifications,writing,mailboxes,calendars,oauth")
-      for (var i = 1; i < page.sections.length; i++)
-        verify(page.sections[i].y > page.sections[i - 1].y, "sections are laid out top to bottom")
-      for (var j = 0; j < keys.length; j++)
-        verify(findChild(rail, "settings-section-" + keys[j]), "the rail has a row for " + keys[j])
+      for (var index = 1; index < page.sections.length; index++)
+        verify(page.sections[index].y > page.sections[index - 1].y, "sections are laid out top to bottom")
+      for (var keyIndex = 0; keyIndex < keys.length; keyIndex++)
+        verify(findChild(rail, "settings-section-" + keys[keyIndex]), "the rail has a row for " + keys[keyIndex])
     }
 
     // A click scrolls the page to the section rather than opening another
@@ -281,7 +281,7 @@ Item {
     function test_a_click_scrolls_the_page_and_the_highlight_follows() {
       var rail = findChild(app, "settings-sidebar")
       var page = findChild(app, "settings-page")
-      var view = flick()
+      var view = settingsScroller()
       verify(view, "the page scrolls inside a Flickable")
       compare(view.contentY, 0)
       compare(rail.activeKey, "display",
@@ -326,7 +326,7 @@ Item {
       return [{tag:"wide",width:980},{tag:"compact",width:600}]
     }
     function test_back_button_is_clickable(data) {
-      window().width=data.width
+      appWindow().width=data.width
       waitForRendering(app)
       var back=findChild(app,"page-back")
       verify(back.visible)
@@ -336,7 +336,7 @@ Item {
     }
 
     function test_settings_viewport_reaches_header_and_content_inset_scrolls() {
-      var view=flick()
+      var view=settingsScroller()
       var page=findChild(app,"settings-page")
       var rail=findChild(app,"settings-sidebar")
       compare(view.mapToItem(rail.parent.parent,0,0).y,0)
@@ -346,14 +346,14 @@ Item {
     }
 
     function test_a_narrow_window_has_no_rail() {
-      window().width = 600
+      appWindow().width = 600
       waitForRendering(app)
       var rail = findChild(app, "settings-sidebar")
       verify(rail && !rail.visible)
       var page = findChild(app, "settings-page")
       verify(page.visible, "the page itself is still drawn")
       var back=findChild(app,"page-back")
-      var view=flick()
+      var view=settingsScroller()
       var before=back.mapToItem(view,0,0).y
       view.contentY=40
       compare(back.mapToItem(view,0,0).y,before-40,"compact Back scrolls away with content")

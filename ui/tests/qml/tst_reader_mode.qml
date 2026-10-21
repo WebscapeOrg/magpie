@@ -94,21 +94,21 @@ Item {
     name: "ReaderMode"
     when: windowShown
 
-    function found(item, type) {
+    function findByType(item, typeName) {
       if (!item) return null
-      if (item.toString().indexOf(type) === 0) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var hit = found(values[i], type)
-        if (hit) return hit
+      if (item.toString().indexOf(typeName) === 0) return item
+      var children = item.children || []
+      for (var index = 0; index < children.length; index++) {
+        var match = findByType(children[index], typeName)
+        if (match) return match
       }
       return null
     }
 
-    function body() {
-      var edit = found(reader, "QQuickTextEdit")
-      verify(edit, "the reader draws its message in a TextEdit")
-      return edit
+    function bodyEditor() {
+      var editor = findByType(reader, "QQuickTextEdit")
+      verify(editor, "the reader draws its message in a TextEdit")
+      return editor
     }
 
     function init() {
@@ -128,7 +128,7 @@ Item {
 
     function test_reading_is_what_a_message_opens_as() {
       compare(reader.shownMode, "reader")
-      var text = body().text
+      var text = bodyEditor().text
       verify(text.indexOf("Activity on Sprint board") > 0, "the message is in it")
       verify(text.indexOf("https://example.com/board") > 0, "and so is its link")
       verify(text.indexOf("<h2") > 0, "the sender's big type is the reader's heading")
@@ -147,24 +147,24 @@ Item {
     }
 
     function test_the_body_is_separated_from_the_header() {
-      verify(body().y >= 20,
+      verify(bodyEditor().y >= 20,
         "mail content has its own section gap below the sender metadata")
     }
 
     function test_changing_mode_asks_nothing_of_the_network() {
-      var readerText = body().text
+      var readerText = bodyEditor().text
       reader.bodyModeRequested("original")
       compare(reader.bodyMode, "original")
       compare(reader.shownMode, "original")
-      verify(body().text !== readerText, "a different document is on screen")
-      verify(body().text.indexOf("Person 1 moved 4 cards") > 0)
+      verify(bodyEditor().text !== readerText, "a different document is on screen")
+      verify(bodyEditor().text.indexOf("Person 1 moved 4 cards") > 0)
 
       reader.bodyModeRequested("plain")
       compare(reader.shownMode, "plain")
-      verify(body().text.indexOf("Activity on Sprint board") > 0)
+      verify(bodyEditor().text.indexOf("Activity on Sprint board") > 0)
 
       reader.bodyModeRequested("reader")
-      compare(body().text, readerText, "and back is the same document, not a new one")
+      compare(bodyEditor().text, readerText, "and back is the same document, not a new one")
 
       compare(mailService.fetches, 0, "no message was read again")
       compare(mailService.renders, 0, "and nothing was rendered again")
@@ -174,14 +174,14 @@ Item {
 
     function test_the_reading_column_is_bounded_and_centred() {
       compare(reader.shownMode, "reader")
-      var edit = body()
-      verify(edit.width < reader.bodyWidth,
+      var editor = bodyEditor()
+      verify(editor.width < reader.bodyWidth,
         "a wide panel does not become a wide line of text")
       verify(reader.bodyOffset > 0, "and the column is centred in what is left")
-      verify(edit.width >= MailStyle.space(800), "a wide reader uses at least 800 logical pixels")
+      verify(editor.width >= MailStyle.space(800), "a wide reader uses at least 800 logical pixels")
       reader.width = MailStyle.space(1600)
-      verify(body().width >= MailStyle.space(800), "fullscreen keeps a usable content width")
-      verify(body().width <= reader.bodyWidth, "content remains inside the panel")
+      verify(bodyEditor().width >= MailStyle.space(800), "fullscreen keeps a usable content width")
+      verify(bodyEditor().width <= reader.bodyWidth, "content remains inside the panel")
       reader.width = MailStyle.space(900)
 
       // The other two start at the page inset, because a sender's own layout
@@ -195,8 +195,8 @@ Item {
     function test_a_narrow_panel_gives_the_column_everything() {
       reader.width = MailStyle.space(420)
       compare(reader.bodyOffset, 0, "there is nothing spare to centre in")
-      compare(body().width, reader.bodyWidth)
-      verify(body().x + body().width <= reader.width, "and nothing runs off the panel")
+      compare(bodyEditor().width, reader.bodyWidth)
+      verify(bodyEditor().x + bodyEditor().width <= reader.width, "and nothing runs off the panel")
       reader.width = MailStyle.space(900)
       verify(reader.bodyOffset > 0, "and the column comes back when there is room again")
     }
@@ -242,23 +242,23 @@ Item {
     }
 
     function test_all_modes_keep_the_content_limit_when_zooming() {
-      var wasFont = body().font.pixelSize
+      var fontSizeBeforePixels = bodyEditor().font.pixelSize
       reader.width = MailStyle.space(1600)
       var modes = ["reader", "original", "plain"]
-      for (var i = 0; i < modes.length; i++) {
-        reader.bodyMode = modes[i]
+      for (var index = 0; index < modes.length; index++) {
+        reader.bodyMode = modes[index]
         reader.zoom = 2.0
-        verify(body().font.pixelSize > wasFont)
-        verify(body().width <= MailStyle.space(800), modes[i] + " keeps its maximum width")
+        verify(bodyEditor().font.pixelSize > fontSizeBeforePixels)
+        verify(bodyEditor().width <= MailStyle.space(800), modes[index] + " keeps its maximum width")
         reader.width = MailStyle.space(420)
-        verify(body().width <= reader.bodyWidth, modes[i] + " fits a narrow panel")
+        verify(bodyEditor().width <= reader.bodyWidth, modes[index] + " fits a narrow panel")
         reader.width = MailStyle.space(1600)
       }
       reader.zoom = 1.0
       reader.width = MailStyle.space(900)
       reader.bodyMode = "reader"
-      compare(body().font.pixelSize, wasFont)
-      compare(body().width, MailStyle.space(800))
+      compare(bodyEditor().font.pixelSize, fontSizeBeforePixels)
+      compare(bodyEditor().width, MailStyle.space(800))
     }
 
     function test_a_message_too_heavy_to_draw_says_so_rather_than_showing_nothing() {

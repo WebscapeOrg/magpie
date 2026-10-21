@@ -63,10 +63,10 @@ Item {
 
     function test_controls_are_refused_without_verification_or_storage_data() {
       var cases = []
-      for (var byte = 0; byte < 32; byte++) {
-        cases.push({tag: "embedded-" + byte, value: "before" + String.fromCharCode(byte) + "after"})
-        if (byte !== 10 && byte !== 13)
-          cases.push({tag: "trailing-" + byte, value: "password" + String.fromCharCode(byte)})
+      for (var codePoint = 0; codePoint < 32; codePoint++) {
+        cases.push({tag: "embedded-" + codePoint, value: "before" + String.fromCharCode(codePoint) + "after"})
+        if (codePoint !== 10 && codePoint !== 13)
+          cases.push({tag: "trailing-" + codePoint, value: "password" + String.fromCharCode(codePoint)})
       }
       cases.push({tag: "embedded-DEL", value: "before\u007fafter"})
       cases.push({tag: "trailing-DEL", value: "password\u007f"})

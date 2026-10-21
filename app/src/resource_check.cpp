@@ -260,7 +260,7 @@ ResourcePaths defaultResourcePaths(const QString &executablePath, bool developme
         QDir::cleanPath(executableDir.filePath(QStringLiteral("../manifest.json"))),
         QDir::cleanPath(executableDir.filePath(QStringLiteral("../Resources/manifest.json")))};
     if (developmentMode)
-        manifestCandidates.prepend(sourceRoot.filePath(QStringLiteral("manifest.json")));
+        manifestCandidates.prepend(QStringLiteral(OMAMAIL_MANIFEST_PATH));
     paths.manifest = firstExisting(manifestCandidates);
     return paths;
 }

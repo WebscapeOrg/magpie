@@ -338,7 +338,8 @@ Item {
   onRootStateChanged: {
     var flipped = rootState.anyReady !== wasReady
     wasReady = rootState.anyReady
-    if (flipped || (!rootState.anyReady && navUntouched)) resetNavigation()
+    var editingUnreadyAccount = page === "setup" && !ready
+    if ((flipped && !editingUnreadyAccount) || (!rootState.anyReady && navUntouched)) resetNavigation()
   }
   function resetNavigation() {
     var next = Nav.rootFor(rootState)

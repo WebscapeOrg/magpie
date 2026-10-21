@@ -24,6 +24,17 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
 
 qt_standard_project_setup(REQUIRES 6.5)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(standalone_manifest "${CMAKE_CURRENT_BINARY_DIR}/manifest.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/../manifest.json"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/package-backend.py")
+execute_process(COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/package-backend.py"
+  standalone-manifest --output "${standalone_manifest}"
+  COMMAND_ERROR_IS_FATAL ANY)
+
 set(OMAMAIL_NATIVE_SOURCES
   src/app_icon.cpp
   src/app_icon.h
@@ -77,6 +88,7 @@ target_include_directories(omamail_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/sr
 target_compile_definitions(omamail_native PUBLIC
   OMAMAIL_APP_VERSION="${PROJECT_VERSION}"
   OMAMAIL_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+  OMAMAIL_MANIFEST_PATH="${standalone_manifest}"
 )
 if(DEFINED OMAMAIL_BACKEND AND NOT OMAMAIL_BACKEND STREQUAL "")
   get_filename_component(OMAMAIL_BACKEND_ABSOLUTE "${OMAMAIL_BACKEND}" ABSOLUTE)
@@ -119,8 +131,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml")
   qt_add_resources(omamail-app standalone_qml
     PREFIX "/omamail"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/.."
-    FILES ${OMAMAIL_STANDALONE_QML} "${CMAKE_CURRENT_SOURCE_DIR}/../manifest.json"
+    FILES ${OMAMAIL_STANDALONE_QML}
   )
+  qt_add_resources(omamail-app standalone_manifest
+    PREFIX "/omamail" BASE "${CMAKE_CURRENT_BINARY_DIR}"
+    FILES "${standalone_manifest}")
   qt_add_resources(omamail-app standalone_brand
     PREFIX "/omamail/app"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}"

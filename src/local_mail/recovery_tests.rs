@@ -1,10 +1,10 @@
 use super::{
     store::{self, Store},
     sync,
-    tests::{directory, message},
+    tests::{directory, message, open_directory},
 };
 use serde_json::json;
-use std::{fs::File, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 struct Mailbox(PathBuf);
 impl Mailbox {
@@ -12,7 +12,7 @@ impl Mailbox {
         Self(directory())
     }
     fn open(&self) -> Arc<Store> {
-        Store::open(File::open(&self.0).unwrap()).unwrap()
+        Store::open(open_directory(&self.0)).unwrap()
     }
 }
 impl Drop for Mailbox {
@@ -30,7 +30,7 @@ fn set(store: &Store, key: &str, value: &str) {
 #[test]
 fn inventory_and_history_checkpoints_survive_process_exit() {
     if let Some(path) = std::env::var_os("MAGPIE_RECOVERY_CHILD") {
-        let store = Store::open(File::open(path).unwrap()).unwrap();
+        let store = Store::open(open_directory(&PathBuf::from(path))).unwrap();
         match std::env::var("MAGPIE_RECOVERY_PHASE").unwrap().as_str() {
             "inventory" => {
                 store.put(&message("seen", "cached body"), 1).unwrap();

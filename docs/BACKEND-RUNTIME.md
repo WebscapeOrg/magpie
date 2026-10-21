@@ -40,6 +40,8 @@ to make the override available when the shell constructs the plugin, restarting
 the shell with that environment when needed. This is not a second Quickshell
 application. Rust mail migration remains incomplete; see [BACKEND.md](BACKEND.md).
 
+Standalone builds derive their manifest from the plugin settings but use the standalone identity and Cargo/CMake version. The plugin milestone version is independent. CMake and all native packagers use `package-backend.py standalone-manifest`; the packaged host still refuses a mismatched manifest or backend. Generating this build resource does not modify `manifest.json` or `backend-version`.
+
 ### Forcing a clean reconnect
 
 The running `omamail serve` process holds its Secret Service session, its

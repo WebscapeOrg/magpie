@@ -57,26 +57,27 @@ function threadAfterSelect(current, id, summary) {
 }
 
 // Invariant: Resetting the cache must retain visible members or their loaded stops become permanent skeletons.
-function mergedSummaries(existing, additions, limit, kept) {
-  var source = existing && typeof existing === "object" ? existing : {}
-  var extra = additions && typeof additions === "object" ? additions : {}
+function retainedSummaries(source, limit, kept) {
   var cap = Math.floor(Number(limit))
-  if (isFinite(cap) && cap > 0) {
-    var held = 0
-    for (var counted in source) {
-      held = held + 1
-      if (held >= cap) break
-    }
-    if (held >= cap) {
-      var survivors = {}
-      var ids = Array.isArray(kept) ? kept : []
-      for (var memberIndex = 0; memberIndex < ids.length; memberIndex++) {
-        var wanted = trimmed(ids[memberIndex])
-        if (wanted !== "" && source[wanted]) survivors[wanted] = source[wanted]
-      }
-      source = survivors
-    }
+  if (!isFinite(cap) || cap <= 0) return source
+  var held = 0
+  for (var counted in source) {
+    held = held + 1
+    if (held >= cap) break
   }
+  if (held < cap) return source
+  var survivors = {}
+  var ids = Array.isArray(kept) ? kept : []
+  for (var memberIndex = 0; memberIndex < ids.length; memberIndex++) {
+    var wanted = trimmed(ids[memberIndex])
+    if (wanted !== "" && source[wanted]) survivors[wanted] = source[wanted]
+  }
+  return survivors
+}
+
+function mergedSummaries(existing, additions, limit, kept) {
+  var source = retainedSummaries(existing && typeof existing === "object" ? existing : {}, limit, kept)
+  var extra = additions && typeof additions === "object" ? additions : {}
   var output = {}
   for (var key in source) output[key] = source[key]
   for (var added in extra) {

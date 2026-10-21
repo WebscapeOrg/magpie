@@ -1816,7 +1816,10 @@ DropArea {
       width: bodyFlick.width
       // Invariant: the editor must fill the viewport so clicking below a short draft still places
       // the cursor.
-      height: Math.max(implicitHeight, bodyFlick.height)
+      Binding on height {
+        value: Math.max(bodyEdit.implicitHeight, bodyFlick.height)
+        delayed: true
+      }
       selectByMouse: true
       wrapMode: TextEdit.Wrap
       textFormat: TextEdit.PlainText

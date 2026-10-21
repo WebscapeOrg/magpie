@@ -92,15 +92,6 @@ read_file() {
   emit_file "$path"
 }
 
-inside_dir() {
-  dir=$1
-  path=$2
-  case "$path" in
-    "$dir"|"$dir"/*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 # $1 dir, $2 mime, $3 extension, $4 name prefix (screenshot, paste). Writes
 # the clipboard octets into dir and prints the same JSON `read` would. 1
 # means this mime was not on the clipboard.

@@ -132,11 +132,15 @@ async fn forbidden_literal_never_connects() {
 
 #[tokio::test]
 async fn connection_is_pinned_and_original_host_is_preserved() {
-    let (address, server) = server(
-        b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 8\r\n\r\n\x89PNG\r\n\x1a\n"
-            .to_vec(),
+    let encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGNkAAAAASUVORK5CYII=";
+    let image = STANDARD.decode(encoded).unwrap();
+    let mut reply = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\n\r\n",
+        image.len()
     )
-    .await;
+    .into_bytes();
+    reply.extend_from_slice(&image);
+    let (address, server) = server(reply).await;
     let response = execute(
         &test_client(address),
         parse_url("http://sender.example/image", false).unwrap(),
@@ -148,7 +152,7 @@ async fn connection_is_pinned_and_original_host_is_preserved() {
     .unwrap();
     assert_eq!(
         image_data(response).unwrap(),
-        "data:image/png;base64,iVBORw0KGgo="
+        format!("data:image/png;base64,{encoded}")
     );
     let request = server.await.unwrap();
     assert!(request.to_lowercase().contains("host: sender.example\r\n"));
@@ -315,4 +319,33 @@ async fn tls_verifies_issuer_and_original_hostname_before_http() {
         assert_eq!(report.trim(), "tls-refused-no-http");
     }
     assert!(peer.wait().unwrap().success());
+}
+
+#[test]
+fn image_data_refuses_unknown_or_excessive_decoded_dimensions() {
+    let valid = STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGNkAAAAASUVORK5CYII=").unwrap();
+    let mut oversized = valid.clone();
+    oversized[16..20].copy_from_slice(&100_000u32.to_be_bytes());
+    oversized[20..24].copy_from_slice(&100_000u32.to_be_bytes());
+    for body in [b"\x89PNG\r\n\x1a\n".to_vec(), oversized] {
+        let result = image_data(Response {
+            status: 200,
+            content_type: "image/png".into(),
+            body,
+        });
+        assert_eq!(
+            result,
+            Err("public_image_refused"),
+            "unbounded images must never become data URIs for Qt"
+        );
+    }
+    assert!(
+        image_data(Response {
+            status: 200,
+            content_type: "image/png".into(),
+            body: valid
+        })
+        .unwrap()
+        .starts_with("data:image/png;base64,")
+    );
 }

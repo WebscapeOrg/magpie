@@ -255,7 +255,7 @@ fn image_data(response: Response) -> Result<String, &'static str> {
     } else {
         &response.content_type
     };
-    if claimed != mime {
+    if claimed != mime || crate::raster::decoded_bytes(&data).is_none() {
         return Err("public_image_refused");
     }
     Ok(format!("data:{mime};base64,{}", STANDARD.encode(data)))

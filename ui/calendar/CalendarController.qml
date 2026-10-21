@@ -20,17 +20,13 @@ Item {
   property var events: []
   property bool loading: false
   property string lastError: ""
-  property string lastErrorKind: ""
   property var undoChange: null
   property double rangeStart: 0
   property double rangeEnd: 0
-  property double pendingRangeStart: 0
-  property double pendingRangeEnd: 0
   property string refreshAccountId: ""
   // Invariant: shared-calendar cache scope can outlive an individual mailbox selection.
   property string refreshScope: ""
   property var queue: []
-  property var activeSource: null
   property int refreshSerial: 0
   property int activeReads: 0
   readonly property var sharedCache: service && service.calendarCache && service.backend && Number(service.backend.apiVersion)>=8 ? service.calendarCache : null
@@ -61,7 +57,6 @@ Item {
   property var writeEvent: null
   property var writeDraft: null
 
-  property string writeUrl: ""
   property bool eventWriting: false
   readonly property var availableSources: Sources.withMicrosoftAccounts(Sources.withGoogleAccounts(
     sourceList, service ? service.accountSummaries : []), service ? service.accountSummaries : [])
@@ -129,8 +124,6 @@ Item {
   function refresh(startMs, endMs) {
     var requestedStart = Number(startMs) || 0
     var requestedEnd = Number(endMs) || 0
-    pendingRangeStart = 0
-    pendingRangeEnd = 0
     rangeStart = requestedStart
     rangeEnd = requestedEnd
     setEvents(cachedEventsFor(calendarScope, rangeStart, rangeEnd))
@@ -138,14 +131,12 @@ Item {
     if (!eventCache.loaded && !(sharedCache && sharedCache.loaded)) {loading=false;return}
     activeReads = 0
     lastError = ""
-    lastErrorKind = ""
     refreshAccountId = accountId
     refreshScope = calendarScope
     var effectiveSources = sourcesForAccount(refreshAccountId)
     queue = effectiveSources.sources.filter(function(source) {
       return root.sourceIncluded(source)
     })
-    var sourceIds = queue.map(function(source) { return String(source.id || "") })
     loading = true
     setEvents(cachedEventsFor(refreshScope, rangeStart, rangeEnd))
     processNext()
@@ -489,13 +480,11 @@ Item {
     writeSource = null
     writeEvent = null
     writeDraft = null
-    writeUrl = ""
     if (op === "delete") eventDeleted(ok, String(error || ""))
     else eventUpdated(ok, String(error || ""))
     // Invariant: detail-view deletes must not signal completion of an unrelated event composer.
     if (!ok) {
       lastError = String(error || "Could not write the event")
-      lastErrorKind = ""
     }
     if (ok && rangeStart && rangeEnd) refresh(rangeStart, rangeEnd)
   }
@@ -866,7 +855,6 @@ Item {
   }
 
   function replaceActiveSourceEvents(values, source) {
-    source = source || activeSource
     if (refreshScope !== calendarScope) return
     var sourceId = source ? String(source.id || "") : ""
     var next = events.filter(function(event) {
@@ -886,18 +874,9 @@ Item {
     if (!Calendar.sameEvents(events, next)) events = next
   }
 
-  function failSource(reason, kind) {
-    if (refreshScope !== calendarScope) { processNext(); return }
-    var name = Sources.errorLabel(activeSource, service ? service.accountSummaries : [])
-    lastError = name + ": " + String(reason || "Could not load events")
-    lastErrorKind = String(kind || "")
-    processNext()
-  }
-
   function processNext() {
     if (queue.length === 0) {
       if (activeReads > 0) return
-      activeSource = null
       loading = false
       var enabled = sourcesForAccount(refreshAccountId).sources.filter(function(source) {
         return root.sourceIncluded(source)

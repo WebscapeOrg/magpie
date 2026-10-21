@@ -19,10 +19,8 @@ function boldEnd(text, start) {
     while (index < text.length) {
         if (text.charAt(index) === "\x60") {
             var code = codeEnd(text, index);
-            if (code) {
-                index = code.after;
-                continue;
-            }
+            index = code.after;
+            continue;
         }
         if (text.slice(index, index + 2) === "**") return index;
         index++;

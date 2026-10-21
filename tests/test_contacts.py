@@ -181,4 +181,13 @@ with tempfile.TemporaryDirectory() as temporary:
     assert by_email["noreply@example.com"] == ""
     assert by_email["jane@example.com"] == "Jane Doe"
 
+    for invalid in ([], None, "not a cache", 42):
+        (cache / "account-invalid.json").write_text(json.dumps(invalid), encoding="utf-8")
+        assert harvester.omamail_cache_records(cache) == harvested
+
+    recipients = [{"email": "person%d@example.com" % index} for index in range(5)]
+    message = {"from": {"email": "sender@example.com"}, "to": recipients, "cc": recipients}
+    (cache / "account-x.json").write_text(json.dumps({"queries": {"q": {"summaries": [message] * 2000}}}))
+    assert len(harvester.omamail_cache_records(cache)) == harvester.MAX_CACHE_CONTACTS
+
 print("contact discovery tests passed")

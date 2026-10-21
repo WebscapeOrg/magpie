@@ -155,7 +155,7 @@ def omamail_cache_records(cache_dir: Path) -> list[dict[str, str]]:
     contacts: list[dict[str, str]] = []
 
     def take(value: object) -> None:
-        if not isinstance(value, dict):
+        if len(contacts) >= MAX_CACHE_CONTACTS or not isinstance(value, dict):
             return
         email = str(value.get("email") or "").strip()
         if not is_address(email):
@@ -167,6 +167,8 @@ def omamail_cache_records(cache_dir: Path) -> list[dict[str, str]]:
         try:
             data = json.loads(account.read_text(encoding="utf-8", errors="ignore"))
         except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
             continue
         queries = data.get("queries", {})
         if not isinstance(queries, dict):

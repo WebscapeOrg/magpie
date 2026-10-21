@@ -4,7 +4,7 @@ pub(super) async fn send(params: &Value) -> Result<Value, &'static str> {
     let fields = params.as_object().ok_or("invalid_params")?;
     if fields
         .keys()
-        .any(|k| !["accountId", "raw"].contains(&k.as_str()))
+        .any(|key| !["accountId", "raw"].contains(&key.as_str()))
     {
         return Err("invalid_params");
     }

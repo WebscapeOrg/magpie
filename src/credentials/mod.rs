@@ -158,12 +158,12 @@ impl CredentialKey {
         if self.provider != provider {
             return Err(Error::InvalidKey);
         }
-        let mut attrs = BTreeMap::from([
+        let mut attributes = BTreeMap::from([
             ("service".into(), "omamail".into()),
             ("kind".into(), kind.into()),
         ]);
         if provider == "caldav" {
-            attrs.insert("source".into(), self.account_id.clone());
+            attributes.insert("source".into(), self.account_id.clone());
         } else {
             if self.account_id.chars().any(char::is_whitespace)
                 || (provider != "gmail" && !self.account_id.starts_with(&format!("{provider}:")))
@@ -174,18 +174,18 @@ impl CredentialKey {
             {
                 return Err(Error::InvalidKey);
             }
-            attrs.insert("account".into(), self.account_id.to_lowercase());
+            attributes.insert("account".into(), self.account_id.to_lowercase());
         }
         if let CredentialKind::GoogleRefreshToken { client_id }
         | CredentialKind::OutlookRefreshToken { client_id } = &self.kind
         {
             metadata(client_id)?;
-            attrs.insert("client-id".into(), client_id.clone());
+            attributes.insert("client-id".into(), client_id.clone());
         }
         if matches!(self.kind, CredentialKind::GoogleRefreshToken { .. }) {
-            attrs.insert("grant".into(), "calendar-events-v1".into());
+            attributes.insert("grant".into(), "calendar-events-v1".into());
         }
-        Ok(attrs)
+        Ok(attributes)
     }
 
     /// Length-delimited fields prevent delimiter collisions. Hashing also keeps

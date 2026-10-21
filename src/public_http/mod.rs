@@ -26,18 +26,18 @@ impl Resolve for PublicResolver {
             builder.options_mut().ip_strategy = LookupIpStrategy::Ipv4AndIpv6;
             let resolver = builder.build();
             let answer = resolver.lookup_ip(name.as_str()).await?;
-            let ips: Vec<_> = answer.iter().collect();
-            let addresses = checked_addresses(ips).map_err(std::io::Error::other)?;
+            let addresses: Vec<_> = answer.iter().collect();
+            let addresses = checked_addresses(addresses).map_err(std::io::Error::other)?;
             Ok(Box::new(addresses.into_iter()) as Addrs)
         })
     }
 }
 
-fn checked_addresses(ips: Vec<IpAddr>) -> Result<Vec<SocketAddr>, &'static str> {
-    if ips.is_empty() || ips.iter().any(|ip| !is_public(*ip)) {
+fn checked_addresses(addresses: Vec<IpAddr>) -> Result<Vec<SocketAddr>, &'static str> {
+    if addresses.is_empty() || addresses.iter().any(|ip| !is_public(*ip)) {
         return Err("public_destination_refused");
     }
-    Ok(ips.into_iter().map(|ip| SocketAddr::new(ip, 0)).collect())
+    Ok(addresses.into_iter().map(|ip| SocketAddr::new(ip, 0)).collect())
 }
 
 /// Conservative global-unicast policy, including transition mechanisms that
@@ -45,28 +45,28 @@ fn checked_addresses(ips: Vec<IpAddr>) -> Result<Vec<SocketAddr>, &'static str> 
 pub fn is_public(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
-            let [a, b, c, _] = ip.octets();
-            !(a == 0
-                || a == 10
-                || a == 127
-                || a >= 224
-                || (a == 100 && (64..=127).contains(&b))
-                || (a == 169 && b == 254)
-                || (a == 172 && (16..=31).contains(&b))
-                || (a == 192
-                    && ((b == 168) || (b == 0 && (c == 0 || c == 2)) || (b == 88 && c == 99)))
-                || (a == 198 && (b == 18 || b == 19 || (b == 51 && c == 100)))
-                || (a == 203 && b == 0 && c == 113))
+            let [first_octet, second_octet, third_octet, _] = ip.octets();
+            !(first_octet == 0
+                || first_octet == 10
+                || first_octet == 127
+                || first_octet >= 224
+                || (first_octet == 100 && (64..=127).contains(&second_octet))
+                || (first_octet == 169 && second_octet == 254)
+                || (first_octet == 172 && (16..=31).contains(&second_octet))
+                || (first_octet == 192
+                    && ((second_octet == 168) || (second_octet == 0 && (third_octet == 0 || third_octet == 2)) || (second_octet == 88 && third_octet == 99)))
+                || (first_octet == 198 && (second_octet == 18 || second_octet == 19 || (second_octet == 51 && third_octet == 100)))
+                || (first_octet == 203 && second_octet == 0 && third_octet == 113))
         }
         IpAddr::V6(ip) => {
-            let s = ip.segments();
+            let segments = ip.segments();
             // Only currently allocated global unicast; excludes mapped IPv4,
             // NAT64, local/multicast and deprecated site-local addresses.
-            (s[0] & 0xe000) == 0x2000
-                && !(s[0] == 0x2001 && s[1] < 0x0200)
-                && !(s[0] == 0x2001 && s[1] == 0x0db8)
-                && s[0] != 0x2002
-                && !(s[0] == 0x3fff && s[1] < 0x1000)
+            (segments[0] & 0xe000) == 0x2000
+                && !(segments[0] == 0x2001 && segments[1] < 0x0200)
+                && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
+                && segments[0] != 0x2002
+                && !(segments[0] == 0x3fff && segments[1] < 0x1000)
         }
     }
 }
@@ -77,7 +77,7 @@ fn parse_url(raw: &str, https_only: bool) -> Result<Url, &'static str> {
         || raw.len() > 128 * 1024
         || raw
             .chars()
-            .any(|c| c.is_control() || c.is_whitespace() || c == '\\')
+            .any(|character| character.is_control() || character.is_whitespace() || character == '\\')
     {
         return Err("public_url_invalid");
     }
@@ -115,7 +115,7 @@ fn parse_url(raw: &str, https_only: bool) -> Result<Url, &'static str> {
                 || label.ends_with('-')
                 || !label
                     .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
         })
     {
         return Err("public_url_invalid");
@@ -151,7 +151,7 @@ async fn execute(
     client: &Client,
     url: Url,
     method: Method,
-    max: usize,
+    max_bytes: usize,
     deadline: Duration,
 ) -> Result<Response, &'static str> {
     tokio::time::timeout(deadline, async {
@@ -166,7 +166,7 @@ async fn execute(
         let content_type = response
             .headers()
             .get("Content-Type")
-            .and_then(|v| v.to_str().ok())
+            .and_then(|value| value.to_str().ok())
             .unwrap_or("")
             .split(';')
             .next()
@@ -179,18 +179,18 @@ async fn execute(
             if response
                 .headers()
                 .get("Content-Encoding")
-                .is_some_and(|v| v != "identity")
+                .is_some_and(|value| value != "identity")
             {
                 return Err("public_encoding_refused");
             }
             if response
                 .content_length()
-                .is_some_and(|size| size > max as u64)
+                .is_some_and(|size| size > max_bytes as u64)
             {
                 return Err("public_response_too_large");
             }
             while let Some(chunk) = response.chunk().await.map_err(|_| "public_http_failed")? {
-                if chunk.len() > max - body.len() {
+                if chunk.len() > max_bytes - body.len() {
                     return Err("public_response_too_large");
                 }
                 body.extend_from_slice(&chunk);

@@ -25,13 +25,13 @@ fn settings_with(provider: &str, account: &str, raw: Value) -> Result<Value, &'s
     }
     let entries = raw["accounts"].as_array().ok_or("accounts_invalid")?;
     for entry in entries {
-        let p = entry["provider"].as_str().unwrap_or("gmail");
-        if p != provider {
+        let entry_provider = entry["provider"].as_str().unwrap_or("gmail");
+        if entry_provider != provider {
             continue;
         }
         let email = entry["email"]
             .as_str()
-            .filter(|e| !e.is_empty())
+            .filter(|email| !email.is_empty())
             .or_else(|| entry["imap"]["username"].as_str())
             .unwrap_or("");
         let id = if provider == "gmail" {
@@ -50,7 +50,7 @@ fn valid_account(provider: &str, account: &str) -> Result<(), &'static str> {
     if !account.starts_with(&format!("{provider}:"))
         || !account.contains('@')
         || account.len() > 1024
-        || account.chars().any(|c| c.is_control() || c.is_whitespace())
+        || account.chars().any(|character| character.is_control() || character.is_whitespace())
     {
         return Err("auth_account_invalid");
     }
@@ -319,10 +319,10 @@ where
         }
         if token["error_codes"]
             .as_array()
-            .is_some_and(|codes| codes.iter().any(|v| *v == 65001))
+            .is_some_and(|codes| codes.iter().any(|value| *value == 65001))
             || token["error_description"]
                 .as_str()
-                .is_some_and(|s| s.contains("AADSTS65001"))
+                .is_some_and(|value| value.contains("AADSTS65001"))
         {
             return Err("auth_consent_required");
         }
@@ -338,7 +338,7 @@ where
     }
     let lifetime = token["expires_in"]
         .as_u64()
-        .filter(|n| *n <= 86400)
+        .filter(|seconds| *seconds <= 86400)
         .unwrap_or(0);
     Ok((access.to_owned(), lifetime))
 }
@@ -359,10 +359,10 @@ fn aadsts_code(token: &Value, code: u64) -> bool {
 fn outlook_access(token: &Value) -> Result<&str, &'static str> {
     token["access_token"]
         .as_str()
-        .filter(|s| {
-            !s.is_empty()
-                && s.len() <= 16384
-                && !s.chars().any(|c| c.is_whitespace() || c.is_control())
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 16384
+                && !value.chars().any(|character| character.is_whitespace() || character.is_control())
         })
         .ok_or("auth_invalid_response")
 }
@@ -371,13 +371,13 @@ fn outlook_scopes(token: &Value, scope: &str) -> bool {
     let granted = token["scope"].as_str().unwrap_or("");
     scope
         .split_whitespace()
-        .filter(|s| s.starts_with("https://"))
+        .filter(|value| value.starts_with("https://"))
         .all(|required| {
-            granted.split_whitespace().any(|s| {
-                s == required
+            granted.split_whitespace().any(|value| {
+                value == required
                     || required
                         .strip_prefix("https://graph.microsoft.com/")
-                        .is_some_and(|short| s == short)
+                        .is_some_and(|short| value == short)
             })
         })
 }
@@ -427,7 +427,7 @@ pub(super) async fn change_outlook(params: &Value, clear: bool) -> Result<Value,
     } else {
         params["token"]
             .as_str()
-            .filter(|s| !s.is_empty() && s.len() <= 16384 && !s.chars().any(char::is_control))
+            .filter(|value| !value.is_empty() && value.len() <= 16384 && !value.chars().any(char::is_control))
             .ok_or("auth_secret_invalid")?
     };
     let lock = account_tokens(account, client, stored_tenant(&entry)).await?;
@@ -463,7 +463,7 @@ pub async fn invalidate(account: &str) -> Result<(), &'static str> {
             .await
             .iter()
             .filter(|(key, _)| key.starts_with(&prefix))
-            .map(|(_, v)| v.clone())
+            .map(|(_, value)| value.clone())
             .collect();
         for lock in locks {
             lock.lock().await.clear();
@@ -498,11 +498,11 @@ where
         || account.is_empty()
         || !account.contains('@')
         || account.len() > 1024
-        || account.chars().any(|c| c.is_control() || c.is_whitespace())
+        || account.chars().any(|character| character.is_control() || character.is_whitespace())
         || token.is_empty()
         || client_id.chars().any(char::is_control)
         || token.len() > 16384
-        || token.chars().any(|c| c.is_whitespace() || c.is_control())
+        || token.chars().any(|character| character.is_whitespace() || character.is_control())
     {
         return Err("auth_secret_invalid");
     }
@@ -558,7 +558,7 @@ where
 {
     if let Some(rotated) = token["refresh_token"]
         .as_str()
-        .filter(|s| !s.is_empty() && *s != refresh)
+        .filter(|value| !value.is_empty() && *value != refresh)
     {
         if rotated.len() > 16384 || rotated.chars().any(char::is_control) {
             return Err("auth_invalid_response");

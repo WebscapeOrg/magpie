@@ -29,13 +29,13 @@ fn client() -> Result<&'static reqwest::Client, &'static str> {
                 .map_err(|_| "auth_transport_failed")
         })
         .as_ref()
-        .map_err(|e| *e)
+        .map_err(|error| *error)
 }
 
 fn destination(params: &Value) -> Result<String, &'static str> {
-    let p = params.as_object().ok_or("invalid_params")?;
-    if p.keys()
-        .any(|k| !["provider", "endpoint", "tenant", "body"].contains(&k.as_str()))
+    let fields = params.as_object().ok_or("invalid_params")?;
+    if fields.keys()
+        .any(|key| !["provider", "endpoint", "tenant", "body"].contains(&key.as_str()))
     {
         return Err("invalid_params");
     }
@@ -44,7 +44,7 @@ fn destination(params: &Value) -> Result<String, &'static str> {
         (Some("outlook"), Some(endpoint @ ("token" | "device"))) => {
             let tenant = params
                 .get("tenant")
-                .map(|v| v.as_str().ok_or("invalid_params"))
+                .map(|value| value.as_str().ok_or("invalid_params"))
                 .transpose()?
                 .unwrap_or("consumers");
             if tenant.is_empty()
@@ -53,7 +53,7 @@ fn destination(params: &Value) -> Result<String, &'static str> {
                 || !tenant.as_bytes()[0].is_ascii_alphanumeric()
                 || !tenant
                     .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b))
+                    .all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte))
             {
                 return Err("invalid_params");
             }
@@ -95,7 +95,7 @@ async fn post_with_deadline(
         if status.is_redirection() {
             return Err("auth_redirect_refused");
         }
-        if response.content_length().is_some_and(|n| n > LIMIT as u64) {
+        if response.content_length().is_some_and(|size| size > LIMIT as u64) {
             return Err("auth_response_too_large");
         }
         let mut bytes = Vec::new();
@@ -148,7 +148,7 @@ impl Session {
             let account = params["accountId"].as_str().ok_or("invalid_params")?;
             let resource = params
                 .get("resource")
-                .map(|v| v.as_str().ok_or("invalid_params"))
+                .map(|value| value.as_str().ok_or("invalid_params"))
                 .transpose()?
                 .unwrap_or("mail");
             let access = access_token("outlook", account, resource).await?;
@@ -176,7 +176,7 @@ impl Session {
         }
         let url = destination(params)?;
         let body = params["body"].as_str().ok_or("invalid_params")?;
-        if body.len() > LIMIT || body.bytes().any(|b| b < 32 || b == 127) {
+        if body.len() > LIMIT || body.bytes().any(|byte| byte < 32 || byte == 127) {
             return Err("invalid_params");
         }
         post(client()?, &url, body.into()).await
@@ -283,7 +283,7 @@ mod tests {
             net::TcpListener,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
+        let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut bytes = [0; 4096];
@@ -301,7 +301,7 @@ mod tests {
             .build()
             .unwrap();
         assert_eq!(
-            post(&client, &format!("http://{addr}"), "token=synthetic".into()).await,
+            post(&client, &format!("http://{address}"), "token=synthetic".into()).await,
             Err("auth_redirect_refused")
         );
         server.await.unwrap();

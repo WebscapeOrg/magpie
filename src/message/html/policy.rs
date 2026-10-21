@@ -91,38 +91,38 @@ pub fn is_public_url(s: &str) -> bool {
     public_host(&host(&normalized(s)))
         && (once == twice || public_host(&host(&once.replace(['\t', '\n', '\r'], ""))))
 }
-pub fn raster(s: &str) -> bool {
-    let Some((head, payload)) = s.split_once(',') else {
-        return false;
-    };
-    let head = head.to_ascii_lowercase();
-    let Some(kind) = head
-        .strip_prefix("data:image/")
-        .and_then(|s| s.strip_suffix(";base64"))
-    else {
-        return false;
-    };
+fn raster_data(source: &str) -> Option<Vec<u8>> {
+    let (header, payload) = source.split_once(',')?;
+    let header = header.to_ascii_lowercase();
+    let kind = header
+        .strip_prefix("data:image/")?
+        .strip_suffix(";base64")?;
     if payload.len() > 8 * 1024 * 1024 {
-        return false;
+        return None;
     }
-    let Ok(data) = STANDARD.decode(payload) else {
-        return false;
-    };
-    match kind {
-        "png" => data.starts_with(b"\x89PNG\r\n\x1a\n"),
-        "jpg" | "jpeg" => data.starts_with(b"\xff\xd8\xff"),
-        "gif" => data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a"),
-        "webp" => data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WEBP"),
-        "bmp" => data.starts_with(b"BM"),
+    let bytes = STANDARD.decode(payload).ok()?;
+    let signature_matches = match kind {
+        "png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "jpg" | "jpeg" => bytes.starts_with(b"\xff\xd8\xff"),
+        "gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "webp" => bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP"),
+        "bmp" => bytes.starts_with(b"BM"),
         _ => false,
-    }
+    };
+    signature_matches.then_some(bytes)
+}
+pub fn raster_decoded_bytes(source: &str) -> Option<u64> {
+    crate::raster::decoded_bytes(&raster_data(source)?)
+}
+pub fn raster(source: &str) -> bool {
+    raster_decoded_bytes(source).is_some()
 }
 pub fn image_kind(s: &str) -> &'static str {
     let url = normalized(s);
     let lower = url.to_ascii_lowercase();
     if url.is_empty() {
         "none"
-    } else if lower.starts_with("cid:") || raster(&url) {
+    } else if lower.starts_with("cid:") || raster_data(&url).is_some() {
         "inline"
     } else if re!(r"(?i)^(https?:)?//").is_match(&url) {
         if is_public_url(s) { "remote" } else { "unsafe" }

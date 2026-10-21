@@ -314,7 +314,9 @@ fn attribute_names_and_nonanchor_urls_cannot_create_resource_markup() {
 #[test]
 fn approved_image_bytes_do_not_make_a_small_message_too_heavy() {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut png = STANDARD
+        .decode(sized_png_data(3, 3).split_once(',').unwrap().1)
+        .unwrap();
     png.resize(300_000, 0);
     let data = format!("data:image/png;base64,{}", STANDARD.encode(&png));
     let source = "<p>Hello</p><img src='https://cdn.example.com/hero.png'><p>Bye</p>";
@@ -344,7 +346,7 @@ fn approved_image_bytes_do_not_make_a_small_message_too_heavy() {
 
 #[test]
 fn inline_and_remote_images_share_the_count_budget() {
-    let data = "DATA:image/png;base64,iVBORw0KGgoA";
+    let data = sized_png_data(3, 3).replacen("data:", "DATA:", 1);
     let source = format!(
         "<p>Body</p>{}<img src='https://cdn.example.com/remote'>",
         format!("<img src='{data}' alt='inline'>").repeat(1000)
@@ -369,7 +371,9 @@ fn inline_and_remote_images_share_the_count_budget() {
 #[test]
 fn rendered_remote_image_bytes_have_an_aggregate_budget() {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut png = STANDARD
+        .decode(sized_png_data(3, 3).split_once(',').unwrap().1)
+        .unwrap();
     png.resize(4 * 1024 * 1024, 0);
     let data = format!("data:image/png;base64,{}", STANDARD.encode(png));
     let source = "<p>Body remains visible</p><img src='https://cdn.example.com/hero'>".to_owned()
@@ -394,7 +398,7 @@ fn rendered_remote_image_bytes_have_an_aggregate_budget() {
 #[test]
 fn image_policy_hidden_images_are_not_offered_for_fetch_or_rendered() {
     let source = "https://cdn.example.com/hidden.png";
-    let prepared = "data:image/png;base64,iVBORw0KGgoA";
+    let prepared = sized_png_data(3, 3);
     for attributes in [
         "hidden",
         "hidden='false'",
@@ -459,7 +463,9 @@ fn image_policy_inline_trackers_never_reach_either_renderer() {
 #[test]
 fn image_policy_encoded_inline_bytes_share_the_rendered_budget() {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut png = STANDARD
+        .decode(sized_png_data(3, 3).split_once(',').unwrap().1)
+        .unwrap();
     png.resize(4 * 1024 * 1024, 0);
     let data = format!("data:image/png;base64,{}", STANDARD.encode(png));
     let encoded = data.replacen("data:", "&#100;ata:", 1);
@@ -489,5 +495,88 @@ fn image_policy_encoded_inline_bytes_share_the_rendered_budget() {
         );
         assert_eq!(document["blockedImages"], 2);
         assert_eq!(document["tooHeavy"], false);
+    }
+}
+
+fn sized_png_data(width: u32, height: u32) -> String {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let mut png = STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAMAAAADCAIAAADZSiLoAAAACXBIWXMAAA9hAAAPYQGoP6dpAAAAF0lEQVQImWM09U9nYGBgYGBgYoABBAsAGfoA8cw8ZQIAAAAASUVORK5CYII=").unwrap();
+    // Invariant: only metadata changes, so exercising admission never allocates the declared pixels.
+    png[16..20].copy_from_slice(&width.to_be_bytes());
+    png[20..24].copy_from_slice(&height.to_be_bytes());
+    let mut checksum = !0u32;
+    for byte in &png[12..29] {
+        checksum ^= u32::from(*byte);
+        for _ in 0..8 {
+            checksum = (checksum >> 1) ^ (0xedb88320 & 0u32.wrapping_sub(checksum & 1));
+        }
+    }
+    png[29..33].copy_from_slice(&(!checksum).to_be_bytes());
+    format!("data:image/png;base64,{}", STANDARD.encode(png))
+}
+
+#[test]
+fn decoded_image_policy_refuses_oversized_inline_and_prepared_images_before_qt() {
+    let data = sized_png_data(4096, 4096);
+    let encoded = data.replacen("data:", "&#100;ata:", 1);
+    let result = sanitize(
+        &format!(
+            "<p>Visible body</p><img src='{encoded}'><img src='https://cdn.example.com/oversized'>"
+        ),
+        &json!({"withReader":true,"allowRemoteImages":true,
+            "remoteImageData":{"https://cdn.example.com/oversized":data}}),
+    )
+    .unwrap();
+    for document in [&result, &result["reader"]] {
+        let html = document["html"].as_str().unwrap();
+        assert!(
+            !html.contains("<img"),
+            "oversized metadata must not reach Qt"
+        );
+        assert!(html.contains("Visible body"));
+    }
+}
+
+#[test]
+fn decoded_image_policy_inline_and_remote_images_share_the_pixel_budget() {
+    let data = sized_png_data(2048, 2048);
+    let source = format!(
+        "<p>Visible body</p><img src='{data}'><img src='https://cdn.example.com/large'><img src='{data}'><img src='https://cdn.example.com/large'><img src='{data}'>"
+    );
+    let result = sanitize(
+        &source,
+        &json!({"withReader":true,"allowRemoteImages":true,
+            "remoteImageData":{"https://cdn.example.com/large":data}}),
+    )
+    .unwrap();
+    for document in [&result, &result["reader"]] {
+        let html = document["html"].as_str().unwrap();
+        assert_eq!(
+            html.matches("<img ").count(),
+            4,
+            "the fifth image would exceed 128 MiB of decoded pixels"
+        );
+        assert!(html.contains("Visible body"));
+        assert_eq!(document["images"], 2);
+        assert_eq!(document["blockedImages"], 1);
+        assert_eq!(document["tooHeavy"], false);
+    }
+}
+
+#[test]
+fn decoded_image_policy_unresolved_cid_never_reaches_qt() {
+    let result = sanitize(
+        "<p>Visible body</p><img src='cid:message-logo' alt='Logo'>",
+        &json!({"withReader":true}),
+    )
+    .unwrap();
+    for document in [&result, &result["reader"]] {
+        let html = document["html"].as_str().unwrap();
+        assert!(
+            !html.contains("<img"),
+            "unresolved bytes cannot be admitted without a pixel bound"
+        );
+        assert!(html.contains("Visible body"));
+        assert_eq!(document["blockedImages"], 1);
     }
 }

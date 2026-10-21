@@ -208,7 +208,7 @@ class ReleaseRedirect(urllib.request.HTTPRedirectHandler):
 
 def download(url, limit):
     require(release_url_allowed(url), "Release URL was refused.")
-    # Ignore proxy environment variables; redirects remain fixed HTTPS release hosts.
+    # Invariant: proxies are disabled and redirects stay on fixed HTTPS release hosts.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), ReleaseRedirect())
     with opener.open(url, timeout=20) as response:
         require(response.status == 200, "Release download failed.")
@@ -264,7 +264,7 @@ def install(required, architecture):
         safe_path(BINARY.parent, directory=True, create=True)
         with tempfile.TemporaryDirectory(prefix=".install-", dir=BINARY.parent) as staging:
             candidate = Path(staging) / "omamail"
-            # Parse the first physical header: tarfile iteration hides GNU/PAX entries.
+            # Invariant: validate the physical header because tarfile iteration hides GNU/PAX entries.
             # Bound decompression too, and accept only zero padding after this one file.
             with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as source:
                 unpacked = source.read(MAX_BINARY_BYTES + 65537)
@@ -416,7 +416,7 @@ def run(command):
                     cli_link(True)
                 else:
                     cli_link(False)
-        # The candidate was verified before the atomic commit. A second execution
+        # Invariant: the candidate was verified before the atomic commit. A second execution
         # must not turn a completed replacement into a reported install failure.
         installed = required if command in ("install", "install-local") else version_of(executable)
         result["installedVersion"] = installed

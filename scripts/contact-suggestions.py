@@ -8,19 +8,19 @@ import sqlite3
 from pathlib import Path
 from urllib.parse import quote
 
-# The one gate every harvested address passes, because the harvesters below
+# Invariant: every harvested address passes this gate because the harvesters below
 # read files this program did not write and shapes it did not choose. "@ is
 # somewhere in the string" is not that gate: a JSON value stringified by
 # accident contains one, and what reached the picker was a whole serialised
 # object offered as an address to send mail to.
 ADDRESS = re.compile(r"^[^\s@<>,;\"\\]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
 
-# A recipient list longer than this is a bulk send rather than a conversation.
+# Invariant: bulk-recipient lists must not displace curated contacts.
 # Harvesting one puts fifty strangers who happened to share a mailing with the
 # user into the address completion, ahead of the addresses they curated.
 MAX_HARVESTED_RECIPIENTS = 5
 
-# The cache holds every query the panel has ever run. This is the ceiling on
+# Performance: the cache holds every query the panel has ever run. This is the ceiling on
 # what any one of them may contribute, so a single large mailbox cannot fill
 # the picker on its own.
 MAX_CACHE_CONTACTS = 2000
@@ -30,7 +30,7 @@ def is_address(value: str) -> bool:
     return bool(ADDRESS.match(value))
 
 
-# `Message.parseAddress` fills a missing display name from the local part
+# Invariant: `Message.parseAddress` fills a missing display name from the local part
 # verbatim, so a sender with no name of its own arrives here calling itself
 # "noreply". That is not a name anybody wrote, and offering it as one puts
 # `noreply <noreply@example.com>` into a To: field.
@@ -111,7 +111,7 @@ def parse_vcf(path: Path) -> list[dict[str, str]]:
     except OSError:
         return []
 
-    # vCard folds a value past ~75 characters onto a continuation line marked
+    # Invariant: vCard folds a value past ~75 characters onto a continuation line marked
     # by a leading space or tab. Stripping every line first turns those into
     # unrecognised properties, which truncates long names and long addresses at
     # the fold — and exports from Google Contacts and iOS fold routinely.
@@ -122,7 +122,7 @@ def parse_vcf(path: Path) -> list[dict[str, str]]:
     current_emails: list[str] = []
     for line in unfolded.splitlines():
         line = line.strip()
-        # Per line, not per file. One property without a colon used to raise
+        # Invariant: reject malformed properties per line. One missing colon used to raise
         # out of the whole loop and silently discard every remaining card.
         try:
             if line.startswith("BEGIN:VCARD"):
@@ -142,13 +142,6 @@ def parse_vcf(path: Path) -> list[dict[str, str]]:
     return contacts
 
 
-# Everybody the panel has already shown the user, out of the pages it cached.
-#
-# Bounded on both sides. A recipient list longer than MAX_HARVESTED_RECIPIENTS
-# is a bulk send, and every stranger who shared that mailing is not a contact —
-# harvesting them buries the addresses the user actually corresponds with under
-# a list they never chose. Bcc is left out entirely: in a received message it
-# is either empty or the reader's own address.
 def cached_messages(account: Path):
     try:
         data = json.loads(account.read_text(encoding="utf-8", errors="ignore"))
@@ -169,6 +162,7 @@ def cached_messages(account: Path):
 
 
 def message_contacts(message):
+    # Invariant: bulk recipients are not contacts; received Bcc is empty or the reader.
     for field in ("from", "replyTo"):
         yield message.get(field)
     for field in ("to", "cc"):
@@ -208,9 +202,7 @@ def omamail_cache_records(cache_dir: Path) -> list[dict[str, str]]:
     return contacts
 
 
-# A hand-written address book, in either of the two shapes somebody would
-# reasonably write one in: a list of objects, or a mapping.
-#
+# Invariant: address mappings contain strings, not stringified JSON containers.
 # The mapping branch used to ask whether `str(value)` contained an "@", which
 # is true of a stringified list — so the natural wrapper `{"contacts": [...]}`
 # produced a contact named "contacts" whose address was the whole serialised

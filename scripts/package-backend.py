@@ -106,7 +106,7 @@ def validate_contract(contract):
     for key in ('apiVersion', 'releasedApiVersion', 'protocolVersion'):
         if type(contract[key]) is not int or not 1 <= contract[key] <= 2147483647:
             raise ValueError('invalid backend API revision: ' + key)
-    # Two states and no history: the API the pinned binary speaks, and at most
+    # Invariant: the contract describes the pinned API and at most
     # one step ahead of it that this checkout implements but has not shipped.
     # A third step waits for a release, which is what makes releases batches.
     if contract['apiVersion'] - contract['releasedApiVersion'] not in (0, 1):
@@ -188,9 +188,8 @@ def check_api(root, published=None, baseline=None):
     if not inventory:
         raise ValueError('cannot locate public ALL method inventory')
     entries = re.sub(r'//[^\n]*', '', inventory[1])
-    # The default plugin exposes agent methods only on its supported Linux
-    # runtime, while standalone builds omit them. They remain part of the full
-    # source contract and this is the only conditional inventory form reviewed.
+    # Invariant: the full contract includes gated methods. Only this reviewed
+    # feature/platform condition may appear in the source inventory.
     entries = re.sub(
         r'#\s*\[\s*cfg\s*\(\s*all\s*\(\s*feature\s*=\s*"agent"\s*,\s*'
         r'target_os\s*=\s*"linux"\s*\)\s*\)\s*\]', '', entries)
@@ -201,14 +200,13 @@ def check_api(root, published=None, baseline=None):
         raise ValueError('public method inventory differs from backend-api.json; update the API contract')
     canonical = lambda value: json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True)
     if published is not None:
-        # The pinned binary must speak exactly what this checkout calls its
+        # Invariant: the pinned binary must speak exactly what this checkout calls its
         # released API. The unreleased step is checked against a binary built
         # from the checkout instead, so it may stand here unshipped.
         expected = read_published_api(published)
         if canonical(released_view(contract)) != canonical(full_view(expected)):
             raise ValueError('the released API differs from the published backend; release it or pin it')
     if baseline is not None:
-        # What the release under preparation would change against the last one.
         previous = read_published_api(baseline)
         if canonical(released_view(contract)) != canonical(full_view(previous)):
             raise ValueError('the released API must equal the pinned release before a new one is prepared')
@@ -229,7 +227,7 @@ def provenance(root):
     """
     root = root.resolve()
     version = check(root)
-    # This is a reviewed input inventory, not a Cargo build sandbox. A build
+    # Invariant: this reviewed input inventory cannot sandbox Cargo. A build
     # script can read arbitrary files and environment values; new build scripts,
     # compiler flags or workflow/toolchain changes require build-config review.
     manifest = tomllib.loads((root / 'Cargo.toml').read_text())
@@ -402,7 +400,7 @@ def verify(directory, arches):
             raise ValueError('missing or oversized archive')
         if sha256_file(archive) != hashes[name]:
             raise ValueError('archive checksum mismatch')
-        # Match the installer's physical-header contract. Logical iteration hides
+        # Invariant: match the installer's physical-header contract. Logical iteration hides
         # GNU/PAX records and ignores trailing nonzero data or truncated padding.
         binary_limit = 256 * 1024 * 1024
         with gzip.open(archive, 'rb') as source:
@@ -486,7 +484,7 @@ def pin(root, branch, expected):
     git('diff', '--exit-code')
     git('diff', '--cached', '--exit-code')
     (root / 'backend-version').write_text(version + '\n')
-    # The release just published speaks the whole contract: the unreleased step
+    # Invariant: a published release speaks the whole contract; the unreleased step
     # becomes released, and the checks that read this file relax with it.
     contract = read_api(root / 'backend-api.json')
     contract['releasedApiVersion'] = contract['apiVersion']

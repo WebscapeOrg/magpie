@@ -18,7 +18,7 @@ MAX_INPUT_BYTES = 128 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 REQUEST_SECONDS = 20
 CONNECT_SECONDS = 10
-# Keep transition/special-purpose exclusions stable across Python versions.
+# Invariant: special-purpose exclusions stay stable across Python versions.
 SPECIAL_NETWORKS = tuple(ipaddress.ip_network(value) for value in (
     "192.0.0.0/24", "192.88.99.0/24", "64:ff9b::/96", "64:ff9b:1::/48", "2001::/23", "2002::/16",
     "fec0::/10",  # Deprecated site-local addresses can still be labelled global.
@@ -31,7 +31,7 @@ class Refused(ValueError):
 
 @contextmanager
 def deadline(seconds=REQUEST_SECONDS):
-    # Terminate this standalone worker at the OS level. A Python signal handler
+    # Invariant: terminate this standalone worker at the OS level. A Python signal handler
     # may run only after a blocking C resolver returns; SIG_DFL needs no Python
     # bytecode to run. The QML caller treats a terminated worker as failure.
     # No temporary files or credentials need cleanup in these workers.
@@ -67,7 +67,7 @@ def public_address(value):
     if any(address in network for network in SPECIAL_NETWORKS):
         return False
     if isinstance(address, ipaddress.IPv6Address):
-        # Refuse transition mechanisms whose effective IPv4 destination can
+        # Invariant: refuse transition mechanisms whose effective IPv4 destination can
         # differ from what a global-looking IPv6 address suggests.
         if address.ipv4_mapped or address.sixtofour or address.teredo:
             return False
@@ -75,7 +75,7 @@ def public_address(value):
 
 
 def parse_url(value, https_only=False):
-    # urlsplit itself drops some controls; reject them BEFORE it sees the URL.
+    # Invariant: reject controls before urlsplit can silently discard them.
     if not value or re.search(r"[\x00-\x20\x7f\\]", value):
         raise Refused("Invalid URL characters")
     parsed = urlsplit(value)
@@ -97,7 +97,7 @@ def parse_url(value, https_only=False):
     port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
     if not 1 <= port <= 65535:
         raise Refused("Invalid port")
-    # Percent escapes retain their meaning; raw Unicode becomes UTF-8 escapes.
+    # Invariant: existing percent escapes retain their meaning during Unicode encoding.
     target = quote(parsed.path or "/", safe="/%:@!$&'()*+,;=-._~")
     if parsed.query:
         target += "?" + quote(parsed.query, safe="/%?:@!$&'()*+,;=-._~")
@@ -108,7 +108,7 @@ def resolve_public(host, port):
     answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     if not answers:
         raise Refused("The host has no public address")
-    # Reject the entire mixed answer, not merely the first or preferred IP.
+    # Invariant: every DNS answer must be public before any socket is opened.
     for family, _kind, _protocol, _name, address in answers:
         if family not in (socket.AF_INET, socket.AF_INET6) or not public_address(address[0]):
             raise Refused("Non-public destination")
@@ -130,7 +130,7 @@ class PublicConnection(http.client.HTTPConnection):
             sock = socket.socket(family, kind, protocol)
             try:
                 sock.settimeout(CONNECT_SECONDS)
-                # Numeric sockaddr from the validated answer: no second DNS
+                # Invariant: connect to the validated numeric sockaddr, with no second DNS
                 # lookup, proxy environment, CONNECT tunnel or URL expansion.
                 sock.connect(address)
                 if self.context:
@@ -154,7 +154,7 @@ def response_for(url, method, body=None, headers=None, https_only=False):
         connection.request(method, target, body=body, headers=headers or {})
         response = connection.getresponse()
         try:
-            # http.client returns 3xx as responses; it never follows Location.
+            # Invariant: http.client exposes 3xx without following Location.
             yield response
         finally:
             response.close()
@@ -166,7 +166,7 @@ def unsubscribe(url):
     with response_for(url, "POST", body=b"List-Unsubscribe=One-Click",
                       headers={"Content-Type": "application/x-www-form-urlencoded"},
                       https_only=True) as response:
-        # Do not download a sender-controlled response body just to discard it.
+        # Performance: the unsubscribe result needs only the response status.
         return response.status
 
 

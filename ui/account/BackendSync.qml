@@ -5,7 +5,7 @@ import QtQuick
 Item {
   id: root
   property var backend: null
-  property bool enabled: false
+  property bool watchEnabled: false
   property string accountId: ""
   property string query: ""
   property int intervalSec: 120
@@ -44,7 +44,7 @@ Item {
 
   function reconcile() {
     if (unregistering) return
-    if (!enabled || !backend || !backend.ready || !accountId) { stop(); return }
+    if (!watchEnabled || !backend || !backend.ready || !accountId) { stop(); return }
     var key = JSON.stringify([accountId, query, intervalSec, pageSize])
     if (registeredBackend === backend && registrationKey === key) return
     retryTimer.stop()
@@ -60,7 +60,7 @@ Item {
       if (mine !== root.epoch) return
       if (error) {
         root.registrationKey = ""
-        if (root.enabled && root.backend && root.backend.ready) retryTimer.restart()
+        if (root.watchEnabled && root.backend && root.backend.ready) retryTimer.restart()
         return
       }
       root.accept(result)
@@ -68,7 +68,7 @@ Item {
   }
 
   function accept(snapshot) {
-    if (!enabled || !snapshot || snapshot.accountId !== accountId
+    if (!watchEnabled || !snapshot || snapshot.accountId !== accountId
         || typeof snapshot.sequence !== "number" || snapshot.sequence <= sequence) return
     sequence = snapshot.sequence
     updated(snapshot)
@@ -80,7 +80,7 @@ Item {
     registeredBackend.call("mail.check", { accountId: registeredAccount }, function() {})
   }
 
-  onEnabledChanged: scheduleReconcile()
+  onWatchEnabledChanged: scheduleReconcile()
   onBackendChanged: scheduleReconcile()
   onAccountIdChanged: scheduleReconcile()
   onQueryChanged: scheduleReconcile()

@@ -1,6 +1,6 @@
 import QtQuick
 
-// The backend supervises the official HEY CLI; that CLI owns its credentials.
+// Invariant: The backend supervises the official HEY CLI; that CLI owns its credentials.
 Item {
   id: root
   visible: false

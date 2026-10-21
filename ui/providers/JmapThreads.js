@@ -2,7 +2,7 @@
 
 .import "JmapProtocol.js" as Protocol
 
-// One row per conversation.
+// Invariant: One row per conversation.
 //
 // `JmapProtocol.js` is the protocol — every string sent to a server and every
 // decision about what came back. This is one job done with it, and it is a file
@@ -35,25 +35,20 @@ var CALL_REPRESENTATIVES = "1"
 var CALL_THREADS = "2"
 var CALL_MEMBERS = "3"
 
-// The representative read asks for `threadId` and nothing else. The row's own
-// summary is fetched by `getMessages` with the full list property set a moment
-// later, so asking for it twice would double the page's cost to save nothing.
 var REPRESENTATIVE_PROPERTIES = ["id", "threadId"]
 
-// What a member is counted and read by: which mailboxes it sits in, for the
-// Gmail rule below, and its keywords, for the row's unread and flagged. Not its
-// subject, its sender or its preview — a member is a number on a row here, and
-// the conversation rail asks for what it draws, when it draws it.
 var MEMBER_PROPERTIES = ["id", "threadId", "mailboxIds", "keywords"]
 
-// A JMAP back-reference: "the value at this path in the result of that call".
-// RFC 8620 section 3.7. `/list/*/threadId` is every `threadId` in a `/get`'s
-// list, flattened, which is exactly the argument the next call wants.
+/** A JMAP back-reference: "the value at this path in the result of that call".
+ * RFC 8620 section 3.7. `/list/*&#47;threadId` is every `threadId` in a `/get`'s
+ * list, flattened, which is exactly the argument the next call wants.
+ */
 function backReference(callId, name, path) {
   return { resultOf: String(callId), name: String(name), path: String(path) }
 }
 
-// The four calls one collapsed page is read with.
+/** The four calls one collapsed page is read with.
+ */
 function listCalls(accountId, filter, limit, token, byPosition) {
   var account = Protocol.trimmed(accountId)
   return [
@@ -75,8 +70,9 @@ function listCalls(accountId, filter, limit, token, byPosition) {
   ]
 }
 
-// The member read again, by id, for the follow-up after the server refused to
-// answer the whole of it in one call.
+/** The member read again, by id, for the follow-up after the server refused to
+ * answer the whole of it in one call.
+ */
 function memberGet(accountId, ids) {
   return {
     accountId: Protocol.trimmed(accountId),
@@ -85,14 +81,15 @@ function memberGet(accountId, ids) {
   }
 }
 
-// The invocation the request labelled `callId`, as `{ name, arguments }`, or
-// null when the reply carries none.
-//
-// Read by the label rather than by the method name, because two calls in this
-// request are both `Email/get` and `responseArguments` would answer with the
-// first of them for either question. A call the server refused answers under
-// the same label with the name `error`, which is how the too-large member read
-// is told from one that came back empty.
+/** The invocation the request labelled `callId`, as `{ name, arguments }`, or
+ * null when the reply carries none.
+ *
+ * Read by the label rather than by the method name, because two calls in this
+ * request are both `Email/get` and `responseArguments` would answer with the
+ * first of them for either question. A call the server refused answers under
+ * the same label with the name `error`, which is how the too-large member read
+ * is told from one that came back empty.
+ */
 function invocationAt(responses, callId) {
   var list = Protocol.invocations(responses)
   var wanted = Protocol.trimmed(callId)
@@ -102,24 +99,27 @@ function invocationAt(responses, callId) {
   return null
 }
 
-// The arguments of that invocation when it answered, and null when it was
-// refused or is absent — so a caller never reads an `error`'s arguments as if
-// they were a result.
+/** The arguments of that invocation when it answered, and null when it was
+ * refused or is absent — so a caller never reads an `error`'s arguments as if
+ * they were a result.
+ */
 function argumentsAt(responses, callId) {
   var found = invocationAt(responses, callId)
   if (!found || found.name === "" || found.name === "error") return null
   return found.arguments
 }
 
-// The `list` of a `/get` reply, as an array.
+/** The `list` of a `/get` reply, as an array.
+ */
 function getList(parameters) {
   var body = parameters && typeof parameters === "object" ? parameters : {}
   return Array.isArray(body.list) ? body.list : []
 }
 
-// Every representative on the page and the thread it stands for, in page order:
-//
-//   [{ id: "maaaaaf", threadId: "d" }, ...]
+/** Every representative on the page and the thread it stands for, in page order:
+ *
+ *   [{ id: "maaaaaf", threadId: "d" }, ...]
+ */
 function representativeThreads(responses) {
   var list = getList(argumentsAt(responses, CALL_REPRESENTATIVES))
   var output = []
@@ -133,10 +133,11 @@ function representativeThreads(responses) {
   return output
 }
 
-// Thread id to its member ids, oldest first — which is the order `Thread/get`
-// answers in (RFC 8621 section 3, `receivedAt` ascending). The conversation
-// rail draws them the other way up; that is `Conversation.railOrder`'s
-// decision, not this list's.
+/** Thread id to its member ids, oldest first — which is the order `Thread/get`
+ * answers in (RFC 8621 section 3, `receivedAt` ascending). The conversation
+ * rail draws them the other way up; that is `Conversation.railOrder`'s
+ * decision, not this list's.
+ */
 function threadMembers(responses) {
   var list = getList(argumentsAt(responses, CALL_THREADS))
   var output = {}
@@ -155,9 +156,10 @@ function threadMembers(responses) {
   return output
 }
 
-// Every member id the threads on this page name, once each, in page order.
-// This is what the fourth call asks for through its back-reference, and what
-// the follow-up asks for by id when the server refuses to answer it in one go.
+/** Every member id the threads on this page name, once each, in page order.
+ * This is what the fourth call asks for through its back-reference, and what
+ * the follow-up asks for by id when the server refuses to answer it in one go.
+ */
 function memberIdsOf(representatives, threads) {
   var representativeRows = Array.isArray(representatives) ? representatives : []
   var map = threads && typeof threads === "object" ? threads : {}
@@ -175,7 +177,8 @@ function memberIdsOf(representatives, threads) {
   return output
 }
 
-// Member id to the member itself.
+/** Member id to the member itself.
+ */
 function memberIndex(list) {
   var rows = Array.isArray(list) ? list : []
   var output = {}
@@ -186,28 +189,30 @@ function memberIndex(list) {
   return output
 }
 
-// The one mailbox a query is a view of, or "" for a search — which is a view of
-// the account rather than of a mailbox. `filterFor` already decides this for
-// the request; asking it again is what keeps the counted-members rule and the
-// filter from ever disagreeing about which mailbox is open.
+/** The one mailbox a query is a view of, or "" for a search — which is a view of
+ * the account rather than of a mailbox. `filterFor` already decides this for
+ * the request; asking it again is what keeps the counted-members rule and the
+ * filter from ever disagreeing about which mailbox is open.
+ */
 function viewedMailbox(parsed, roles) {
   var filter = Protocol.filterFor(parsed, roles)
   if (!filter || typeof filter.inMailbox !== "string") return ""
   return Protocol.trimmed(filter.inMailbox)
 }
 
-// Gmail's rule: every member of the thread not in Junk or Trash, and in the
-// Junk and Trash views only the members in that mailbox.
-//
-// `Thread/get` answers with the whole thread across every mailbox — the seeded
-// thread's first message sits in the Inbox and in Drafts and is listed once —
-// so a rule is needed and this is it. A sent reply counts, which is what makes
-// the Sent view one row for a thread answered three times. A trashed message
-// neither counts nor keeps a conversation unread.
-//
-// The view is taken from the query rather than from a role, so selecting the
-// Junk mailbox out of the folder list means the same thing as the rail's own
-// Junk row: both resolve to the same mailbox id.
+/** Gmail's rule: every member of the thread not in Junk or Trash, and in the
+ * Junk and Trash views only the members in that mailbox.
+ *
+ * `Thread/get` answers with the whole thread across every mailbox — the seeded
+ * thread's first message sits in the Inbox and in Drafts and is listed once —
+ * so a rule is needed and this is it. A sent reply counts, which is what makes
+ * the Sent view one row for a thread answered three times. A trashed message
+ * neither counts nor keeps a conversation unread.
+ *
+ * The view is taken from the query rather than from a role, so selecting the
+ * Junk mailbox out of the folder list means the same thing as the rail's own
+ * Junk row: both resolve to the same mailbox id.
+ */
 function countedMembers(members, roles, query) {
   var list = Array.isArray(members) ? members : []
   var map = roles || {}
@@ -232,16 +237,17 @@ function countedMembers(members, roles, query) {
   return output
 }
 
-// The `thread` block a row carries:
-//
-//   { id, count, unread, flagged, memberIds }
-//
-// `memberIds` are the counted members oldest first and `count` is their length.
-// A count of 0 means unknown and draws no badge, which is what every provider
-// that does not collapse its listing reports. `unread` is true when any counted
-// member lacks `$seen`, `flagged` when any has `$flagged` — so the row tells the
-// truth about the whole conversation rather than about the one message the
-// server happened to return for it.
+/** The `thread` block a row carries:
+ *
+ *   { id, count, unread, flagged, memberIds }
+ *
+ * `memberIds` are the counted members oldest first and `count` is their length.
+ * A count of 0 means unknown and draws no badge, which is what every provider
+ * that does not collapse its listing reports. `unread` is true when any counted
+ * member lacks `$seen`, `flagged` when any has `$flagged` — so the row tells the
+ * truth about the whole conversation rather than about the one message the
+ * server happened to return for it.
+ */
 function threadBlockFor(threadId, members, roles, query) {
   var counted = countedMembers(members, roles, query)
   var ids = []
@@ -261,13 +267,14 @@ function threadBlockFor(threadId, members, roles, query) {
   }
 }
 
-// Representative id to its block, for every row on the page.
-//
-// A member id the read did not answer for is dropped rather than counted as
-// unknown: `Thread/get` and the member read are the same request, so the only
-// way one goes missing is a message destroyed between the two calls, and a row
-// counting a message that no longer exists is worse than a row counting one
-// fewer.
+/** Representative id to its block, for every row on the page.
+ *
+ * A member id the read did not answer for is dropped rather than counted as
+ * unknown: `Thread/get` and the member read are the same request, so the only
+ * way one goes missing is a message destroyed between the two calls, and a row
+ * counting a message that no longer exists is worse than a row counting one
+ * fewer.
+ */
 function threadBlocks(representatives, threads, members, roles, query) {
   var representativeRows = Array.isArray(representatives) ? representatives : []
   var map = threads && typeof threads === "object" ? threads : {}
@@ -284,7 +291,8 @@ function threadBlocks(representatives, threads, members, roles, query) {
   return output
 }
 
-// The mailboxes one member sits in, as a plain list of ids.
+/** The mailboxes one member sits in, as a plain list of ids.
+ */
 function mailboxIdsOf(email) {
   var ids = (email || {}).mailboxIds
   var output = []
@@ -297,10 +305,11 @@ function mailboxIdsOf(email) {
   return output
 }
 
-// Message id to the mailboxes it sits in, for every member the read answered
-// with. The client keeps this across reads: an action on a conversation acts on
-// members the list never drew a row for, and where each of them sits is what
-// decides whether archiving the conversation should move it at all.
+/** Message id to the mailboxes it sits in, for every member the read answered
+ * with. The client keeps this across reads: an action on a conversation acts on
+ * members the list never drew a row for, and where each of them sits is what
+ * decides whether archiving the conversation should move it at all.
+ */
 function membershipsFrom(list) {
   var rows = Array.isArray(list) ? list : []
   var output = {}
@@ -312,13 +321,14 @@ function membershipsFrom(list) {
   return output
 }
 
-// What the client keeps of the pages it has read, in entries. Both maps below
+// Performance: What the client keeps of the pages it has read, in entries. Both maps below
 // are caches of the recent pages rather than a record of the account, so the
 // bound is a reset rather than an eviction queue: an entry old enough to be
 // dropped belongs to a row that left the window long ago.
 var MAX_REMEMBERED = 2000
 
-// One of those maps, merged with what a page just read.
+/** One of those maps, merged with what a page just read.
+ */
 function mergedInto(existing, additions, limit) {
   var source = existing && typeof existing === "object" ? existing : {}
   var extra = additions && typeof additions === "object" ? additions : {}
@@ -337,26 +347,25 @@ function mergedInto(existing, additions, limit) {
   return output
 }
 
-// ------------------------------------------------------ acting on a row
-
-// The `Email/set` groups one action over one or many ids amounts to.
-//
-// A batch is not always one patch. An action on a conversation is sent for
-// every counted member, and `patchFor` answers per member — so archiving a
-// thread whose reply is in Sent yields the archive patch for the members that
-// were in the Inbox and nothing at all for the reply. Grouping by the patch,
-// rather than sending one request per id, keeps "mark these read" over a page
-// at one request per chunk and leaves the single-message case exactly one call.
-//
-// Returns an array of `{ ids, patch }` in first-appearance order, or the
-// refusal sentence `patchFor` answered with — the same two types the caller
-// already tells apart. Ids are deduped, a member the map excludes is dropped
-// rather than sent an empty patch, and an action every member is excluded from
-// is an empty plan and no request at all.
+/** The `Email/set` groups one action over one or many ids amounts to.
+ *
+ * A batch is not always one patch. An action on a conversation is sent for
+ * every counted member, and `patchFor` answers per member — so archiving a
+ * thread whose reply is in Sent yields the archive patch for the members that
+ * were in the Inbox and nothing at all for the reply. Grouping by the patch,
+ * rather than sending one request per id, keeps "mark these read" over a page
+ * at one request per chunk and leaves the single-message case exactly one call.
+ *
+ * Returns an array of `{ ids, patch }` in first-appearance order, or the
+ * refusal sentence `patchFor` answered with — the same two types the caller
+ * already tells apart. Ids are deduped, a member the map excludes is dropped
+ * rather than sent an empty patch, and an action every member is excluded from
+ * is an empty plan and no request at all.
+ */
 function patchPlan(ids, addLabelIds, removeLabelIds, roles, memberships) {
   var map = memberships && typeof memberships === "object" ? memberships : {}
   var list = Protocol.uniqueIds(ids)
-  // The membership map keeps archive and spam off the members a *row* action
+  // Invariant: The membership map keeps archive and spam off the members a *row* action
   // reached without being asked about — a sent reply, a message a filter
   // filed — and that is the only thing it is for. One id is the message the
   // user acted on, whether it came from a row of one or from the reader, and
@@ -370,8 +379,6 @@ function patchPlan(ids, addLabelIds, removeLabelIds, roles, memberships) {
     var id = list[itemIndex]
     var known = expanded && Array.isArray(map[id]) ? map[id] : null
     var patch = Protocol.patchFor(addLabelIds, removeLabelIds, roles, known)
-    // One refusal is the whole action's: the destination mailbox is missing
-    // from the account rather than from this member.
     if (typeof patch === "string") return patch
     if (Protocol.patchIsEmpty(patch)) continue
     var key = JSON.stringify(patch)
@@ -385,24 +392,25 @@ function patchPlan(ids, addLabelIds, removeLabelIds, roles, memberships) {
   return groups
 }
 
-// One collapsed page reply, read whole:
-//
-//   { page, blocks, memberships, pending }
-//
-// `page` is what `listMessages` answers with. `blocks` is representative id to
-// the row's `thread` block, `memberships` is member id to its mailbox ids, and
-// `pending` is the member ids still owed — non-empty only when the server
-// refused the member call while answering the other three, which is what
-// `requestTooLarge` on a page of long threads looks like. The client then
-// fetches those ids in chunks and reads the same reply again with `members`
-// supplied, so the page is delivered only once every row has its block.
+/** One collapsed page reply, read whole:
+ *
+ *   { page, blocks, memberships, pending }
+ *
+ * `page` is what `listMessages` answers with. `blocks` is representative id to
+ * the row's `thread` block, `memberships` is member id to its mailbox ids, and
+ * `pending` is the member ids still owed — non-empty only when the server
+ * refused the member call while answering the other three, which is what
+ * `requestTooLarge` on a page of long threads looks like. The client then
+ * fetches those ids in chunks and reads the same reply again with `members`
+ * supplied, so the page is delivered only once every row has its block.
+ */
 function collapsedPage(responses, limit, roles, query, members) {
   var page = Protocol.queryPage(argumentsAt(responses, CALL_QUERY), limit)
   var representativeRows = representativeThreads(responses)
   var threads = threadMembers(responses)
   var supplied = Array.isArray(members) ? members : null
   var answered = argumentsAt(responses, CALL_MEMBERS)
-  // Refused, not empty: `argumentsAt` answers null for a call that came back an
+  // Invariant: Refused, not empty: `argumentsAt` answers null for a call that came back an
   // `error` and for one the reply never carried, and either is a member read
   // this page has not had.
   var owed = supplied === null && answered === null ? memberIdsOf(representativeRows, threads) : []

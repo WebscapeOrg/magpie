@@ -2,42 +2,15 @@
 
 .import "../account/Aliases.js" as Aliases
 
-// The IMAP protocol, and nothing else. No transport lives here — `ImapClient.qml`
-// owns the process that speaks to the server — and no message format lives here
-// either: an RFC 822 message is `Message.js`'s subject, and this file hands one
-// over as the raw bytes it arrived as.
-//
-// What this file does own is every string sent to a server and every decision
-// about what came back, which is what the node tests can reach without a
-// compositor or a mailbox.
-//
-// ## Why the responses arrive as a byte string
-//
-// IMAP measures a literal in octets:
-//
-//     * 1 FETCH (UID 42 BODY[] {2048}
-//     <2048 bytes>)
-//
-// Read as UTF-8 text, 2048 octets of a message with an accent in it is fewer
-// than 2048 characters, and the parser walks off the end of the literal into
-// the middle of the next response. So the transport base64-encodes the whole
-// conversation, and `decodeResponse` turns it back into a string with one
-// character per octet. Counting characters is then exactly counting octets,
-// binary attachment data survives the pipe, and nothing in the response can
-// contain the newline the pipe splits on.
-
-// ------------------------------------------------------------------ servers
+// Invariant: Rust owns live IMAP transport and mail operations. This library holds
+// setup rules and protocol reference helpers exercised by the JavaScript tests.
+// Protocol reference parsers use one character per octet for IMAP literal lengths.
 
 var DEFAULT_IMAP_PORT = 993
 var DEFAULT_SMTP_PORT = 465
 
-// Known services, so the common case is an address and a password rather than
-// four hostnames. The key is the mail domain; `presetFor` also matches the
-// aliases, which is what makes hotmail.com find the Outlook entry.
-//
-// Every one of these is TLS on connect (imaps/smtps) rather than STARTTLS: the
-// providers below all offer it, and a client that negotiates upward can be
-// stripped back down by whatever is between it and the server.
+// Invariant: Presets select provider-supported ports; the native backend enforces
+// the required TLS mode for each connection.
 var PRESETS = [
   {
     id: "gmail",
@@ -45,7 +18,7 @@ var PRESETS = [
     domains: ["gmail.com", "googlemail.com"],
     imapHost: "imap.gmail.com", imapPort: 993,
     smtpHost: "smtp.gmail.com", smtpPort: 465,
-    // Google turned off password sign-in for IMAP. An app password works only
+    // Invariant: Google turned off password sign-in for IMAP. An app password works only
     // with 2-Step Verification on, and that is the sentence users need to see
     // before they go looking for a setting that is not there — with the page
     // that walks them through it, because "app password" is not a term anyone
@@ -109,7 +82,7 @@ var PRESETS = [
     imapHost: "imap.gmx.com", imapPort: 993,
     smtpHost: "mail.gmx.com", smtpPort: 465
   },
-  // Here for the note rather than the servers: imap.163.com and smtp.163.com
+  // Invariant: Here for the note rather than the servers: imap.163.com and smtp.163.com
   // on the standard ports are exactly what `imap.<domain>` would have guessed.
   // What no address can imply is that the mailbox refuses the account
   // password, and a user who does not know that is told only that they were
@@ -138,7 +111,7 @@ var PRESETS = [
     id: "proton",
     name: "Proton Mail",
     domains: ["proton.me", "protonmail.com", "pm.me"],
-    // Proton speaks IMAP only through the Bridge, which listens on loopback
+    // Invariant: Proton speaks IMAP only through the Bridge, which listens on loopback
     // with STARTTLS and a self-signed certificate on this machine.
     imapHost: "127.0.0.1", imapPort: 1143,
     smtpHost: "127.0.0.1", smtpPort: 1025,
@@ -167,10 +140,11 @@ function presetFor(address) {
   return null
 }
 
-// What to put in the form before the user types anything. A domain nobody has
-// heard of still gets a guess, because `imap.<domain>` is right far more often
-// than an empty field is useful — and a wrong guess is visible and editable,
-// which a blank one is not.
+/** What to put in the form before the user types anything. A domain nobody has
+ * heard of still gets a guess, because `imap.<domain>` is right far more often
+ * than an empty field is useful — and a wrong guess is visible and editable,
+ * which a blank one is not.
+ */
 function suggestedSettings(address) {
   var preset = presetFor(address)
   var domain = domainOf(address)
@@ -184,8 +158,6 @@ function suggestedSettings(address) {
       insecure: preset.insecure === true,
       preset: preset.id,
       note: String(preset.note || ""),
-      // Where the note's instruction is spelled out, for the providers whose
-      // password is not the one the user knows. Empty for the rest.
       guideUrl: preset.guide ? String(preset.guide.url || "") : "",
       guideLabel: preset.guide ? String(preset.guide.label || "") : ""
     }
@@ -204,14 +176,14 @@ function suggestedSettings(address) {
   }
 }
 
-// A hostname, not a URL and not a host:port pair. Everything here ends up in a
-// URL handed to the transport, so a value carrying a slash, a space or an "@"
-// could point the authenticated client somewhere else entirely.
+/** A hostname, not a URL and not a host:port pair. Everything here ends up in a
+ * URL handed to the transport, so a value carrying a slash, a space or an "@"
+ * could point the authenticated client somewhere else entirely.
+ */
 function isValidHost(value) {
   var host = trimmed(value)
   if (host === "" || host.length > 253) return false
   if (/[\s/\\@:?#"'<>]/.test(host)) return false
-  // An IP literal is legitimate — Proton Bridge is one.
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true
   return /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$/.test(host)
 }
@@ -223,12 +195,13 @@ function normalizedPort(value, fallback) {
   return port
 }
 
-// A host name is case-insensitive, and lowercasing it here is what keeps every
-// later reading of it the same one. `isLoopback` already compares lowercased,
-// so a user who typed "LocalHost" was judged local up here and then failed to
-// match the transport's own loopback patterns further down — which meant the
-// local bridge, the one server that legitimately speaks plaintext, was the one
-// refused for not offering TLS.
+/** A host name is case-insensitive, and lowercasing it here is what keeps every
+ * later reading of it the same one. `isLoopback` already compares lowercased,
+ * so a user who typed "LocalHost" was judged local up here and then failed to
+ * match the transport's own loopback patterns further down — which meant the
+ * local bridge, the one server that legitimately speaks plaintext, was the one
+ * refused for not offering TLS.
+ */
 function normalizeSettings(raw) {
   var values = raw || {}
   return {
@@ -238,15 +211,14 @@ function normalizeSettings(raw) {
     smtpPort: normalizedPort(values.smtpPort, DEFAULT_SMTP_PORT),
     username: trimmed(values.username),
     aliases: Aliases.parse(values.aliases),
-    // Loopback only. A plaintext session to anywhere else is a password on the
-    // wire, and the one legitimate case — a local bridge — never leaves the
-    // machine.
+    // Invariant: The local certificate trust override applies only to loopback.
+    // Rust still determines and enforces the TLS mode.
     insecure: values.insecure === true && isLoopback(values.imapHost),
     send: normalizeSend(values.send)
   }
 }
 
-// How a message leaves: SMTP, or Microsoft Graph's sendMail for a Microsoft
+// Invariant: How a message leaves: SMTP, or Microsoft Graph's sendMail for a Microsoft
 // 365 tenant that has switched authenticated SMTP off. Graph takes the same
 // MIME the SMTP path builds and files the sent copy itself. Empty or missing
 // is SMTP, which is what every mailbox already on disk means.
@@ -265,10 +237,11 @@ function isLoopback(host) {
   return name === "127.0.0.1" || name === "::1" || name === "localhost"
 }
 
-// Turn the setup form's visible fields into the same validated shape every
-// client call consumes. The server, not the mailbox's email domain, decides
-// whether this is a local bridge: Proton can serve addresses on custom domains
-// that never select its address preset.
+/** Turn the setup form's visible fields into the same validated shape every
+ * client call consumes. The server, not the mailbox's email domain, decides
+ * whether this is a local bridge: Proton can serve addresses on custom domains
+ * that never select its address preset.
+ */
 function setupSettings(raw) {
   var values = raw || {}
   return normalizeSettings({
@@ -283,8 +256,9 @@ function setupSettings(raw) {
   })
 }
 
-// Reported one at a time and in the order the form reads, so the message names
-// the first field the user has to go back to rather than all of them at once.
+/** Reported one at a time and in the order the form reads, so the message names
+ * the first field the user has to go back to rather than all of them at once.
+ */
 function validateSettings(raw) {
   var settings = normalizeSettings(raw)
   if (settings.username === "") return { ok: false, error: "Add the username for this mailbox" }
@@ -295,21 +269,8 @@ function validateSettings(raw) {
   return { ok: true, error: "", settings: settings }
 }
 
-// The URL the transport connects with. Built here rather than in the shell
-// script so the host has been through `isValidHost` on the way, and so the
-// tests can see what a given account would dial.
-// Which ports mean "connect in the clear, then upgrade". Naming the STARTTLS
-// ports rather than the TLS ones is the whole of the difference between this
-// and asking whether the port is 993: a server on 9993, or on whatever a
-// hosting panel picked, speaks TLS from the first byte and has no STARTTLS to
-// offer, so a client that inferred STARTTLS from "not 993" would simply stop
-// connecting to it. These three are the ports the RFCs assign to the upgrade,
-// and a server on any other one is dialled the way it was before this list
-// existed.
-//
-// The upgrade is not optional once it is chosen: `mail-transport.sh` adds
-// `ssl-reqd` to every non-loopback plaintext scheme, so a server that turns
-// out not to offer STARTTLS is refused rather than spoken to in the clear.
+// Invariant: These reference URL builders encode mailbox names as one path segment.
+// The live native transport independently validates its destination.
 var STARTTLS_IMAP_PORTS = [143]
 var STARTTLS_SMTP_PORTS = [25, 587]
 
@@ -328,9 +289,6 @@ function imapUrl(settings, folder) {
   var scheme = plain ? "imap" : "imaps"
   var url = scheme + "://" + values.imapHost + ":" + values.imapPort
   var box = trimmed(folder)
-  // The mailbox is a path segment, so anything that could end the segment or
-  // start a query has to be percent-encoded. Gmail's "[Gmail]/All Mail" is the
-  // everyday case with characters in it.
   if (box !== "") url += "/" + encodeURIComponent(box)
   return url
 }
@@ -338,7 +296,7 @@ function imapUrl(settings, folder) {
 function smtpUrl(settings) {
   var values = normalizeSettings(settings)
   if (!isValidHost(values.smtpHost)) return ""
-  // IMAP and SMTP may name different hosts. The shared local-transport flag
+  // Invariant: IMAP and SMTP may name different hosts. The shared local-transport flag
   // cannot let a loopback IMAP server downgrade a remote SMTP connection.
   var local = values.insecure && isLoopback(values.smtpHost)
   var plain = local || usesStartTls(values.smtpPort, STARTTLS_SMTP_PORTS)
@@ -346,13 +304,12 @@ function smtpUrl(settings) {
   return scheme + "://" + values.smtpHost + ":" + values.smtpPort
 }
 
-// ------------------------------------------------------------- the query DSL
-//
-// `Provider.js` hands down strings like "folder:INBOX UNSEEN". They are opaque
-// everywhere else — a cache key and nothing more — and this is the only reader.
-//
-// A folder may contain spaces ("[Gmail]/All Mail", "Sent Items"), so it is
-// quoted when it does: folder:"Sent Items" UNSEEN.
+/** `Provider.js` hands down strings like "folder:INBOX UNSEEN". They are opaque
+ * everywhere else — a cache key and nothing more — and this is the only reader.
+ *
+ * A folder may contain spaces ("[Gmail]/All Mail", "Sent Items"), so it is
+ * quoted when it does: folder:"Sent Items" UNSEEN.
+ */
 
 function parseQuery(query) {
   var text = trimmed(query)
@@ -364,25 +321,24 @@ function parseQuery(query) {
     folder = match[1] !== undefined ? match[1].replace(/\\(.)/g, "$1") : match[2]
     criteria = trimmed(match[3])
   } else if (text !== "") {
-    // Not addressed to a folder at all. Treating it as criteria against the
-    // inbox is what a bare search term means, and is what the search box
-    // produces before `Provider.searchQuery` has shaped it.
     criteria = text
   }
 
   return { folder: folder === "" ? "INBOX" : folder, criteria: criteria }
 }
 
-// A folder name from a query may be a SPECIAL-USE placeholder — "\Sent" rather
-// than whatever this server calls its sent mail. `resolveFolder` swaps in the
-// real name once a LIST has told us one.
+/** A folder name from a query may be a SPECIAL-USE placeholder — "\Sent" rather
+ * than whatever this server calls its sent mail. `resolveFolder` swaps in the
+ * real name once a LIST has told us one.
+ */
 function isSpecialUse(name) {
   return trimmed(name).charAt(0) === "\\"
 }
 
-// Falls back to the placeholder's bare word ("\Sent" → "Sent"), which is the
-// right guess on a server that answered LIST without any SPECIAL-USE flags at
-// all — most of them, still.
+/** Falls back to the placeholder's bare word ("\Sent" → "Sent"), which is the
+ * right guess on a server that answered LIST without any SPECIAL-USE flags at
+ * all — most of them, still.
+ */
 function resolveFolder(name, folders) {
   var wanted = trimmed(name)
   if (!isSpecialUse(wanted)) return wanted
@@ -392,15 +348,14 @@ function resolveFolder(name, folders) {
   return wanted.substring(1)
 }
 
-// ------------------------------------------------------------- message ids
-//
-// Gmail's message id is unique across the whole mailbox. An IMAP UID is unique
-// only within one folder, and is reissued by a server that has had its
-// UIDVALIDITY reset — so "42" on its own names nothing, and two folders each
-// holding a message 42 would collide in the body cache and in every list.
-//
-// The id therefore carries both. The UID is always digits, so splitting on the
-// first colon is unambiguous however many colons a folder name contains.
+/** Gmail's message id is unique across the whole mailbox. An IMAP UID is unique
+ * only within one folder, and is reissued by a server that has had its
+ * UIDVALIDITY reset — so "42" on its own names nothing, and two folders each
+ * holding a message 42 would collide in the body cache and in every list.
+ *
+ * The id therefore carries both. The UID is always digits, so splitting on the
+ * first colon is unambiguous however many colons a folder name contains.
+ */
 
 function messageId(uid, folder) {
   var number = Math.floor(Number(uid))
@@ -414,9 +369,10 @@ function parseMessageId(id) {
   return { uid: Math.floor(Number(match[1])), folder: match[2] }
 }
 
-// Grouped by folder, because every command this client sends operates on the
-// folder the connection has selected: one round trip per folder rather than
-// one per message, and a batch spanning two folders is two conversations.
+/** Grouped by folder, because every command this client sends operates on the
+ * folder the connection has selected: one round trip per folder rather than
+ * one per message, and a batch spanning two folders is two conversations.
+ */
 function groupByFolder(ids, maxPerGroup) {
   var list = Array.isArray(ids) ? ids : []
   var order = []
@@ -445,26 +401,26 @@ function groupByFolder(ids, maxPerGroup) {
   return output
 }
 
-// ----------------------------------------------------------------- quoting
-//
-// Every string that reaches a server goes through one of these. An unquoted
-// folder name with a space in it is a syntax error; one with a quote in it is
-// a way to end the argument early and append a command of somebody's choosing.
+/** Every string that reaches a server goes through one of these. An unquoted
+ * folder name with a space in it is a syntax error; one with a quote in it is
+ * a way to end the argument early and append a command of somebody's choosing.
+ */
 
 function quote(value) {
   return "\"" + String(value === undefined || value === null ? "" : value)
-    // A backslash and a double quote are the only two characters IMAP escapes.
+    // Invariant: A backslash and a double quote are the only two characters IMAP escapes.
     .replace(/\\/g, "\\\\")
     .replace(/"/g, "\\\"")
-    // CR and LF end a command. There is no escape for them inside a quoted
+    // Invariant: CR and LF end a command. There is no escape for them inside a quoted
     // string — the protocol's answer is a literal — so they are dropped: a
     // folder name or a search term containing one is not a thing worth
     // refusing to search over.
     .replace(/[\r\n]+/g, " ") + "\""
 }
 
-// A sequence set: "1,2,3" or "1:10". Built from numbers only, so nothing that
-// arrived in a response can extend a command.
+/** A sequence set: "1,2,3" or "1:10". Built from numbers only, so nothing that
+ * arrived in a response can extend a command.
+ */
 function sequenceSet(uids) {
   var list = Array.isArray(uids) ? uids : []
   var output = []
@@ -476,39 +432,39 @@ function sequenceSet(uids) {
   return output.join(",")
 }
 
-// ---------------------------------------------------------------- commands
-//
-// Each returns the command *without* a tag: the transport is curl, which sends
+// Invariant: Each returns the command *without* a tag: the transport is curl, which sends
 // one custom command per request and tags it itself.
 
-// What a list row needs, and no more. BODY.PEEK rather than BODY so reading
+// Invariant: What a list row needs, and no more. BODY.PEEK rather than BODY so reading
 // the list does not mark everything in it as seen — the single most common way
 // a hand-rolled IMAP client ruins a mailbox.
 var LIST_HEADERS = "HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID REPLY-TO LIST-UNSUBSCRIBE)"
 
-// curl holds one IMAP response line in a 64 KiB buffer. SEARCH answers with
-// every matching UID on one line, so an unbounded `UID SEARCH ALL` fails with
-// CURLE_TOO_LARGE once a folder has around ten thousand messages. FETCH puts
-// each UID on its own response line instead, which makes this the stable
-// snapshot every listing starts from.
+/** curl holds one IMAP response line in a 64 KiB buffer. SEARCH answers with
+ * every matching UID on one line, so an unbounded `UID SEARCH ALL` fails with
+ * CURLE_TOO_LARGE once a folder has around ten thousand messages. FETCH puts
+ * each UID on its own response line instead, which makes this the stable
+ * snapshot every listing starts from.
+ */
 function uidListCommand() {
   return "UID FETCH 1:* (UID)"
 }
 
-// An interactive search does not need every UID before it can begin: the UID
-// of the last message by sequence number is the mailbox's upper boundary. The
-// obvious `UID FETCH *:*` cannot be used through curl, which takes a FETCH of
-// one message for a body fetch and routes its untagged answer where the
-// transport never sees it. A range that starts with a number passes through
-// intact; the count it starts from comes from STATUS on an earlier connection,
-// and running the range up to `*` rather than back to the count keeps a
-// message delivered between the two from sitting above the ceiling unseen.
+/** An interactive search does not need every UID before it can begin: the UID
+ * of the last message by sequence number is the mailbox's upper boundary. The
+ * obvious `UID FETCH *:*` cannot be used through curl, which takes a FETCH of
+ * one message for a body fetch and routes its untagged answer where the
+ * transport never sees it. A range that starts with a number passes through
+ * intact; the count it starts from comes from STATUS on an earlier connection,
+ * and running the range up to `*` rather than back to the count keeps a
+ * message delivered between the two from sitting above the ceiling unseen.
+ */
 function topUidCommand(count) {
   var messageCount = Math.floor(Number(count))
   return isFinite(messageCount) && messageCount >= 1 ? "FETCH " + messageCount + ":* (UID)" : ""
 }
 
-// A SEARCH over a known UID snapshot can be split without using message
+// Invariant: A SEARCH over a known UID snapshot can be split without using message
 // sequence numbers. UIDs do not move when another client expunges a message,
 // and a message delivered after the snapshot has a UID above its last one.
 //
@@ -518,11 +474,12 @@ function topUidCommand(count) {
 // at most 4096 existing messages lie between them.
 var SEARCH_WINDOW = 4096
 
-// One newest-first numeric UID range for an interactive search. A UID range of
-// width 4096 can contain at most 4096 messages, so its one-line SEARCH answer
-// stays bounded without first downloading the UID of every message. UIDs do
-// not move when another client expunges mail, and the ceiling was read before
-// the first range, so new delivery cannot enter it either.
+/** One newest-first numeric UID range for an interactive search. A UID range of
+ * width 4096 can contain at most 4096 messages, so its one-line SEARCH answer
+ * stays bounded without first downloading the UID of every message. UIDs do
+ * not move when another client expunges mail, and the ceiling was read before
+ * the first range, so new delivery cannot enter it either.
+ */
 function searchWindow(criteria, highestUid) {
   var text = trimmed(criteria)
   var last = Math.floor(Number(highestUid))
@@ -555,7 +512,7 @@ function searchCommands(criteria, snapshot, highestUid) {
   var commands = []
   if (text === "" || uids.length === 0) return commands
 
-  // The first numeric window of an interactive search has already settled.
+  // Invariant: The first numeric window of an interactive search has already settled.
   // When it did not fill the page, its next lower UID is handed in here so the
   // snapshot fallback neither searches nor reports that newest prefix twice.
   var ceiling = Math.floor(Number(highestUid))
@@ -568,7 +525,7 @@ function searchCommands(criteria, snapshot, highestUid) {
   }
   if (uids.length === 0) return commands
 
-  // Interactive search can paint a page before every window has answered only
+  // Invariant: Interactive search can paint a page before every window has answered only
   // if no later answer can put a newer message in front of it. UIDs grow with
   // delivery, so walking the stable snapshot backwards makes every completed
   // window a final prefix of the result rather than a provisional one.
@@ -581,10 +538,11 @@ function searchCommands(criteria, snapshot, highestUid) {
   return commands
 }
 
-// The visible page after some or all SEARCH windows have answered. During a
-// streamed search `hasUnscanned` keeps pagination alive even if the rows found
-// so far happen to end exactly at the page boundary. The estimate is then a
-// lower bound — Model already calls provider totals "about" for this reason.
+/** The visible page after some or all SEARCH windows have answered. During a
+ * streamed search `hasUnscanned` keeps pagination alive even if the rows found
+ * so far happen to end exactly at the page boundary. The estimate is then a
+ * lower bound — Model already calls provider totals "about" for this reason.
+ */
 function searchPage(uids, offset, maxResults, hasUnscanned) {
   var ordered = sortedUids(uids)
   ordered.reverse()
@@ -605,8 +563,9 @@ function summaryFetchCommand(uids) {
   return "UID FETCH " + set + " (UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[" + LIST_HEADERS + "])"
 }
 
-// Takes one UID or a list of them, because opening a message and refilling a
-// page of bodies from the cache are the same request at different sizes.
+/** Takes one UID or a list of them, because opening a message and refilling a
+ * page of bodies from the cache are the same request at different sizes.
+ */
 function fullFetchCommand(uids) {
   var set = sequenceSet(Array.isArray(uids) ? uids : [uids])
   if (set === "") return ""
@@ -618,7 +577,7 @@ function storeCommand(uids, addFlags, removeFlags) {
   if (set === "") return ""
   var add = Array.isArray(addFlags) ? addFlags : []
   var remove = Array.isArray(removeFlags) ? removeFlags : []
-  // One command each way. IMAP has no "add these and remove those" STORE, and
+  // Invariant: One command each way. IMAP has no "add these and remove those" STORE, and
   // the transport runs them in order on the same connection.
   var commands = []
   if (add.length > 0) commands.push("UID STORE " + set + " +FLAGS.SILENT (" + add.join(" ") + ")")
@@ -632,8 +591,9 @@ function copyCommand(uids, folder) {
   return "UID COPY " + set + " " + quote(folder)
 }
 
-// MOVE (RFC 6851) where the server has it, COPY + \Deleted + EXPUNGE where it
-// does not. The caller decides which by asking `hasCapability`.
+/** MOVE (RFC 6851) where the server has it, COPY + \Deleted + EXPUNGE where it
+ * does not. The caller decides which by asking `hasCapability`.
+ */
 function moveCommand(uids, folder) {
   var set = sequenceSet(uids)
   if (set === "") return ""
@@ -642,7 +602,7 @@ function moveCommand(uids, folder) {
 
 function expungeCommand(uids) {
   var set = sequenceSet(uids)
-  // UID EXPUNGE (RFC 4315) removes only what was named. Plain EXPUNGE removes
+  // Invariant: UID EXPUNGE (RFC 4315) removes only what was named. Plain EXPUNGE removes
   // every \Deleted message in the folder, including ones another client marked
   // — which is somebody else's mail disappearing because this one archived.
   return set === "" ? "" : "UID EXPUNGE " + set
@@ -675,27 +635,30 @@ function draftSaveResult(replaceError) {
   }
 }
 
-// The folder a sent copy is filed in: the server's own Sent, learned from
-// LIST like every folder name is. An empty answer means the server named
-// none, and names are never guessed — a client that made one up would create
-// folders rather than find them.
+/** The folder a sent copy is filed in: the server's own Sent, learned from
+ * LIST like every folder name is. An empty answer means the server named
+ * none, and names are never guessed — a client that made one up would create
+ * folders rather than find them.
+ */
 function sentFolder(special) {
   return (special || {})["\\sent"] || ""
 }
 
-// curl's upload-flags names flags as bare words rather than as the
-// parenthesised list IMAP puts on the APPEND line. A draft keeps its \Draft
-// marker; a sent copy arrives seen, because its author has read it.
+/** curl's upload-flags names flags as bare words rather than as the
+ * parenthesised list IMAP puts on the APPEND line. A draft keeps its \Draft
+ * marker; a sent copy arrives seen, because its author has read it.
+ */
 function appendFlagWords(sent) {
   return sent === true ? "seen" : "draft"
 }
 
-// What a finished send reports about the copy the mailbox keeps. The message
-// itself is out either way, so a copy that did not land is a warning carried
-// on a success, never a failure of the send. An empty folder name stands for
-// every reason no folder was known — the server listed none, or the listing
-// could not be asked — because what the user does about them is the same:
-// nothing.
+/** What a finished send reports about the copy the mailbox keeps. The message
+ * itself is out either way, so a copy that did not land is a warning carried
+ * on a success, never a failure of the send. An empty folder name stands for
+ * every reason no folder was known — the server listed none, or the listing
+ * could not be asked — because what the user does about them is the same:
+ * nothing.
+ */
 function sentCopyResult(folder, filed) {
   if (String(folder || "") === "")
     return { sent: true, warning: "Sent, but no Sent folder was found to file a copy in" }
@@ -714,61 +677,61 @@ function listCommand() {
   return "LIST \"\" \"*\""
 }
 
-// Asked alongside the folder listing rather than on its own: it costs nothing
-// extra on a connection that is already open, and the one answer acted on —
-// whether the server has MOVE — decides between one command and three.
+/** Asked alongside the folder listing rather than on its own: it costs nothing
+ * extra on a connection that is already open, and the one answer acted on —
+ * whether the server has MOVE — decides between one command and three.
+ */
 function capabilityCommand() {
   return "CAPABILITY"
 }
 
-// RFC 2971's client identification, sent to any server that advertises ID.
-// Most servers tolerate its absence, which is why it went missing for so long.
-// Coremail does not: it answers every SELECT with "Unsafe Login" until this has
-// arrived, and that is how the omission was found rather than what it is for.
-//
-// Delivered by the transport's `imap-id` mode, which is the only way to get a
-// command in front of the SELECT curl derives from a URL's path.
-//
-// Sent only to a server that advertised ID: one that has never heard of it
-// answers BAD, and the transport runs curl with --fail-early, so that single
-// BAD would take every command after it.
-//
-// A name and nothing else. This string goes into someone else's server log,
-// and the operating system, the hostname and the user are none of its
-// business — RFC 2971 section 3.3 says as much.
+/** RFC 2971's client identification, sent to any server that advertises ID.
+ * Most servers tolerate its absence, which is why it went missing for so long.
+ * Coremail does not: it answers every SELECT with "Unsafe Login" until this has
+ * arrived, and that is how the omission was found rather than what it is for.
+ *
+ * Delivered by the transport's `imap-id` mode, which is the only way to get a
+ * command in front of the SELECT curl derives from a URL's path.
+ *
+ * Sent only to a server that advertised ID: one that has never heard of it
+ * answers BAD, and the transport runs curl with --fail-early, so that single
+ * BAD would take every command after it.
+ *
+ * A name and nothing else. This string goes into someone else's server log,
+ * and the operating system, the hostname and the user are none of its
+ * business — RFC 2971 section 3.3 says as much.
+ */
 function idCommand() {
   return "ID (\"name\" \"omamail\")"
 }
 
-
-// ------------------------------------------------------- search translation
-
-// The criteria a mailbox query carries are already IMAP's own words (UNSEEN,
-// FLAGGED). A typed search arrives as TEXT "..." from `Provider.searchQuery`,
-// already JSON-quoted — which is the same escaping IMAP uses for a quoted
-// string, with one exception this fixes: JSON escapes a newline as \n, and
-// IMAP has no such escape.
+/** The criteria a mailbox query carries are already IMAP's own words (UNSEEN,
+ * FLAGGED). A typed search arrives as TEXT "..." from `Provider.searchQuery`,
+ * already JSON-quoted — which is the same escaping IMAP uses for a quoted
+ * string, with one exception this fixes: JSON escapes a newline as \n, and
+ * IMAP has no such escape.
+ */
 function normalizeCriteria(criteria) {
   var text = trimmed(criteria)
   if (text === "") return ""
   return text.replace(/\\n|\\r|\\t/g, " ")
 }
 
-// ------------------------------------------------------------- the response
-//
-// A tokenizer rather than a set of patterns, for the same reason `Html.js` is
-// one: where a literal ends is the one thing this cannot be wrong about, and no
-// regular expression can count octets.
+/** A tokenizer rather than a set of patterns, for the same reason `Html.js` is
+ * one: where a literal ends is the one thing this cannot be wrong about, and no
+ * regular expression can count octets.
+ */
 
 function decodeResponse(base64Text, base64ToBytes, bytesToLatin1) {
   if (typeof base64ToBytes !== "function" || typeof bytesToLatin1 !== "function") return ""
   return bytesToLatin1(base64ToBytes(String(base64Text || "")))
 }
 
-// One IMAP response line, with any literals folded into it. Returns a list of
-// lines, each of which is a complete untagged or tagged response — so the
-// callers below can look at "* 1 FETCH (...)" as a single string however many
-// literals it ran through.
+/** One IMAP response line, with any literals folded into it. Returns a list of
+ * lines, each of which is a complete untagged or tagged response — so the
+ * callers below can look at "* 1 FETCH (...)" as a single string however many
+ * literals it ran through.
+ */
 function splitResponse(text) {
   var input = String(text || "")
   var lines = []
@@ -781,7 +744,7 @@ function splitResponse(text) {
     var line = input.substring(index, end)
     index = newline < 0 ? input.length : newline + 2
 
-    // A line ending in a literal count continues into the next `count` octets,
+    // Algorithm: A line ending in a literal count continues into the next `count` octets,
     // whatever they contain — including CRLFs of their own.
     var literal = line.match(/\{(\d+)\+?\}$/)
     if (literal) {
@@ -789,7 +752,7 @@ function splitResponse(text) {
       var payload = input.substr(index, size)
       index += size
       current += line + "\r\n" + payload
-      // curl removes the tagged completion and closing syntax around a custom
+      // Invariant: curl removes the tagged completion and closing syntax around a custom
       // IMAP request. With --next, another untagged FETCH can therefore begin
       // at the exact byte after the literal. The literal size is the boundary;
       // do not fold that next response into this one.
@@ -809,8 +772,9 @@ function splitResponse(text) {
   return lines
 }
 
-// `* SEARCH 1 4 9` — and nothing else, because a server may answer with no
-// SEARCH line at all when nothing matched.
+/** `* SEARCH 1 4 9` — and nothing else, because a server may answer with no
+ * SEARCH line at all when nothing matched.
+ */
 function parseSearch(text) {
   var lines = splitResponse(text)
   var uids = []
@@ -826,9 +790,10 @@ function parseSearch(text) {
   return sortedUids(uids)
 }
 
-// `UID FETCH 1:* (UID)` returns one FETCH response per message. The UID is the
-// only data item it carries; sorting and de-duplicating here makes the snapshot
-// independent of the order in which a server chose to report those responses.
+/** `UID FETCH 1:* (UID)` returns one FETCH response per message. The UID is the
+ * only data item it carries; sorting and de-duplicating here makes the snapshot
+ * independent of the order in which a server chose to report those responses.
+ */
 function parseUidList(text) {
   var entries = parseFetch(text)
   var uids = []
@@ -836,9 +801,10 @@ function parseUidList(text) {
   return sortedUids(uids)
 }
 
-// Reads the value of one FETCH data item out of a response line. The items are
-// unordered and a server may send ones nobody asked for, so each is found by
-// name rather than by position.
+/** Reads the value of one FETCH data item out of a response line. The items are
+ * unordered and a server may send ones nobody asked for, so each is found by
+ * name rather than by position.
+ */
 function fetchItem(line, name) {
   var index = line.indexOf(name)
   if (index < 0) return ""
@@ -854,7 +820,8 @@ function unquoteImap(value) {
   return text
 }
 
-// The flag list of one FETCH response: FLAGS (\Seen \Flagged).
+/** The flag list of one FETCH response: FLAGS (\Seen \Flagged).
+ */
 function parseFlags(line) {
   var match = String(line || "").match(/FLAGS\s*\(([^)]*)\)/i)
   if (!match) return []
@@ -866,19 +833,19 @@ function parseFlags(line) {
   return output
 }
 
-// The body of a FETCH item that arrived as a literal. Everything this client
-// asks for — headers and whole messages — comes back that way, because servers
-// send anything with a CRLF in it as a literal.
+/** The body of a FETCH item that arrived as a literal. Everything this client
+ * asks for — headers and whole messages — comes back that way, because servers
+ * send anything with a CRLF in it as a literal.
+ */
 function parseLiteralBody(line) {
   var match = String(line || "").match(/BODY\[[^\]]*\]\s*(?:<\d+>)?\s*\{(\d+)\+?\}\r\n([\s\S]*)$/)
   if (!match) {
-    // A short body may arrive as a quoted string instead.
     var quoted = String(line || "").match(/BODY\[[^\]]*\]\s*("(?:[^"\\]|\\.)*")/)
     return quoted ? unquoteImap(quoted[1]) : ""
   }
   var size = Math.floor(Number(match[1]))
   var payload = match[2]
-  // The closing ")" of the FETCH response follows the literal. Cutting to the
+  // Algorithm: The closing ")" of the FETCH response follows the literal. Cutting to the
   // declared size is what leaves it out — and is why the octet count had to
   // survive the transport intact.
   return payload.substring(0, size)
@@ -887,7 +854,7 @@ function parseLiteralBody(line) {
 function parseInternalDate(line) {
   var value = unquoteImap(fetchItem(line, "INTERNALDATE"))
   if (value === "") return 0
-  // "17-Jul-2026 09:02:11 +0800" is not a format Date parses anywhere, so it
+  // Invariant: "17-Jul-2026 09:02:11 +0800" is not a format Date parses anywhere, so it
   // is rearranged into one that is.
   var match = value.match(/^(\d{1,2})-(\w{3})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})\s*([+-]\d{4})?$/)
   if (!match) {
@@ -900,10 +867,11 @@ function parseInternalDate(line) {
   return isNaN(parsed.getTime()) ? 0 : parsed.getTime()
 }
 
-// One entry per message in a FETCH response, in the order the server sent
-// them. The UID is what everything upstream calls an id: a sequence number
-// changes when anything ahead of the message is expunged, so a client that
-// keyed on one would act on whichever message had slid into that position.
+/** One entry per message in a FETCH response, in the order the server sent
+ * them. The UID is what everything upstream calls an id: a sequence number
+ * changes when anything ahead of the message is expunged, so a client that
+ * keyed on one would act on whichever message had slid into that position.
+ */
 function parseFetch(text) {
   var lines = splitResponse(text)
   var output = []
@@ -923,7 +891,8 @@ function parseFetch(text) {
   return output
 }
 
-// `* STATUS "INBOX" (MESSAGES 42 UNSEEN 3)`
+/** `* STATUS "INBOX" (MESSAGES 42 UNSEEN 3)`
+ */
 function parseStatus(text) {
   var lines = splitResponse(text)
   var result = { messages: 0, unseen: 0 }
@@ -938,9 +907,10 @@ function parseStatus(text) {
   return result
 }
 
-// A mailbox name arrives quoted, as an atom, or — when it holds a character the
-// server would rather not quote — as a literal, which `splitResponse` has
-// already folded into the same string. All three have to end up as the name.
+/** A mailbox name arrives quoted, as an atom, or — when it holds a character the
+ * server would rather not quote — as a literal, which `splitResponse` has
+ * already folded into the same string. All three have to end up as the name.
+ */
 function folderName(value) {
   var text = trimmed(value)
   var literal = text.match(/^\{(\d+)\+?\}\r\n([\s\S]*)$/)
@@ -948,7 +918,8 @@ function folderName(value) {
   return unquoteImap(text)
 }
 
-// `* LIST (\HasNoChildren \Sent) "/" "Sent Items"`
+/** `* LIST (\HasNoChildren \Sent) "/" "Sent Items"`
+ */
 function parseList(text) {
   var lines = splitResponse(text)
   var output = []
@@ -966,7 +937,7 @@ function parseList(text) {
       name: name,
       delimiter: match[2] === "NIL" ? "" : unquoteImap(match[2]),
       flags: flags,
-      // \Noselect marks a container that holds folders but no mail — Gmail's
+      // Invariant: \Noselect marks a container that holds folders but no mail — Gmail's
       // "[Gmail]" is one, and selecting it is an error.
       selectable: flags.join(" ").toLowerCase().indexOf("\\noselect") < 0
     })
@@ -974,9 +945,7 @@ function parseList(text) {
   return output
 }
 
-// ------------------------------------------------- mailbox names on the wire
-//
-// A mailbox name is not text. RFC 3501 section 5.1.3 carries it in "modified
+// Invariant: A mailbox name is not text. RFC 3501 section 5.1.3 carries it in "modified
 // UTF-7": everything outside printable US-ASCII is shifted into a base64 run
 // introduced by "&" and closed by "-", with "," standing in for base64's "/"
 // because "/" is a hierarchy delimiter, and "&-" spelling a literal "&".
@@ -994,8 +963,9 @@ function parseList(text) {
 var MODIFIED_BASE64 =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+,"
 
-// The base64 run holds UTF-16BE, so it decodes to whole code units — which is
-// what a JavaScript string is made of, surrogate pairs included.
+/** The base64 run holds UTF-16BE, so it decodes to whole code units — which is
+ * what a JavaScript string is made of, surrogate pairs included.
+ */
 function decodeShift(chunk) {
   var bits = 0
   var width = 0
@@ -1015,7 +985,7 @@ function decodeShift(chunk) {
       pending = -1
     }
   }
-  // A trailing half of a code unit means the run was truncated, and the bits
+  // Algorithm: A trailing half of a code unit means the run was truncated, and the bits
   // left over past the last whole byte are the run's padding, which must be
   // zero. A run that yields no code unit at all is malformed too: the one
   // legitimately empty run is "&-", and that is an ampersand, handled above.
@@ -1040,13 +1010,11 @@ function decodeMailbox(name) {
     }
     var close = text.indexOf("-", at + 1)
     if (close < 0) {
-      // An unterminated run is not a name this can improve on.
       output += text.substring(at)
       break
     }
     var chunk = text.substring(at + 1, close)
     if (chunk === "") {
-      // "&-" is how the protocol spells an ampersand.
       output += "&"
     } else {
       var decoded = decodeShift(chunk)
@@ -1057,12 +1025,13 @@ function decodeMailbox(name) {
   return output
 }
 
-// The other direction, for a name the user typed that is about to be sent in
-// CREATE or RENAME: printable US-ASCII passes through, "&" is spelled "&-",
-// and everything else goes into a base64 run of its UTF-16 code units with
-// "," standing in for "/" and no padding — RFC 3501 section 5.1.3. What comes
-// back from LIST decodes to the same text, and `tests/test_imap.js` holds the
-// round trip.
+/** The other direction, for a name the user typed that is about to be sent in
+ * CREATE or RENAME: printable US-ASCII passes through, "&" is spelled "&-",
+ * and everything else goes into a base64 run of its UTF-16 code units with
+ * "," standing in for "/" and no padding — RFC 3501 section 5.1.3. What comes
+ * back from LIST decodes to the same text, and `tests/test_imap.js` holds the
+ * round trip.
+ */
 function encodeMailbox(name) {
   var text = String(name === undefined || name === null ? "" : name)
   var output = ""
@@ -1100,13 +1069,14 @@ function encodeMailbox(name) {
   return output
 }
 
-// The three commands that change the folder list. A name the server already
-// has travels exactly as LIST spelled it — the wire name, encoded once by
-// the server — and a name the user typed is encoded here. Encoding a wire
-// name again turns its "&" into "&-" and names a folder that does not exist.
-// A RENAME carries every folder beneath the old name with it, which is what
-// moving a folder under another parent is.
-// Refuse an unrepresentable identity before quoting or encoding can change it.
+/** The three commands that change the folder list. A name the server already
+ * has travels exactly as LIST spelled it — the wire name, encoded once by
+ * the server — and a name the user typed is encoded here. Encoding a wire
+ * name again turns its "&" into "&-" and names a folder that does not exist.
+ * A RENAME carries every folder beneath the old name with it, which is what
+ * moving a folder under another parent is.
+ * Refuse an unrepresentable identity before quoting or encoding can change it.
+ */
 function validFolderName(value) {
   var text = String(value === undefined || value === null ? "" : value)
   if (text === "" || /[\x00-\x1f\x7f]/.test(text)) return false
@@ -1133,18 +1103,19 @@ function deleteCommand(wireName) {
   return validFolderName(wireName) ? "DELETE " + quote(wireName) : ""
 }
 
-// The SPECIAL-USE attributes this plugin cares about, mapped to the folder the
+// Invariant: The SPECIAL-USE attributes this plugin cares about, mapped to the folder the
 // server named. A server that advertises none leaves the map empty and
 // `resolveFolder` falls back to the plain word.
 var SPECIAL_USE = ["\\sent", "\\drafts", "\\trash", "\\junk", "\\archive", "\\all", "\\flagged"]
 
-// Whether a folder is one of the ones the mailbox row already offers. The
-// sidebar lists the rest underneath, so getting this wrong either hides every
-// folder the user made or shows Sent and Trash twice.
-//
-// Judged on SPECIAL-USE and the name, never on the structural flags: every
-// server sends \HasNoChildren on almost everything, so treating any flag as
-// "system" hides the whole folder tree.
+/** Whether a folder is one of the ones the mailbox row already offers. The
+ * sidebar lists the rest underneath, so getting this wrong either hides every
+ * folder the user made or shows Sent and Trash twice.
+ *
+ * Judged on SPECIAL-USE and the name, never on the structural flags: every
+ * server sends \HasNoChildren on almost everything, so treating any flag as
+ * "system" hides the whole folder tree.
+ */
 function isSpecialFolder(folder, special) {
   var entry = folder || {}
   var name = trimmed(entry.name)
@@ -1155,7 +1126,7 @@ function isSpecialFolder(folder, special) {
     if (SPECIAL_USE.indexOf(String(flags[itemIndex]).toLowerCase()) >= 0) return true
   }
 
-  // A server with no SPECIAL-USE at all still had its folders matched by name
+  // Invariant: A server with no SPECIAL-USE at all still had its folders matched by name
   // in `specialFolders`, and those are the same ones the mailbox row shows.
   var map = special || {}
   for (var key in map) {
@@ -1175,7 +1146,7 @@ function specialFolders(folders) {
       if (!map[flag]) map[flag] = list[itemIndex].name
     }
   }
-  // Gmail's IMAP predates SPECIAL-USE on some accounts and answers with
+  // Invariant: Gmail's IMAP predates SPECIAL-USE on some accounts and answers with
   // "[Gmail]/Sent Mail" and friends under XLIST-style names instead. Matching
   // on the name is a guess, so it only fills gaps the flags left.
   for (var choiceIndex = 0; choiceIndex < list.length; choiceIndex++) {
@@ -1184,7 +1155,7 @@ function specialFolders(folders) {
     if (!map["\\sent"] && /^sent( mail| items| messages)?$/.test(leaf)) map["\\sent"] = name
     if (!map["\\trash"] && /^(trash|deleted( items| messages)?)$/.test(leaf)) map["\\trash"] = name
     if (!map["\\drafts"] && /^drafts?$/.test(leaf)) map["\\drafts"] = name
-    // Exchange calls it "Junk Email", which is the one name in this list that
+    // Invariant: Exchange calls it "Junk Email", which is the one name in this list that
     // the bare word cannot stand in for: every other fallback below happens to
     // be what Exchange calls the folder anyway.
     if (!map["\\junk"] && /^(junk([ -]?e-?mail)?|spam|bulk mail)$/.test(leaf)) map["\\junk"] = name
@@ -1193,12 +1164,11 @@ function specialFolders(folders) {
   return map
 }
 
-// ------------------------------------------------------------ flags ↔ labels
-//
-// Everything above `MailAccount` reads a message through `Message.summarize`,
-// which asks for Gmail label ids. Rather than teach every view a second
-// vocabulary, an IMAP message is given the label ids its flags and its folder
-// amount to — so a row, a star and an unread dot work unchanged.
+/** Everything above `MailAccount` reads a message through `Message.summarize`,
+ * which asks for Gmail label ids. Rather than teach every view a second
+ * vocabulary, an IMAP message is given the label ids its flags and its folder
+ * amount to — so a row, a star and an unread dot work unchanged.
+ */
 
 function labelIdsFor(flags, folder, special) {
   var list = Array.isArray(flags) ? flags : []
@@ -1206,7 +1176,7 @@ function labelIdsFor(flags, folder, special) {
   for (var itemIndex = 0; itemIndex < list.length; itemIndex++) lowered.push(String(list[itemIndex]).toLowerCase())
 
   var ids = []
-  // Unread is the *absence* of \Seen, which is the one inversion in the whole
+  // Invariant: Unread is the *absence* of \Seen, which is the one inversion in the whole
   // mapping and the easiest thing to get backwards.
   if (lowered.indexOf("\\seen") < 0) ids.push("UNREAD")
   if (lowered.indexOf("\\flagged") >= 0) ids.push("STARRED")
@@ -1224,9 +1194,10 @@ function labelIdsFor(flags, folder, special) {
   return ids
 }
 
-// The other direction: what an action asks the server to change. Returns the
-// flags to add and remove, plus a folder to move to where the action is a move
-// rather than a flag — which is the whole difference between IMAP and Gmail.
+/** The other direction: what an action asks the server to change. Returns the
+ * flags to add and remove, plus a folder to move to where the action is a move
+ * rather than a flag — which is the whole difference between IMAP and Gmail.
+ */
 function actionPlan(action, special) {
   var map = special || {}
   var verb = String(action || "")
@@ -1235,9 +1206,6 @@ function actionPlan(action, special) {
   if (verb === "markUnread") return { add: [], remove: ["\\Seen"], move: "" }
   if (verb === "star") return { add: ["\\Flagged"], remove: [], move: "" }
   if (verb === "unstar") return { add: [], remove: ["\\Flagged"], move: "" }
-  // Archive is a move on IMAP. Without an archive folder there is nowhere for
-  // the message to go, and the caller turns the button off rather than
-  // silently deleting it.
   if (verb === "archive") return { add: [], remove: [], move: map["\\archive"] || "" }
   if (verb === "unarchive") return { add: [], remove: [], move: "INBOX" }
   if (verb === "trash") return { add: [], remove: [], move: map["\\trash"] || "" }
@@ -1245,13 +1213,14 @@ function actionPlan(action, special) {
   return null
 }
 
-// `MailAccount` does not know which provider it is driving: it asks for a
-// label change, in Gmail's vocabulary, because that is the vocabulary every
-// view already speaks. This is where that request becomes IMAP.
-//
-// Two of the mappings are not flags at all. Gmail archives by removing the
-// INBOX label — one message, many labels — while IMAP has one folder per
-// message, so the same request is a move.
+/** `MailAccount` does not know which provider it is driving: it asks for a
+ * label change, in Gmail's vocabulary, because that is the vocabulary every
+ * view already speaks. This is where that request becomes IMAP.
+ *
+ * Two of the mappings are not flags at all. Gmail archives by removing the
+ * INBOX label — one message, many labels — while IMAP has one folder per
+ * message, so the same request is a move.
+ */
 function flagPlanForLabels(addLabelIds, removeLabelIds, special) {
   var added = Array.isArray(addLabelIds) ? addLabelIds : []
   var removed = Array.isArray(removeLabelIds) ? removeLabelIds : []
@@ -1265,12 +1234,9 @@ function flagPlanForLabels(addLabelIds, removeLabelIds, special) {
     return false
   }
 
-  // A move always adds its named destination while taking INBOX away. Read it
-  // before interpreting Gmail's system ids: an ordinary IMAP folder may itself
-  // be named "Starred", "Unread", "Trash", or "Spam".
   var destination = folderTarget(added, removed)
 
-  // The inversion again: Gmail's UNREAD is a label you add, IMAP's \Seen is a
+  // Invariant: The inversion again: Gmail's UNREAD is a label you add, IMAP's \Seen is a
   // flag you remove. Getting this backwards marks read what the user just
   // marked unread.
   if (destination === "" && has(added, "UNREAD")) plan.remove.push("\\Seen")
@@ -1283,18 +1249,14 @@ function flagPlanForLabels(addLabelIds, removeLabelIds, special) {
   if (destination === "" && has(added, "TRASH")) plan.move = map["\\trash"] || ""
   if (destination === "" && has(added, "SPAM")) plan.move = map["\\junk"] || ""
 
-  // A named destination, which is the one case where the request is already
-  // IMAP: `getLabels` reports folder names as label ids, so a move asks for
-  // the folder by the name the server gave it. It is read last because such a
-  // request also removes INBOX -- the archive above is the default for "out of
-  // the inbox", and this is the same message with somewhere better to be.
   if (destination !== "") plan.move = destination
   return plan
 }
 
-// The destination carried by a move. `labelChangesFor` shapes one as a label
-// added while INBOX is removed; preserving that shape is what keeps a folder
-// named like a Gmail system id from being mistaken for the system operation.
+/** The destination carried by a move. `labelChangesFor` shapes one as a label
+ * added while INBOX is removed; preserving that shape is what keeps a folder
+ * named like a Gmail system id from being mistaken for the system operation.
+ */
 function folderTarget(addLabelIds, removeLabelIds) {
   var added = Array.isArray(addLabelIds) ? addLabelIds : []
   var removed = Array.isArray(removeLabelIds) ? removeLabelIds : []
@@ -1305,23 +1267,22 @@ function folderTarget(addLabelIds, removeLabelIds) {
   return ""
 }
 
-// -------------------------------------------------------------- the errors
-//
-// A server's own text is written for whoever reads its logs. These are the
-// four sentences a user can act on.
+/** A server's own text is written for whoever reads its logs. These are the
+ * four sentences a user can act on.
+ */
 
 function responseError(status, detail, fallback) {
   var text = trimmed(detail)
   var code = Math.floor(Number(status)) || 0
 
-  // curl's own exit codes, which is what a transport failure arrives as.
+  // Invariant: curl's own exit codes, which is what a transport failure arrives as.
   if (code === 6) return "Could not find that mail server. Check the server address"
   if (code === 7) return "Could not reach the mail server. Check the address, the port, and the network"
   if (code === 28) return "The mail server did not answer in time"
   if (code === 35) return "A secure connection to the mail server could not be established"
   if (code === 60 || code === 51)
     return "The mail server's security certificate could not be verified"
-  // curl gives a refused SELECT the same exit code as a denied login — 67, with
+  // Invariant: curl gives a refused SELECT the same exit code as a denied login — 67, with
   // only "Select failed" against "Access denied" to tell them apart — and 21 to
   // a command the server answered BAD. Reading either as an authentication
   // failure sends someone off to change a password that was never the problem:
@@ -1344,13 +1305,14 @@ function responseError(status, detail, fallback) {
   return fallback || "The mail server could not complete this request"
 }
 
-// The error for a finished transport call, whichever half of it failed.
-//
-// curl's exit code says that something went wrong; the server's own tagged NO
-// or BAD says what, and it is in the response even when curl exits non-zero.
-// Preferring it is what keeps a refused command reported in the words the
-// server chose rather than as whichever of curl's exit codes it happened to
-// share with an unrelated failure.
+/** The error for a finished transport call, whichever half of it failed.
+ *
+ * curl's exit code says that something went wrong; the server's own tagged NO
+ * or BAD says what, and it is in the response even when curl exits non-zero.
+ * Preferring it is what keeps a refused command reported in the words the
+ * server chose rather than as whichever of curl's exit codes it happened to
+ * share with an unrelated failure.
+ */
 function transportError(status, response, detail, fallback) {
   if (isFailure(response)) {
     var served = failureDetail(response)
@@ -1359,28 +1321,27 @@ function transportError(status, response, detail, fallback) {
   return responseError(status, detail, fallback)
 }
 
-// A password can end up in a curl error line, in a server's echo of a failed
-// LOGIN, or in a URL. Nothing that could carry one reaches a label without
-// passing through here — the same gate `OAuth.redact` is for Google.
+/** A password can end up in a curl error line, in a server's echo of a failed
+ * LOGIN, or in a URL. Nothing that could carry one reaches a label without
+ * passing through here — the same gate `OAuth.redact` is for Google.
+ */
 function redact(text) {
   return String(text === undefined || text === null ? "" : text)
-    // "LOGIN user pass" and "AUTHENTICATE PLAIN <base64>", whichever the
-    // server chose to quote back.
     .replace(/\b(LOGIN)\s+\S+\s+\S+/gi, "$1 [redacted]")
     .replace(/\b(AUTHENTICATE)\s+\w+\s+\S+/gi, "$1 [redacted]")
-    // A password inside a URL's userinfo, which is how curl prints one.
     .replace(/(imaps?|smtps?):\/\/[^\s/@]*:[^\s/@]*@/gi, "$1://[redacted]@")
     .replace(/(password|pass|pwd)\s*[=:]\s*\S+/gi, "$1=[redacted]")
 }
 
-// Whether a tagged completion said NO or BAD. This has to inspect parsed IMAP
-// responses rather than search the whole byte string: a FETCH response holds
-// the message as a literal, and an ordinary message header such as
-// `X-Spam-Flag: NO` is not the server refusing the command.
+/** Whether a tagged completion said NO or BAD. This has to inspect parsed IMAP
+ * responses rather than search the whole byte string: a FETCH response holds
+ * the message as a literal, and an ordinary message header such as
+ * `X-Spam-Flag: NO` is not the server refusing the command.
+ */
 function failureCompletion(text) {
   var lines = splitResponse(text)
   for (var itemIndex = 0; itemIndex < lines.length; itemIndex++) {
-    // A response containing a literal includes the literal's own lines in this
+    // Invariant: A response containing a literal includes the literal's own lines in this
     // string. Only its first protocol line can be a completion, and spaces or
     // tabs — not \s, which also crosses a newline — separate its fields.
     var first = String(lines[itemIndex] || "").split(/\r?\n/)[0]
@@ -1399,12 +1360,11 @@ function failureDetail(text) {
   return completion ? completion.detail : ""
 }
 
-// ------------------------------------------------------------- capabilities
-
-// `* CAPABILITY IMAP4rev1 MOVE UIDPLUS ...`, which decides whether an archive
-// is one round trip or three.
+/** `* CAPABILITY IMAP4rev1 MOVE UIDPLUS ...`, which decides whether an archive
+ * is one round trip or three.
+ */
 function parseCapabilities(text) {
-  // Bounded to the line. `[\s\S]*` with the multiline flag is greedy across
+  // Invariant: Bounded to the line. `[\s\S]*` with the multiline flag is greedy across
   // newlines, which swallowed the tagged completion that follows and reported
   // "A1" and "OK" as capabilities.
   var match = String(text || "").match(/^\*\s+CAPABILITY\s+([^\r\n]*)/im)

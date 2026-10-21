@@ -4,17 +4,8 @@ import Quickshell.Io
 
 import "ImapProtocol.js" as Imap
 
-// An IMAP account's sign-in, which is a server address and a password.
-//
-// It is the counterpart to `AuthManager`, and deliberately the same shape from
-// outside: `MailAccount` asks either of them whether it is `loggedIn`, and asks
-// for a credential with one call whose callback takes `(value, error)`. What
-// differs is everything inside — there is no browser, no token to refresh and
-// nothing that expires.
-//
-// Where the secret lives follows the same rule as the refresh token: GNOME
-// Keyring, written over stdin so it never reaches the process table, and keyed
-// by account so two mailboxes cannot overwrite each other.
+// Invariant: Passwords travel through the native credential API, never argv, and
+// are scoped by account. Server verification must finish before a credential is stored.
 Item {
   id: root
 
@@ -26,20 +17,15 @@ Item {
   property var backend: null
   property var platform: null
 
-  // Which mailbox this signs in. Unlike Gmail's, an IMAP account knows its own
-  // address from the moment it is created — the user typed it — so this is set
-  // before anything is asked of the server rather than after a profile read.
   property string accountId: ""
 
-  // Server settings, pushed down from the account entry. Held as the validated
-  // shape rather than as whatever was in the file.
   property var settings: Imap.normalizeSettings(null)
 
   readonly property string authMode: "password"
 
   readonly property bool configured: Imap.validateSettings(settings).ok
 
-  // The password, once the keyring has answered. Held in this process for as
+  // Performance: The password, once the keyring has answered. Held in this process for as
   // long as the account exists, exactly as the access token is: every request
   // needs it, and a keyring round trip per request would be both slow and a
   // stream of authorisation prompts on some setups.
@@ -47,8 +33,6 @@ Item {
   property bool passwordChecked: false
   readonly property bool loggedIn: configured && password !== ""
 
-  // The same three names `AuthManager` exposes, because `MailAccount` reads
-  // them without knowing which provider it has.
   readonly property bool credentialsPresent: configured
   property bool loginBusy: false
   property int sessionGeneration: 0
@@ -60,7 +44,6 @@ Item {
   readonly property bool sessionBusy: credentialLookupBusy || credentialWriteBusy
   property string lastError: ""
 
-  // Native credential storage and network transport are backend capabilities.
   readonly property var requiredTools: []
   property var missingTools: []
   property bool toolsChecked: true
@@ -84,13 +67,14 @@ Item {
     credentialWaiters = []
     for (var itemIndex = 0; itemIndex < pending.length; itemIndex++) {
       try { pending[itemIndex](value || "", safeError(error)) }
-      catch (error) { /* consumers own their callback errors */ }
+      catch (error) { /* Invariant: one consumer must not prevent later waiters from completing. */ }
     }
   }
 
-  // The one entry point the transport uses. Hands back "user:password" — the
-  // single credential field the native client consumes — rather than the two halves, so nothing
-  // downstream has to know how they are joined.
+  /** The one entry point the transport uses. Hands back "user:password" — the
+   * single credential field the native client consumes — rather than the two halves, so nothing
+   * downstream has to know how they are joined.
+   */
   function withCredentials(callback) {
     if (typeof callback !== "function") return
     if (!configured) {
@@ -153,8 +137,6 @@ Item {
     var value = String(line || "")
     if (value === "") {
       finishWaiters("", "No password saved for this mailbox. Sign in again")
-      // Only a mailbox that is otherwise ready to go is worth complaining
-      // about: an account still being typed into has no password by design.
       if (configured) sessionUnavailable("Sign in to this mailbox")
       return
     }
@@ -163,10 +145,11 @@ Item {
     loginSucceeded()
   }
 
-  // Called by the setup page once the user has filled the form in. The password
-  // is verified by using it — a mailbox that answers a NOOP is a mailbox that
-  // will answer everything else — rather than by being written down first and
-  // failing silently later.
+  /** Called by the setup page once the user has filled the form in. The password
+   * is verified by using it — a mailbox that answers a NOOP is a mailbox that
+   * will answer everything else — rather than by being written down first and
+   * failing silently later.
+   */
   function signIn(secret) {
     if (loginBusy || credentialWriteBusy) return false
     if (platform && platform.canAccessCredentials === false) {
@@ -177,7 +160,7 @@ Item {
       lastError = "Missing " + missingTools.join(", ")
       return false
     }
-    // Pasting from a line can include its trailing line break. Remove only
+    // Invariant: Pasting from a line can include its trailing line break. Remove only
     // that suffix; silently changing controls inside a password would verify
     // and save a different secret from the one the user entered.
     var value = String(secret || "").replace(/[\r\n]+$/, "")
@@ -202,7 +185,6 @@ Item {
     return true
   }
 
-  // The client owns the transport, so it performs the check and reports back.
   signal verifyRequested(var settings, string credentials)
 
   function completeSignIn(ok, error, generation) {
@@ -265,19 +247,21 @@ Item {
     loggedOut()
   }
 
-  // Kept so `MailAccount` can call the same thing on either provider. An IMAP
-  // password does not expire, so there is nothing to invalidate — but a server
-  // that has started rejecting it should not be asked a hundred more times
-  // with the same value.
+  /** Kept so `MailAccount` can call the same thing on either provider. An IMAP
+   * password does not expire, so there is nothing to invalidate — but a server
+   * that has started rejecting it should not be asked a hundred more times
+   * with the same value.
+   */
   function invalidateAccessToken() {
     password = ""
     passwordChecked = false
   }
 
-  // The Gmail manager has these; an IMAP account reaches neither, and
-  // `MailAccount` should not have to ask which provider it holds before
-  // calling one.
-  function beginLogin() { /* the setup form drives sign-in, not a browser */ }
+  /** The Gmail manager has these; an IMAP account reaches neither, and
+   * `MailAccount` should not have to ask which provider it holds before
+   * calling one.
+   */
+  function beginLogin() {  }
   function cancelLogin() {
     sessionGeneration++
     loginBusy = false
@@ -286,9 +270,6 @@ Item {
 
   onAccountIdChanged: {
     cancelLogin()
-    // A different mailbox has a different password. Dropping the one in memory
-    // is what stops an account rename from leaving the previous account's
-    // credential in front of the new one's server.
     password = ""
     passwordChecked = false
     lookupHandled = false

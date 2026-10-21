@@ -1,41 +1,25 @@
 .pragma library
 
-// The HEY CLI, as a protocol.
-//
-// `hey` is the interface 37signals publish for HEY, and it is the only one this
-// plugin will use: there is no IMAP, no POP and no public HTTP API, and driving
-// app.hey.com's own endpoints would mean replaying a user's password against
-// something carrying no compatibility promise.
-//
-// This file is the argument vectors and the answers, and nothing else. No
-// process — `HeyClient.qml` owns that — and no message format, which is
-// `Message.js`'s subject. Everything here is pure, so the node tests exercise
-// the real strings that reach the real command.
-//
-// Every command is asked for `--json`, so nothing here ever parses a rendered
-// table. The envelope is always `{ ok, data, summary, error, code }`, and a
-// command that failed says so in `ok` while still exiting 0 for some errors —
-// which is why `payload` checks the envelope rather than the exit status.
+// Invariant: Rust supervises the official HEY CLI. This library supplies UI helpers
+// and protocol reference functions; CLI envelopes can report failure with exit zero.
 
-// ---------------------------------------------------------------- the boxes
-
-// HEY's own boxes, by the `kind` its API answers with. `hey box` takes these
+// Invariant: HEY's own boxes, by the `kind` its API answers with. `hey box` takes these
 // names directly. Trash is deliberately not among them: HEY does not serve a
 // trash box, and the only way to see what is in it is a search.
 var BOXES = ["imbox", "feedbox", "asidebox", "laterbox", "trailbox", "bubblebox"]
 
-// The virtual one. `box:trash` reads like the rest of the DSL and becomes
+// Invariant: The virtual one. `box:trash` reads like the rest of the DSL and becomes
 // `hey search --in trash`, which is the only thing HEY answers for it.
 var TRASH = "trash"
 
-// How many postings a query that has to count unseen mail reads. The unread
+// Invariant: How many postings a query that has to count unseen mail reads. The unread
 // badge is a count of unseen postings in the Imbox and HEY serves no count of
 // its own, so the only way to have one is to list and tally — and a badge is
 // answering "is something waiting", which a hundred answers as well as a
 // thousand would.
 var UNSEEN_SCAN = 100
 
-// The ceiling `--limit` is given. HEY pages beyond this; the list asks for more
+// Invariant: The ceiling `--limit` is given. HEY pages beyond this; the list asks for more
 // with the cursor the last answer carried.
 var MAX_LIMIT = 100
 
@@ -57,19 +41,18 @@ function boundedLimit(value, fallback) {
   return Math.max(1, Math.min(MAX_LIMIT, limit))
 }
 
-// ------------------------------------------------------------- the id pair
-
-// A HEY thread is addressed by two different numbers, and which one a command
-// wants is not a detail anything above this file should have to know:
-//
-//   - the **posting** id is the thread's place in a box, and it is what
-//     `seen`, `unseen`, `move`, `trash` and `spam` act on
-//   - the **topic** id is the conversation, and it is what `threads`, `reply`
-//     and `forward` read and write
-//
-// So a message id here carries both, the way an IMAP one carries its folder. A
-// bare posting id could not be opened and a bare topic id could not be marked
-// seen, and finding out which had been stored would be a round trip.
+/** A HEY thread is addressed by two different numbers, and which one a command
+ * wants is not a detail anything above this file should have to know:
+ *
+ *   - the **posting** id is the thread's place in a box, and it is what
+ *     `seen`, `unseen`, `move`, `trash` and `spam` act on
+ *   - the **topic** id is the conversation, and it is what `threads`, `reply`
+ *     and `forward` read and write
+ *
+ * So a message id here carries both, the way an IMAP one carries its folder. A
+ * bare posting id could not be opened and a bare topic id could not be marked
+ * seen, and finding out which had been stored would be a round trip.
+ */
 function messageId(postingId, topicId) {
   var posting = trimmed(postingId)
   var topic = trimmed(topicId)
@@ -84,27 +67,26 @@ function postingIdOf(id) {
 
 function topicIdOf(id) {
   var parts = trimmed(id).split(":")
-  // One half only is what an id written before both were stored would look
+  // Invariant: One half only is what an id written before both were stored would look
   // like; reading it as the topic would open the wrong conversation, so it is
   // read as neither.
   return parts.length > 1 ? trimmed(parts[1]) : ""
 }
 
-// ------------------------------------------------------------- the queries
-
-// The strings `Hey.js` produces and this file reads. Opaque everywhere else:
-// upstream hands one back to the client that made it and uses it as a cache
-// key.
-//
-//   box:imbox           a box, newest first
-//   box:imbox unseen    the same box, only what has not been seen
-//   box:trash           the Trash, which is a search because HEY has no box
-//   label:4711          one label's threads, by the id `hey labels` gave
-//   search:dentist      free text, over every box
-//
-// `search:` takes the rest of the string verbatim, so a user who types
-// `box:imbox` into the search field searches for that text rather than
-// selecting a mailbox.
+/** The strings `Hey.js` produces and this file reads. Opaque everywhere else:
+ * upstream hands one back to the client that made it and uses it as a cache
+ * key.
+ *
+ *   box:imbox           a box, newest first
+ *   box:imbox unseen    the same box, only what has not been seen
+ *   box:trash           the Trash, which is a search because HEY has no box
+ *   label:4711          one label's threads, by the id `hey labels` gave
+ *   search:dentist      free text, over every box
+ *
+ * `search:` takes the rest of the string verbatim, so a user who types
+ * `box:imbox` into the search field searches for that text rather than
+ * selecting a mailbox.
+ */
 function parseQuery(query) {
   var text = trimmed(query)
   if (text === "drafts:") {
@@ -127,23 +109,22 @@ function parseQuery(query) {
     if (!isBox(box)) box = "imbox"
     return { kind: "box", box: box, label: "", text: "", unseen: unseen }
   }
-  // Anything unrecognised is the Imbox rather than an error: a query written by
+  // Invariant: Anything unrecognised is the Imbox rather than an error: a query written by
   // a newer build, or left in a cache file, still has to open a window.
   return { kind: "box", box: "imbox", label: "", text: "", unseen: false }
 }
 
-// -------------------------------------------------------------- the paging
-
-// A page token here is an offset into one of HEY's pages, and HEY's own cursor
-// for that page: "25|eyJ...".
-//
-// Both halves are needed because of how `--limit` works. The CLI reads pages
-// until it has the number asked for, then truncates to it **and drops the
-// cursor** — so a limited listing can never be continued. Asking for no limit
-// gets HEY's own page with its cursor intact, which means the page size the
-// user configured has to be applied here instead. The offset is where in that
-// page this request starts; the same page is read again to serve the rest of
-// it, exactly as the IMAP client re-runs its SEARCH.
+/** A page token here is an offset into one of HEY's pages, and HEY's own cursor
+ * for that page: "25|eyJ...".
+ *
+ * Both halves are needed because of how `--limit` works. The CLI reads pages
+ * until it has the number asked for, then truncates to it **and drops the
+ * cursor** — so a limited listing can never be continued. Asking for no limit
+ * gets HEY's own page with its cursor intact, which means the page size the
+ * user configured has to be applied here instead. The offset is where in that
+ * page this request starts; the same page is read again to serve the rest of
+ * it, exactly as the IMAP client re-runs its SEARCH.
+ */
 function pageToken(offset, cursor) {
   var at = Math.max(0, Math.floor(Number(offset)) || 0)
   var key = trimmed(cursor)
@@ -164,18 +145,20 @@ function tokenCursor(token) {
   return bar < 0 ? "" : trimmed(text.slice(bar + 1))
 }
 
-// How many postings this query has to read in one command. Only the unseen
-// filter names a number: the filtering happens here rather than on the server,
-// so a page of one would find one unseen message at most however many are
-// waiting — and that number is the unread badge. Everything else takes HEY's
-// own page, because asking for a size is what throws the cursor away.
+/** How many postings this query has to read in one command. Only the unseen
+ * filter names a number: the filtering happens here rather than on the server,
+ * so a page of one would find one unseen message at most however many are
+ * waiting — and that number is the unread badge. Everything else takes HEY's
+ * own page, because asking for a size is what throws the cursor away.
+ */
 function scanLimit(parsed) {
   return parsed && parsed.unseen === true ? UNSEEN_SCAN : 0
 }
 
-// The argument vector for a list, after the binary. A box and a label take an
-// opaque cursor out of the previous answer's `next_page`; a search takes a page
-// number, because HEY's search is numbered and its box index is not.
+/** The argument vector for a list, after the binary. A box and a label take an
+ * opaque cursor out of the previous answer's `next_page`; a search takes a page
+ * number, because HEY's search is numbered and its box index is not.
+ */
 function listCommand(parsed, maxResults, pageToken) {
   var query = parsed || parseQuery("")
   var limit = scanLimit(query)
@@ -209,13 +192,14 @@ function listCommand(parsed, maxResults, pageToken) {
   return box
 }
 
-// Reading one thread. `--allow-partial` because a thread too long for the
-// loader's own limits is refused outright without it — and a message that
-// opens with a note about what is missing beats one that does not open.
+/** Reading one thread. `--allow-partial` because a thread too long for the
+ * loader's own limits is refused outright without it — and a message that
+ * opens with a note about what is missing beats one that does not open.
+ */
 function threadCommand(id) {
   var topic = topicIdOf(id)
   if (topic === "") return []
-  // Both flags are asked for optimistically, and both are boolean, which is
+  // Invariant: Both flags are asked for optimistically, and both are boolean, which is
   // what makes `withoutFlag` a safe answer to a build that has neither.
   //
   // `--html` asks for the sender's own markup, which is what the reader wants:
@@ -242,10 +226,11 @@ function draftShowCommand(id) {
   return draft === "" ? [] : ["draft", "show", draft, "--json"]
 }
 
-// The flag `hey` said it did not know, out of its own usage error. A release
-// older than a flag this plugin asks for refuses the whole command, so the
-// client drops the flag and asks again — and remembers, so one round trip pays
-// for the whole session rather than every read.
+/** The flag `hey` said it did not know, out of its own usage error. A release
+ * older than a flag this plugin asks for refuses the whole command, so the
+ * client drops the flag and asks again — and remembers, so one round trip pays
+ * for the whole session rather than every read.
+ */
 function unknownFlag(text) {
   var body = parseJson(text, null)
   var reported = body && typeof body === "object" ? trimmed(body.error) : trimmed(text)
@@ -253,9 +238,10 @@ function unknownFlag(text) {
   return match ? match[1] : ""
 }
 
-// A command without one boolean flag. Only ever used on the optional flags
-// above, all of which are booleans — dropping a flag that took a value would
-// leave its value behind as a positional argument.
+/** A command without one boolean flag. Only ever used on the optional flags
+ * above, all of which are booleans — dropping a flag that took a value would
+ * leave its value behind as a positional argument.
+ */
 function withoutFlag(command, flag) {
   var list = Array.isArray(command) ? command : []
   var wanted = trimmed(flag)
@@ -270,13 +256,14 @@ function hasFlag(command, flag) {
   return withoutFlag(command, flag).length !== (Array.isArray(command) ? command.length : 0)
 }
 
-// What an action becomes. `MailAccount` speaks Gmail's vocabulary to every
-// provider, so the label ids arrive here and become HEY's own verbs.
-//
-// A verb HEY does not have answers with an empty command rather than with
-// something close to it: the panel already hides the buttons this provider does
-// not declare, and a "close enough" move is the promise `Registry.capabilities`
-// exists to stop being made.
+/** What an action becomes. `MailAccount` speaks Gmail's vocabulary to every
+ * provider, so the label ids arrive here and become HEY's own verbs.
+ *
+ * A verb HEY does not have answers with an empty command rather than with
+ * something close to it: the panel already hides the buttons this provider does
+ * not declare, and a "close enough" move is the promise `Registry.capabilities`
+ * exists to stop being made.
+ */
 function actionCommand(verb, ids) {
   var name = trimmed(verb)
   var postings = []
@@ -291,15 +278,16 @@ function actionCommand(verb, ids) {
   if (name === "markUnread") return ["unseen"].concat(postings)
   if (name === "trash") return ["trash"].concat(postings)
   if (name === "spam") return ["spam"].concat(postings)
-  // Not an archive — HEY has none — but the one move that puts a thread back
+  // Invariant: Not an archive — HEY has none — but the one move that puts a thread back
   // where a restored message belongs.
   if (name === "untrash") return ["move"].concat(postings, ["--to", "imbox"])
   return []
 }
 
-// The label ids `MailAccount` asks for, as one verb. Only the pairs HEY can
-// honour are named; everything else is nothing to do, which is what an
-// undeclared capability produces anyway.
+/** The label ids `MailAccount` asks for, as one verb. Only the pairs HEY can
+ * honour are named; everything else is nothing to do, which is what an
+ * undeclared capability produces anyway.
+ */
 function verbForLabels(addLabelIds, removeLabelIds) {
   var add = Array.isArray(addLabelIds) ? addLabelIds : []
   var remove = Array.isArray(removeLabelIds) ? removeLabelIds : []
@@ -309,12 +297,13 @@ function verbForLabels(addLabelIds, removeLabelIds) {
   return ""
 }
 
-// Sending. HEY composes and replies for the user rather than accepting a
-// message: a reply's recipients are the server's to decide, which is why the
-// reply command takes a topic and a body and nothing else.
-//
-// The body crosses on stdin rather than in `-m`, so a message never reaches the
-// process table and nothing has to be escaped on the way.
+/** Sending. HEY composes and replies for the user rather than accepting a
+ * message: a reply's recipients are the server's to decide, which is why the
+ * reply command takes a topic and a body and nothing else.
+ *
+ * The body crosses on stdin rather than in `-m`, so a message never reaches the
+ * process table and nothing has to be escaped on the way.
+ */
 function composeCommand(fields) {
   var values = fields || {}
   var thread = trimmed(values.threadId)
@@ -333,8 +322,9 @@ function composeCommand(fields) {
   return command.concat(attachArgs(values.attachments))
 }
 
-// Saving has the same two shapes as sending, but a new draft needs no
-// recipient. HEY keeps the body on stdin and answers the draft id.
+/** Saving has the same two shapes as sending, but a new draft needs no
+ * recipient. HEY keeps the body on stdin and answers the draft id.
+ */
 function draftCommand(fields) {
   var values = fields || {}
   var thread = trimmed(values.threadId)
@@ -401,8 +391,6 @@ function labelsCommand() {
   return ["labels", "--json", "--all"]
 }
 
-// ------------------------------------------------------------- the answers
-
 function parseJson(text, fallback) {
   try {
     var parsed = JSON.parse(String(text || ""))
@@ -412,9 +400,10 @@ function parseJson(text, fallback) {
   }
 }
 
-// The envelope, unwrapped. `ok: false` is the CLI reporting a refusal it exited
-// 0 for, so this is the check rather than the exit status — and an answer that
-// is not JSON at all is a `hey` that failed before it could form one.
+/** The envelope, unwrapped. `ok: false` is the CLI reporting a refusal it exited
+ * 0 for, so this is the check rather than the exit status — and an answer that
+ * is not JSON at all is a `hey` that failed before it could form one.
+ */
 function payload(text) {
   var body = parseJson(text, null)
   if (!body || typeof body !== "object") {
@@ -431,20 +420,22 @@ function envelopeNextPage(text) {
   return body && body.meta ? trimmed(body.meta.next_page) : ""
 }
 
-// Whether what came back is a thread as HTML rather than the JSON envelope.
-// `hey threads --html` writes a document; a build that does not serve one
-// answers with the envelope, and the leading brace is the difference.
+/** Whether what came back is a thread as HTML rather than the JSON envelope.
+ * `hey threads --html` writes a document; a build that does not serve one
+ * answers with the envelope, and the leading brace is the difference.
+ */
 function isHtmlDocument(text) {
   var body = trimmed(text)
   return body !== "" && body.charAt(0) !== "{"
 }
 
-// One posting, in the shape the client turns into a message. Field for field
-// off HEY's own JSON, with the two names a thread goes by kept together.
-//
-// `seen` is absent rather than false on a posting nobody has read — the API
-// omits an empty field — so unread is the absence of a true, not the presence
-// of a false.
+/** One posting, in the shape the client turns into a message. Field for field
+ * off HEY's own JSON, with the two names a thread goes by kept together.
+ *
+ * `seen` is absent rather than false on a posting nobody has read — the API
+ * omits an empty field — so unread is the absence of a true, not the presence
+ * of a false.
+ */
 function posting(raw, boxKind) {
   var entry = raw || {}
   var contacts = Array.isArray(entry.contacts) ? entry.contacts : []
@@ -464,7 +455,7 @@ function posting(raw, boxKind) {
     topicId: topicIdFromUrl(entry.app_url),
     subject: trimmed(entry.name),
     snippet: trimmed(entry.summary),
-    // The name HEY shows in its own list. A newsletter sent by a machine at a
+    // Invariant: The name HEY shows in its own list. A newsletter sent by a machine at a
     // service's address is signed with the name the reader would recognise,
     // and that is the name the row should carry.
     from: {
@@ -480,24 +471,24 @@ function posting(raw, boxKind) {
   }
 }
 
-// The topic id, out of the posting's own app URL. HEY's box index answers a
-// posting id and the address of the conversation it belongs to, and the number
-// on the end of that address is the id every read of the thread takes.
+/** The topic id, out of the posting's own app URL. HEY's box index answers a
+ * posting id and the address of the conversation it belongs to, and the number
+ * on the end of that address is the id every read of the thread takes.
+ */
 function topicIdFromUrl(url) {
   var match = /\/topics\/(\d+)/.exec(trimmed(url))
   return match ? match[1] : ""
 }
 
-// `hey box`, `hey label` and `hey collection` all answer with a source and its
-// postings; `hey search` answers with a flat list of threads. Both end up here
-// as the same rows, so nothing downstream learns which command ran.
+/** `hey box`, `hey label` and `hey collection` all answer with a source and its
+ * postings; `hey search` answers with a flat list of threads. Both end up here
+ * as the same rows, so nothing downstream learns which command ran.
+ */
 function parseListing(data) {
   var rows = []
   if (!data) return rows
 
   if (Array.isArray(data)) {
-    // A search result: a thread, its topic id beside it, and the messages that
-    // matched. There is no seen state on one, so a searched row claims none.
     for (var itemIndex = 0; itemIndex < data.length; itemIndex++) {
       var hit = data[itemIndex] || {}
       var messages = Array.isArray(hit.messages) ? hit.messages : []
@@ -515,7 +506,7 @@ function parseListing(data) {
         },
         to: [],
         date: trimmed(hit.updated_at) || trimmed(newest.created_at),
-        // A search says nothing about what has been read, so a row from one
+        // Invariant: A search says nothing about what has been read, so a row from one
         // claims to be read rather than inventing a bold line the Imbox would
         // then disagree with.
         seen: true,
@@ -582,12 +573,13 @@ function parseDraft(data) {
   }
 }
 
-// What HEY offers after the page just read, in its own terms. A box and a label
-// carry an opaque cursor; a search is numbered, so the number after this one is
-// the answer.
+/** What HEY offers after the page just read, in its own terms. A box and a label
+ * carry an opaque cursor; a search is numbered, so the number after this one is
+ * the answer.
+ */
 function nextCursor(parsed, data, cursor, rowCount) {
   var query = parsed || parseQuery("")
-  // A scan that filtered on unseen read a fixed window rather than a page: past
+  // Invariant: A scan that filtered on unseen read a fixed window rather than a page: past
   // its end there is nothing to continue with, because continuing would page
   // the box while the filter kept discarding.
   if (query.unseen === true) return ""
@@ -602,13 +594,14 @@ function nextCursor(parsed, data, cursor, rowCount) {
   return trimmed(data.next_page)
 }
 
-// The rows this request is for, and the token that continues after them.
-//
-// HEY's page and the user's page size are two different numbers, and this is
-// where they are reconciled: the command read one of HEY's pages, and the size
-// the user configured decides how much of it a request gets. Load more asks for
-// the same page again at a higher offset until it is used up, and only then
-// moves on to HEY's next one.
+/** The rows this request is for, and the token that continues after them.
+ *
+ * HEY's page and the user's page size are two different numbers, and this is
+ * where they are reconciled: the command read one of HEY's pages, and the size
+ * the user configured decides how much of it a request gets. Load more asks for
+ * the same page again at a higher offset until it is used up, and only then
+ * moves on to HEY's next one.
+ */
 function pageOf(parsed, data, rows, maxResults, token) {
   var list = Array.isArray(rows) ? rows : []
   var limit = boundedLimit(maxResults, 25)
@@ -624,8 +617,9 @@ function pageOf(parsed, data, rows, maxResults, token) {
   return { rows: visible, nextPageToken: next, total: list.length }
 }
 
-// The rows a query actually wanted. Only the unseen filter narrows anything;
-// everything else is served by the command that ran.
+/** The rows a query actually wanted. Only the unseen filter narrows anything;
+ * everything else is served by the command that ran.
+ */
 function filterRows(parsed, rows) {
   var list = Array.isArray(rows) ? rows : []
   if (!parsed || parsed.unseen !== true) return list
@@ -636,10 +630,11 @@ function filterRows(parsed, rows) {
   return output
 }
 
-// `hey labels`, as the shape the sidebar reads. HEY calls them folders and
-// addresses them by id, so the id is what `rawName` carries — selecting one in
-// the sidebar has to produce `label:<id>`, which is the only thing `hey label`
-// takes.
+/** `hey labels`, as the shape the sidebar reads. HEY calls them folders and
+ * addresses them by id, so the id is what `rawName` carries — selecting one in
+ * the sidebar has to produce `label:<id>`, which is the only thing `hey label`
+ * takes.
+ */
 function parseLabels(data) {
   var output = []
   var list = Array.isArray(data) ? data : []
@@ -661,9 +656,10 @@ function parseLabels(data) {
   return output
 }
 
-// `hey accounts list`, as this mailbox's address. The list holds an "all" row
-// that is a filter rather than an account, and the real ones beside it; the
-// first real one is the identity this plugin signed in as.
+/** `hey accounts list`, as this mailbox's address. The list holds an "all" row
+ * that is a filter rather than an account, and the real ones beside it; the
+ * first real one is the identity this plugin signed in as.
+ */
 function parseAccountAddress(data) {
   var list = Array.isArray(data) ? data : []
   for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
@@ -680,9 +676,10 @@ function isAuthenticated(data) {
   return status.authenticated === true && status.expired !== true
 }
 
-// The thread's entries, as one HTML document or as text. `--html` gives the
-// sender's own markup, which is what the reader is built for; the JSON envelope
-// a build without it answers with carries the same message as text.
+/** The thread's entries, as one HTML document or as text. `--html` gives the
+ * sender's own markup, which is what the reader is built for; the JSON envelope
+ * a build without it answers with carries the same message as text.
+ */
 function parseThread(text) {
   if (isHtmlDocument(text)) return { html: String(text || ""), text: "" }
 
@@ -694,21 +691,16 @@ function parseThread(text) {
     var body = trimmed((entries[itemIndex] || {}).body)
     if (body !== "") parts.push(body)
   }
-  // Oldest first, which is the order HEY serves and the order a conversation
+  // Invariant: Oldest first, which is the order HEY serves and the order a conversation
   // reads in. The separator is what the CLI's own reader draws between entries.
   return { html: "", text: parts.join("\n\n───\n\n") }
 }
 
-// The web address of one thread. HEY's box index hands over the conversation's
-// own URL, and this rebuilds it for a row that came from a search.
-//
-// There is no box counterpart on purpose. HEY has a URL per box and none for a
-// search or a label, so one would answer the Imbox for every mailbox that is
-// not the Imbox — see the `webBox` capability, which is off for this provider.
 var WEB_BASE = "https://app.hey.com"
 
-// The mailbox itself. HEY opens on the Imbox, which is where a link out of a
-// settings row should land whichever mailbox the panel happens to be showing.
+/** The mailbox itself. HEY opens on the Imbox, which is where a link out of a
+ * settings row should land whichever mailbox the panel happens to be showing.
+ */
 function webHomeUrl() {
   return WEB_BASE
 }
@@ -718,21 +710,21 @@ function webMessageUrl(id) {
   return topic === "" ? WEB_BASE : WEB_BASE + "/topics/" + topic
 }
 
-// ----------------------------------------------------------------- safety
-
-// A bearer token, a cookie, or the URL either was pasted into. `hey` prints
-// neither in the ordinary course of things, but a verbose failure could — and a
-// notice is a place a stranger can read.
+/** A bearer token, a cookie, or the URL either was pasted into. `hey` prints
+ * neither in the ordinary course of things, but a verbose failure could — and a
+ * notice is a place a stranger can read.
+ */
 function redact(text) {
   return String(text === undefined || text === null ? "" : text)
     .replace(/(token|cookie|secret|password)([=:]\s*)\S+/gi, "$1$2[redacted]")
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
 }
 
-// What a failed invocation says. `hey` reports its own refusals in the
-// envelope; a non-zero exit with nothing to read is the process itself.
+/** What a failed invocation says. `hey` reports its own refusals in the
+ * envelope; a non-zero exit with nothing to read is the process itself.
+ */
 function commandError(status, text, detail, fallback) {
-  // The envelope's own message when there is one. Read from the JSON directly
+  // Invariant: The envelope's own message when there is one. Read from the JSON directly
   // rather than through `payload`, whose "this could not be read" is about the
   // shape of the answer — and would shadow the real reason, which for a
   // command that never reached HEY is on stderr.

@@ -1,6 +1,6 @@
 .pragma library
 
-// Provider presentation only. NativeDomain.js supplies all mail capabilities
+// Invariant: Provider presentation only. NativeDomain.js supplies all mail capabilities
 // and mailbox queries; providers.resolve builds dynamic queries in Rust.
 
 var ID = "imap"

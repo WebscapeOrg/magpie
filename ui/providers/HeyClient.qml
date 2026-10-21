@@ -2,7 +2,7 @@ import QtQuick
 
 import "HeyCli.js" as Cli
 
-// Presentation adapter. Rust owns HEY commands, parsing and network work.
+// Invariant: Presentation adapter. Rust owns HEY commands, parsing and network work.
 Item {
   id: root
 
@@ -92,12 +92,13 @@ Item {
     return handle
   }
 
-  // The counted members of a conversation, for the reader's conversation rail.
-  //
-  // Always empty, and HEY is never asked: a HEY row already *is* a conversation
-  // and carries no member ids, so its `thread` block reports a count of 0 —
-  // unknown — and the rail draws nothing. The body on screen is the whole
-  // conversation here, which is the thing the rail would otherwise be for.
+  /** The counted members of a conversation, for the reader's conversation rail.
+   *
+   * Always empty, and HEY is never asked: a HEY row already *is* a conversation
+   * and carries no member ids, so its `thread` block reports a count of 0 —
+   * unknown — and the rail draws nothing. The body on screen is the whole
+   * conversation here, which is the thing the rail would otherwise be for.
+   */
   function getSummaries(ids, callback) {
     var handle = newHandle()
     Qt.callLater(function() {
@@ -107,13 +108,14 @@ Item {
     return handle
   }
 
-  // A whole page with no round trips at all: the listing that produced these
-  // ids carried every field a row needs, so this is the cache answering.
-  //
-  // Deferred rather than answered on the spot even though the answer is in
-  // hand. Every caller is written against a callback that arrives later, and
-  // running one partway through the function that started it is a re-entry the
-  // Gmail client never produces.
+  /** A whole page with no round trips at all: the listing that produced these
+   * ids carried every field a row needs, so this is the cache answering.
+   *
+   * Deferred rather than answered on the spot even though the answer is in
+   * hand. Every caller is written against a callback that arrives later, and
+   * running one partway through the function that started it is a re-entry the
+   * Gmail client never produces.
+   */
   function getMessages(ids, full, callback, existingHandle, progress) {
     var handle = existingHandle || newHandle()
     var list = Array.isArray(ids) ? ids : []
@@ -197,10 +199,11 @@ Item {
     return handle
   }
 
-  // HEY serves a thread's files through a command of its own, which saves them
-  // to disk rather than handing over their octets. Nothing asks for one: the
-  // composed payload declares no attachment parts, so the reader lists none and
-  // the invitation reader never finds a part to fetch.
+  /** HEY serves a thread's files through a command of its own, which saves them
+   * to disk rather than handing over their octets. Nothing asks for one: the
+   * composed payload declares no attachment parts, so the reader lists none and
+   * the invitation reader never finds a part to fetch.
+   */
   function getAttachment(messageId, attachmentId, callback) {
     var handle = newHandle()
     if (typeof callback !== "function") return handle
@@ -211,9 +214,6 @@ Item {
     return handle
   }
 
-  // HEY's labels, in the shape the sidebar reads them in. Counts are left at
-  // zero: there is no command that answers one, and the sidebar is drawn before
-  // anyone has asked for a number on it.
   function getLabels(callback) {
     return backendRead("hey.labels", {}, callback, newHandle())
   }
@@ -224,8 +224,9 @@ Item {
     }, newHandle())
   }
 
-  // HEY sends as the address it is signed in as. Returned in the same shape as
-  // Gmail's aliases so everything above the provider boundary stays neutral.
+  /** HEY sends as the address it is signed in as. Returned in the same shape as
+   * Gmail's aliases so everything above the provider boundary stays neutral.
+   */
   function getSendAs(callback) {
     if (typeof callback !== "function") return newHandle()
     if (address !== "") {
@@ -245,12 +246,11 @@ Item {
     })
   }
 
-  // --------------------------------------------------------------- writes
-
-  // `MailAccount` asks in Gmail's vocabulary whichever provider it holds, so
-  // the label ids arrive here and become HEY's own verbs. A pair HEY has no
-  // verb for is nothing to do rather than something close to it — the panel
-  // already hides the buttons this provider does not declare.
+  /** `MailAccount` asks in Gmail's vocabulary whichever provider it holds, so
+   * the label ids arrive here and become HEY's own verbs. A pair HEY has no
+   * verb for is nothing to do rather than something close to it — the panel
+   * already hides the buttons this provider does not declare.
+   */
   function modifyMessage(id, addLabelIds, removeLabelIds, callback) {
     return batchModify([id], addLabelIds, removeLabelIds, callback)
   }
@@ -260,8 +260,9 @@ Item {
     return act(verb, ids, callback)
   }
 
-  // HEY's labels are HEY's own. The capability is off, so no button reaches
-  // these; they exist so every client answers the same calls.
+  /** HEY's labels are HEY's own. The capability is off, so no button reaches
+   * these; they exist so every client answers the same calls.
+   */
   function createLabel(name, callback) { return refuseLabelChange(callback) }
   function renameLabel(id, name, callback) { return refuseLabelChange(callback) }
   function deleteLabel(id, callback) { return refuseLabelChange(callback) }
@@ -271,11 +272,12 @@ Item {
     return newHandle()
   }
 
-  // One id or a list of them. A HEY message id is `<posting>:<topic>`, and a
-  // conversation's members all share the topic — so a list arriving from a row
-  // that stands for a conversation can name the same posting more than once.
-  // `Cli.actionCommand` already keeps each posting once, which is why the list
-  // is handed straight to it rather than wrapped in another array.
+  /** One id or a list of them. A HEY message id is `<posting>:<topic>`, and a
+   * conversation's members all share the topic — so a list arriving from a row
+   * that stands for a conversation can name the same posting more than once.
+   * `Cli.actionCommand` already keeps each posting once, which is why the list
+   * is handed straight to it rather than wrapped in another array.
+   */
   function trashMessage(id, callback) {
     return act("trash", Array.isArray(id) ? id : [id], callback)
   }
@@ -284,8 +286,9 @@ Item {
     return act("untrash", Array.isArray(id) ? id : [id], callback)
   }
 
-  // One verb, however many threads: every HEY command takes a list of ids, so a
-  // batch is one invocation rather than one per message.
+  /** One verb, however many threads: every HEY command takes a list of ids, so a
+   * batch is one invocation rather than one per message.
+   */
   function act(verb, ids, callback) {
     var handle = newHandle()
     if (usesBackend()) {
@@ -298,10 +301,11 @@ Item {
     return handle
   }
 
-  // What this client believed about a thread, after it has been changed. Only
-  // the seen state is kept here and only two verbs move it, so the row is
-  // corrected rather than dropped: dropping it would leave the reader, which is
-  // already open on that message, with no headers on the next redraw.
+  /** What this client believed about a thread, after it has been changed. Only
+   * the seen state is kept here and only two verbs move it, so the row is
+   * corrected rather than dropped: dropping it would leave the reader, which is
+   * already open on that message, with no headers on the next redraw.
+   */
   function forget(verb, ids) {
     if (verb !== "markRead" && verb !== "markUnread") return
     var list = Array.isArray(ids) ? ids : [ids]
@@ -318,14 +322,13 @@ Item {
     messageResources = updated
   }
 
-  // ----------------------------------------------------------------- send
-
-  // `MailAccount` builds the same payload for every provider: a base64url `raw`
-  // field, because that is what Gmail's send endpoint takes. HEY takes neither
-  // a raw message nor, for a reply, a recipient list — it decides who a reply
-  // goes to, which is the right answer and not one this plugin could improve
-  // on. So the message is taken apart again and handed over as the fields the
-  // command has.
+  /** `MailAccount` builds the same payload for every provider: a base64url `raw`
+   * field, because that is what Gmail's send endpoint takes. HEY takes neither
+   * a raw message nor, for a reply, a recipient list — it decides who a reply
+   * goes to, which is the right answer and not one this plugin could improve
+   * on. So the message is taken apart again and handed over as the fields the
+   * command has.
+   */
   function messageParams(payload, draft) {
     var value = payload || {}
     var parameters = { raw: String(value.raw || ""), threadId: String(value.threadId || ""),

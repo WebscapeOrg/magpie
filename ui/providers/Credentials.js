@@ -1,13 +1,10 @@
 .pragma library
 
-// Gmail has no shared public client the way Spotify does: every user brings
-// their own Google Cloud OAuth client. This module turns whatever they have in
-// hand — the JSON file the Cloud console hands out, a pasted client id, or an
-// id and secret on two lines — into the one shape the rest of the plugin uses.
+// Invariant: Client registration settings are separate from account-scoped grants.
 
 var CLIENT_ID_PATTERN = /^[0-9]+-[A-Za-z0-9_]+\.apps\.googleusercontent\.com$/
 
-// A client shipped with the plugin, so most people never see the setup at all.
+// Invariant: A client shipped with the plugin, so most people never see the setup at all.
 // Empty until the project completes Google's OAuth verification: gmail.modify
 // and gmail.send are RESTRICTED scopes, and an unverified project is stuck in
 // "Testing", where Google issues refresh tokens that expire after seven days.
@@ -43,9 +40,10 @@ function trimmed(value) {
   return String(value === undefined || value === null ? "" : value).trim()
 }
 
-// The console wraps the credentials in "installed" for a desktop client and
-// "web" for a web client. A web client cannot complete the loopback flow, so
-// it is read but reported as the wrong type rather than silently half-working.
+/** The console wraps the credentials in "installed" for a desktop client and
+ * "web" for a web client. A web client cannot complete the loopback flow, so
+ * it is read but reported as the wrong type rather than silently half-working.
+ */
 function fromObject(raw) {
   if (!raw || typeof raw !== "object") return { ok: false, error: "Not a credentials file", credentials: empty() }
   var kind = ""
@@ -89,8 +87,9 @@ function parseJson(text, fallback) {
   }
 }
 
-// Accepts the downloaded JSON, or the id and secret typed in by hand on one or
-// two lines. Anything else comes back as an error the panel can show verbatim.
+/** Accepts the downloaded JSON, or the id and secret typed in by hand on one or
+ * two lines. Anything else comes back as an error the panel can show verbatim.
+ */
 function parse(text) {
   var raw = String(text || "").trim()
   if (!raw) return { ok: false, error: "Paste the client ID, or the JSON file from Google Cloud", credentials: empty() }
@@ -119,9 +118,7 @@ function parse(text) {
   }
 }
 
-// ------------------------------------------------------------------- store
-//
-// Several accounts share one file, because a Cloud OAuth client belongs to a
+// Invariant: Several accounts share one file, because a Cloud OAuth client belongs to a
 // project rather than to a mailbox: two accounts may legitimately run on one
 // client, and two others may each need their own.
 //
@@ -144,8 +141,9 @@ function emptyStore() {
   return { accounts: [] }
 }
 
-// The id is whatever the caller knows the account by — the address once a
-// sign-in has produced one, "" for a file written before accounts had names.
+/** The id is whatever the caller knows the account by — the address once a
+ * sign-in has produced one, "" for a file written before accounts had names.
+ */
 function accountEntry(accountId, credentials) {
   var value = credentials || empty()
   return {
@@ -164,8 +162,9 @@ function isStore(value) {
   return !!value && !!value.accounts && typeof value.accounts.length === "number"
 }
 
-// Every entry point takes either a store or a single credentials object, so
-// the single-account callers that predate this module's split keep working.
+/** Every entry point takes either a store or a single credentials object, so
+ * the single-account callers that predate this module's split keep working.
+ */
 function asStore(value) {
   if (!isStore(value)) return { accounts: [accountEntry("", value)] }
   var store = emptyStore()
@@ -183,9 +182,10 @@ function accountIds(store) {
   return ids
 }
 
-// Case folded, because an address is the usual id and a mailbox typed as
-// Me@Gmail.com is the same account as me@gmail.com — two entries for it would
-// mean two half-signed-in accounts.
+/** Case folded, because an address is the usual id and a mailbox typed as
+ * Me@Gmail.com is the same account as me@gmail.com — two entries for it would
+ * mean two half-signed-in accounts.
+ */
 function accountKey(accountId) {
   return trimmed(accountId).toLowerCase()
 }
@@ -202,15 +202,16 @@ function forAccount(store, accountId) {
   var accounts = asStore(store).accounts
   var found = indexOfAccount(accounts, accountId)
   if (found >= 0) return credentialsOf(accounts[found])
-  // The pre-accounts file holds one nameless entry. An account that has since
+  // Invariant: The pre-accounts file holds one nameless entry. An account that has since
   // learned its own address still has to find its client there, or the first
   // upgrade looks exactly like a missing client and asks for setup again.
   if (accounts.length === 1 && !accounts[0].id) return credentialsOf(accounts[0])
   return empty()
 }
 
-// Replaces in place rather than appending, so saving a client twice for one
-// account does not push it to the end of the panel's list.
+/** Replaces in place rather than appending, so saving a client twice for one
+ * account does not push it to the end of the panel's list.
+ */
 function withAccount(store, accountId, credentials) {
   var next = asStore(store)
   var entry = accountEntry(accountId, credentials)
@@ -232,9 +233,10 @@ function installedBlock(value) {
   }
 }
 
-// Compact rather than indented, and one line whether it holds one account or
-// six: it crosses a line-oriented pipe on the way to disk, whose `read` stops
-// at the first newline.
+/** Compact rather than indented, and one line whether it holds one account or
+ * six: it crosses a line-oriented pipe on the way to disk, whose `read` stops
+ * at the first newline.
+ */
 function serialize(value) {
   var accounts = asStore(value).accounts
   if (accounts.length === 0) return JSON.stringify({ installed: installedBlock(empty()) })
@@ -248,8 +250,9 @@ function serialize(value) {
   return JSON.stringify({ version: FILE_VERSION, accounts: entries })
 }
 
-// A single account that fails to parse leaves the rest readable: one hand-
-// edited entry should not sign every other account out.
+/** A single account that fails to parse leaves the rest readable: one hand-
+ * edited entry should not sign every other account out.
+ */
 function storeFromObject(raw) {
   var store = emptyStore()
   if (!raw || typeof raw !== "object") return store
@@ -281,13 +284,14 @@ function load(text, accountId) {
   return forAccount(loadStore(text), accountId)
 }
 
-// A Cloud OAuth client belongs to a project, not to a mailbox. One client signs
-// in every account its owner has — which is exactly why the keyring keys tokens
-// by account as well as by client — so an account with no client of its own
-// borrows the one already set up.
-//
-// Without this, adding a second mailbox drops the user back on the console
-// walkthrough they already completed, to make a second client they do not need.
+/** A Cloud OAuth client belongs to a project, not to a mailbox. One client signs
+ * in every account its owner has — which is exactly why the keyring keys tokens
+ * by account as well as by client — so an account with no client of its own
+ * borrows the one already set up.
+ *
+ * Without this, adding a second mailbox drops the user back on the console
+ * walkthrough they already completed, to make a second client they do not need.
+ */
 function sharedClient(store) {
   var accounts = asStore(store).accounts
   for (var itemIndex = 0; itemIndex < accounts.length; itemIndex++) {
@@ -297,8 +301,9 @@ function sharedClient(store) {
   return empty()
 }
 
-// The user's own client always wins: someone who went to the trouble of making
-// one wants their own quota and their own consent screen, not the shipped one.
+/** The user's own client always wins: someone who went to the trouble of making
+ * one wants their own quota and their own consent screen, not the shipped one.
+ */
 function effective(fileText, accountId) {
   var store = loadStore(fileText)
   var own = forAccount(store, accountId)
@@ -320,27 +325,26 @@ function path(home) {
   return (base || "~") + "/.config/omamail/credentials.json"
 }
 
-// ----------------------------------------------------------------- keyring
-//
-// The refresh token is keyed by account as well as by client, because two
+// Invariant: The refresh token is keyed by account as well as by client, because two
 // accounts may share one client: keyed by client alone, the second sign-in
 // would overwrite the first account's token and silently sign it out.
 var KEYRING_SERVICE = "omamail"
 var RENAMED_KEYRING_SERVICE = "omarchy-gmail"
 var KEYRING_KIND = "refresh-token"
-// A token stored before Calendar support cannot prove it carries the new
+// Invariant: A token stored before Calendar support cannot prove it carries the new
 // permission. A versioned lookup leaves that token untouched and presents the
 // sign-in flow again, where Google extends the existing grant.
 var KEYRING_GRANT = "calendar-events-v1"
 
-// secret-tool reads an empty attribute value as "match anything", which would
+// Invariant: secret-tool reads an empty attribute value as "match anything", which would
 // hand back some other account's token, so an account with no name yet gets a
 // literal one. No address can collide with it: every address has an "@".
 var UNNAMED_ACCOUNT = "default"
 
-// Alternating name, value — the form secret-tool takes on its command line.
-// An entry with no client id is not addressable at all, and asking for one
-// would be a wildcard lookup over every token this plugin ever stored.
+/** Alternating name, value — the form secret-tool takes on its command line.
+ * An entry with no client id is not addressable at all, and asking for one
+ * would be a wildcard lookup over every token this plugin ever stored.
+ */
 function keyringAttributes(clientId, accountId) {
   var id = trimmed(clientId)
   if (!id) return []
@@ -353,9 +357,10 @@ function keyringAttributes(clientId, accountId) {
   ]
 }
 
-// The account-keyed shape used before Calendar permission was added. It is
-// looked up only to explain why sign-in is required again; its token is never
-// refreshed as if it carried the current grant.
+/** The account-keyed shape used before Calendar permission was added. It is
+ * looked up only to explain why sign-in is required again; its token is never
+ * refreshed as if it carried the current grant.
+ */
 function previousGrantKeyringAttributes(clientId, accountId) {
   var id = trimmed(clientId)
   if (!id) return []
@@ -367,16 +372,17 @@ function previousGrantKeyringAttributes(clientId, accountId) {
   ]
 }
 
-// What a single-account install stored before accounts existed. Such an entry
-// has no "account" attribute. It is checked separately so the upgrade can
-// explain why the broader grant needs a new sign-in.
+/** What a single-account install stored before accounts existed. Such an entry
+ * has no "account" attribute. It is checked separately so the upgrade can
+ * explain why the broader grant needs a new sign-in.
+ */
 function legacyKeyringAttributes(clientId) {
   var id = trimmed(clientId)
   if (!id) return []
   return ["service", KEYRING_SERVICE, "kind", KEYRING_KIND, "client-id", id]
 }
 
-// An IMAP account has no OAuth client to key on — it has a server and a
+// Invariant: An IMAP account has no OAuth client to key on — it has a server and a
 // password. The attributes therefore key on the account alone, under a kind of
 // their own so an IMAP password and a Gmail refresh token for the same address
 // are two entries rather than one overwriting the other.
@@ -384,14 +390,14 @@ var IMAP_KEYRING_KIND = "imap-password"
 
 function imapKeyringAttributes(accountId) {
   var id = accountKey(accountId)
-  // As above: an empty attribute value is a wildcard to secret-tool, which
+  // Invariant: As above: an empty attribute value is a wildcard to secret-tool, which
   // would hand back some other account's password. An account with no name yet
   // gets the literal placeholder, which no address can collide with.
   return ["service", KEYRING_SERVICE, "kind", IMAP_KEYRING_KIND,
     "account", id || UNNAMED_ACCOUNT]
 }
 
-// A JMAP account has no OAuth client either, and its secret is an app password
+// Invariant: A JMAP account has no OAuth client either, and its secret is an app password
 // or an API token rather than a password — one credential, whichever of the
 // two schemes turned out to work, so one entry keyed on the account alone.
 //
@@ -405,14 +411,14 @@ var JMAP_KEYRING_KIND = "jmap-secret"
 
 function jmapKeyringAttributes(accountId) {
   var id = accountKey(accountId)
-  // As above: an empty attribute value is a wildcard to secret-tool, which
+  // Invariant: As above: an empty attribute value is a wildcard to secret-tool, which
   // would hand back some other account's secret. An account with no name yet
   // gets the literal placeholder, which no address can collide with.
   return ["service", KEYRING_SERVICE, "kind", JMAP_KEYRING_KIND,
     "account", id || UNNAMED_ACCOUNT]
 }
 
-// An Outlook refresh token belongs to both the public OAuth client and the
+// Invariant: An Outlook refresh token belongs to both the public OAuth client and the
 // mailbox that granted it. Keeping a separate kind prevents a Hotmail address
 // also added through Gmail or generic IMAP from sharing a secret by accident.
 var OUTLOOK_KEYRING_KIND = "outlook-refresh-token"
@@ -429,8 +435,9 @@ function outlookKeyringAttributes(clientId, accountId) {
   ]
 }
 
-// Entries from before the Omamail rename also predate Calendar permission.
-// Their exact old shape lets the upgrade identify them without using them.
+/** Entries from before the Omamail rename also predate Calendar permission.
+ * Their exact old shape lets the upgrade identify them without using them.
+ */
 function renamedKeyringAttributes(clientId, accountId) {
   var attributes = previousGrantKeyringAttributes(clientId, accountId)
   if (attributes.length) attributes[1] = RENAMED_KEYRING_SERVICE
@@ -443,9 +450,10 @@ function renamedLegacyKeyringAttributes(clientId) {
   return attributes
 }
 
-// The restore stages are also the locations an invalid grant must be removed
-// from. Returning the exact attribute vector keeps lookup and cleanup from
-// drifting apart as old storage names are retired.
+/** The restore stages are also the locations an invalid grant must be removed
+ * from. Returning the exact attribute vector keeps lookup and cleanup from
+ * drifting apart as old storage names are retired.
+ */
 function refreshTokenAttributes(clientId, accountId, stage) {
   if (stage === 1) return previousGrantKeyringAttributes(clientId, accountId)
   if (stage === 2) return legacyKeyringAttributes(clientId)
@@ -454,56 +462,59 @@ function refreshTokenAttributes(clientId, accountId, stage) {
   return keyringAttributes(clientId, accountId)
 }
 
-// An omitted attribute is a wildcard too, not just an empty one. secret-tool
-// matches any item carrying *at least* the attributes it was asked for, so
-// both lookups above that leave "account" out match the account-keyed entries
-// as well as the nameless one they are for. On an install where two mailboxes
-// share one Cloud client, either can therefore hand back the *other*
-// mailbox's token.
-//
-// Nothing about that fails loudly. The token refreshes, Google returns no new
-// refresh token so the same one is carried through the response, and it is
-// written back under this account's key. Both mailboxes end up holding one
-// token, and the account you switch to shows the other one's inbox.
-//
-// So the legacy read asks first whether a legacy entry is there at all, with
-// `secret-tool search --all` on the same attributes. That reports one record
-// per match, but it prints the record to stdout and its attributes to
-// *stderr*:
-//
-//   stdout                                    stderr
-//   [/12]                                     attribute.service = omamail
-//   label = Omamail refresh token             attribute.kind = refresh-token
-//   secret = 1//0the-token                    attribute.client-id = 1234-abc...
-//   created = 2026-08-21 13:01:00             attribute.account = one@gmail.com
-//   schema = org.freedesktop.Secret.Generic
-//
-// Two pipes, buffered independently, so which record an attribute line belongs
-// to is not answerable from the outside: one stream can arrive whole after the
-// other. Counting is, and counting is enough, because every match prints
-// exactly one "account" attribute unless it has none.
-//
-// One line at a time rather than one buffer, so that no caller has to hold the
-// stdout of a search that loaded every matching mailbox's token.
+/** An omitted attribute is a wildcard too, not just an empty one. secret-tool
+ * matches any item carrying *at least* the attributes it was asked for, so
+ * both lookups above that leave "account" out match the account-keyed entries
+ * as well as the nameless one they are for. On an install where two mailboxes
+ * share one Cloud client, either can therefore hand back the *other*
+ * mailbox's token.
+ *
+ * Nothing about that fails loudly. The token refreshes, Google returns no new
+ * refresh token so the same one is carried through the response, and it is
+ * written back under this account's key. Both mailboxes end up holding one
+ * token, and the account you switch to shows the other one's inbox.
+ *
+ * So the legacy read asks first whether a legacy entry is there at all, with
+ * `secret-tool search --all` on the same attributes. That reports one record
+ * per match, but it prints the record to stdout and its attributes to
+ * *stderr*:
+ *
+ *   stdout                                    stderr
+ *   [/12]                                     attribute.service = omamail
+ *   label = Omamail refresh token             attribute.kind = refresh-token
+ *   secret = 1//0the-token                    attribute.client-id = 1234-abc...
+ *   created = 2026-08-21 13:01:00             attribute.account = one@gmail.com
+ *   schema = org.freedesktop.Secret.Generic
+ *
+ * Two pipes, buffered independently, so which record an attribute line belongs
+ * to is not answerable from the outside: one stream can arrive whole after the
+ * other. Counting is, and counting is enough, because every match prints
+ * exactly one "account" attribute unless it has none.
+ *
+ * One line at a time rather than one buffer, so that no caller has to hold the
+ * stdout of a search that loaded every matching mailbox's token.
+ */
 function isKeyringMatchLine(line) {
   return startsWithPrefix(line, "[")
 }
 
-// Every entry this plugin stores carries a "service" attribute, and the search
-// is keyed on it, so one of these stands for every match. Fewer of them than
-// there are matches means the attribute stream did not account for all of
-// them, and an attribute that was not read cannot be an attribute that is
-// absent.
+/** Every entry this plugin stores carries a "service" attribute, and the search
+ * is keyed on it, so one of these stands for every match. Fewer of them than
+ * there are matches means the attribute stream did not account for all of
+ * them, and an attribute that was not read cannot be an attribute that is
+ * absent.
+ */
 function isKeyringAttributedLine(line) {
   return startsWithPrefix(line, "attribute.service = ")
 }
 
 var ACCOUNT_ATTRIBUTE_PREFIX = "attribute.account = "
 
-// A mailbox that has not learned its address yet is stored under a literal
-// stand-in rather than a blank, so that entry has an "account" attribute
-// without having a name. It belongs to whichever mailbox was mid-setup, which
-// on a single-entry install is the only one there is.
+/** A mailbox that has not learned its address yet is stored under a literal
+ * stand-in rather than a blank, so that entry has an "account" attribute
+ * without having a name. It belongs to whichever mailbox was mid-setup, which
+ * on a single-entry install is the only one there is.
+ */
 function isKeyringNamedLine(line) {
   if (!startsWithPrefix(line, ACCOUNT_ATTRIBUTE_PREFIX)) return false
   return String(line).substring(ACCOUNT_ATTRIBUTE_PREFIX.length) !== UNNAMED_ACCOUNT
@@ -513,22 +524,24 @@ function startsWithPrefix(line, prefix) {
   return String(line === undefined || line === null ? "" : line).indexOf(prefix) === 0
 }
 
-// One match, every match accounted for, and no named account among them: the
-// only shape where the entry a lookup is about to return is certainly the
-// nameless one, because it is the only entry there is to return.
-//
-// Every other shape refuses. All-named is the case this exists for, where
-// nothing nameless is there and the wildcard would take a mailbox's own token.
-// A nameless entry beside named ones is left alone too. The lookup cannot tell
-// which entry it would return.
+/** One match, every match accounted for, and no named account among them: the
+ * only shape where the entry a lookup is about to return is certainly the
+ * nameless one, because it is the only entry there is to return.
+ *
+ * Every other shape refuses. All-named is the case this exists for, where
+ * nothing nameless is there and the wildcard would take a mailbox's own token.
+ * A nameless entry beside named ones is left alone too. The lookup cannot tell
+ * which entry it would return.
+ */
 function hasLoneLegacyEntry(matches, attributed, named) {
   if (matches !== 1) return false
   if (attributed !== matches) return false
   return named === 0
 }
 
-// Shown under the client id in the panel so a user with several Cloud projects
-// can tell which one is wired up without opening the file.
+/** Shown under the client id in the panel so a user with several Cloud projects
+ * can tell which one is wired up without opening the file.
+ */
 function describe(credentials) {
   if (!isConfigured(credentials)) return ""
   var id = trimmed(credentials.clientId)

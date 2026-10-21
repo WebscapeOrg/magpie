@@ -1,6 +1,6 @@
 .pragma library
 
-// Provider presentation only. NativeDomain.js supplies all mail capabilities
+// Invariant: Provider presentation only. NativeDomain.js supplies all mail capabilities
 // and mailbox queries; providers.resolve builds dynamic queries in Rust.
 
 .import "ImapProtocol.js" as Protocol
@@ -14,7 +14,6 @@ var SUMMARY = "Outlook.com and Hotmail, signed in securely with Microsoft."
 
 var AUTH = "oauth"
 
-// The Outlook.com envelope, square, so it serves the list row and the page.
 var MARK = "outlook.svg"
 
 var MAILBOXES = [

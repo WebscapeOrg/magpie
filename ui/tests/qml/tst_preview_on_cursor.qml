@@ -2,8 +2,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
 
-// Keyboard movement opens the reader immediately through explicit selection.
-// No preview preference, settling delay, or dwell can delay that selection.
 Item {
   width: 1200
   height: 700
@@ -84,7 +82,6 @@ Item {
 
     property var messages: initialMessages.slice()
 
-    // What the panel asked for.
     property string selectedId: ""
     property int selectCount: 0
     property int previewSelects: 0
@@ -95,16 +92,11 @@ Item {
       selectedId = String(id || "")
       selectedMessage = messages.filter(function(row) { return row.id === selectedId })[0] || null
       selectCount += 1
-      // What `MailAccount.select` records, because two decisions in the window
-      // now turn on it.
       selectionIsPreview = previewOnly === true
       if (previewOnly === true) previewSelects += 1
       else openSelects += 1
     }
 
-    // A body that has not landed. `select` puts the reader into this state on
-    // the real service; here the test says when it comes out of it, which is
-    // what a slow fetch and a failed one differ by.
     function beginFetch() {
       detailLoading = true
       detailPainted = false
@@ -115,7 +107,6 @@ Item {
       detailPainted = true
     }
 
-    // A fetch that failed: it stopped, and nothing was painted.
     function failFetch() {
       detailLoading = false
       detailPainted = false
@@ -160,14 +151,12 @@ Item {
     name: "KeyboardReaderNavigation"
     when: windowShown
 
-    // The FloatingWindow, found by its title the way the other App tests find
-    // it: `children[0]` is not reliably the window.
+    // Invariant: the App window is identified by its title, not unstable child ordering.
     function appWindow() {
       return findMatching(app, function(item) { return item.title === "🐦 Magpie" })
     }
 
-    // The reader panel, found by the one property only it has. It draws no
-    // objectName and `children[0]` is not reliably anything.
+    // Invariant: the reader has no objectName; identify its public forceRichAnyway property.
     function readerView() {
       return findMatching(app, function(item) { return item.forceRichAnyway !== undefined })
     }
@@ -313,8 +302,7 @@ Item {
       compare(app.composing, true)
       app.moveCursor(1)
       compare(mailService.openSelects, 0)
-      // Navigation resets preserve an open composer across readiness changes.
-      // Close this empty draft so the next test starts in the mail list.
+      // Invariant: resetNavigation preserves a composer, so close this empty draft before the next case.
       app.back()
       compare(app.composing, false)
     }

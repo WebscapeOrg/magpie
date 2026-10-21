@@ -5,13 +5,6 @@ import qs.Commons
 import "../../components" as Omamail
 import "../../message/Html.js" as Html
 
-// Three ways of reading one message, and the two things that must stay true
-// while moving between them: nothing is asked of the network, and the message
-// on screen is still the message that was open.
-//
-// The reading column is here too, because how wide it is and where it sits are
-// decided against a font Qt measures — which is the half of that decision no
-// node test can make.
 Item {
   width: MailStyle.space(900)
   height: 600
@@ -28,9 +21,6 @@ Item {
   QtObject {
     id: mailService
 
-    // Every trip to the network a body could cause. Reading mode is built
-    // beside the other two off one parse, so choosing between them must move
-    // none of these.
     property int fetches: 0
     property int renders: 0
 
@@ -72,7 +62,7 @@ Item {
 
   Omamail.MessageReader {
     id: reader
-    // Sized rather than anchored: the panel's width is what these tests move.
+    // Invariant: explicit width lets each case resize the reader independently of its parent.
     width: MailStyle.space(900)
     height: 600
     service: mailService
@@ -133,11 +123,7 @@ Item {
       verify(text.indexOf("https://example.com/board") > 0, "and so is its link")
       verify(text.indexOf("<h2") > 0, "the sender's big type is the reader's heading")
 
-      // Read back off the document Qt built rather than off the string handed
-      // to it: the document is the thing that would have made the fetch, and
-      // what it does not contain it cannot ask for. Everything below is the
-      // sender's presentation, and none of it is in there — the ground, the
-      // ink, the face, the class, and the address the background pointed at.
+      // Invariant: inspect the Qt document text, not only the sanitizer input, for forbidden sender resources.
       verify(text.indexOf("static.example.net") < 0, "a sender resource reached the renderer")
       verify(text.indexOf("#ffeedd") < 0, "the sender's ground reached the renderer")
       verify(text.indexOf("#123456") < 0, "the sender's ink reached the renderer")
@@ -184,8 +170,6 @@ Item {
       verify(bodyEditor().width <= reader.bodyWidth, "content remains inside the panel")
       reader.width = MailStyle.space(900)
 
-      // The other two start at the page inset, because a sender's own layout
-      // and a plain-text body both begin at the left edge.
       reader.bodyMode = "original"
       compare(reader.bodyOffset, 0)
       reader.bodyMode = "plain"

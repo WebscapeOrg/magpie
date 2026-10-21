@@ -38,7 +38,7 @@ ListView {
   clip: true
   boundsBehavior: Flickable.StopAtBounds
   reuseItems: true
-  cacheBuffer: height
+  cacheBuffer: Math.max(0, height)
   topMargin: MailStyle.space(6)
   bottomMargin: MailStyle.space(6)
   model: root.service ? root.service.messages.length : 0

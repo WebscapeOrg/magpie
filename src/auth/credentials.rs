@@ -156,7 +156,15 @@ fn cached_token(
 }
 
 type AccountTokens = std::sync::Arc<tokio::sync::Mutex<Tokens>>;
-static TOKENS: OnceLock<tokio::sync::Mutex<std::collections::HashMap<String, AccountTokens>>> =
+
+#[derive(Eq, Hash, PartialEq)]
+struct Grant {
+    account_id: String,
+    client_id: String,
+    tenant: String,
+}
+
+static TOKENS: OnceLock<tokio::sync::Mutex<std::collections::HashMap<Grant, AccountTokens>>> =
     OnceLock::new();
 
 pub async fn access_token(
@@ -402,7 +410,11 @@ async fn account_tokens(
     client: &str,
     tenant: &str,
 ) -> Result<AccountTokens, &'static str> {
-    let key = format!("{}:{client}:{tenant}", account.to_lowercase());
+    let key = Grant {
+        account_id: account.to_lowercase(),
+        client_id: client.into(),
+        tenant: tenant.into(),
+    };
     let mut accounts = TOKENS.get_or_init(Default::default).lock().await;
     if accounts.len() >= 128 && !accounts.contains_key(&key) {
         return Err("auth_too_many_accounts");
@@ -457,12 +469,12 @@ pub(super) async fn change_outlook(params: &Value, clear: bool) -> Result<Value,
 pub async fn invalidate(account: &str) -> Result<(), &'static str> {
     valid_account("outlook", account)?;
     if let Some(accounts) = TOKENS.get() {
-        let prefix = format!("{}:", account.to_lowercase());
+        let account_id = account.to_lowercase();
         let locks: Vec<_> = accounts
             .lock()
             .await
             .iter()
-            .filter(|(key, _)| key.starts_with(&prefix))
+            .filter(|(key, _)| key.account_id == account_id)
             .map(|(_, value)| value.clone())
             .collect();
         for lock in locks {
@@ -1279,6 +1291,38 @@ mod tests {
         assert_eq!(calls[0].0, key);
         assert!(calls[0].1.as_slice() == b"rotated-synthetic");
     }
+    #[tokio::test]
+    async fn token_cache_identity_preserves_field_boundaries() {
+        let first = account_tokens(
+            "outlook:lane-fixture@example.org", "left:right", "consumers",
+        ).await.unwrap();
+        let second = account_tokens(
+            "outlook:lane-fixture@example.org:left", "right", "consumers",
+        ).await.unwrap();
+        let normalized = account_tokens(
+            "outlook:LANE-FIXTURE@example.org", "left:right", "consumers",
+        ).await.unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &normalized));
+        assert!(!std::sync::Arc::ptr_eq(&first, &second),
+            "different account/client fields must not share cached credentials");
+    }
+
+    #[tokio::test]
+    async fn token_cache_invalidation_matches_the_exact_account() {
+        let account = "outlook:exact-fixture@example.org";
+        let related = account_tokens(
+            "outlook:exact-fixture@example.org:alias", "client", "consumers",
+        ).await.unwrap();
+        related.lock().await.insert("mail".into(), (
+            "unrelated-token".into(),
+            TokenExpiry::after(Duration::from_secs(3600),
+                std::time::Instant::now(), std::time::SystemTime::now()),
+        ));
+        invalidate(account).await.unwrap();
+        assert_eq!(related.lock().await.get("mail").unwrap().0, "unrelated-token",
+            "invalidating an account must preserve another account's token");
+    }
+
     #[tokio::test]
     async fn invalidation_waits_for_rotation_without_opening_another_refresh_lane() {
         let account = "outlook:rotation-fixture@example.org";

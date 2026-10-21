@@ -15,21 +15,18 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap">
 <script>
-/* Before first paint, so a stored choice never flashes the other theme. */
+/* Invariant: restore the stored theme before first paint to avoid a theme flash. */
 try {
   var t = localStorage.getItem("omamail-theme");
   if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
 } catch (e) {}
-/* Invariant: entrance motion follows the preference before first paint;
-   section visibility changes only after its observer has initialized. */
+/* Invariant: entrance motion follows the preference before first paint; section visibility changes only after its observer has initialized. */
 if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
   document.documentElement.className += " js-anim";
 }
 </script>
 <style>
-/* Tokyo Night, the default. Flexoki Light below, once for the system's choice
-   and once for the switch's — CSS cannot share one block across a media query
-   and a selector. Keep the two in step. */
+/* Invariant: keep the light-theme tokens identical for system and explicit theme selection. */
 :root {
   color-scheme: dark;
 
@@ -168,8 +165,6 @@ code {
   text-decoration: none;
 }
 
-/* ---------- top bar ---------- */
-
 .topbar {
   border-bottom: 1px solid var(--hairline);
   background: var(--dark-background);
@@ -192,7 +187,7 @@ code {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  /* Stays on the right even when the bar wraps to two lines. */
+  /* Invariant: the switch group stays right-aligned when the bar wraps. */
   margin-left: auto;
 }
 .seg {
@@ -214,14 +209,13 @@ code {
 }
 .seg button:last-child { border-right: 0; }
 .seg button:hover { background: var(--selection); color: var(--bright); }
-/* Fill and weight carry the current choice, not colour alone. */
+/* Invariant: selection uses fill and weight as well as color. */
 .seg button[aria-pressed="true"] {
   background: var(--selection);
   color: var(--bright);
   font-weight: 700;
 }
 
-/* Ghost button: no border, no fill — the icon carries it. */
 .theme-toggle {
   appearance: none;
   display: flex;
@@ -245,8 +239,6 @@ code {
 .icon-sun { display: var(--show-sun); }
 .icon-moon { display: var(--show-moon); }
 
-/* ---------- masthead ---------- */
-
 .masthead {
   padding: 56px 0 48px;
   border-bottom: 1px solid var(--hairline);
@@ -261,7 +253,7 @@ code {
 }
 
 .wordmark {
-  /* Centred as one block: centring its lines would break the pixel grid. */
+  /* Invariant: align the ASCII rows as one block to preserve their pixel grid. */
   display: inline-block;
   text-align: left;
   margin: 0;
@@ -292,8 +284,6 @@ code {
   color: var(--dim);
   font-size: 0.8125rem;
 }
-
-/* ---------- command block ---------- */
 
 .command {
   margin: 28px 0 0;
@@ -357,8 +347,6 @@ code {
 }
 .btn:active { transform: translateY(1px); }
 
-/* ---------- sections ---------- */
-
 section { border-bottom: 1px solid var(--hairline); padding: 48px 0; }
 section:last-of-type { border-bottom: 0; }
 
@@ -382,8 +370,6 @@ h2 {
   max-width: 68ch;
 }
 
-/* ---------- shots ---------- */
-
 .shot {
   display: block;
   width: 100%;
@@ -392,7 +378,7 @@ h2 {
   border: 1px solid var(--muted);
   background: var(--dark-background);
 }
-/* Placeholders only — each matches its file, so nothing is ever scaled off ratio. */
+/* Invariant: placeholder aspect ratios must match their image files. */
 .shot-wide { aspect-ratio: 1593 / 1113; }
 .shot-mini { aspect-ratio: 937 / 1028; }
 .shot-row {
@@ -425,8 +411,6 @@ figcaption {
   color: var(--dim);
   font-size: 0.8125rem;
 }
-
-/* ---------- mailbox comparison ---------- */
 
 .boxes {
   display: grid;
@@ -485,8 +469,6 @@ svg.mark {
   margin-bottom: 4px;
 }
 
-/* ---------- feature list ---------- */
-
 .features {
   list-style: none;
   margin: 0;
@@ -511,8 +493,6 @@ svg.mark {
   font-size: 0.9375rem;
 }
 .features .t { font-size: 0.9375rem; }
-
-/* ---------- keys ---------- */
 
 .table-scroll { overflow-x: auto; }
 table {
@@ -550,8 +530,6 @@ kbd {
   text-align: center;
 }
 .sep { color: var(--dim); padding: 0 2px; }
-
-/* ---------- prose blocks ---------- */
 
 .prose { max-width: 68ch; }
 .prose p { margin: 0 0 16px; }
@@ -596,8 +574,7 @@ pre.block .c { color: var(--dim); }
   max-width: 74ch;
   color: var(--dim);
 }
-/* One platform at a time. The strip of tabs sits on the box that shows the
-   command, so the chosen name and its command read as a single object. */
+
 .install-platforms {
   border: 1px solid var(--muted);
   margin-bottom: 32px;
@@ -622,8 +599,7 @@ pre.block .c { color: var(--dim); }
 }
 .install-tabs button:hover { background: var(--selection); color: var(--bright); }
 .install-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-/* Fill and weight carry the current choice, not colour alone; the panel's
-   background continues up through the open tab, so it reads as the lid. */
+/* Invariant: the selected tab remains distinguishable without color. */
 .install-tabs button[aria-selected="true"] {
   background: var(--background);
   color: var(--bright);
@@ -649,8 +625,6 @@ pre.block .c { color: var(--dim); }
   border-top: 1px solid var(--hairline);
 }
 
-/* ---------- footer ---------- */
-
 footer {
   border-top: 1px solid var(--hairline);
   background: var(--dark-background);
@@ -661,21 +635,14 @@ footer {
 footer p { margin: 0 0 8px; max-width: 68ch; }
 footer p:last-child { margin-bottom: 0; }
 
-/* ---------- motion ----------
-   Section 9 of the Omarchy design system: transform and opacity only, one
-   short movement per state change, and the one approved piece of repeating
-   brand motion — a green glint crossing the ASCII wordmark every few seconds,
-   then complete stillness. */
+/* Invariant: retain the approved Omarchy wordmark motion and honor reduced-motion preferences. */
 
 @keyframes popin {
   from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: none; }
 }
 
-/* Percentage background-position runs 0% (gradient's left edge at the element's
-   left) to 100% (right to right). With a 300% background the highlight sits off
-   the element at both ends, so the mark rests solid green and the glint only
-   crosses in between. */
+/* Algorithm: a 300% gradient moves fully off both edges, leaving solid green between glints. */
 @keyframes glint {
   0%, 8% { background-position: 0% 0; }
   26%, 100% { background-position: 100% 0; }
@@ -711,7 +678,7 @@ footer p:last-child { margin-bottom: 0; }
 .js-anim .actions { animation: popin 260ms var(--ease) 250ms both; }
 .js-anim .meta { animation: popin 260ms var(--ease) 290ms both; }
 
-/* One movement per section as it arrives, never one per row. */
+/* Performance: reveal a section once rather than animating every row. */
 .js-reveal section > .wrap,
 .js-reveal footer > .wrap {
   opacity: 0;
@@ -729,8 +696,6 @@ footer p:last-child { margin-bottom: 0; }
 .shot { transition: border-color 150ms var(--ease); }
 .shot:hover { border-color: var(--accent); }
 
-/* ---------- responsive ---------- */
-
 @media (max-width: 900px) {
   .boxes { grid-template-columns: 1fr; }
   .box { border-right: 0; border-bottom: 1px solid var(--hairline); }
@@ -740,7 +705,6 @@ footer p:last-child { margin-bottom: 0; }
   .install-tabs button { flex: 1 1 0; padding: 8px 12px; }
 }
 
-/* Narrow enough that the bar would wrap: the name alone carries it. */
 @media (max-width: 520px) {
   .topbar-id .desc { display: none; }
 }
@@ -748,8 +712,7 @@ footer p:last-child { margin-bottom: 0; }
 @media (max-width: 640px) {
   .wrap { padding: 0 16px; }
 
-  /* Section 12.3: keep a shortcut on one line and wrap the description
-     underneath it rather than letting the row scroll sideways. */
+  /* Invariant: narrow shortcut tables keep each key and its description together without horizontal scrolling. */
   .table-scroll thead { position: absolute; left: -9999px; }
   .table-scroll table, .table-scroll tbody, .table-scroll tr, .table-scroll td {
     display: block;
@@ -1098,7 +1061,6 @@ footer p:last-child { margin-bottom: 0; }
   }
 
   function labelTheme() {
-    // The button shows, and names, the theme it switches to.
     themeToggle.setAttribute(
       "aria-label",
       themeLabels[lang][currentTheme() === "dark" ? "light" : "dark"]
@@ -1138,9 +1100,7 @@ footer p:last-child { margin-bottom: 0; }
     Array.prototype.forEach.call(panels, function (n) { n.classList.add("revealed"); });
   }
 
-  /* The install tabs. The visitor's own platform opens first; the arrow keys
-     move between tabs the way a tablist is expected to. Without the script
-     the macOS panel is simply the one shown. */
+  /* Invariant: without script initialization, the default macOS panel remains available. */
   var tabs = document.querySelectorAll(".install-tabs [role=tab]");
   function selectTab(tab) {
     Array.prototype.forEach.call(tabs, function (t) {

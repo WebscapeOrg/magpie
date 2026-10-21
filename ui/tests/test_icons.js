@@ -42,11 +42,35 @@ const files = [path.join(root, "App.qml")]
 for (const entry of fs.readdirSync(path.join(root, "components"))) {
   if (entry.endsWith(".qml")) files.push(path.join(root, "components", entry))
 }
+function literalIconNames(text) {
+  const names = []
+  for (const match of text.matchAll(/\b(?:iconName|fallbackIcon)\s*:\s*(["'])(.*?)\1/g)) {
+    if (match[2]) names.push(match[2])
+  }
+  for (const match of text.matchAll(/\bActionIcon\s*\{[^}]*?\bname\s*:\s*(["'])(.*?)\1/gs)) {
+    if (match[2]) names.push(match[2])
+  }
+  return names
+}
+
+assert.deepStrictEqual(literalIconNames(`
+  IconButton { iconName: "bad-icon" }
+  IconTextButton { iconName: "name2" }
+  ProviderLogo { fallbackIcon: "typo_name" }
+  ActionIcon { name: "bad.name" }
+`), ["bad-icon", "name2", "typo_name", "bad.name"], "unknown punctuation and digits must reach the icon validator")
+assert.deepStrictEqual(literalIconNames(`
+  IconButton { iconName : 'mail' }
+  ProviderLogo { fallbackIcon:\n    "inbox" }
+  ActionIcon{ name : 'archive' }
+`), ["mail", "inbox", "archive"], "QML whitespace and either quote style preserve coverage")
+
+assert.deepStrictEqual(literalIconNames('iconName: ""; fallbackIcon: ""'), [], "optional empty icons are not requests")
+
 const asked = new Set()
 for (const file of files) {
   const text = fs.readFileSync(file, "utf8")
-  for (const match of text.matchAll(/(?:iconName|fallbackIcon): "([A-Za-z]+)"/g)) asked.add(match[1])
-  for (const match of text.matchAll(/ActionIcon \{[^}]*?\bname: "([A-Za-z]+)"/gs)) asked.add(match[1])
+  for (const name of literalIconNames(text)) asked.add(name)
 }
 assert.ok(asked.size >= 20, `found the icon names the views use (${asked.size})`)
 for (const name of asked) assert.ok(icons.has(name), `the views ask for "${name}", which Icons.js defines`)

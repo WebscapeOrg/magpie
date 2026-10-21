@@ -98,12 +98,32 @@ Item {
     }
 
     function init() {
+      mailService.searchQuery = ""
       mailService.pluginName = "Omamail"
       mailService.version = "0.7.0"
       blankSlateLoader.width = MailStyle.space(400)
       blankSlateLoader.height = MailStyle.space(400)
     }
 
+    function textLabel(item, value) {
+      if (item.text !== undefined && item.text === value && item.textFormat !== undefined) return item
+      var children = item.children || []
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var match = textLabel(children[childIndex], value)
+        if (match) return match
+      }
+      return null
+    }
+    function test_query_markup_is_literal_text() {
+      mailService.searchQuery = '<b>Search terms</b>'
+      var label = textLabel(slate(), '\"<b>Search terms</b>\"')
+      verify(label)
+      compare(label.textFormat, Text.PlainText)
+    }
+    function test_manifest_markup_is_literal_text() {
+      mailService.pluginName = '<b>Mail</b>'
+      compare(version().textFormat, Text.PlainText)
+    }
     function test_names_the_running_version() {
       var label = version()
       compare(label.text, "Omamail 0.7.0")

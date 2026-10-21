@@ -376,6 +376,22 @@ class ReleaseTests(unittest.TestCase):
         config.unlink()
         self.assertFalse(self.provenance_matches())
 
+    def test_embedded_unicode_notice_is_a_fingerprinted_build_input(self):
+        self.source_fixture()
+        cli = self.root / 'src/cli'
+        cli.mkdir()
+        (cli / 'mod.rs').write_text('const NOTICE: &str = include_str!("../../data/unicode/LICENSE.txt");')
+        notice = self.root / 'data/unicode/LICENSE.txt'
+        notice.parent.mkdir(parents=True)
+        notice.write_text('Synthetic original notice')
+        result = self.run_helper('provenance', '--root', self.root, '--output', self.build_manifest)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads(self.build_manifest.read_text())
+        self.assertIn('data/unicode/LICENSE.txt', manifest['sourceFiles'])
+        self.assertTrue(self.provenance_matches())
+        notice.write_text('Synthetic changed notice')
+        self.assertFalse(self.provenance_matches())
+
     def test_uninventoried_cargo_inputs_fail_closed(self):
         self.source_fixture()
         cargo = self.root / 'Cargo.toml'

@@ -28,9 +28,9 @@ LEGACY_BINARY = ROOT / "runtime/bin/omamail"
 LOCAL_BUILD = DATA_ROOT / "local-build.json"
 LOCK = DATA_ROOT / "runtime.lock"
 VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
-ARCHIVE_LIMIT = 128 * 1024 * 1024
-BINARY_LIMIT = 256 * 1024 * 1024
-MANIFEST_LIMIT = 1024 * 1024
+MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
+MAX_BINARY_BYTES = 256 * 1024 * 1024
+MAX_MANIFEST_BYTES = 1024 * 1024
 
 
 class Refused(Exception):
@@ -164,7 +164,7 @@ def local_required(required):
         size = 0
         while chunk := binary.read(1024 * 1024):
             size += len(chunk)
-            require(size <= BINARY_LIMIT, "Local backend exceeded its size limit.")
+            require(size <= MAX_BINARY_BYTES, "Local backend exceeded its size limit.")
             digest.update(chunk)
     return marker["version"] if digest.hexdigest() == marker["sha256"] else required
 
@@ -259,7 +259,7 @@ def install(required, architecture):
             if match[2] == asset:
                 entries.append(match[1].lower())
         require(len(entries) == 1, "Release checksum entry is missing or ambiguous.")
-        compressed = download(base + asset, ARCHIVE_LIMIT)
+        compressed = download(base + asset, MAX_ARCHIVE_BYTES)
         require(hashlib.sha256(compressed).hexdigest() == entries[0], "Release checksum does not match.")
         safe_path(BINARY.parent, directory=True, create=True)
         with tempfile.TemporaryDirectory(prefix=".install-", dir=BINARY.parent) as staging:
@@ -267,12 +267,12 @@ def install(required, architecture):
             # Parse the first physical header: tarfile iteration hides GNU/PAX entries.
             # Bound decompression too, and accept only zero padding after this one file.
             with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as source:
-                unpacked = source.read(BINARY_LIMIT + 65537)
-            require(512 <= len(unpacked) <= BINARY_LIMIT + 65536,
+                unpacked = source.read(MAX_BINARY_BYTES + 65537)
+            require(512 <= len(unpacked) <= MAX_BINARY_BYTES + 65536,
                     "Release archive exceeded its size limit.")
             entry = tarfile.TarInfo.frombuf(unpacked[:512], "utf-8", "strict")
             require(entry.name == "omamail" and entry.type in (tarfile.REGTYPE, tarfile.AREGTYPE)
-                    and not entry.linkname and 0 < entry.size <= BINARY_LIMIT,
+                    and not entry.linkname and 0 < entry.size <= MAX_BINARY_BYTES,
                     "Release archive has an unsafe layout.")
             end = 512 + entry.size
             padded_end = 512 + ((entry.size + 511) // 512) * 512
@@ -294,8 +294,8 @@ def install_local(required):
     safe_path(source)
     require(source.is_file(), "Build the local backend first with make backend.")
     with source.open("rb") as compiled:
-        content = compiled.read(BINARY_LIMIT + 1)
-    require(0 < len(content) <= BINARY_LIMIT, "Local backend exceeded its size limit.")
+        content = compiled.read(MAX_BINARY_BYTES + 1)
+    require(0 < len(content) <= MAX_BINARY_BYTES, "Local backend exceeded its size limit.")
     safe_path(BINARY.parent, directory=True, create=True)
     with tempfile.TemporaryDirectory(prefix=".install-", dir=BINARY.parent) as staging:
         candidate = Path(staging) / "omamail"
@@ -335,8 +335,8 @@ def legacy_cli_target(target):
         safe_path(candidate)
         safe_path(manifest)
         with manifest.open("rb") as source:
-            raw = source.read(MANIFEST_LIMIT + 1)
-        if len(raw) > MANIFEST_LIMIT:
+            raw = source.read(MAX_MANIFEST_BYTES + 1)
+        if len(raw) > MAX_MANIFEST_BYTES:
             return False
         value = json.loads(raw)
         return isinstance(value, dict) and value.get("id") == "omamail"

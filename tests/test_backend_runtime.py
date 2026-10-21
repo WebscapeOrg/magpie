@@ -410,7 +410,7 @@ touch linked
         self.assertEqual(self.manager.run("install")["state"], "error")
         self.assertEqual(self.binary.read_bytes(), old)
         self.release(self.archive())
-        with patch.object(self.manager, "BINARY_LIMIT", 1):
+        with patch.object(self.manager, "MAX_BINARY_BYTES", 1):
             self.assertEqual(self.manager.run("install")["state"], "error")
         self.assertEqual(self.binary.read_bytes(), old)
 

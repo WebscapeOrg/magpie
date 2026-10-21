@@ -14,8 +14,8 @@ import socket
 import ssl
 from urllib.parse import quote, urlsplit
 
-MAX_INPUT = 128 * 1024
-MAX_IMAGE = 5 * 1024 * 1024
+MAX_INPUT_BYTES = 128 * 1024
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
 REQUEST_SECONDS = 20
 CONNECT_SECONDS = 10
 # Keep transition/special-purpose exclusions stable across Python versions.
@@ -45,8 +45,8 @@ def deadline(seconds=REQUEST_SECONDS):
 
 
 def read_fields(stream, count):
-    line = stream.readline(MAX_INPUT + 1)
-    if len(line) > MAX_INPUT or not line.endswith(b"\n"):
+    line = stream.readline(MAX_INPUT_BYTES + 1)
+    if len(line) > MAX_INPUT_BYTES or not line.endswith(b"\n"):
         raise Refused("Invalid request envelope")
     fields = line[:-1].split(b" ")
     if len(fields) != count:
@@ -191,10 +191,10 @@ def fetch_image(url):
         if response.getheader("Content-Encoding", "identity").lower() != "identity":
             raise Refused("Encoded image responses are not supported")
         length = response.getheader("Content-Length")
-        if length is not None and (not length.isascii() or not length.isdigit() or int(length) > MAX_IMAGE):
+        if length is not None and (not length.isascii() or not length.isdigit() or int(length) > MAX_IMAGE_BYTES):
             raise Refused("Invalid image size")
-        data = response.read(MAX_IMAGE + 1)
-        if len(data) > MAX_IMAGE:
+        data = response.read(MAX_IMAGE_BYTES + 1)
+        if len(data) > MAX_IMAGE_BYTES:
             raise Refused("Image exceeds the size limit")
         mime = image_mime(data)
         claimed = response.getheader("Content-Type", "").split(";", 1)[0].strip().lower()

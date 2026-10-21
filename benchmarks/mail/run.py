@@ -90,6 +90,22 @@ def stats(row):
         p95Us=values[min(len(values)-1,math.ceil(len(values)*.95)-1)],samplesUs=row['samplesUs'])
 
 
+def measured_cases(measured, payload):
+    cases = measured.get('cases', [])
+    expected = [(case['name'], phase) for case in payload['cases'] for phase in payload['phases']]
+    actual = [(case.get('name'), case.get('phase')) for case in cases]
+    if actual != expected:
+        raise RuntimeError('Missing, duplicated or reordered benchmark operations')
+    for case in cases:
+        samples = case.get('samplesUs', [])
+        if len(samples) != payload['samples']:
+            raise RuntimeError('Missing benchmark samples: ' + case['name'])
+        if any(not isinstance(value, (int, float)) or isinstance(value, bool)
+               or not math.isfinite(value) or value < 0 for value in samples):
+            raise RuntimeError('Invalid benchmark sample: ' + case['name'])
+    return cases
+
+
 def main():
     command_started=time.perf_counter()
     parser=argparse.ArgumentParser()
@@ -124,12 +140,10 @@ def main():
             qml_file=directory/'benchmark.qml'
             qml_file.write_text(qml_source(payload,HERE/'baseline/ui'))
             qml,qml_process=run_process(['/usr/lib/qt6/bin/qml',str(qml_file)],{},directory,'qml')
-        expected=len(payload['cases'])*len(payload['phases'])
         for measured in [js,native]+([qml] if qml else []):
-            if len(measured['cases'])!=expected:raise RuntimeError('Missing benchmark operations')
+            measured_cases(measured, payload)
         results=[]
         for index,(old,new) in enumerate(zip(js['cases'],native['cases'],strict=True)):
-            assert(old['name'],old['phase'])==(new['name'],new['phase'])
             canonical=mime_semantics if old['phase']=='mime' else html_semantics
             a,b=canonical(old['result']),canonical(new['result'])
             results.append(dict(name=old['name'],phase=old['phase'],semanticMatch=a==b,
@@ -137,7 +151,6 @@ def main():
                 node=stats(old),rust=stats(new),speedup=statistics.median(old['samplesUs'])/statistics.median(new['samplesUs'])))
             if qml:
                 actual=qml['cases'][index]
-                assert(actual['name'],actual['phase'])==(old['name'],old['phase'])
                 results[-1]['qml']=stats(actual)
                 results[-1]['qml']['batch']=actual['batch']
                 results[-1]['qmlSemanticMatch']=canonical(actual['result'])==a

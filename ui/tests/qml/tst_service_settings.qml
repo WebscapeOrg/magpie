@@ -190,7 +190,7 @@ Item {
       var previousAccounts = mailService.accountList
       try {
         mailService.accountList = {version: 1, activeId: "one@example.test", accounts: [
-          {id: "one@example.test", provider: "gmail", email: "one@example.test"}
+          {id: "one@example.test", provider: "gmail", email: "one@example.test", clientId: ""}
         ]}
         compare(mailService.accountCount, 1)
         compare(mailService.unified, false)

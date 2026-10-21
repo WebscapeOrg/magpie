@@ -6,7 +6,7 @@ import "ImapProtocol.js" as Imap
 import "Outlook.js" as Outlook
 import "MicrosoftOAuth.js" as Microsoft
 
-// Microsoft sign-in for the Outlook provider. The refresh token lives in
+// Invariant: Microsoft sign-in for the Outlook provider. The refresh token lives in
 // GNOME Keyring; native backend clients handle OAuth, IMAP and SMTP networking.
 Item {
   id: root
@@ -22,7 +22,7 @@ Item {
   property string configuredClientId: ""
   readonly property string clientId: Microsoft.effectiveClientId(configuredClientId)
   property string configuredEmail: ""
-  // The account entry's server settings. Outlook's servers are fixed by
+  // Invariant: The account entry's server settings. Outlook's servers are fixed by
   // `Outlook.settings` whatever these say; only two readings are taken from
   // them — the tenant the sign-in is addressed to, which `normalizeTenant`
   // keeps to one path segment of Microsoft's own URL, and whether the mailbox
@@ -30,29 +30,20 @@ Item {
   property var entrySettings: null
   readonly property string tenant: Microsoft.normalizeTenant(entrySettings ? entrySettings.tenant : "")
   readonly property string configuredSend: entrySettings ? String(entrySettings.send || "") : ""
-  // Microsoft grants this token for its own mail service. Persisted generic
+  // Invariant: Microsoft grants this token for its own mail service. Persisted generic
   // IMAP settings must never select its destination or disable transport TLS.
   readonly property var settings: Outlook.settings(configuredEmail, tenant, configuredSend)
   property var scopes: Microsoft.SCOPES
-  // What the code on screen is for: the mail sign-in, or the second one
-  // that allows Microsoft Graph. A Graph exchange refused for want of consent
-  // sets `graphConsentNeeded`, and the next sign-in is the Graph one —
-  // offered on the setup page while the mail session stands. The Graph
-  // sign-in that follows a mail sign-in, for a tenant that sends through
-  // Graph, holds `loginSucceeded` until it is answered.
   property string devicePurpose: "mail"
   property bool graphConsentNeeded: false
   property bool graphRoundOfSignIn: false
-  // A Graph sign-in asked for from the setup page, on a mailbox that is
+  // Invariant: A Graph sign-in asked for from the setup page, on a mailbox that is
   // signed in and stays so: not `loginBusy`, which would take the mailbox
   // out of service for the code's duration.
   property bool graphRoundBusy: false
-  // Bumped when such a round is cut short, so its answers arriving after
-  // are let go of without touching anything of the mail session's; and
-  // counted grants, so a refusal answered after a grant does not undo it.
   property int graphRoundSerial: 0
   property int graphGrants: 0
-  // The mail session's account, by tenant and object id, from the id
+  // Invariant: The mail session's account, by tenant and object id, from the id
   // token that came with its token: what the Graph sign-in is held to.
   property string accountKey: ""
 
@@ -95,18 +86,11 @@ Item {
   property double pendingExpiresIn: 0
   property string pendingIdToken: ""
 
-  // The requests in flight, each answered on its own: a refresh and a Graph
-  // exchange may overlap, and neither's answer is dropped for the other's.
-  // `cancelLogin` lets go of them all, and an answer let go of is not
-  // delivered.
   property var tokenRequests: []
   property int tokenRequestCount: 0
   readonly property int tokenTimeoutMs: 30000
 
   signal loginSucceeded()
-  // A Graph sign-in that did not go through, with what to do about it: for
-  // the setup page, since the mailbox itself is signed in and `lastError`
-  // is the mailbox's.
   signal graphRefused(string reason)
   signal loggedOut()
   signal sessionUnavailable(string reason)
@@ -138,13 +122,10 @@ Item {
     graphAccessTokenExpiresAt = 0
     graphConsentNeeded = false
     accountKey = ""
-    // A mailbox no longer signed in has no Graph code to finish.
     cancelGraphRound()
   }
 
-  // ------------------------------------------------------------- Graph
-
-  // A token of Graph's audience, for a tenant that sends through Graph. The
+  // Invariant: A token of Graph's audience, for a tenant that sends through Graph. The
   // refresh token in the keyring is exchanged for it the same way the mail
   // token is refreshed, with Graph's scope in place of IMAP's; nothing new is
   // signed in to, and a rotated refresh token is stored back as before.
@@ -170,9 +151,10 @@ Item {
     }
   }
 
-  // Native calendar work resolves its own tokens. Bind its consent result
-  // before it starts, so an old request cannot change a replacement session
-  // or undo the Graph device flow that completed while it was in flight.
+  /** Native calendar work resolves its own tokens. Bind its consent result
+   * before it starts, so an old request cannot change a replacement session
+   * or undo the Graph device flow that completed while it was in flight.
+   */
   function graphConsentHandler() {
     var context = sessionContext()
     var requestedTenant = tenant
@@ -209,7 +191,6 @@ Item {
 
   function startGraphLookup() {
     if (graphLookupProcess || graphWaiters.length === 0) return
-    // Behind a sign-in, the waiters are answered by whatever ends it.
     if (loginBusy || graphRoundBusy) return
     if (keyringJob || keyringJobs.length > 0) {
       graphQueued = true
@@ -236,7 +217,7 @@ Item {
 
   function handleGraphLookup(raw, context) {
     if (!isCurrent(context) || !sessionEnabled) {
-      // A lookup from before a cancel, exiting now: waiters queued behind
+      // Invariant: A lookup from before a cancel, exiting now: waiters queued behind
       // it since are asked for again, or nothing would.
       if (sessionEnabled && graphWaiters.length > 0) Qt.callLater(root.startGraphLookup)
       return
@@ -252,7 +233,7 @@ Item {
       Microsoft.graphRefreshBody(clientId, refreshToken),
       function(status, text) {
         if (!root.isCurrent(context) || !root.sessionEnabled) return
-        // A Graph sign-in went through while this was out: its answer is
+        // Invariant: A Graph sign-in went through while this was out: its answer is
         // the newer one, and this refusal or grant is of a token since
         // replaced.
         if (grants !== root.graphGrants && root.graphTokenIsFresh()) {
@@ -262,18 +243,14 @@ Item {
         var result = Microsoft.parseTokenResponse(status, text, refreshToken)
         refreshToken = ""
         if (!result.ok) {
-          // For want of consent is the one refusal a sign-in mends; the
-          // setup page offers it while this is set.
           if (result.consentRequired) root.graphConsentNeeded = true
-          // A dead session is Microsoft's own words for it, not a missing
+          // Invariant: A dead session is Microsoft's own words for it, not a missing
           // permission.
           root.finishGraphWaiters("", root.safeError(result.consentRequired
             ? Microsoft.graphConsentMessage() : result.error))
           return
         }
         if (Microsoft.missingGraphScope(result.scope)) {
-          // Issued without the permission: what a Graph sign-in collects.
-          // The refresh token it came with is the live one, whatever else.
           if (result.refreshToken) root.storeRefreshToken(result.refreshToken)
           root.graphConsentNeeded = true
           root.finishGraphWaiters("", Microsoft.graphConsentMessage())
@@ -292,11 +269,12 @@ Item {
     finishGraphWaiters(graphAccessToken, "")
   }
 
-  // Whether this client is consented for Graph is found out with the
-  // refresh token in hand, straight after the mail sign-in of a tenant that
-  // sends through Graph, and mended by a second code where it is not —
-  // rather than at the first send. Any other refusal is sending's to
-  // report: the mailbox is signed in.
+  /** Whether this client is consented for Graph is found out with the
+   * refresh token in hand, straight after the mail sign-in of a tenant that
+   * sends through Graph, and mended by a second code where it is not —
+   * rather than at the first send. Any other refusal is sending's to
+   * report: the mailbox is signed in.
+   */
   function probeGraphConsent(refreshToken) {
     if (backend && (keyringJob || keyringJobs.length > 0)) { graphProbeQueued = true; return }
     var context = sessionContext()
@@ -307,8 +285,6 @@ Item {
         if (!root.isCurrent(context) || !root.sessionEnabled) return
         var result = Microsoft.parseTokenResponse(status, text, refreshToken)
         refreshToken = ""
-        // Refused for want of consent, or issued without the permission:
-        // either is what the second code collects.
         if ((!result.ok && result.consentRequired) || (result.ok && Microsoft.missingGraphScope(result.scope))) {
           if (result.ok && result.refreshToken) root.storeRefreshToken(result.refreshToken)
           root.graphConsentNeeded = true
@@ -329,11 +305,12 @@ Item {
       })
   }
 
-  // The Graph sign-in answered: a token of Graph's audience, and a refresh
-  // token consented for both resources, kept in place of the mail one —
-  // the same user's and client's, and exchangeable for either.
+  /** The Graph sign-in answered: a token of Graph's audience, and a refresh
+   * token consented for both resources, kept in place of the mail one —
+   * the same user's and client's, and exchangeable for either.
+   */
   function acceptGraphSignIn(result) {
-    // The mail sign-in is verified by logging in to the mailbox with its
+    // Invariant: The mail sign-in is verified by logging in to the mailbox with its
     // token; this one by the name on its id token, since a code entered
     // as someone else would file that someone's token as the mailbox's.
     if (!Microsoft.sameAccount(result.idToken, configuredEmail, accountKey)) {
@@ -341,7 +318,7 @@ Item {
       return
     }
     if (Microsoft.missingGraphScope(result.scope)) {
-      // Issued to the right account without the permission: its refresh
+      // Invariant: Issued to the right account without the permission: its refresh
       // token is the live one all the same.
       if (result.refreshToken) storeRefreshToken(result.refreshToken)
       failGraphRound(Microsoft.graphScopeMessage())
@@ -357,8 +334,9 @@ Item {
     if (afterSignIn) loginSucceeded()
   }
 
-  // The Graph sign-in failing leaves the mail one as it was: the account is
-  // not told its session is gone, only what Graph will say when asked.
+  /** The Graph sign-in failing leaves the mail one as it was: the account is
+   * not told its session is gone, only what Graph will say when asked.
+   */
   function failGraphRound(reason) {
     var message = Microsoft.graphRefusedMessage(safeError(reason || "Microsoft sign-in failed"))
     loginBusy = false
@@ -382,12 +360,12 @@ Item {
     var pending = tokenWaiters.slice()
     tokenWaiters = []
     for (var itemIndex = 0; itemIndex < pending.length; itemIndex++) {
-      // A consumer can synchronously sign out or switch accounts. Remaining
+      // Invariant: A consumer can synchronously sign out or switch accounts. Remaining
       // callbacks still belong to the session captured above.
       var current = isCurrent(context) && sessionEnabled
       try { pending[itemIndex](current ? (token || "") : "",
         current ? safeError(error) : "Session changed") }
-      catch (error) { /* consumers own their callback errors */ }
+      catch (error) { /* Invariant: one consumer must not prevent later waiters from completing. */ }
     }
   }
 
@@ -426,7 +404,7 @@ Item {
   }
 
   function startSecretLookup() {
-    // A preceding store/clear must finish before a lookup can observe the key.
+    // Invariant: A preceding store/clear must finish before a lookup can observe the key.
     if (keyringJob || keyringJobs.length > 0) {
       restoreQueued = true
       return
@@ -475,8 +453,9 @@ Item {
     enqueueKeyringJob("clear", [], "")
   }
 
-  // Jobs own immutable destinations. Serialize them so logout's clear cannot
-  // race a preceding store, even when the account host is reused meanwhile.
+  /** Jobs own immutable destinations. Serialize them so logout's clear cannot
+   * race a preceding store, even when the account host is reused meanwhile.
+   */
   function enqueueKeyringJob(kind, attributes, token) {
     var next = keyringJobs.slice()
     next.push({ kind: kind, attributes: attributes.slice(), token: token,
@@ -513,7 +492,7 @@ Item {
       root.runKeyringJob()
     }
     if (nativeStore) {
-      // Device grants and logout share the backend's account refresh lane.
+      // Invariant: Device grants and logout share the backend's account refresh lane.
       // A mail/Graph refresh already in flight must finish its rotation before
       // this newer grant replaces it, or the old grant can overwrite consent.
       var fields = { accountId: job.context.accountId, clientId: job.context.clientId }
@@ -574,7 +553,7 @@ Item {
   function refreshWithToken(refreshToken, context) {
     if (backend && accountId) refreshToken = ""
     refreshBusy = true
-    // The mail scopes alone: a token is for one resource, and Microsoft
+    // Invariant: The mail scopes alone: a token is for one resource, and Microsoft
     // refuses a refresh that names two. The Graph exchange asks for its own.
     postForm(Microsoft.tokenUrlFor(tenant),
       Microsoft.refreshTokenBody(clientId, refreshToken, Microsoft.SCOPES),
@@ -638,13 +617,8 @@ Item {
         : "Install or update the mail backend before signing in"
       return
     }
-    // Signed in for mail and refused Graph for want of consent: the code
-    // asked for is Graph's, and the mail session stands. A saved session
-    // not restored yet signs in for mail first, whatever Graph said.
     var forGraph = graphConsentNeeded && loggedIn
     if (forGraph) {
-      // The mailbox stays in service: nothing of the mail session is let
-      // go of, and only Graph's code is busy.
       lastError = ""
       graphRoundOfSignIn = false
       graphRoundBusy = true
@@ -658,8 +632,9 @@ Item {
     startDeviceFlow("mail")
   }
 
-  // One device-code round: the code and the page to enter it on, then the
-  // poll until Microsoft answers with a token or a refusal.
+  /** One device-code round: the code and the page to enter it on, then the
+   * poll until Microsoft answers with a token or a refusal.
+   */
   function startDeviceFlow(purpose) {
     var context = sessionContext()
     var round = graphRoundSerial
@@ -726,8 +701,6 @@ Item {
         root.pendingRefreshToken = result.refreshToken
         root.pendingExpiresIn = result.expiresIn
         root.pendingIdToken = result.idToken
-        // The code has been entered: what the page shows from here is the
-        // mailbox being verified, or Graph's own code.
         root.deviceCode = ""
         root.userCode = ""
         root.verificationUri = ""
@@ -753,8 +726,6 @@ Item {
     acceptToken(result)
     finishWaiters(accessToken, "")
     if (configuredSend === "graph") {
-      // The sign-in's tail is Graph's from here: cut short, the mail half
-      // is in and is said so.
       graphRoundOfSignIn = true
       probeGraphConsent(result.refreshToken)
       return
@@ -790,14 +761,14 @@ Item {
     loginBusy = false
     cancelDeviceLogin()
     finishWaiters("", lastError)
-    // Graph's waiters were parked behind this sign-in.
     finishGraphWaiters("", lastError)
     sessionUnavailable(lastError)
   }
 
-  // A Graph sign-in asked for from the setup page, cut short: the code goes
-  // and its waiters are told, and nothing of the mail session — a refresh
-  // in flight, its waiters, a lookup — is touched.
+  /** A Graph sign-in asked for from the setup page, cut short: the code goes
+   * and its waiters are told, and nothing of the mail session — a refresh
+   * in flight, its waiters, a lookup — is touched.
+   */
   function cancelGraphRound() {
     if (!graphRoundBusy) return
     graphRoundSerial++
@@ -807,7 +778,7 @@ Item {
   }
 
   function cancelLogin() {
-    // Cancel on a settings-page Graph code, the mailbox staying signed in,
+    // Invariant: Cancel on a settings-page Graph code, the mailbox staying signed in,
     // is that code's alone. Signing out or changing identity is everything's:
     // a mail refresh in flight would otherwise be left busy for good, its
     // answer refused for the session being over.
@@ -818,12 +789,12 @@ Item {
     sessionGeneration++
     var oldLookup = lookupProcess
     lookupProcess = null
-    // Async credential callbacks compare this sentinel and the generation;
+    // Invariant: Async credential callbacks compare this sentinel and the generation;
     // clearing it cancels their authority to update the session.
     restoreQueued = false
     graphProbeQueued = false
     refreshRetry.stop()
-    // Where what is cut short is the Graph tail of a sign-in — the check
+    // Invariant: Where what is cut short is the Graph tail of a sign-in — the check
     // or the second code — the mail half is in and is said so.
     var afterSignIn = graphRoundOfSignIn && sessionEnabled
     graphRoundOfSignIn = false
@@ -837,8 +808,6 @@ Item {
     loginBusy = false
     graphRoundBusy = false
     finishWaiters("", "Sign-in cancelled")
-    // Graph's waiters, parked behind the sign-in or the Graph round's own,
-    // are answered either way.
     finishGraphWaiters("", "Sign-in cancelled")
     if (afterSignIn) loginSucceeded()
   }

@@ -1,7 +1,7 @@
 import QtQuick
 import "JmapProtocol.js" as Jmap
 
-// The backend owns the socket, bounded event decoder, watchdog and reconnect
+// Invariant: The backend owns the socket, bounded event decoder, watchdog and reconnect
 // backoff. This view only translates delivered changes into UI invalidations.
 Item {
   id: root

@@ -2,7 +2,7 @@
 
 .import "OAuth.js" as OAuth
 
-// Microsoft OAuth for installed applications. Outlook uses the device-code
+// Invariant: Microsoft OAuth for installed applications. Outlook uses the device-code
 // flow: the client is public, carries no secret, and does not need a redirect
 // URI or a listener left on the desktop.
 
@@ -11,7 +11,7 @@ var AUTHORITY = "https://login.microsoftonline.com/" + TENANT + "/oauth2/v2.0"
 var DEVICE_URL = AUTHORITY + "/devicecode"
 var TOKEN_URL = AUTHORITY + "/token"
 
-// `openid` brings an id token with each mail token, naming the account by
+// Invariant: `openid` brings an id token with each mail token, naming the account by
 // its object id: what the Graph sign-in's code is held to.
 var SCOPES = [
   "openid",
@@ -20,7 +20,7 @@ var SCOPES = [
   "https://outlook.office.com/SMTP.Send"
 ]
 
-// Sending through Microsoft Graph, for a work or school tenant that has
+// Invariant: Sending through Microsoft Graph, for a work or school tenant that has
 // switched authenticated SMTP off. A token is for one resource, so this is a
 // second token — asked for with the same refresh token, which Microsoft lets
 // a public client exchange for any resource the registration was consented
@@ -30,7 +30,7 @@ var GRAPH_SCOPES = [
   "https://graph.microsoft.com/Calendars.ReadWrite"
 ]
 
-// The tenant the sign-in is addressed to. Personal accounts live under
+// Invariant: The tenant the sign-in is addressed to. Personal accounts live under
 // `consumers`; a Microsoft 365 mailbox lives under its own tenant, which
 // `organizations` finds from the address, or a tenant id or domain names
 // outright. Anything that is not one of those spellings is the consumer
@@ -66,8 +66,6 @@ function authorityFor(tenant) {
   return "https://login.microsoftonline.com/" + normalizeTenant(tenant) + "/oauth2/v2.0"
 }
 
-// The consumer tenant answers with the constants above, which is what lets a
-// test point them at a server of its own.
 function deviceUrlFor(tenant) {
   if (normalizeTenant(tenant) === "consumers") return DEVICE_URL
   return authorityFor(tenant) + "/devicecode"
@@ -78,7 +76,7 @@ function tokenUrlFor(tenant) {
   return authorityFor(tenant) + "/token"
 }
 
-// A maintainer-owned public-client registration can make Outlook a one-click
+// Invariant: A maintainer-owned public-client registration can make Outlook a one-click
 // setup later. Until then, each user supplies the Application (client) ID of
 // their own registration, just as Gmail users supply their own OAuth client.
 var BUILTIN_CLIENT_ID = ""
@@ -101,7 +99,7 @@ function verificationUri(value) {
   var text = trimmed(value)
   var match = text.match(/^https:\/\/([^\/:?#]+)(?::443)?(?:[\/?#]|$)/i)
   if (!match) return ""
-  // The pages Microsoft sends people to: microsoft.com/devicelogin and
+  // Invariant: The pages Microsoft sends people to: microsoft.com/devicelogin and
   // www.microsoft.com/link for personal accounts, login.microsoft.com/device
   // for a work or school tenant, and the sign-in host itself.
   var host = match[1].toLowerCase()
@@ -140,10 +138,11 @@ function graphRefreshBody(clientId, refreshToken) {
   return refreshTokenBody(clientId, refreshToken, GRAPH_SCOPES)
 }
 
-// Whether a token answer lists a scope: by its full name or, as Microsoft
-// lists Graph's, by the short one. An answer that lists none says nothing
-// and is taken as granted — a permission truly missing is refused where it
-// is used, not mistaken for consent to collect.
+/** Whether a token answer lists a scope: by its full name or, as Microsoft
+ * lists Graph's, by the short one. An answer that lists none says nothing
+ * and is taken as granted — a permission truly missing is refused where it
+ * is used, not mistaken for consent to collect.
+ */
 function scopeListed(granted, scope) {
   var text = String(granted || "").trim().toLowerCase()
   if (text === "") return true
@@ -153,9 +152,6 @@ function scopeListed(granted, scope) {
   return have.indexOf(full) >= 0 || have.indexOf(short) >= 0
 }
 
-// Whether a Graph token answered with the scope sending needs, and whether
-// with the one the calendar needs. A registration consented for one and
-// not the other is told which.
 function missingGraphScope(granted) {
   return !scopeListed(granted, GRAPH_SCOPES[0])
 }
@@ -249,9 +245,9 @@ function parseTokenResponse(status, text, previousRefreshToken) {
   }
 }
 
-// The account an id token names, lower-cased, or "" when it names none. The
-// token is Microsoft's own answer over TLS, read for the name alone and not
-// verified: it authorises nothing, it says who entered the code.
+/** Decodes the claims payload returned by the trusted Microsoft token endpoint.
+ * Identity checks consume these claims; this function does not verify a JWT signature.
+ */
 function base64UrlDecode(text) {
   var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
   var input = String(text || "").replace(/=+$/, "")
@@ -289,8 +285,9 @@ function signedInAs(idToken) {
   return ""
 }
 
-// The account an id token names by tenant and object id — what does not
-// change when a name does — or "" when it carries neither.
+/** The account an id token names by tenant and object id — what does not
+ * change when a name does — or "" when it carries neither.
+ */
 function accountKey(idToken) {
   var claims = idTokenClaims(idToken)
   if (!claims) return ""
@@ -299,9 +296,10 @@ function accountKey(idToken) {
   return tenant !== "" && object !== "" ? tenant + "/" + object : ""
 }
 
-// Whether the id token names the mailbox's own account: the one the mail
-// session is, by id, where that is known; else by name against the
-// address. A grant without either identity cannot be assigned to this mailbox.
+/** Whether the id token names the mailbox's own account: the one the mail
+ * session is, by id, where that is known; else by name against the
+ * address. A grant without either identity cannot be assigned to this mailbox.
+ */
 function sameAccount(idToken, email, mailKey) {
   var key = trimmed(mailKey)
   if (key !== "") return accountKey(idToken) === key
@@ -324,20 +322,22 @@ function graphScopeNames() {
   return names.join(" and ")
 }
 
-// What a Graph sign-in that did not go through leaves on the setup page:
-// the mailbox is signed in, and how to ask again — or whom to ask, where
-// Microsoft wanted an administrator's approval, which the refusal that
-// started it cannot tell from consent nobody has given yet.
+/** What a Graph sign-in that did not go through leaves on the setup page:
+ * the mailbox is signed in, and how to ask again — or whom to ask, where
+ * Microsoft wanted an administrator's approval, which the refusal that
+ * started it cannot tell from consent nobody has given yet.
+ */
 function graphRefusedMessage(reason) {
   return "Microsoft Graph was not allowed: " + String(reason || "") + ". The mailbox is signed in; "
     + "Allow Microsoft Graph... in its settings asks again. If Microsoft asked for admin approval, "
     + "an administrator must grant the app registration " + graphScopeNames() + " first"
 }
 
-// Microsoft's answer to an exchange for a resource the user has not
-// consented this client to: a bad grant that a sign-in can mend, told apart
-// from one that cannot — a revoked or expired session — by its sub-error or
-// its code (AADSTS65001).
+/** Microsoft's answer to an exchange for a resource the user has not
+ * consented this client to: a bad grant that a sign-in can mend, told apart
+ * from one that cannot — a revoked or expired session — by its sub-error or
+ * its code (AADSTS65001).
+ */
 function consentRequired(payload) {
   if (!payload || typeof payload !== "object") return false
   var code = String(payload.error || "")
@@ -357,7 +357,7 @@ function missingMailScopes(granted) {
   var missing = []
   for (var itemIndex = 0; itemIndex < SCOPES.length; itemIndex++) {
     var scope = SCOPES[itemIndex]
-    // Not resource scopes: a token answer does not list them.
+    // Invariant: Not resource scopes: a token answer does not list them.
     if (scope === "offline_access" || scope === "openid") continue
     if (!scopeListed(granted, scope)) missing.push(scope)
   }
@@ -375,9 +375,6 @@ function missingScopeMessage(missing) {
     + " permission. Check the app registration and sign in again"
 }
 
-// A connection check reports capabilities, never provider diagnostics. Keep
-// its wording here with the rest of Microsoft's presentation rules so the
-// setup page only owns the asynchronous button state.
 function connectionStatus(report, graphSend, workAccount) {
   var value = report || {}
   return [

@@ -1,7 +1,7 @@
 import QtQuick
 import "JmapProtocol.js" as Jmap
 
-// Presentation adapter: all credentials, sessions, HTTP, query planning,
+// Invariant: Presentation adapter: all credentials, sessions, HTTP, query planning,
 // MIME conversion, conversation membership and mutations belong to Rust.
 Item {
   id: root

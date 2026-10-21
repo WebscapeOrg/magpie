@@ -2,7 +2,7 @@ import QtQuick
 
 import "GmailApi.js" as Api
 
-// Authenticated transport. It holds no state about the mailbox — only about
+// Invariant: Authenticated transport. It holds no state about the mailbox — only about
 // requests in flight — so the service can cancel a page load without having to
 // know anything about how it was issued.
 Item {
@@ -28,7 +28,7 @@ Item {
   }
   Component.onDestruction: invalidateBackend()
 
-  // Gmail returns IDs separately from message resources. A bounded group of
+  // Performance: Gmail returns IDs separately from message resources. A bounded group of
   // reads keeps queued work inside each request's deadline while rows arrive.
   property int inFlight: 0
   readonly property bool busy: inFlight > 0
@@ -45,7 +45,7 @@ Item {
     backendEpoch++
     var old = backendAccount
     backendAccount = ""
-    // Cache eviction only: queued requests and external keyring credentials
+    // Invariant: Cache eviction only: queued requests and external keyring credentials
     // are not revoked by this message. Epochs suppress stale UI delivery.
     if (old !== "" && usesBackend())
       backend.call("gmail.invalidate", { accountId: old }, function() {})
@@ -108,7 +108,7 @@ Item {
     return handle
   }
 
-  // A message mutation answers with a ticket: the backend sends it from a
+  // Invariant: A message mutation answers with a ticket: the backend sends it from a
   // per-account queue, paced and retried, and announces the outcome as a
   // `gmail.settled` notification. The request stays in flight until then.
   property var parked: ({})
@@ -135,7 +135,6 @@ Item {
     else entry.deliver(null, { message: String(parameters.error || "gmail_queue_lost") })
   }
 
-  // The backend that held the queue is gone with it.
   function settleAll(error) {
     var tickets = Object.keys(parked)
     for (var itemIndex = 0; itemIndex < tickets.length; itemIndex++) settle({ ticket: tickets[itemIndex], ok: false, error: error })
@@ -156,8 +155,6 @@ Item {
     handle.children = []
   }
 
-  // ---------------------------------------------------------------- reads
-
   function listMessages(query, maxResults, pageToken, callback, progress) {
     return backendRequest("gmail.list", {
       query: String(query || ""), pageToken: String(pageToken || ""),
@@ -173,10 +170,11 @@ Item {
 
   }
 
-  // The octets of a part Gmail described but did not send. Every part the
-  // sender named comes back that way — an id, a type and a size — and the
-  // reader asks for one of them: the invitation, whose file has to be read
-  // before a meeting can be drawn or answered.
+  /** The octets of a part Gmail described but did not send. Every part the
+   * sender named comes back that way — an id, a type and a size — and the
+   * reader asks for one of them: the invitation, whose file has to be read
+   * before a meeting can be drawn or answered.
+   */
   function getAttachment(messageId, attachmentId, callback) {
     return backendRequest("gmail.attachment", {
       messageId: String(messageId || ""), attachmentId: String(attachmentId || "")
@@ -187,16 +185,17 @@ Item {
 
   }
 
-  // The counted members of a conversation, for the reader's conversation rail.
-  //
-  // Always empty, and Gmail is never asked: it declares `threads` — a
-  // server-side thread id exists — but not `conversations`, so its listing is
-  // one row per message and no row here carries member ids for a rail to draw.
-  //
-  // Deferred rather than answered on the spot even though the answer is in
-  // hand: every caller in this interface is written against a callback that
-  // arrives later, and running one partway through the function that started it
-  // is a re-entry no other read produces.
+  /** The counted members of a conversation, for the reader's conversation rail.
+   *
+   * Always empty, and Gmail is never asked: it declares `threads` — a
+   * server-side thread id exists — but not `conversations`, so its listing is
+   * one row per message and no row here carries member ids for a rail to draw.
+   *
+   * Deferred rather than answered on the spot even though the answer is in
+   * hand: every caller in this interface is written against a callback that
+   * arrives later, and running one partway through the function that started it
+   * is a re-entry no other read produces.
+   */
   function getSummaries(ids, callback) {
     var handle = newHandle()
     Qt.callLater(function() {
@@ -206,13 +205,14 @@ Item {
     return handle
   }
 
-  // Fetches up to four IDs at a time and calls back once, with results in the
-  // order the ids were given rather than the order Google answered in. A list
-  // search may also take `progress`, which receives the payloads as Google
-  // answers so cached rows can be filled in without waiting for the slowest
-  // request on the page. Answers close enough to share a frame are batched:
-  // repainting and sorting the whole list once per reply
-  // costs far more than the few milliseconds of extra latency reveal.
+  /** Fetches up to four IDs at a time and calls back once, with results in the
+   * order the ids were given rather than the order Google answered in. A list
+   * search may also take `progress`, which receives the payloads as Google
+   * answers so cached rows can be filled in without waiting for the slowest
+   * request on the page. Answers close enough to share a frame are batched:
+   * repainting and sorting the whole list once per reply
+   * costs far more than the few milliseconds of extra latency reveal.
+   */
   function getMessages(ids, full, callback, existingHandle, progress) {
     var handle = existingHandle || newHandle()
     var list = Array.isArray(ids) ? ids : []
@@ -260,7 +260,7 @@ Item {
       for (var itemIndex = 0; itemIndex < results.length; itemIndex++) {
         if (results[itemIndex]) ordered.push(results[itemIndex])
       }
-      // A partial page is still a failed page: hiding one failed request just
+      // Invariant: A partial page is still a failed page: hiding one failed request just
       // because another answered would let the caller keep a continuation
       // token beyond the missing row.
       callback(ordered, firstError)
@@ -315,7 +315,7 @@ Item {
   }
 
   function getProfile(callback) {
-    // The native sign-in already verified this identity before storing its
+    // Invariant: The native sign-in already verified this identity before storing its
     // grant. A new account has no registry ID until this callback identifies it.
     if (auth && auth.loggedIn && auth.signedInProfile) {
       var handle = newHandle()
@@ -340,7 +340,6 @@ Item {
 
   }
 
-  // Mail operations and draft resolution are owned by the persistent backend.
   function modifyMessage(id, addLabelIds, removeLabelIds, callback) {
     if (backend && backend.ready && Number(backend.apiVersion) >= 8)
       return localEdit([String(id || "")],addLabelIds || [],removeLabelIds || [],callback)

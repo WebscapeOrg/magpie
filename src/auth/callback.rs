@@ -25,7 +25,7 @@ fn random() -> Result<String, &'static str> {
 fn text<'a>(params: &'a Value, key: &str) -> Result<&'a str, &'static str> {
     params[key]
         .as_str()
-        .filter(|s| s.len() <= 8192 && !s.chars().any(char::is_control))
+        .filter(|value| value.len() <= 8192 && !value.chars().any(char::is_control))
         .ok_or("invalid_params")
 }
 
@@ -71,7 +71,7 @@ impl Flows {
         let hint = text(params, "loginHint")?.to_owned();
         let port = params["port"]
             .as_u64()
-            .filter(|p| (1024..=65535).contains(p))
+            .filter(|port| (1024..=65535).contains(port))
             .ok_or("invalid_params")? as u16;
         let scopes = params["scopes"].as_array().ok_or("invalid_params")?;
         if scopes.len() > 32 {
@@ -79,9 +79,9 @@ impl Flows {
         }
         let scopes: Vec<&str> = scopes
             .iter()
-            .map(|s| {
-                s.as_str()
-                    .filter(|s| s.len() < 512 && !s.chars().any(char::is_whitespace))
+            .map(|value| {
+                value.as_str()
+                    .filter(|value| value.len() < 512 && !value.chars().any(char::is_whitespace))
                     .ok_or("invalid_params")
             })
             .collect::<Result<_, _>>()?;
@@ -162,13 +162,13 @@ async fn finish_google(mut response: Value, client_id: &str) -> Result<Value, &'
     let profile = crate::providers::gmail_http::get(&["profile"], &[], access).await?;
     let account = profile["emailAddress"]
         .as_str()
-        .filter(|s| {
-            s.contains('@')
-                && s.len() <= 1024
-                && !s.chars().any(|c| c.is_control() || c.is_whitespace())
+        .filter(|value| {
+            value.contains('@')
+                && value.len() <= 1024
+                && !value.chars().any(|character| character.is_control() || character.is_whitespace())
         })
         .ok_or("auth_invalid_profile")?;
-    if let Some(refresh) = token["refresh_token"].as_str().filter(|s| !s.is_empty()) {
+    if let Some(refresh) = token["refresh_token"].as_str().filter(|value| !value.is_empty()) {
         credentials::store_google(client_id, account, refresh).await?;
         // The grant is already saved to the verified mailbox, before the UI
         // starts any mailbox requests; never create an unnamed keyring item.
@@ -206,7 +206,7 @@ fn callback(request: &str, state: &str, port: u16) -> Result<String, &'static st
     }
     let hosts: Vec<_> = lines
         .filter_map(|line| line.split_once(':'))
-        .filter(|(k, _)| k.eq_ignore_ascii_case("host"))
+        .filter(|(key, _)| key.eq_ignore_ascii_case("host"))
         .collect();
     if hosts.len() != 1 || hosts[0].1.trim() != format!("127.0.0.1:{port}") {
         return Err("auth_invalid_callback");
@@ -214,8 +214,8 @@ fn callback(request: &str, state: &str, port: u16) -> Result<String, &'static st
     let mut raw = fields[1].bytes();
     while let Some(byte) = raw.next() {
         if byte == b'%'
-            && (!raw.next().is_some_and(|b| b.is_ascii_hexdigit())
-                || !raw.next().is_some_and(|b| b.is_ascii_hexdigit()))
+            && (!raw.next().is_some_and(|byte| byte.is_ascii_hexdigit())
+                || !raw.next().is_some_and(|byte| byte.is_ascii_hexdigit()))
         {
             return Err("auth_invalid_callback");
         }
@@ -223,17 +223,17 @@ fn callback(request: &str, state: &str, port: u16) -> Result<String, &'static st
     let url = reqwest::Url::parse(&format!("http://127.0.0.1:{}{}", port, fields[1]))
         .map_err(|_| "auth_invalid_callback")?;
     let pairs: Vec<_> = url.query_pairs().collect();
-    let states: Vec<_> = pairs.iter().filter(|(k, _)| k == "state").collect();
-    let codes: Vec<_> = pairs.iter().filter(|(k, _)| k == "code").collect();
+    let states: Vec<_> = pairs.iter().filter(|(key, _)| key == "state").collect();
+    let codes: Vec<_> = pairs.iter().filter(|(key, _)| key == "code").collect();
     if states.len() != 1
         || states[0].1 != state
         || codes.len() != 1
         || codes[0].1.is_empty()
-        || pairs.iter().any(|(k, _)| k == "error")
+        || pairs.iter().any(|(key, _)| key == "error")
         || codes[0]
             .1
             .chars()
-            .any(|c| !c.is_ascii() || c.is_ascii_control() || c.is_whitespace())
+            .any(|character| !character.is_ascii() || character.is_ascii_control() || character.is_whitespace())
     {
         return Err("auth_invalid_callback");
     }
@@ -419,10 +419,10 @@ mod tests {
 
     #[test]
     fn callback_checks_exact_route_host_and_single_state() {
-        let req = |path: &str, host: &str| format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n");
+        let request_for = |path: &str, host: &str| format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n");
         assert_eq!(
             callback(
-                &req(
+                &request_for(
                     "/oauth2callback?code=good&state=expected",
                     "127.0.0.1:53682"
                 ),
@@ -439,11 +439,11 @@ mod tests {
             "/oauth2callback/../?code=x&state=expected",
             "/oauth2callback?code=%00&state=expected",
         ] {
-            assert!(callback(&req(path, "127.0.0.1:53682"), "expected", 53682).is_err());
+            assert!(callback(&request_for(path, "127.0.0.1:53682"), "expected", 53682).is_err());
         }
         assert!(
             callback(
-                &req("/oauth2callback?code=good&state=expected", "evil.test"),
+                &request_for("/oauth2callback?code=good&state=expected", "evil.test"),
                 "expected",
                 53682
             )

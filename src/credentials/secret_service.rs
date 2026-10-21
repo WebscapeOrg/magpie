@@ -260,13 +260,13 @@ async fn close(connection: zbus::Connection) {
 
 async fn find<'a>(
     service: &'a SecretService<'a>,
-    attrs: &HashMap<String, String>,
+    attributes: &HashMap<String, String>,
 ) -> Result<Option<::secret_service::Item<'a>>, Fault> {
     let result = service
         .search_items(
-            attrs
+            attributes
                 .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .map(|(name, value)| (name.as_str(), value.as_str()))
                 .collect(),
         )
         .await
@@ -289,12 +289,12 @@ async fn execute(
     key: &CredentialKey,
     operation: Operation<'_>,
 ) -> Result<Option<Secret>, Fault> {
-    let attrs = key
+    let attributes = key
         .attributes()
         .map_err(Fault::Answer)?
         .into_iter()
         .collect();
-    let item = find(service, &attrs).await?;
+    let item = find(service, &attributes).await?;
     match operation {
         Operation::Get => {
             let item = item.ok_or(Fault::Answer(Error::Missing))?;
@@ -326,9 +326,9 @@ async fn execute(
                 collection
                     .create_item(
                         "Omamail",
-                        attrs
+                        attributes
                             .iter()
-                            .map(|(k, v)| (k.as_str(), v.as_str()))
+                            .map(|(name, value)| (name.as_str(), value.as_str()))
                             .collect(),
                         secret,
                         false,

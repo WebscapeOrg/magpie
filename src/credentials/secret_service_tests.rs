@@ -519,14 +519,14 @@ fn credentials_native_linux_a_refused_unlock_keeps_the_session() {
 #[ignore = "requires native dbus-daemon; mandatory in the Linux credential gate"]
 fn credentials_native_linux_silently_unlocks_a_locked_item() {
     let fixture = Fixture::with_locked_item();
-    let attrs: HashMap<_, _> = key().attributes().unwrap().into_iter().collect();
+    let attributes: HashMap<_, _> = key().attributes().unwrap().into_iter().collect();
 
     let found = fixture.runtime.block_on(async {
         let connection = fixture.client().await.unwrap();
         let service = SecretService::connect_with_existing(EncryptionType::Dh, connection)
             .await
             .unwrap();
-        find(&service, &attrs).await.map(|item| item.is_some())
+        find(&service, &attributes).await.map(|item| item.is_some())
     });
 
     assert!(matches!(found, Ok(true)));

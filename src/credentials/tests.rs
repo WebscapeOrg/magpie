@@ -138,13 +138,13 @@ fn credentials_native_contract() {
         b"control\x01",
         b"opaque\xff",
     ];
-    for (i, key) in cleanup.0.iter().enumerate() {
+    for (index, key) in cleanup.0.iter().enumerate() {
         NativeStore
-            .put(key, format!("synthetic-{i}").as_bytes())
+            .put(key, format!("synthetic-{index}").as_bytes())
             .unwrap();
     }
-    for (i, key) in cleanup.0.iter().enumerate() {
-        assert!(NativeStore.get(key).unwrap().as_slice() == format!("synthetic-{i}").as_bytes());
+    for (index, key) in cleanup.0.iter().enumerate() {
+        assert!(NativeStore.get(key).unwrap().as_slice() == format!("synthetic-{index}").as_bytes());
     }
     for (index, sample) in samples.iter().enumerate() {
         NativeStore.put(&cleanup.0[0], sample).unwrap();

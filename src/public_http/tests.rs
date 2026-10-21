@@ -91,12 +91,12 @@ async fn server(response: Vec<u8>) -> (SocketAddr, tokio::task::JoinHandle<Strin
         let mut request = Vec::new();
         let mut block = [0; 1024];
         loop {
-            let n = stream.read(&mut block).await.unwrap();
-            if n == 0 {
+            let read_bytes = stream.read(&mut block).await.unwrap();
+            if read_bytes == 0 {
                 break;
             }
-            request.extend_from_slice(&block[..n]);
-            if request.windows(4).any(|v| v == b"\r\n\r\n") {
+            request.extend_from_slice(&block[..read_bytes]);
+            if request.windows(4).any(|window| window == b"\r\n\r\n") {
                 let is_post = request.starts_with(b"POST ");
                 if !is_post || request.ends_with(b"List-Unsubscribe=One-Click") {
                     break;

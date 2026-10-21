@@ -50,6 +50,7 @@ fi
 exit "${CURL_STUB_EXIT:-0}"
 STUB
 chmod +x "$work/bin/curl"
+export PATH="$work/bin:$PATH"
 
 failures=0
 
@@ -60,7 +61,7 @@ b64() {
 # The script answers with three lines: the exit code, base64 stdout, base64
 # stderr. The stub echoes the config, so decoding line 2 is the config.
 config_for() {
-  printf '%s\n' "$1" | PATH="$work/bin:$PATH" sh "$script" | sed -n '2p' | base64 -d
+  printf '%s\n' "$1" | sh "$script" | sed -n '2p' | base64 -d
 }
 
 check() {
@@ -90,6 +91,21 @@ check_absent() {
   fi
 }
 
+refuses_without_curl() {
+  refusal_description=$1
+  refusal_request=$2
+  refusal_count="$work/refused-curl"
+  rm -f "$refusal_count"
+  refusal_status=0
+  printf '%s\n' "$refusal_request" | CURL_STUB_COUNT="$refusal_count" sh "$script" >/dev/null 2>&1 || refusal_status=$?
+  if [ "$refusal_status" -ne 0 ] && [ ! -e "$refusal_count" ]; then
+    printf '  ok   %s\n' "$refusal_description"
+  else
+    printf '  FAIL %s: exit %s, curl invoked: %s\n' "$refusal_description" "$refusal_status" "$([ -e "$refusal_count" ] && printf yes || printf no)"
+    failures=$((failures + 1))
+  fi
+}
+
 printf 'mail-transport.sh\n'
 
 # ---------------------------------------------------------------- IMAP mode
@@ -115,19 +131,15 @@ check "as base64 MIME in a text/plain body" "$config" 'header = "Content-Type: t
 check "read from the private working file" "$config" 'data-binary = "@'
 check "Graph keeps its transfer deadline" "$config" 'max-time = 60'
 check_absent "Graph does not emit --next sections" "$config" 'next'
-if printf '%s\n' "graph-send $(b64 'https://evil.example.net/sendMail') $(b64 't') $(b64 'x')" | "$script" >/dev/null 2>&1; then
-  echo "mail-transport.sh: graph-send must refuse any address but Graph's" >&2
-  exit 1
-fi
-if printf '%s\n' "smtp $(b64 'https://graph.microsoft.com/v1.0/me/sendMail') $(b64 'u:p') $(b64 'a@b') $(b64 'x') $(b64 'c@d')" | "$script" >/dev/null 2>&1; then
-  echo "mail-transport.sh: only graph-send may address Graph" >&2
-  exit 1
-fi
+refuses_without_curl "Graph send rejects another address before curl" \
+  "graph-send $(b64 'https://evil.example.net/sendMail') $(b64 't') $(b64 'x')"
+refuses_without_curl "SMTP cannot address Graph" \
+  "smtp $(b64 'https://graph.microsoft.com/v1.0/me/sendMail') $(b64 'u:p') $(b64 'a@b') $(b64 'x') $(b64 'c@d')"
 
 # Graph answers with an HTTP status rather than a curl error. Only an explicit
 # 2xx is a sent message; a missing status line is a failure, not a pass.
 graph_reply() {
-  printf '%s\n' "$graph" | CURL_STUB_HEADER="$1" PATH="$work/bin:$PATH" sh "$script"
+  printf '%s\n' "$graph" | CURL_STUB_HEADER="$1" sh "$script"
 }
 graph_case() {
   reply=$(graph_reply "$2")
@@ -159,7 +171,7 @@ check_absent "OAuth does not turn the token into a password" "$oauth_config" 'us
 header_reply='* 1 FETCH (UID 7 FLAGS ())'
 out=$(printf '%s\n' "$request" \
   | CURL_STUB_HEADER="$header_reply" \
-    PATH="$work/bin:$PATH" sh "$script")
+    sh "$script")
 decoded=$(printf '%s\n' "$out" | sed -n '2p' | base64 -d)
 if [ "$decoded" = "$header_reply" ]; then
   printf '  ok   IMAP protocol headers are returned when curl puts FETCH there\n'
@@ -174,7 +186,7 @@ body_reply='* 1 FETCH (UID 7 BODY[] {4}
 mail'
 out=$(printf '%s\n' "$request" \
   | CURL_STUB_HEADER='partial protocol preamble' CURL_STUB_BODY="$body_reply" \
-    PATH="$work/bin:$PATH" sh "$script")
+    sh "$script")
 decoded=$(printf '%s\n' "$out" | sed -n '2p' | base64 -d)
 if [ "$decoded" = "$body_reply" ]; then
   printf '  ok   IMAP stdout wins when curl returns a complete BODY FETCH there\n'
@@ -212,7 +224,7 @@ fi
 partial_reply='* SEARCH 1 2 3'
 out=$(printf '%s\n' "$multi" \
   | CURL_STUB_REQUIRE_FAIL_EARLY=1 CURL_STUB_STDOUT="$partial_reply" CURL_STUB_EXIT=21 \
-    PATH="$work/bin:$PATH" sh "$script")
+    sh "$script")
 first=$(printf '%s\n' "$out" | sed -n '1p')
 decoded=$(printf '%s\n' "$out" | sed -n '2p' | base64 -d)
 if [ "$first" = "21" ] && [ "$decoded" = "$partial_reply" ]; then
@@ -243,18 +255,13 @@ check "a quoted folder name survives into the command" "$config" 'UID COPY 4 \"S
 # hand-edited accounts.json from aiming an authenticated client somewhere else.
 
 for bad in 'file:///etc/passwd' 'https://evil.example.com/' 'ftp://example.com/'; do
-  if printf '%s\n' "imap $(b64 "$bad") $(b64 'jane:pw') $(b64 'NOOP')" \
-    | PATH="$work/bin:$PATH" sh "$script" >/dev/null 2>&1; then
-    printf '  FAIL %s was accepted\n' "$bad"
-    failures=$(( failures + 1 ))
-  else
-    printf '  ok   %s is refused\n' "$bad"
-  fi
+  refuses_without_curl "$bad is refused before curl" \
+    "imap $(b64 "$bad") $(b64 'jane:pw') $(b64 'NOOP')"
 done
 
 for good in 'imaps://a.example.org/INBOX' 'imap://127.0.0.1:1143/INBOX' 'smtps://a.example.org'; do
   if printf '%s\n' "imap $(b64 "$good") $(b64 'jane:pw') $(b64 'NOOP')" \
-    | PATH="$work/bin:$PATH" sh "$script" >/dev/null 2>&1; then
+    | sh "$script" >/dev/null 2>&1; then
     printf '  ok   %s is accepted\n' "$good"
   else
     printf '  FAIL %s was refused\n' "$good"
@@ -301,22 +308,17 @@ check "a sent copy arrives seen" "$config" 'upload-flags = "seen"'
 
 # Which flags a copy arrives under is the caller's decision, so the request
 # carries them and the script has nothing to default to.
-if printf '%s\n' "imap-append $(b64 'imaps://imap.example.org:993/Sent') $(b64 'jane:pw') $(b64 'Subject: filed copy
+refuses_without_curl "an append without its flags is refused before curl" \
+  "imap-append $(b64 'imaps://imap.example.org:993/Sent') $(b64 'jane:pw') $(b64 'Subject: filed copy
 
-body')" \
-  | PATH="$work/bin:$PATH" sh "$script" >/dev/null 2>&1; then
-  printf '  FAIL an append without its flags was accepted\n'
-  failures=$(( failures + 1 ))
-else
-  printf '  ok   an append without its flags is refused\n'
-fi
+body')"
 
 # ------------------------------------------------------------- the framing
 
 # The exit code is curl's own, so a transport failure is distinguishable from
 # a server that answered with NO.
 out=$(printf '%s\n' "imap $(b64 'imaps://a.example.org/INBOX') $(b64 'j:p') $(b64 'NOOP')" \
-  | CURL_STUB_EXIT=7 PATH="$work/bin:$PATH" sh "$script")
+  | CURL_STUB_EXIT=7 sh "$script")
 first=$(printf '%s' "$out" | sed -n '1p')
 if [ "$first" = "7" ]; then
   printf "  ok   curl's exit code is the first line\n"
@@ -326,7 +328,7 @@ else
 fi
 
 lines=$(printf '%s\n' "imap $(b64 'imaps://a.example.org/INBOX') $(b64 'j:p') $(b64 'NOOP')" \
-  | PATH="$work/bin:$PATH" sh "$script" | wc -l | tr -d ' ')
+  | sh "$script" | wc -l | tr -d ' ')
 if [ "$lines" = "3" ]; then
   printf '  ok   three lines out: code, stdout, stderr\n'
 else
@@ -344,7 +346,7 @@ attempts_for() {
   count="$work/attempts"
   rm -f "$count"
   printf '%s\n' "$1" \
-    | CURL_STUB_COUNT="$count" CURL_STUB_EXIT="$2" PATH="$work/bin:$PATH" sh "$script" \
+    | CURL_STUB_COUNT="$count" CURL_STUB_EXIT="$2" sh "$script" \
       >/dev/null 2>&1
   if [ -f "$count" ]; then wc -l < "$count" | tr -d ' '; else printf '0'; fi
 }
@@ -374,12 +376,7 @@ expect_attempts "a send that timed out is not repeated" "$send_request" 28 1
 expect_attempts "a send is still retried before it has left" "$send_request" 7 3
 
 # A malformed request must fail rather than run curl with something guessed.
-if printf 'not-base64-at-all\n' | PATH="$work/bin:$PATH" sh "$script" >/dev/null 2>&1; then
-  printf '  FAIL a malformed request was accepted\n'
-  failures=$(( failures + 1 ))
-else
-  printf '  ok   a malformed request is refused\n'
-fi
+refuses_without_curl "a malformed request is refused before curl" 'not-base64-at-all'
 
 if [ "$failures" -ne 0 ]; then
   printf '\n%s check(s) failed\n' "$failures"

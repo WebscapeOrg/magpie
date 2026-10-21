@@ -7,9 +7,8 @@ import "../message/Direction.js" as Direction
 import "../account/Model.js" as Model
 import "../keys/Keymap.js" as Keymap
 
-// One message in the list. Unread is carried by weight and by the dot on the
-// left, never by colour alone — the accent is a theme value that some themes
-// put close to the foreground.
+// Invariant: unread state uses weight and a dot because theme accent alone may be
+// indistinguishable.
 Rectangle {
   id: root
 
@@ -21,27 +20,16 @@ Rectangle {
   required property string panelFontFamily
   property bool canArchive: true
   property bool attachmentIndicatorEnabled: true
-  // Whether this row stands for a conversation rather than for one message.
-  // Grouping is a panel rule gated on the provider's `conversations`
-  // capability; a row is told, and asks nobody.
   property bool conversations: false
   property bool hasCursor: false
   property bool selected: false
-  // Ticked for a bulk action. Not `selected`: that is the message the reader
-  // shows, and the two are different things for the same reason the cursor is.
   property bool checked: false
-  // What the agent is doing with this message, if anything: "", "running",
-  // "question", "done", "failed" or "cancelled". State, so it shows whether
-  // or not the row is hot, like the star.
   property string agentState: ""
-  // The agent's last line while it works on this message, for the tooltip.
   property string agentProgress: ""
   property bool agentAttention: false
   property bool selectionActive: false
   property bool ctrlHeld: false
   readonly property bool selectionMode: selectionActive || checked || ctrlHeld
-  // How the direction of this message's own text is arrived at. Passed down
-  // like every other fact a row draws, because a row decides nothing.
   property string contentDirection: Direction.MODE_DEFAULT
 
   signal activated()
@@ -60,37 +48,22 @@ Rectangle {
   signal trashRequested()
   signal menuRequested(real sceneX, real sceneY)
 
-  // Hovered by a handler rather than by the MouseArea's `containsMouse`: a
-  // button on the row has a MouseArea of its own, and the pointer moving onto
-  // one took the row's hover away — the extra buttons hid, the lane closed,
-  // the button slid out from under the pointer, the row was hovered again,
-  // and the lane flickered open and shut. A HoverHandler is passive and stays
-  // hovered whatever the pointer is over inside the row.
+  // Invariant: a passive HoverHandler keeps the action lane open while the pointer enters child
+  // buttons; MouseArea hover would flicker as buttons move.
   readonly property bool hot: rowHover.hovered || hasCursor
 
   HoverHandler { id: rowHover }
 
-  // How many messages the conversation holds, for the badge — and zero for a
-  // row that draws none, which `Model.badgeCount` decides: a provider that does
-  // not group its listing, a conversation of one, a summary cached before rows
-  // carried a block at all.
   readonly property int threadCount: Model.badgeCount(root.summary)
 
-  // The subject is asked on its own account: a reply prefix is Latin whatever
-  // the thread is written in, so `Re: مرحبا` reads left-to-right to anything
-  // that takes the first strong character at face value — which is every
-  // message in a thread after the first.
-  //
-  // The sender and the snippet are not. Qt resolves both correctly from their
-  // own text, so on Auto there is nothing to add; only a direction the reader
-  // has actually chosen has to be carried to them.
+  // Invariant: Latin reply prefixes must not determine subject direction; sender and snippet still
+  // use their own first strong character.
   readonly property var subjectAlignment: alignmentFor(
     Direction.forced(root.contentDirection) || String(root.summary.subjectDirection || ""))
   readonly property var textAlignment: alignmentFor(
     Direction.forced(root.contentDirection))
 
-  // `undefined` leaves a Text following the direction of its own text, which is
-  // what should happen wherever there is no answer to give it.
+  // Invariant: undefined alignment preserves Qt’s content-derived direction.
   function alignmentFor(direction) {
     if (!Direction.hasAnswer(direction)) return undefined
     return Direction.isRightToLeft(direction) ? Text.AlignRight : Text.AlignLeft
@@ -99,7 +72,6 @@ Rectangle {
   width: parent ? parent.width : 0
   implicitHeight: body.implicitHeight + MailStyle.space(14)
   radius: Style.cornerRadius
-  // The checkbox identifies bulk selection independently of the reader fill.
   color: selected || hasCursor || checked
     ? Style.selectedFillFor(textColor, accentColor)
     : (hot ? Style.hoverFillFor(textColor, accentColor) : "transparent")
@@ -107,9 +79,8 @@ Rectangle {
   MouseArea {
     id: mouse
     anchors.fill: parent
-    // HoverHandler already owns `hot`. hoverEnabled here re-enters every row
-    // when the window moves under a still pointer, which is extra scene work
-    // during a system drag.
+    // Performance: HoverHandler owns hover; duplicate MouseArea hover re-enters every row during
+    // native window movement.
     hoverEnabled: false
     acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
     onWheel: function(wheel) { wheel.accepted = false }
@@ -118,12 +89,8 @@ Rectangle {
         var scene = mapToGlobal(event.x, event.y)
         root.menuRequested(scene.x, scene.y)
       } else if (event.button === Qt.MiddleButton) {
-        // Middle-click archives: the one triage action worth having without
-        // moving the pointer to a button.
         root.archiveRequested()
       } else if (event.modifiers & Qt.ShiftModifier) {
-        // Shift selects or clears the range from the cursor to here;
-        // Ctrl toggles this row on its own.
         root.checkRangeRequested()
       } else if (event.modifiers & Qt.ControlModifier) {
         root.checkToggled()
@@ -153,13 +120,10 @@ Rectangle {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.leftMargin: MailStyle.space(14) + avatar.width + MailStyle.space(10)
-    // Align text with the action glyph, rather than its padded hit target.
     anchors.rightMargin: MailStyle.space(6) + (MailStyle.space(24) - Style.font.iconSmall) / 2
     anchors.verticalCenter: parent.verticalCenter
     spacing: MailStyle.space(2)
 
-    // The sender and optional conversation count share the first line with
-    // the date, which keeps the full row edge while actions appear below.
     Item {
       width: parent.width
       implicitHeight: Math.max(sender.implicitHeight, time.implicitHeight)
@@ -179,12 +143,6 @@ Rectangle {
         horizontalAlignment: root.textAlignment
       }
 
-      // How long the conversation is, beside who wrote it — where Gmail puts
-      // it, and the one place on the row that is about the thread rather than
-      // about the message the server returned for it.
-      //
-      // Drawn only where the model gave it a number: two or more, on a provider
-      // that groups its listing.
       Text {
         id: count
         objectName: "message-conversation-count"
@@ -217,7 +175,7 @@ Rectangle {
       id: subject
       objectName: "message-subject"
       width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
-      // Sender-controlled text must never activate Qt's rich-text loader.
+      // Invariant: sender-controlled labels must never activate Qt’s rich-text loader.
       textFormat: Text.PlainText
       text: root.summary.subject
       color: root.textColor
@@ -266,9 +224,6 @@ Rectangle {
     }
   }
 
-  // Row actions appear on hover or under the keyboard cursor. A starred
-  // message keeps its star visible either way, because that is state rather
-  // than an affordance.
   Row {
     id: actions
     objectName: "message-actions"
@@ -305,9 +260,8 @@ Rectangle {
     }
 
     IconButton {
-      // No archive button where the account has nowhere to archive to. On IMAP
-      // that is a move to a folder, and a server without one would have this
-      // quietly do nothing.
+      // Invariant: an account without an archive destination must not expose an action that cannot
+      // move the message.
       visible: root.hot && root.canArchive && !root.selectionMode
       iconName: "archive"
       tooltipText: "Archive · e"
@@ -332,8 +286,6 @@ Rectangle {
       onClicked: root.trashRequested()
     }
 
-    // The selection target stays on the same right edge, even while the
-    // other actions make room for a selection being built across rows.
     Item {
       id: checkControl
       objectName: "message-check"

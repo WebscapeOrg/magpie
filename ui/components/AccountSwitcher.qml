@@ -6,12 +6,6 @@ import qs.Ui
 import "../account/Model.js" as Model
 import "Menu.js" as Menu
 
-// The list of mailboxes, opened from the user bar.
-//
-// Switching is meant to be instant, which it is because every account keeps its
-// own cache. It says which is being checked right now and keeps a mailbox that
-// has not finished signing in visible, because otherwise a half-added mailbox
-// becomes invisible and unfixable.
 Item {
   id: root
 
@@ -23,37 +17,22 @@ Item {
   required property color popupBorderColor
   required property string panelFontFamily
 
-  // [{ id, email, label, unread, active, signedIn, busy, error }]
   property var accounts: []
-  // What has been typed, and the mailboxes it leaves — matched on the name
-  // they were given and their address — best first; every one, in order,
-  // with nothing typed. The combined row is offered only then: it is not a
-  // mailbox anyone types the name of.
   property string query: ""
   readonly property var shownAccounts: Model.filterRows(accounts, query)
-  // Typing puts the cursor on the best match; typing it all away puts it
-  // back where it rests, on the mailbox in use.
   onQueryChanged: if (query.trim() === "") restCursorOnActive(); else cursorIndex = 0
 
   readonly property bool opened: menu.opened
 
-  // A popup builds its contents outside this item's own children, so nothing
-  // walking the tree from here finds a row. This is the handle that does —
-  // the same reason `opened` is exposed rather than reached for.
+  // Docs: popup delegates are in the overlay, so expose their content item for geometry tests.
   readonly property alias menuRows: rows
 
-  // Where the keyboard is standing, which is not where the mouse is: hover is
-  // drawn by the row itself and never written here. Qt re-reports hover when
-  // content moves under a still pointer, and a hover that moved this would drag
-  // the cursor back to whatever the pointer happened to rest on.
+  // Invariant: keyboard position must not follow passive hover; Qt replays hover when content moves
+  // beneath a stationary pointer.
   property int cursorIndex: 0
 
-  // Whether the mailbox on screen is the merge of all of them, drawn the way
-  // an active account is drawn because it is the same kind of choice.
   property bool unifiedActive: false
 
-  // One mailbox has nothing to combine, so the row is not offered: choosing it
-  // would land on the same list under a different name.
   readonly property int accountRowCount: root.shownAccounts.length
   readonly property bool unifiedOffered: (root.accounts ? root.accounts.length : 0) > 1 && root.query.trim() === ""
   readonly property int rowOffset: unifiedOffered ? 1 : 0
@@ -67,7 +46,6 @@ Item {
   anchors.fill: parent
   z: 45
 
-  // Where the menu was asked to appear, kept because it cannot be placed yet.
   property real anchorX: 0
   property real anchorY: 0
 
@@ -79,12 +57,8 @@ Item {
     place()
   }
 
-  // A Popup does not build its contents until it is first opened, so on the
-  // very first click its height is still zero — the "does it fit below?" test
-  // passed trivially and the menu was placed at the click, then grew off the
-  // bottom of the window. Placing again whenever the height changes is what
-  // makes the first open behave like every one after it, and it also re-places
-  // the menu when a row is added or removed.
+  // Invariant: popup content is lazy; re-place it after the first height calculation and subsequent
+  // filtering.
   function place() {
     if (!menu.visible) return
     var tall = menu.height > 0 ? menu.height : menu.implicitHeight
@@ -93,9 +67,6 @@ Item {
     menu.y = placed.y
   }
 
-  // Opened from a menu rather than from a click on the rail, so there is no
-  // pointer position to hang it off. Centring is the honest answer: anywhere
-  // else would be pretending it belongs to something on screen.
   function openCentered() {
     anchorX = Math.max(0, (root.width - menu.width) / 2)
     anchorY = Math.max(0, (root.height - menu.implicitHeight) / 2)
@@ -110,8 +81,6 @@ Item {
     cursorIndex = Model.wrappedIndex(cursorIndex, delta, root.rowCount)
   }
 
-  // The combined row is first, so the accounts sit one further down than their
-  // own indices. Everything above this component still counts accounts.
   function chooseCursor() {
     if (cursorIndex < 0 || cursorIndex >= root.rowCount) return
     menu.close()
@@ -122,15 +91,13 @@ Item {
     root.accountChosen(root.shownAccounts[cursorIndex - root.rowOffset].sourceIndex)
   }
 
-  // Opening puts the keyboard on the mailbox you are already in, so the first
-  // `j` is one step away from it rather than back at the top of the list.
   function restCursorOnActive() {
     if (root.unifiedActive && root.unifiedOffered) {
       cursorIndex = 0
       return
     }
-    // Read afresh rather than through `shownAccounts`: called as the query
-    // changes, when that binding may not have caught up yet.
+    // Invariant: query-change handlers run before shownAccounts necessarily updates; derive the new
+    // filtered rows directly.
     var accounts = Model.filterRows(root.accounts, root.query)
     var offset = (root.accounts ? root.accounts.length : 0) > 1 && root.query.trim() === "" ? 1 : 0
     for (var i = 0; i < accounts.length; i++) {
@@ -161,26 +128,14 @@ Item {
       border.color: root.popupBorderColor
     }
 
-    // The one place in this window that answers keys itself, and the reason is
-    // the opposite of the rule it breaks. `Keys` handlers are banned everywhere
-    // else because a window `Shortcut` beats them, so a local one looks live
-    // and never runs. Inside an open `QQC.Popup` it is the other way round: the
-    // popup takes every key before the shortcut map sees it — with `focus` true
-    // or false, bare or modified — so a `KeyRouter` binding is the thing that
-    // would look live and never run. The keys live on the search line at the
-    // top, which takes focus as the popup opens; the column forwards to it.
-    // `tst_account_switcher.qml` holds both halves of that, so the next person
-    // to reach for `survivesOverlay` finds out from a test rather than from a
-    // menu that does not move.
+    // Invariant: QQC.Popup consumes window shortcuts; its focused search field must handle
+    // navigation locally (tst_account_switcher).
     contentItem: Column {
       id: rows
       spacing: MailStyle.space(2)
-      // A key that reaches the column — the field lost focus to a click on
-      // the padding, say — still goes to the search line.
+      // Invariant: keys from popup padding still forward to its search field.
       Keys.forwardTo: [search]
 
-      // Every mailbox at once, above the mailboxes it is made of: it is the
-      // widest of the choices here, and a list is read from the top.
       SwitcherSearch {
         id: search
         width: menu.width - menu.leftPadding - menu.rightPadding
@@ -220,8 +175,6 @@ Item {
           radius: width / 2
           color: Style.selectedFillFor(root.textColor, root.accentColor)
 
-          // Not a letter: this row stands for no address, and an initial
-          // taken from one of them would claim it belonged to that mailbox.
           ActionIcon {
             anchors.centerIn: parent
             name: "inbox"
@@ -241,7 +194,6 @@ Item {
           Text {
             width: parent.width
             textFormat: Text.PlainText
-            // The same string the status line shows, from one place.
             text: Model.UNIFIED_LABEL
             color: root.textColor
             font.family: root.panelFontFamily
@@ -281,15 +233,9 @@ Item {
 
           readonly property bool hasCursor: root.cursorIndex === row.index + root.rowOffset
 
-          // Whether this mailbox was given a name, which decides what the two
-          // lines hold. `label` cannot answer it: it falls through to the
-          // local part, so it is never empty.
           readonly property bool named: modelData.name !== undefined
             && String(modelData.name) !== ""
 
-          // What the two lines hold, decided here rather than inside the
-          // bindings that draw them: it is one choice with two halves, and
-          // splitting it across two `Text` elements hid that.
           readonly property string primaryText: {
             if (row.named) return String(modelData.name)
             return modelData.email !== "" ? modelData.email : "New account"
@@ -300,16 +246,11 @@ Item {
               return String(modelData.error)
             if (!modelData.signedIn) return "Signed out"
             if (modelData.busy) return "Checking"
-            // A named mailbox puts its address here, which keeps the name from
-            // hiding which account it stands for. An unnamed one has already
-            // said everything it has to say on the line above.
             return row.named ? String(modelData.email || "") : ""
           }
 
-          // Whether this is the mailbox being read, which is not the same as
-          // being the active account: the combined view leaves one active
-          // underneath because compose still needs an address to send from.
-          // Drawing both as in use said the window was in two places.
+          // Invariant: unified view retains an active sending account; only the unified row is
+          // selected for reading.
           readonly property bool inUse: modelData.active && !root.unifiedActive
 
           width: menu.width - menu.leftPadding - menu.rightPadding
@@ -319,9 +260,8 @@ Item {
             ? Style.selectedFillFor(root.textColor, root.accentColor)
             : (rowHover.hovered || hasCursor
               ? Style.hoverFillFor(root.textColor, root.accentColor) : "transparent")
-          // A border rather than a third fill: the mailbox you are in already
-          // owns the selected one, and the keyboard has to be visible standing
-          // on that row too.
+          // Invariant: draw the keyboard cursor with a border so it remains distinct on the
+          // selected account.
           border.width: hasCursor ? Style.normalBorderWidth : 0
           border.color: Style.hoverBorderFor(root.textColor, root.accentColor)
 
@@ -358,14 +298,6 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: MailStyle.space(1)
 
-            // A name if one was chosen, and the address otherwise.
-            //
-            // The address used to be the only thing here, because the only
-            // name available was the local part and two mailboxes easily
-            // share one across different domains. A name somebody typed is
-            // the opposite: it exists precisely to tell them apart, and it
-            // wins over an address that elides to `patryk.bartkow…` in a list
-            // this narrow. The address is not lost — it moves below.
             Text {
               width: parent.width
               textFormat: Text.PlainText
@@ -377,8 +309,6 @@ Item {
               elide: Text.ElideMiddle
             }
 
-            // Says why an account is not usable, rather than leaving it looking
-            // identical to one that is.
             Text {
               width: parent.width
               visible: text !== ""

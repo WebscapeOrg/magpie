@@ -5,9 +5,6 @@ import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
 
-// The one confirmation for destructive writes. A calendar event is gone for
-// good once the server says so, so it asks first: the opener names the target
-// in the request, and only the answer here reaches the controller.
 Item {
   id: root
 
@@ -22,10 +19,6 @@ Item {
 
   signal confirmed(var request)
 
-  // A request may carry `choices`, each a delete that differs in consequence
-  // — without telling guests, or the whole series. Every one is its own
-  // button, the last is the default, and the answer travels back as
-  // `request.choice`. A request without choices is a plain Delete.
   readonly property var choices: request && Array.isArray(request.choices) && request.choices.length > 0
     ? request.choices : [{ value: "", label: "Delete" }]
 
@@ -48,7 +41,6 @@ Item {
     confirmed(answered)
   }
 
-  // Cancel, then the choices left to right: the order Tab walks.
   function buttonsInOrder() {
     var ordered = [cancelButton]
     for (var i = 0; i < choiceButtons.count; i++) ordered.push(choiceButtons.itemAt(i))
@@ -83,7 +75,7 @@ Item {
     }
     contentItem: Column {
       spacing: MailStyle.space(14)
-      // Popups consume keys before the window shortcut map.
+      // Invariant: popups consume keys before the window shortcut map.
       Keys.onPressed: function(event) {
         if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
           event.accepted = true

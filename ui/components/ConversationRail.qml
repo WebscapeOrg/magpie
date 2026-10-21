@@ -4,30 +4,12 @@ import QtQuick.Controls
 import qs.Commons
 import "../account/Model.js" as Model
 
-// The conversation beside the message, as a timeline down the right edge of the
-// reader.
-//
-// A row stands for a conversation and opens one member of it; this is the rest
-// of the conversation, newest first, every member a stop that opens in the same
-// reader. It takes width from the body and never height: the message keeps its
-// reading measure and the rail scrolls in a viewport of its own, the way the
-// list scrolls beside the reader.
-//
-// It decides nothing. `account/Conversation.js` says which stops there are and
-// what each of them shows; this draws them and reports which one was asked for.
 Item {
   id: root
 
-  // `Conversation.stops`: one entry per member, newest first, each carrying
-  // whether its summary has arrived, whether it is the open message, and the
-  // mailbox name it needs when it sits outside the one on screen.
   required property var stops
-  // "3 messages · 1 unread", from the same file.
   required property string caption
   required property color textColor
-  // The panel behind the rail, which is what a hollow node is filled with. A
-  // literal would be a colour this file chose; the theme's is the one the
-  // message beside it is drawn on.
   required property color backgroundColor
   required property color accentColor
   required property color dimColor
@@ -35,18 +17,11 @@ Item {
   required property string panelFontFamily
 
   signal memberActivated(string id)
-  // A right-click on a stop: the member's own menu, the one a row opens, at
-  // the pointer. The rail reports the member and where; the reader passes it
-  // up, and the App opens the menu it already has for rows.
   signal memberMenuRequested(string id, real sceneX, real sceneY)
 
-  // About two hundred pixels: wide enough for a date, a name and a mailbox
-  // under it, narrow enough that the reading measure beside it survives.
   implicitWidth: MailStyle.space(200)
 
-  // One animation for every skeleton on the rail, for the reason
-  // `ReaderSkeleton` has one for the whole reader: a timer per bar puts a dozen
-  // of them on the thread that draws the desktop.
+  // Performance: one animation drives all skeletons instead of creating one timer per bar.
   property real pulse: 0.5
 
   SequentialAnimation on pulse {
@@ -64,14 +39,6 @@ Item {
     return false
   }
 
-  // Where one stop sits in the rail's own content, `{ y, height }`, or null for
-  // an id that is not a stop. The same question `MessageList.boundsFor` answers
-  // for a row, for the same reason: this is a Column in a Flickable, so there
-  // is no index to position by and geometry is what a reveal has to go on.
-  //
-  // `node` and `line` are the stop's circle and its piece of the timeline in
-  // the same coordinates, `{ top, bottom }` each, so a test can say where the
-  // line begins and ends without reaching into the delegate.
   function boundsFor(id) {
     var wanted = String(id || "")
     for (var i = 0; i < stopColumn.children.length; i++) {
@@ -88,10 +55,6 @@ Item {
     return null
   }
 
-  // Bring one stop on screen with the smallest scroll, and no scroll at all
-  // while it is already there — the list cursor's own rule, called rather than
-  // copied, because recentring on every step would drag the rail under
-  // somebody walking one stop down it exactly as it would drag the list.
   function reveal(id) {
     var bounds = boundsFor(id)
     if (!bounds) return
@@ -99,10 +62,6 @@ Item {
       bounds.y, bounds.height, railFlick.contentHeight, MailStyle.space(8))
   }
 
-  // The rule separating the rail from the message, the full height of the pane.
-  // Not a `PanelSeparator`: that one is a horizontal divider and fixes its own
-  // height, which is the wrong half of the geometry to have decided for a rule
-  // that runs down the edge. The tint is the same alpha-on-foreground.
   Rectangle {
     id: edge
     anchors.left: parent.left
@@ -121,8 +80,6 @@ Item {
     anchors.leftMargin: MailStyle.space(12)
     anchors.rightMargin: MailStyle.space(10)
     anchors.topMargin: MailStyle.space(14)
-    // Generated here out of a count, not written by a sender — but the rule is
-    // cheap and the file it sits in draws senders two lines down.
     textFormat: Text.PlainText
     text: root.caption
     color: root.dimColor
@@ -158,30 +115,20 @@ Item {
     }
   }
 
-  // One member. Not a button: it is a place on a timeline that can be gone to,
-  // and the open one wears the list's own selected fill rather than a pressed
-  // state.
   component Stop: Rectangle {
     id: stop
 
     required property var modelData
     required property int index
     readonly property string memberId: String(modelData.id || "")
-    // The ends of the timeline. The line joins the stops; it does not run in
-    // from above the first circle or out below the last, because there is
-    // nothing at either end for it to be going to.
     readonly property bool first: index === 0
     readonly property bool last: index === (root.stops || []).length - 1
     readonly property real nodeTop: node.y
     readonly property real nodeBottom: node.y + node.height
     readonly property real lineTop: first ? nodeBottom : 0
     readonly property real lineBottom: last ? nodeTop : height
-    // One axis for every stop, whatever size its circle is. The open circle is
-    // wider than the others, and a segment centred on its own circle sat a
-    // pixel to the side of the segments above and below it, which read as a
-    // line that broke at the open message. The circle and the segment are
-    // both centred on this instead, and the segment lands on a whole pixel so
-    // it is one pixel wide rather than two half-shaded ones.
+    // Invariant: every stop shares one pixel-aligned axis, including larger selected nodes, so
+    // timeline segments remain continuous.
     readonly property real axis: MailStyle.space(10) + MailStyle.space(11) / 2
     readonly property real lineWidth: Math.max(1, MailStyle.space(1))
     readonly property real lineX: Math.round(axis - lineWidth / 2)
@@ -211,11 +158,6 @@ Item {
       }
     }
 
-    // The timeline itself, drawn per stop rather than once behind them: the
-    // rail scrolls, and a single rule sized to the content would have to be
-    // kept in step with the Column. One segment per stop is the same line and
-    // needs nothing kept true — the first stop's begins under its circle and
-    // the last stop's ends above its own.
     Rectangle {
       id: segment
       objectName: "rail-segment"
@@ -226,10 +168,6 @@ Item {
       color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.14)
     }
 
-    // Filled with the accent while the member is unread, hollow once it has
-    // been read, and heavier for the open one — three states, none of them
-    // carried by colour alone: the open stop also has the selected fill behind
-    // it and the word "open" beside its sender.
     Rectangle {
       id: node
       x: stop.axis - width / 2
@@ -251,13 +189,6 @@ Item {
       anchors.verticalCenter: parent.verticalCenter
       spacing: MailStyle.space(2)
 
-      // The date leads, because the rail is a timeline and the date is where a
-      // stop sits on it. The flag rides beside it: it belongs to the message
-      // rather than to the person, and it is state the sender's own line must
-      // not be able to imitate. The mailbox name, when the member has one to
-      // show, takes the rest of this line rather than a line of its own — a
-      // line that appeared when the summary landed moved every stop below it,
-      // and in a search that was every stop.
       Item {
         width: parent.width
         implicitHeight: Math.max(dateText.implicitHeight, flagIcon.height,
@@ -297,10 +228,6 @@ Item {
           fontFamily: root.panelFontFamily
         }
 
-        // Where to find this member, when it is not where the reader is
-        // looking. The account's own name for the mailbox, the one the sidebar
-        // draws, against the right edge and elided rather than the date: the
-        // date is where the stop sits and always fits.
         Text {
           id: mailboxText
           visible: stop.modelData.mailbox !== ""
@@ -329,9 +256,7 @@ Item {
           anchors.left: parent.left
           anchors.right: openMark.visible ? openMark.left : parent.right
           anchors.rightMargin: openMark.visible ? MailStyle.space(5) : 0
-          // A stranger wrote this name. AutoText would promote anything
-          // tag-shaped in it to rich text, and Qt's rich text engine fetches an
-          // <img src> for real.
+          // Invariant: sender names must remain plain text to prevent Qt resource loading.
           textFormat: Text.PlainText
           text: stop.modelData.sender
           color: root.textColor
@@ -350,9 +275,7 @@ Item {
           height: MailStyle.space(9)
         }
 
-        // The word, not only the fill: a theme whose selected surface is faint
-        // would otherwise leave nothing at all saying which of these is the
-        // message on screen.
+        // Invariant: the selected stop has a visible word as well as a theme-dependent fill.
         Text {
           id: openMark
           visible: stop.modelData.open && stop.modelData.known

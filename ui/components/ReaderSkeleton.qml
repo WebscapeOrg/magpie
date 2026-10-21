@@ -3,19 +3,13 @@ import "../settings"
 import qs.Commons
 import qs.Ui
 
-// What the reader shows while a message is on its way.
-//
-// Shaped like the thing that is coming — a subject, a sender, a meta line,
-// then body — so the pane does not jump when the real message lands. A word
-// like "Opening…" tells you nothing you did not already know from clicking.
 Item {
   id: root
 
   required property color textColor
   required property string panelFontFamily
 
-  // One animation drives every bar. Running it per bar would put a dozen
-  // timers on the GUI thread to say a single thing.
+  // Performance: one animation drives all bars rather than adding one GUI-thread timer per bar.
   property real pulse: 0.5
 
   SequentialAnimation on pulse {
@@ -32,13 +26,11 @@ Item {
     anchors.margins: MailStyle.space(14)
     spacing: MailStyle.space(8)
 
-    // Subject: two lines, the second short, the way a long subject wraps.
     Bar { widthFactor: 0.82; barHeight: MailStyle.space(13) }
     Bar { widthFactor: 0.46; barHeight: MailStyle.space(13) }
 
     Item { width: 1; height: MailStyle.space(4) }
 
-    // Sender, then the recipients-and-date line under it.
     Bar { widthFactor: 0.38; barHeight: MailStyle.space(9) }
     Bar { widthFactor: 0.52; barHeight: MailStyle.space(8) }
 
@@ -51,7 +43,6 @@ Item {
 
     Item { width: 1; height: MailStyle.space(6) }
 
-    // Body: paragraphs of a few lines each, with a short last line.
     Repeater {
       model: [0.96, 0.99, 0.72, 0.0, 0.94, 0.88, 0.97, 0.54, 0.0, 0.92, 0.63]
 

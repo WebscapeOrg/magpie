@@ -5,9 +5,6 @@ import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
 
-// One name, asked for: a new label's, or a label's new one. A small modal
-// popup rather than a page, because the answer is a word and the place it
-// applies to is still on screen behind it.
 Item {
   id: root
 
@@ -18,11 +15,8 @@ Item {
   required property color accentColor
   required property string panelFontFamily
 
-  // What the answer is for, handed back with it so one prompt serves every
-  // caller: `kind` names the operation, `subject` the label it is about.
   property string kind: ""
-  // Whose label this is: the account open when the popup opened, by id,
-  // so the answer goes to it even if the window has moved on since.
+  // Invariant: the prompt retains the account that owned the label when it opened.
   property string accountId: ""
   property string subject: ""
   property string title: ""

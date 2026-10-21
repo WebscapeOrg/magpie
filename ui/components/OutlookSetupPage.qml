@@ -7,9 +7,8 @@ import "../providers/Outlook.js" as Outlook
 import "../providers/MicrosoftOAuth.js" as Microsoft
 import "../account/Accounts.js" as Accounts
 
-// Outlook.com and Hotmail use Microsoft OAuth. The app registration is a
-// public client: its ID is configuration, not a secret, and the account
-// password is entered only on Microsoft's own page.
+// Invariant: Microsoft registration uses a public client ID; the account password belongs only on
+// Microsoft’s sign-in page.
 Column {
   id: root
 
@@ -26,8 +25,6 @@ Column {
   readonly property var auth: service ? service.auth : null
   readonly property bool signedIn: !!auth && auth.loggedIn
   readonly property bool busy: !!auth && (auth.loginBusy || auth.graphRoundBusy === true)
-  // Signed in for mail, and Microsoft refused Graph for want of consent:
-  // the sign-in button stays, as the Graph sign-in.
   readonly property bool graphConsentNeeded: root.signedIn && !!auth && auth.graphConsentNeeded === true
   readonly property bool usingBuiltinClient: Microsoft.isValidClientId(Microsoft.BUILTIN_CLIENT_ID)
   readonly property bool toolsMissing: !!auth && auth.toolsChecked && auth.missingTools.length > 0
@@ -85,8 +82,6 @@ Column {
   function signIn() {
     if (root.busy) return
     if (root.graphConsentNeeded) {
-      // Nothing to save: the mailbox is set up and signed in. The code
-      // asked for is Graph's.
       errorText.text = ""
       auth.beginLogin()
       return
@@ -124,8 +119,7 @@ Column {
     graphSwitch.checked = !!auth && String(auth.configuredSend || "") === "graph"
   }
 
-  // The auth object is rebuilt when the entry is saved, so the switches are
-  // read again from whichever one is current.
+  // Invariant: saving an account rebuilds auth; refresh switches from the current instance.
   onAuthChanged: {
     connectionSerial++
     connectionBusy = false
@@ -222,9 +216,6 @@ Column {
       onAccepted: root.signIn()
     }
 
-    // A work or school mailbox lives in its own tenant rather than the
-    // consumer one, and submits through Microsoft 365's SMTP host — or, where
-    // the tenant has switched authenticated SMTP off, through Graph.
     Row {
       width: parent.width
       spacing: MailStyle.space(10)
@@ -246,7 +237,6 @@ Column {
         font.pixelSize: MailStyle.bodySmall
       }
 
-      // The slider alone does not say which way is on.
       Text {
         anchors.verticalCenter: parent.verticalCenter
         text: workSwitch.checked ? "On" : "Off"

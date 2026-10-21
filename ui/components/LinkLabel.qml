@@ -3,15 +3,8 @@ import "../controls" as Widgets
 import qs.Commons
 import qs.Ui
 
-// One word or phrase inside a line of text that is a link out of the window.
-//
-// Underlined, always: the affordance has to be there before the pointer is, and
-// colour alone must never carry it — some themes put the accent close enough to
-// the foreground that a recolour says nothing at all.
-//
-// The pointing-hand cursor is reserved for real links, which this is. Native
-// controls elsewhere in the panel keep the arrow, and `tests/test_source.sh`
-// enforces that for the files that hold them.
+// Invariant: real links stay underlined and use a pointing cursor; color alone must not convey the
+// affordance.
 Text {
   id: root
 

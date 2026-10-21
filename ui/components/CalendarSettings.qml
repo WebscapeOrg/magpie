@@ -74,16 +74,13 @@ Column {
       root.service && Array.isArray(root.service.accountSummaries) ? root.service.accountSummaries : [])
   }
 
-  // A hand-added calendar is removed here; one that came with a mailbox is
-  // refreshed by discovery instead — unless the mailbox is gone, when there
-  // is nothing left to refresh it and this is the only way to be rid of it.
+  // Invariant: discovery owns account calendars while their account exists; only manual and
+  // orphaned sources can be removed here.
   function removable(source) {
     var value = source || {}
     return (value.kind === "caldav" && value.discovered !== true) || root.orphaned(value)
   }
 
-  // Calendars listed under their mailbox's row: the provider and the address
-  // are on that row already, so only what sets this calendar apart is left.
   function nestedDetail(source) {
     var value = source || {}
     var parts = []
@@ -92,8 +89,6 @@ Column {
     return parts.join(" · ")
   }
 
-  // Google names a mailbox's own calendar after its address, which the row
-  // above already shows; beside it the calendar is simply the primary one.
   function displayName(source) {
     var value = source || {}
     var name = String(value.name || value.id || "Calendar")
@@ -107,16 +102,12 @@ Column {
     })
   }
 
-  // Hand-added CalDAV calendars and ones whose mailbox is gone or cannot be
-  // discovered here: nothing above lists them, so they are listed on their own.
   readonly property var otherSources: settingsSources.filter(function(source) {
     var account = String(source.accountId || "")
     return account === "" || root.orphaned(source)
       || !root.discoverableAccounts().some(function(value) { return String(value.id) === account })
   })
 
-  // One default per account, asked only where the account has more than one
-  // calendar to put a new event in.
   readonly property var defaultChoices: Sources.writableGroups(Sources.groupByAccount(
     { sources: writableSources }, service ? service.accountSummaries : []))
     .filter(function(group) { return group.calendars.length > 1 })
@@ -153,8 +144,6 @@ Column {
   width: parent ? parent.width : implicitWidth
   spacing: MailStyle.space(16)
 
-  // One settings row, the shape every other row on this page has: a title and
-  // a caption on the left, the control that changes it on the right.
   component SettingRow: Rectangle {
     id: settingRow
     property string title: ""
@@ -208,8 +197,6 @@ Column {
     font.letterSpacing: 1
   }
 
-  // A calendar: its colour, its name and whether it is shown. The colour and
-  // password editors open beneath the row they belong to.
   component CalendarRow: Column {
     id: calendarRow
     property var source: ({})
@@ -227,7 +214,6 @@ Column {
         id: colorButton
         objectName: "calendar-source-color"
         focusable: true
-        // The dot's left edge sits on the same line as the titles above it.
         anchors.left: parent.left
         anchors.leftMargin: MailStyle.space(12) - (width - MailStyle.space(10)) / 2
         anchors.verticalCenter: parent.verticalCenter
@@ -432,7 +418,6 @@ Column {
     }
   }
 
-  // --------------------------------------------------------------- calendars
 
   Column {
     width: parent.width
@@ -739,8 +724,7 @@ Column {
 
   Text {
     id: resultText
-    // Whether the text reports success, said by the reporter rather than
-    // read back out of the words: an error can begin with anything.
+    // Invariant: success is explicit state, never inferred from server-controlled error wording.
     property bool ok: false
     width: parent.width
     visible: text !== ""
@@ -774,7 +758,6 @@ Column {
     onClicked: root.openCalendarRequested()
   }
 
-  // -------------------------------------------------------------- new events
 
   Column {
     width: parent.width
@@ -811,7 +794,6 @@ Column {
     }
   }
 
-  // --------------------------------------------------------------- reminders
 
   Column {
     width: parent.width

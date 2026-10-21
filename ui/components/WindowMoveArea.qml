@@ -1,8 +1,7 @@
 import QtQuick
 
-// Keep this below header controls so their pointer handlers win. Empty
-// title-bar space delegates movement to the compositor; retaining a QML
-// MouseArea grab while moving the native window makes it trail the pointer.
+// Invariant: header controls retain pointer priority; native system movement must not retain a QML
+// pointer grab.
 MouseArea {
   id: root
   required property var nativeWindow

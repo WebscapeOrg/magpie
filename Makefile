@@ -98,8 +98,7 @@ help:
 
 test: test-rust test-js test-shell test-qml
 
-# The real Quickshell process bridge needs the desktop runtime installed.
-# Keep it explicit so the portable suite can still run without Quickshell.
+# Invariant: the explicit local gate requires Quickshell; portable tests do not.
 test-local: test test-backend-process
 
 test-backend-process:
@@ -115,8 +114,6 @@ test-rust:
 backend:
 	cargo build --locked --release --target-dir "$(CURDIR)/target" --bin omamail
 
-# The parsing, formatting, and decision rules live in plain JS precisely so
-# they can be tested without a compositor. These run anywhere node does.
 test-js:
 	node ui/tests/test_inbox.js
 	node ui/tests/test_display.js
@@ -180,8 +177,7 @@ test-js:
 
 test-shell: test-shell-portable test-shell-libcurl
 
-# Everything here drives one of our own scripts against a fake server and
-# asserts what the script did with the answer, so any libcurl can run it.
+# Invariant: portable transport tests assert our policy using controlled servers.
 test-shell-portable: test-shell-independent
 	python3 tests/test_calendar_notifications.py
 	python3 tests/test_curl_config.py
@@ -227,30 +223,17 @@ test-shell-independent:
 	python3 tests/test_publish_backend.py
 	bash tests/test_release_source.sh
 
-# This one asserts libcurl's own behaviour rather than ours: which of its two
-# output channels a single-UID BODY.PEEK fetch arrives on. That is a property
-# of the installed libcurl and it differs by version — Omarchy's 8.21 puts the
-# message on stdout, and the libcurl on a GitHub runner delivers neither the
-# body there nor a complete one through the header callback. Running it on a
-# runner reports on a library nobody here runs, which is why the release
-# workflow does not, and why `make test` still does.
+# Invariant: BODY.PEEK output channels depend on the installed libcurl version.
+# This local gate checks the desktop library; release CI uses the portable gate.
 test-shell-libcurl:
 	bash tests/test_imap_ordering.sh
 
-# Focus ownership and key routing cannot be tested without a focus scope, and a
-# focus scope needs the QML engine. Offscreen, so it needs no compositor: the
-# bugs this catches — a hidden component owning the focus and swallowing keys, a
-# Repeater building no Shortcuts — are invisible to any test that cannot
-# instantiate one.
-#
-# Found rather than hard-coded: the binary is at /usr/lib/qt6/bin on Arch and on
-# PATH as qmltestrunner6 on Debian and Ubuntu, and pinning one of those makes
-# the suite unrunnable on the other.
+# Invariant: Arch and Debian install Qt's test runner under different names/paths.
 QMLTESTRUNNER := $(shell command -v qmltestrunner6 2>/dev/null \
 	|| ls /usr/lib/qt6/bin/qmltestrunner 2>/dev/null \
 	|| command -v qmltestrunner 2>/dev/null)
 
-# Use the verified release download, not a build from this checkout.
+# Invariant: this gate needs the verified release download, not a source build.
 .PHONY: test-agent-published
 test-agent-published:
 	@test -n "$(PUBLISHED_BACKEND)" || { echo "Set PUBLISHED_BACKEND to the verified pinned executable" >&2; exit 1; }
@@ -287,14 +270,11 @@ app-build:
 app-run: app-build
 	OMAMAIL_DEVELOPMENT_RESOURCES=1 OMAMAIL_BIN="$(APP_BACKEND)" "$(APP_EXECUTABLE)"
 
-# Both engines on the same fixtures. The QML column is the one that decides
-# anything — the shell runs that engine, not node's — so run it on the machine
-# the shell runs on. Not part of `test`: it takes a few seconds and measures
-# rather than asserts.
+# Performance: QML measurements represent the desktop engine; Node is a comparison.
 bench:
 	bash ui/tests/bench.sh
 
-# Needs the Omarchy shell's qs.Commons / qs.Ui on the import path.
+# Invariant: qs.Commons and qs.Ui come from the installed Omarchy shell.
 qml-check:
 	$(QMLLINT) -I /usr/share/omarchy/shell $(QML_FILES)
 	$(QMLLINT) -I app/qml/imports -I app/build/qml $(APP_QML_FILES)
@@ -309,7 +289,7 @@ VERIFY_OUTPUT ?= /tmp/magpie-verification-$(shell date +%Y%m%d-%H%M%S)
 verify-performance:
 	python3 scripts/verify-performance.py --profile "$(VERIFY_PROFILE)" --output "$(VERIFY_OUTPUT)"
 
-# Development only: the Marketplace installs the plugin for ordinary users.
+# Invariant: these local installation targets are explicitly requested by developers.
 .PHONY: install-backend-local install-plugin
 install-backend-local: backend
 	python3 scripts/backend-runtime.py install-local
@@ -317,13 +297,11 @@ install-backend-local: backend
 install: install-backend-local
 	bash scripts/link-plugin.sh
 
-# Reset the private runtime so the setup page exercises a fresh installation.
 install-plugin:
 	python3 scripts/backend-runtime.py uninstall
 	bash scripts/link-plugin.sh
 
-# Prepare release/X.Y.Z and its PR; CI publishes, verifies, then updates its pin.
-# VERSION defaults to the next patch. Main changes only when the PR is merged.
+# Invariant: publication and pin advancement occur on a release branch before merging.
 .PHONY: publish
 publish:
 	bash scripts/publish.sh "$(VERSION)"

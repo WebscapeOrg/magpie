@@ -83,7 +83,6 @@ Item {
     property var messages: initialMessages.slice()
 
     property string selectedId: ""
-    property int selectCount: 0
     property int previewSelects: 0
     property int openSelects: 0
     property var markedRead: []
@@ -91,25 +90,14 @@ Item {
     function select(id, previewOnly) {
       selectedId = String(id || "")
       selectedMessage = messages.filter(function(row) { return row.id === selectedId })[0] || null
-      selectCount += 1
       selectionIsPreview = previewOnly === true
       if (previewOnly === true) previewSelects += 1
       else openSelects += 1
     }
 
-    function beginFetch() {
-      detailLoading = true
-      detailPainted = false
-    }
-
     function finishFetch() {
       detailLoading = false
       detailPainted = true
-    }
-
-    function failFetch() {
-      detailLoading = false
-      detailPainted = false
     }
 
     function markPreviewRead(id) {
@@ -187,7 +175,6 @@ Item {
       mailService.previewOnCursor = true
       mailService.markReadDelaySec = 2
       mailService.selectedId = ""
-      mailService.selectCount = 0
       mailService.previewSelects = 0
       mailService.openSelects = 0
       mailService.markedRead = []

@@ -318,11 +318,13 @@ function escapeMarkup(text) {
 
 // Performance: one output buffer avoids copying the complete subtree again at every recursive
 // level.
-function serializeInto(node, out, fit) {
+function serializeInto(node, out, fit, images) {
   if (node.type === "text") {
     out.push(escapeMarkup(node.text))
     return
   }
+  // Invariant: cached trees from older backends must pass current image limits at Qt serialization.
+  if (node.name === "img" && images && !admitImage(images, attributeValue(node, "src"))) return
   if (node.type !== "root") {
     out.push("<" + node.name + serializeAttributes(fit ? fitAttributes(node, fit) : node.attrs))
     if (VOID_ELEMENTS[node.name] === true || node.selfClosing) {
@@ -331,14 +333,14 @@ function serializeInto(node, out, fit) {
     }
     out.push(">")
   }
-  for (var childIndex = 0; childIndex < node.children.length; childIndex++) serializeInto(node.children[childIndex], out, fit)
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) serializeInto(node.children[childIndex], out, fit, images)
   if (node.type !== "root") out.push("</" + node.name + ">")
 }
 
 // Invariant: fitting must not mutate the tree reused at later window widths.
-function serialize(node, fit) {
+function serialize(node, fit, images) {
   var out = []
-  serializeInto(node, out, fit)
+  serializeInto(node, out, fit, images)
   return out.join("")
 }
 
@@ -1720,7 +1722,7 @@ function documentFor(bodyHtml, colors) {
     + (maxImageWidthPixels >= MIN_IMAGE_WIDTH ? "img{max-width:" + maxImageWidthPixels + "px;}" : "")
     + "</style></head><body" + baseDirectionAttribute(palette) + ">"
     + (paddingPixels > 0 ? "<div style=\"padding:" + paddingPixels + "px\">" : "")
-    + serialize(root, fit)
+    + serialize(root, fit, imagePolicy({ maxImages: MAX_ALLOWED_IMAGES }))
     + (paddingPixels > 0 ? "</div>" : "")
     + "</body></html>"
 }
@@ -2520,7 +2522,7 @@ function readerDocumentFor(source, colors) {
     + "th{font-weight:bold;text-align:" + startEdge + ";}"
     + (maxImageWidthPixels >= MIN_IMAGE_WIDTH ? "img{max-width:" + maxImageWidthPixels + "px;}" : "")
     + "</style></head><body" + baseDirectionAttribute(palette) + ">"
-    + serialize(documentTree(source))
+    + serialize(documentTree(source), null, imagePolicy({ maxImages: MAX_ALLOWED_IMAGES }))
     + "</body></html>"
 }
 

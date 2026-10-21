@@ -74,11 +74,11 @@ class ReleaseTests(unittest.TestCase):
         (self.root / 'Cargo.lock').write_text('[[package]]\nname = "omamail"\nversion = "0.8.1"\n')
         self.assertNotEqual(self.run_helper('check', '--root', self.root).returncode, 0)
 
-    def test_release_version_includes_plugin_manifest_and_standalone_host(self):
+    def test_backend_version_includes_standalone_host_and_keeps_plugin_independent(self):
         self.metadata()
         self.assertEqual(self.run_helper('check', '--root', self.root, '--tag', 'v0.8.2').returncode, 0)
         fixtures = {
-            'manifest.json': '{"version":"0.8.1"}',
+            'manifest.json': '{"version":"invalid"}',
             'app/CMakeLists.txt': 'project(omamail-app VERSION 0.8.1 LANGUAGES CXX)\n',
         }
         for name, value in fixtures.items():
@@ -89,6 +89,20 @@ class ReleaseTests(unittest.TestCase):
                 result = self.run_helper('check', '--root', self.root, '--tag', 'v0.8.2')
                 self.assertNotEqual(result.returncode, 0)
                 path.write_text(original)
+
+    def test_standalone_manifest_preserves_defaults_without_changing_plugin_metadata(self):
+        self.metadata()
+        plugin = {'id': 'magpie', 'name': 'Magpie', 'version': '1.0.0',
+                  'barWidget': {'defaults': {'maxMessages': 50}}}
+        path = self.root / 'manifest.json'
+        path.write_text(json.dumps(plugin))
+        result = self.run_helper('standalone-manifest', '--root', self.root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bundled = json.loads(result.stdout)
+        self.assertEqual(bundled, dict(plugin, id='omamail', name='Omamail', version='0.8.2'))
+        self.assertEqual(json.loads(path.read_text()), plugin)
+        (self.root / 'app/CMakeLists.txt').write_text('project(omamail-app VERSION 0.8.1 LANGUAGES CXX)\n')
+        self.assertNotEqual(self.run_helper('standalone-manifest', '--root', self.root).returncode, 0)
 
     def test_release_pr_gate_requires_published_version_before_merge(self):
         # Execute the actual workflow guard: removing or weakening it must let

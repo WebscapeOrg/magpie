@@ -2,6 +2,8 @@ mod content;
 mod ipc;
 #[cfg(test)]
 mod recovery_tests;
+#[cfg(test)]
+mod provider_tests;
 mod search;
 mod store;
 mod sync;

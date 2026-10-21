@@ -13,12 +13,13 @@ import plistlib
 import subprocess
 import tarfile
 import tempfile
+import tomllib
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGER = ROOT / "app/scripts/package-release.sh"
-VERSION = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))["version"]
+VERSION = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
 
 
 class PackageTest(unittest.TestCase):

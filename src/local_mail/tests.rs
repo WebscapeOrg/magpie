@@ -23,6 +23,11 @@ pub(super) fn directory() -> std::path::PathBuf {
     }
     path
 }
+pub(super) fn open_directory(path: &std::path::Path) -> File {
+    crate::platform::private_fs::directories(path, &[], false)
+        .unwrap()
+        .unwrap()
+}
 pub(super) fn message(id: &str, text: &str) -> Value {
     json!({"id":id,"threadId":"thread","labelIds":["INBOX","UNREAD"],"internalDate":"1700000000000",
         "payload":{"mimeType":"text/plain","headers":[{"name":"From","value":"Alice <alice@example.org>"},{"name":"Subject","value":"Café 合成"}],
@@ -32,7 +37,7 @@ pub(super) fn message(id: &str, text: &str) -> Value {
 fn local_mail_search_and_edits_survive_restart() {
     let path = directory();
     {
-        let store = Store::open(File::open(&path).unwrap()).unwrap();
+        let store = Store::open(open_directory(&path)).unwrap();
         store
             .put(&message("one", "Offline café needles"), 1)
             .unwrap();
@@ -67,12 +72,12 @@ fn local_mail_search_and_edits_survive_restart() {
         );
         assert_eq!(store.status().unwrap()["pendingEdits"], 1);
         assert!(
-            Store::open(File::open(&path).unwrap()).is_err(),
+            Store::open(open_directory(&path)).is_err(),
             "another owner must not open the database"
         );
     }
     {
-        let store = Store::open(File::open(&path).unwrap()).unwrap();
+        let store = Store::open(open_directory(&path)).unwrap();
         assert_eq!(
             store.resource("one").unwrap().unwrap()["labelIds"],
             json!(["INBOX"])
@@ -114,7 +119,7 @@ fn database_and_sidecar_links_never_touch_their_targets() {
         let target = path.join("untouched");
         std::fs::write(&target, b"secret sentinel").unwrap();
         symlink(&target, path.join(name)).unwrap();
-        let result = Store::open(File::open(&path).unwrap());
+        let result = Store::open(open_directory(&path));
         assert!(result.is_err(), "{name}");
         assert_eq!(std::fs::read(&target).unwrap(), b"secret sentinel");
         std::fs::remove_dir_all(path).unwrap();
@@ -123,7 +128,7 @@ fn database_and_sidecar_links_never_touch_their_targets() {
 #[test]
 fn sqlite_cannot_attach_a_path_outside_its_directory() {
     let path = directory();
-    let store = Store::open(File::open(&path).unwrap()).unwrap();
+    let store = Store::open(open_directory(&path)).unwrap();
     let escaped = path.join("escaped");
     assert!(
         store
@@ -143,7 +148,7 @@ fn sqlite_cannot_attach_a_path_outside_its_directory() {
 #[test]
 fn coalescing_preserves_latest_intent_and_undo_stops_before_claim() {
     let path = directory();
-    let store = Store::open(File::open(&path).unwrap()).unwrap();
+    let store = Store::open(open_directory(&path)).unwrap();
     store.put(&message("one", "body"), 1).unwrap();
     store
         .edit("star", &["one".into()], &["STARRED".into()], &[])
@@ -174,7 +179,7 @@ fn coalescing_preserves_latest_intent_and_undo_stops_before_claim() {
 #[test]
 fn missing_text_is_retryable_and_paging_never_repeats_the_previous_page() {
     let path = directory();
-    let store = Store::open(File::open(&path).unwrap()).unwrap();
+    let store = Store::open(open_directory(&path)).unwrap();
     for id in ["one", "two", "three"] {
         store.put(&message(id, "body"), 1).unwrap();
     }
@@ -224,7 +229,7 @@ fn missing_text_is_retryable_and_paging_never_repeats_the_previous_page() {
 #[test]
 fn malformed_history_rolls_back_jobs_deletions_and_checkpoint() {
     let path = directory();
-    let store = Store::open(File::open(&path).unwrap()).unwrap();
+    let store = Store::open(open_directory(&path)).unwrap();
     store.put(&message("kept", "sentinel"), 1).unwrap();
     store
         .write(|db| store::set_state(db, "history", "100"))
@@ -247,7 +252,7 @@ fn malformed_history_rolls_back_jobs_deletions_and_checkpoint() {
 #[test]
 fn large_summary_pages_keep_a_continuation_and_reject_an_oversized_single_row() {
     let path = directory();
-    let store = Store::open(File::open(&path).unwrap()).unwrap();
+    let store = Store::open(open_directory(&path)).unwrap();
     for id in ["a", "b"] {
         store.put(&message(id, "body"), 1).unwrap();
         let summary = json!({"id":id,"subject":"x".repeat(9*1024*1024)}).to_string();
@@ -289,7 +294,7 @@ fn large_summary_pages_keep_a_continuation_and_reject_an_oversized_single_row() 
 #[test]
 fn committed_mail_and_queued_edits_survive_process_exit_without_checkpoint() {
     if let Some(path) = std::env::var_os("MAGPIE_WAL_CHILD") {
-        let store = Store::open(File::open(path).unwrap()).unwrap();
+        let store = Store::open(open_directory(&std::path::PathBuf::from(path))).unwrap();
         store
             .put(&message("durable", "committed needle"), 1)
             .unwrap();
@@ -313,7 +318,7 @@ fn committed_mail_and_queued_edits_survive_process_exit_without_checkpoint() {
         "{}",
         String::from_utf8_lossy(&child.stdout)
     );
-    let store = Store::open(File::open(&path).unwrap()).unwrap();
+    let store = Store::open(open_directory(&path)).unwrap();
     assert_eq!(
         store.list("needle is:starred", 50, "").unwrap()["summaries"][0]["id"],
         "durable"
@@ -333,7 +338,7 @@ fn benchmark_local_queries() {
         .unwrap_or(100_000);
     assert!((1..=1_000_000).contains(&count));
     let path = directory();
-    let store = Store::open(File::open(&path).unwrap()).unwrap();
+    let store = Store::open(open_directory(&path)).unwrap();
     let started = Instant::now();
     store.write(|db| {
         let mut messages=store::sql(db.prepare("INSERT INTO messages(id,thread_id,date,summary,blob,server_labels,sender,recipients,copied,subject,filenames,has_attachment,text_complete,generation) VALUES(?1,?1,?2,?3,'synthetic','[\"INBOX\"]','alice@example.org','bob@example.org','','Invoice','','0',1,1)"))?;

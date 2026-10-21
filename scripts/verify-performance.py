@@ -118,6 +118,9 @@ def stages(profile, output, baseline):
     gates = [
         gate("build", ["cargo", "build", "--locked", "--bin", "omamail"], ["cargo"]),
         gate("offline-recovery", ["cargo", "test", "--locked", "--lib", "local_mail::recovery_tests"], ["cargo"]),
+        gate("provider-recovery", ["cargo", "test", "--locked", "--lib", "local_mail::provider_tests"], ["cargo"] + runtime),
+        gate("send-recovery", ["cargo", "test", "--locked", "--lib", "outbox::tests::recorder_confirms"], ["cargo"] + runtime),
+        gate("low-space", [sys.executable, "scripts/test-low-space.py"], ["cargo", "pdf-sandbox"] + runtime),
         gate("subprocess", ["cargo", "test", "--locked", "--lib", "process::"], ["cargo"]),
         gate("rust", isolated + make + ["test-rust"], ["cargo", "pdf-sandbox"] + runtime),
         gate("javascript", make + ["test-js"], ["node"]),

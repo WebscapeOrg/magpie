@@ -492,7 +492,7 @@ output = []
 seen_exec = seen_icon = False
 for line in lines:
     if line.startswith("Exec="):
-        output.append("Exec=/usr/bin/env -- " + quoted(executable)); seen_exec = True
+        output.append("Exec=/bin/sh -c " + quoted('exec "$0" "$@"') + " " + quoted(executable)); seen_exec = True
     elif line.startswith("Icon="):
         output.append("Icon=" + entry_value(icon)); seen_icon = True
     else:

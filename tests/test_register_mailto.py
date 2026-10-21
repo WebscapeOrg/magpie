@@ -18,7 +18,7 @@ class MailtoRegistration(unittest.TestCase):
     def test_special_path_launches_the_exact_handler(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            plugin = root / 'space "quote" $dollar `tick` \\slash %u'
+            plugin = root / 'space "quote" $dollar `tick` \\slash %u equals=literal'
             (plugin / 'scripts').mkdir(parents=True)
             (plugin / 'ui/assets').mkdir(parents=True)
             (plugin / 'ui/assets/magpie.svg').touch()
@@ -32,7 +32,7 @@ class MailtoRegistration(unittest.TestCase):
                 tool = tools / name
                 tool.write_text('#!/bin/sh\nexit 0\n')
                 tool.chmod(0o700)
-            env = dict(os.environ, HOME=str(root), XDG_DATA_HOME=str(root/'data'),
+            env = dict(HOME=str(root), XDG_DATA_HOME=str(root/'data'),
                        XDG_CONFIG_HOME=str(root/'config'), XDG_CACHE_HOME=str(root/'cache'),
                        PATH=str(tools)+os.pathsep+os.environ['PATH'])
             subprocess.run(['sh', str(ROOT/'scripts/register-mailto.sh'), str(plugin)], env=env, check=True, capture_output=True)

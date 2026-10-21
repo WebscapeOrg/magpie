@@ -32,7 +32,6 @@ Item {
       backend.protocolInfo = ({ apiVersion: 5 })
       compare(service.backendCanCheckMicrosoftConnection, true)
       compare(service.backendCanDiscoverCalendars, true)
-      compare(service.backendCanDiscoverCalendars, true)
       backend.latestApiVersion = 6
       compare(service.backendCanCheckMicrosoftConnection, true,
         "a later API must not disable an already supported connection check")

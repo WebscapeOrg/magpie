@@ -240,12 +240,6 @@ Item {
       return null
     }
 
-    function backBar(item) {
-      return having(item, function(it) {
-        return it.label === "Back" && typeof it.activated === "function"
-      })
-    }
-
     function page() {
       var loader = named(app, "setup-page")
       verify(loader, "the setup loader is on the page")
@@ -708,7 +702,7 @@ Item {
       mailService.hasSavedAccounts = false
       waitForRendering(app)
       compare(kinds(), "picker", "nothing saved: the question is the whole window")
-      var picker = page()
+      verify(page(), "the provider chooser is loaded")
       verify(!named(app, "page-back").visible, "and there is nothing to go back to")
 
       // A row saved with a valid server but never signed in — the Gmail

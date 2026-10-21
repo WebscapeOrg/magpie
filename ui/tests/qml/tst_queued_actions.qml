@@ -66,11 +66,6 @@ Item {
         { id: "two", labelIds: ["INBOX", "UNREAD"], unread: true, inInbox: true }
       ]
     }
-    function keys(held) {
-      var out = []
-      for (var key in held) out.push(key)
-      return out.sort()
-    }
     function ready() {
       var account = createTemporaryObject(accountFactory, parent)
       verify(account !== null)

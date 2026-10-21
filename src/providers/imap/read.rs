@@ -281,11 +281,12 @@ pub(super) async fn mailboxes(w: &mut Wire, p: &Value) -> Result<Mailboxes> {
     let epoch = EPOCH.load(std::sync::atomic::Ordering::SeqCst);
     let boxes = discover_mailboxes(w).await?;
     let mut cache = BOXES.get_or_init(Default::default).lock().await;
-    if cache.len() >= 32 {
-        cache.remove(0);
-    }
     if epoch != EPOCH.load(std::sync::atomic::Ordering::SeqCst) {
         return Ok(boxes);
+    }
+    cache.retain(|entry| entry.key != key);
+    if cache.len() >= 32 {
+        cache.remove(0);
     }
     cache.push(Cached {
         key,
@@ -647,28 +648,56 @@ fn snippet(payload: &Value) -> String {
         .unwrap_or_default()
 }
 fn structure_has_attachments(node: &Node, depth: usize, budget: &mut usize) -> bool {
-    if depth > 12 || *budget == 0 { return false; }
+    if depth > 12 || *budget == 0 {
+        return false;
+    }
     *budget -= 1;
     let fields = node.list();
     if matches!(fields.first(), Some(Node::List(_))) {
-        return fields.iter().take_while(|node| matches!(node, Node::List(_)))
+        return fields
+            .iter()
+            .take_while(|node| matches!(node, Node::List(_)))
             .any(|node| structure_has_attachments(node, depth + 1, budget));
     }
-    let named = |params: &[Node], key: &str| params.chunks_exact(2)
-        .any(|pair| pair[0].is(key) && !pair[1].is("NIL") && !pair[1].text().is_empty());
+    let named = |params: &[Node], key: &str| {
+        params
+            .chunks_exact(2)
+            .any(|pair| pair[0].is(key) && !pair[1].is("NIL") && !pair[1].text().is_empty())
+    };
     let text = fields.first().is_some_and(|node| node.is("TEXT"));
     let nested = fields.first().is_some_and(|node| node.is("MESSAGE"))
         && fields.get(1).is_some_and(|node| node.is("RFC822"));
-    let disposition = fields.get(if text { 9 } else if nested { 11 } else { 8 })
-        .map(Node::list).unwrap_or(&[]);
-    let attached = disposition.first().is_some_and(|node| node.is("ATTACHMENT"));
+    let disposition = fields
+        .get(if text {
+            9
+        } else if nested {
+            11
+        } else {
+            8
+        })
+        .map(Node::list)
+        .unwrap_or(&[]);
+    let attached = disposition
+        .first()
+        .is_some_and(|node| node.is("ATTACHMENT"));
     let inline = disposition.first().is_some_and(|node| node.is("INLINE"));
     let image = fields.first().is_some_and(|node| node.is("IMAGE"));
-    let cid = fields.get(3).is_some_and(|node| !node.is("NIL") && !node.text().is_empty());
-    if image && !attached && (inline || cid) { return false; }
-    attached || named(fields.get(2).map(Node::list).unwrap_or(&[]), "NAME")
-        || named(disposition.get(1).map(Node::list).unwrap_or(&[]), "FILENAME")
-        || (nested && fields.get(8).is_some_and(|node| structure_has_attachments(node, depth + 1, budget)))
+    let cid = fields
+        .get(3)
+        .is_some_and(|node| !node.is("NIL") && !node.text().is_empty());
+    if image && !attached && (inline || cid) {
+        return false;
+    }
+    attached
+        || named(fields.get(2).map(Node::list).unwrap_or(&[]), "NAME")
+        || named(
+            disposition.get(1).map(Node::list).unwrap_or(&[]),
+            "FILENAME",
+        )
+        || (nested
+            && fields
+                .get(8)
+                .is_some_and(|node| structure_has_attachments(node, depth + 1, budget)))
 }
 
 fn parse_messages(data: &[u8], folder: &str, full: bool, boxes: &Mailboxes) -> Result<Vec<Value>> {

@@ -239,3 +239,66 @@ fn retained_caches_evict_by_bytes_and_skip_oversized_entries() {
     cache.clear();
     assert_eq!(cache.bytes, 0);
 }
+
+#[test]
+fn oversized_cache_replacement_drops_the_stale_entry() {
+    let mut cache = Cache::default();
+    cache.insert("message".into(), json!({"subject":"old"}));
+    cache.insert("other".into(), json!({"subject":"kept"}));
+    cache.insert("message".into(), json!("x".repeat(CACHE_BYTES)));
+    assert!(cache.get("message").is_none());
+    assert_eq!(cache.get("other"), Some(&json!({"subject":"kept"})));
+    assert_eq!(
+        cache.bytes,
+        cache
+            .entries
+            .values()
+            .map(|(_, bytes)| bytes)
+            .sum::<usize>()
+    );
+}
+
+#[tokio::test]
+async fn native_watch_rejects_unmanageable_stream_ids_before_starting_a_stream() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let session = Session::default();
+    let account = "jmap:watch-validation@example.test";
+    session.install_verified(
+        account,
+        json!({
+            "apiUrl":format!("https://localhost:{port}/api"),
+            "eventSourceUrl":format!("https://localhost:{port}/events"),
+            "capabilities":{CORE:{},MAIL:{}},
+            "primaryAccounts":{MAIL:"account"},
+            "accounts":{"account":{"accountCapabilities":{MAIL:{"emailQuerySortOptions":["receivedAt"]}}}}
+        }),
+        vec![],
+        json!({"scheme":"basic","username":"synthetic","secret":"synthetic"}),
+        "watch-validation@example.test",
+    ).await.unwrap();
+    for stream_id in [
+        String::new(),
+        "x".repeat(257),
+        "watch\r".into(),
+        "watch\n".into(),
+        "watch\r\n".into(),
+        "watch\0".into(),
+    ] {
+        assert_eq!(
+            session
+                .native(
+                    "jmap.watch",
+                    &json!({"accountId":account,"streamId":stream_id})
+                )
+                .await,
+            Err("invalid_params")
+        );
+        assert!(session.streams.lock().unwrap().is_empty());
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), listener.accept())
+            .await
+            .is_err()
+    );
+}

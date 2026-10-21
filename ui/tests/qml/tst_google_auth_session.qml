@@ -35,6 +35,11 @@ Item {
       platform: storage
     }
   }
+  Loader {
+    id: lifecycleLoader
+    active: false
+    sourceComponent: factory
+  }
   TestCase {
     name: "GoogleAuthSession"
     function init() {
@@ -49,6 +54,28 @@ Item {
       auth.accountId = "first@example.org"
       auth.credentials = {clientId: "synthetic-client", clientSecret: "synthetic-secret"}
       return auth
+    }
+    function test_account_removal_cancels_deferred_session_restore() {
+      failOnWarning(/.?/)
+      lifecycleLoader.active = true
+      verify(lifecycleLoader.item)
+      lifecycleLoader.item.credentials = {clientId:"123-example.apps.googleusercontent.com",clientSecret:"synthetic-secret"}
+      verify(lifecycleLoader.item.credentialsPresent)
+      lifecycleLoader.item.accountId = "removed@example.org"
+      lifecycleLoader.active = false
+      wait(10)
+      compare(transport.calls, [])
+      compare(storage.writes, [])
+      compare(storage.deletes, [])
+    }
+    function test_deferred_restore_uses_the_current_account() {
+      var auth = manager()
+      auth.credentials = {clientId:"123-example.apps.googleusercontent.com",clientSecret:"synthetic-secret"}
+      auth.accountId = "second@example.org"
+      wait(10)
+      compare(transport.calls.length, 1)
+      compare(transport.calls[0].method, "auth.token")
+      compare(transport.calls[0].params.accountId, "second@example.org")
     }
     function test_terminal_native_error_is_signed_out_data() {
       return [

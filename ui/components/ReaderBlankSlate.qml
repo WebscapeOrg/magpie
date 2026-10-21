@@ -75,6 +75,7 @@ Item {
       text: root.searching && root.service
         ? "\"" + Model.truncate(root.service.searchQuery, 36) + "\""
         : root.mailboxName
+      textFormat: Text.PlainText
       color: root.textColor
       font.family: root.panelFontFamily
       font.pixelSize: MailStyle.subtitle
@@ -172,6 +173,7 @@ Item {
     horizontalAlignment: Text.AlignHCenter
     visible: root.showVersion
     text: root.versionText
+    textFormat: Text.PlainText
     color: root.dimmerColor
     font.family: root.panelFontFamily
     font.pixelSize: MailStyle.caption

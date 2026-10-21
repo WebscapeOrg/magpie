@@ -35,6 +35,7 @@ Column {
     spacing: MailStyle.space(8)
     Text {
       id: versionLabel
+      textFormat: Text.PlainText
       objectName: "backend-version-label"
       width: Math.min(implicitWidth, Math.max(0, parent.width - checkButton.width - parent.spacing))
       y: (parent.height - height) / 2
@@ -67,6 +68,7 @@ Column {
   Text {
     width: parent.width
     wrapMode: Text.WordWrap
+    textFormat: Text.PlainText
     text: root.runtime && root.runtime.bundled
       ? "Included with this app. Reinstall this version if the bundled backend is missing or damaged."
       : root.runtime && root.runtime.development
@@ -79,6 +81,7 @@ Column {
   Text {
     width: parent.width
     visible: text !== ""
+    textFormat: Text.PlainText
     wrapMode: Text.WordWrap
     text: root.runtime && root.runtime.error ? root.runtime.error : root.backendError
     color: root.textColor

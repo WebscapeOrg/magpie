@@ -11,6 +11,7 @@ Item {
     property string installedVersion: "0.9.0"
     property string requiredVersion: "0.9.0"
     property string error: ""
+    property string developmentExecutable: ""
     property bool development: false
     property bool busy: false
     property bool canInstall: false
@@ -50,11 +51,43 @@ Item {
       runtime.state = "ready"
     }
     function init() {
+      runtime.error = ""
+      runtime.installedVersion = "0.9.0"
+      runtime.developmentExecutable = ""
+      runtime.development = false
       runtime.cliInstalled=false
       runtime.installs=0
       runtime.busy=false
       page.visible=true
       wait(0)
+    }
+    function renderedText(item, value) {
+      if (item.text !== undefined && item.text === value && item.textFormat !== undefined) return item
+      var children = item.children || []
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var match = renderedText(children[childIndex], value)
+        if (match) return match
+      }
+      return null
+    }
+    function test_runtime_values_are_literal_text_data() {
+      return [{tag: "error", field: "error"}, {tag: "version", field: "installedVersion"},
+        {tag: "development-path", field: "developmentExecutable"}]
+    }
+    function test_runtime_values_are_literal_text(data) {
+      var markup = '<a href="https://example.test/">runtime</a>'
+      var original = runtime[data.field]
+      runtime[data.field] = markup
+      runtime.development = data.field === "developmentExecutable"
+      var expected = data.field === "error" ? markup
+        : data.field === "installedVersion" ? "Backend " + markup + " is installed."
+        : "Development executable: " + markup + ". Build the required version, then check again."
+      var label = renderedText(page, expected)
+      verify(label)
+      compare(label.textFormat, Text.PlainText)
+      for (var x = 1; x < label.width; x += 3) compare(label.linkAt(x, label.height / 2), "")
+      runtime[data.field] = original
+      runtime.development = false
     }
     function test_check_is_ghost_beside_version() {
       var check=findChild(page,"backend-refresh")

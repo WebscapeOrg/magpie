@@ -1,4 +1,4 @@
-//! Loopback OAuth listener. PKCE and state never leave the pending Rust flow.
+//! Loopback OAuth listener with pending PKCE and state owned by Rust.
 use super::*;
 use base64::Engine;
 use sha2::{Digest, Sha256};
@@ -148,7 +148,7 @@ async fn finish_google(mut response: Value, client_id: &str) -> Result<Value, &'
         "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/gmail.send",
         "https://www.googleapis.com/auth/calendar.events",
-        // Calendar discovery lists the account's calendars; OAuth.SCOPES asks
+        // Invariant: Calendar discovery lists the account's calendars; OAuth.SCOPES asks
         // for it and AuthManager refuses a grant without it, so this does too.
         "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
     ] {
@@ -170,7 +170,7 @@ async fn finish_google(mut response: Value, client_id: &str) -> Result<Value, &'
         .ok_or("auth_invalid_profile")?;
     if let Some(refresh) = token["refresh_token"].as_str().filter(|value| !value.is_empty()) {
         credentials::store_google(client_id, account, refresh).await?;
-        // The grant is already saved to the verified mailbox, before the UI
+        // Invariant: The grant is already saved to the verified mailbox, before the UI
         // starts any mailbox requests; never create an unnamed keyring item.
         token
             .as_object_mut()
@@ -338,7 +338,7 @@ mod tests {
             assert!(std::str::from_utf8(&bytes).unwrap().contains(expected));
         }
         assert_eq!(task.await.unwrap().unwrap(), "synthetic-code");
-        // Parallel tests spawn Node and transport fixtures. Between fork and
+        // Invariant: Parallel tests spawn Node and transport fixtures. Between fork and
         // exec a child briefly retains the listener despite CLOEXEC, even
         // after this task has dropped its own descriptor. Require actual
         // connection refusal within a bound, not closure at one scheduling
@@ -352,7 +352,7 @@ mod tests {
     #[tokio::test]
     async fn cancelled_flow_releases_its_listener_and_does_not_exchange_a_code() {
         let flows = Flows::default();
-        // Port zero chooses a candidate, not a reservation that can survive
+        // Invariant: Port zero chooses a candidate, not a reservation that can survive
         // closing it. Other parallel listeners or fork-before-exec children
         // can own that port before begin binds it. Retry only admission's
         // explicit busy-port error and require a real bound flow to proceed.
@@ -384,7 +384,7 @@ mod tests {
             .call("auth.cancel", &json!({"id":answer["id"]}))
             .await
             .unwrap();
-        // Task abortion and a parallel child's fork/exec descriptor window
+        // Invariant: Task abortion and a parallel child's fork/exec descriptor window
         // are asynchronous. Require an actual successful rebind, bounded in
         // time; an unrelated bind error must never count as released.
         let rebound = tokio::time::timeout(Duration::from_secs(1), async {

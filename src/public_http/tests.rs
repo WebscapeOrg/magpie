@@ -109,7 +109,7 @@ async fn server(response: Vec<u8>) -> (SocketAddr, tokio::task::JoinHandle<Strin
     (address, job)
 }
 
-// This private test client pins a synthetic public name to the local harness.
+// Invariant: This private test client pins a synthetic public name to the local harness.
 // Production has no endpoint override, certificate bypass or private-IP switch.
 fn test_client(address: SocketAddr) -> Client {
     client_builder()
@@ -294,7 +294,7 @@ async fn tls_verifies_issuer_and_original_hostname_before_http() {
         .add_root_certificate(certificate)
         .build()
         .unwrap();
-    // Both requests connect to the pinned address, retaining sender.example as
+    // Invariant: Both requests connect to the pinned address, retaining sender.example as
     // the TLS name. Trusting the issuer alone must not trust its localhost name.
     for client in [test_client(address), trusted] {
         let result = execute(

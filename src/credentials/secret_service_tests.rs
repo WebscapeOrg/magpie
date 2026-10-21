@@ -25,19 +25,12 @@ impl Drop for Daemon {
 struct Service {
     denial: bool,
     missing: bool,
-    /// Reports the item as present but locked, which the daemon answers over a
-    /// connection that is still good.
     locked: Arc<AtomicBool>,
-    /// Reports the default collection as locked, the state a fresh login
-    /// leaves a blank-password keyring in.
     collection_locked: Arc<AtomicBool>,
     unlock_denial: bool,
     unlocks: Arc<AtomicUsize>,
-    /// Counts negotiated sessions, which is what tells a reused connection from
-    /// one rebuilt per operation.
     sessions: Arc<AtomicUsize>,
     searches: Arc<AtomicUsize>,
-    /// Searches to fail before answering, for exercising reconnection.
     failures: Arc<AtomicUsize>,
 }
 #[zbus::interface(name = "org.freedesktop.Secret.Service")]
@@ -100,7 +93,7 @@ impl Service {
         Ok((objects, path("/")))
     }
 }
-/// The default collection, so a Put reaches CreateItem. It counts the calls
+/// Invariant: The default collection, so a Put reaches CreateItem. It counts the calls
 /// that actually reached the daemon, then refuses, which is the shape of a
 /// write the daemon commits and the client never hears about.
 struct Collection {
@@ -140,7 +133,7 @@ impl Prompt {
     fn prompt(&self, _window_id: &str) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
-    // Deliberately never emits Completed. This is a real signal wait inside the
+    // Invariant: Deliberately never emits Completed. This is a real signal wait inside the
     // secret-service crate, rather than a pending future substituted for it.
 }
 
@@ -169,7 +162,7 @@ impl Fixture {
     fn with_refused_unlock() -> Self {
         Self::build(false, false, true, true, 0)
     }
-    /// A missing item in a locked default collection: the state a fresh login
+    /// Invariant: A missing item in a locked default collection: the state a fresh login
     /// leaves behind, where a write has nothing to set and must create.
     fn with_locked_collection() -> Self {
         let fixture = Self::build(false, true, false, false, 0);
@@ -365,7 +358,7 @@ fn credentials_native_linux_denial_and_unavailability_are_not_missing() {
     ));
 }
 
-/// The regression test for the per-operation session. Opening a session for
+/// Invariant: The regression test for the per-operation session. Opening a session for
 /// every credential read and force-closing it afterwards races
 /// gnome-keyring's own handshake, which aborts the daemon holding every
 /// credential on the machine. Against the unfixed code this counts three.
@@ -395,7 +388,7 @@ fn credentials_native_linux_reuses_one_session_across_operations() {
     );
 }
 
-/// A session the daemon has forgotten fails like an absent one, so the
+/// Invariant: A session the daemon has forgotten fails like an absent one, so the
 /// operation has to survive it rather than report a failure the caller cannot
 /// act on. Without the retry the first read after a daemon restart just fails.
 #[test]
@@ -424,7 +417,7 @@ fn credentials_native_linux_reconnects_after_a_transport_failure() {
     );
 }
 
-/// Missing is an answer, not a transport failure: it must neither drop the
+/// Invariant: Missing is an answer, not a transport failure: it must neither drop the
 /// session nor spend the retry, or every absent credential would cost a
 /// reconnection and a second search.
 #[test]
@@ -452,7 +445,7 @@ fn credentials_native_linux_keeps_the_session_when_an_item_is_missing() {
     assert_eq!(fixture.sessions.load(Ordering::SeqCst), 1);
 }
 
-/// A write is never repeated. A request already on the socket cannot be
+/// Invariant: A write is never repeated. A request already on the socket cannot be
 /// retracted, so a `CreateItem` the daemon committed before the connection
 /// failed would be made a second time, leaving two items with the same
 /// attributes; `find` answers `Ambiguous` for both from then on, and the
@@ -482,7 +475,7 @@ fn credentials_native_linux_a_failed_write_reaches_the_daemon_once() {
     );
 }
 
-/// A locked keyring is an answer, not a broken connection. Dropping the session
+/// Invariant: A locked keyring is an answer, not a broken connection. Dropping the session
 /// for it would renegotiate a session on every read in exactly the state where
 /// the daemon is least able to survive one.
 #[test]
@@ -512,7 +505,7 @@ fn credentials_native_linux_a_refused_unlock_keeps_the_session() {
     assert_eq!(fixture.searches.load(Ordering::SeqCst), 2);
 }
 
-/// A locked result is still the matching credential. Blank-password Secret
+/// Invariant: A locked result is still the matching credential. Blank-password Secret
 /// Service collections unlock without a prompt, so the item must be returned
 /// from the same search instead of being discarded as unavailable.
 #[test]
@@ -534,7 +527,7 @@ fn credentials_native_linux_silently_unlocks_a_locked_item() {
     assert_eq!(fixture.searches.load(Ordering::SeqCst), 1);
 }
 
-/// A fresh login leaves a blank-password default collection locked. A write
+/// Invariant: A fresh login leaves a blank-password default collection locked. A write
 /// must unlock it and carry on rather than refuse: the refresh token is stored
 /// during sign-in, before any mailbox request, so refusing here is what made
 /// Gmail sign-in fail with a generic keyring error after Google had already
@@ -568,7 +561,7 @@ fn credentials_native_linux_a_locked_collection_is_unlocked_before_a_write() {
     );
 }
 
-/// One operation costs the caller one deadline. Opening the session and running
+/// Invariant: One operation costs the caller one deadline. Opening the session and running
 /// the operation share a single budget, so a connect that never answers cannot
 /// be waited for once and then waited for again.
 #[test]

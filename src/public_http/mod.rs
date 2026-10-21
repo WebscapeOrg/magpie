@@ -60,7 +60,7 @@ pub fn is_public(ip: IpAddr) -> bool {
         }
         IpAddr::V6(ip) => {
             let segments = ip.segments();
-            // Only currently allocated global unicast; excludes mapped IPv4,
+            // Invariant: Only currently allocated global unicast; excludes mapped IPv4,
             // NAT64, local/multicast and deprecated site-local addresses.
             (segments[0] & 0xe000) == 0x2000
                 && !(segments[0] == 0x2001 && segments[1] < 0x0200)
@@ -72,7 +72,7 @@ pub fn is_public(ip: IpAddr) -> bool {
 }
 
 fn parse_url(raw: &str, https_only: bool) -> Result<Url, &'static str> {
-    // URL parsing normalizes controls and backslashes, so reject raw bytes first.
+    // Invariant: URL parsing normalizes controls and backslashes, so reject raw bytes first.
     if raw.is_empty()
         || raw.len() > 128 * 1024
         || raw
@@ -174,7 +174,7 @@ async fn execute(
             .trim()
             .to_ascii_lowercase();
         let mut body = Vec::new();
-        // Unsubscribe only consumes the status; redirects never consume a body.
+        // Invariant: Unsubscribe only consumes the status; redirects never consume a body.
         if method == Method::GET && (200..300).contains(&status) {
             if response
                 .headers()

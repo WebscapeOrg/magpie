@@ -6,7 +6,7 @@ use security_framework::passwords::{
 const SERVICE: &str = "org.omamail.credentials.v1";
 
 fn error(error: security_framework::base::Error) -> Error {
-    // errSecItemNotFound. Authorization denial, locked keychains and other
+    // Invariant: errSecItemNotFound. Authorization denial, locked keychains and other
     // platform errors are failures, never a claim that an account is signed out.
     if error.code() == -25300 {
         Error::Missing

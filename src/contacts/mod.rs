@@ -34,7 +34,11 @@ fn address(email: &str) -> bool {
 }
 fn collect(book: &mut Book, name: &str, email: &str) {
     let email = email.trim();
-    if !address(email) || book.len() >= MAX_CONTACTS {
+    if !address(email) {
+        return;
+    }
+    let key = email.to_lowercase();
+    if book.len() >= MAX_CONTACTS && !book.contains_key(&key) {
         return;
     }
     let name: String = name
@@ -42,7 +46,6 @@ fn collect(book: &mut Book, name: &str, email: &str) {
         .chars()
         .filter(|character| !character.is_control())
         .collect();
-    let key = email.to_lowercase();
     if !book.contains_key(&key) || (book[&key]["name"] == "" && !name.is_empty()) {
         book.insert(key, json!({"name":name,"email":email}));
     }
@@ -332,6 +335,18 @@ mod tests {
             "BEGIN:VCARD\nFN:Jane\nEMAIL broken\nEMAIL:a@exam\n ple.com\nEND:VCARD\n",
         );
         assert_eq!(book["a@example.com"]["name"], "Jane");
+    }
+    #[test]
+    fn contact_limit_allows_existing_address_name_updates() {
+        let mut book = Book::new();
+        for index in 0..MAX_CONTACTS {
+            collect(&mut book, "", &format!("contact{index}@example.com"));
+        }
+        collect(&mut book, "Updated Name", "contact0@example.com");
+        collect(&mut book, "New Contact", "overflow@example.com");
+        assert_eq!(book.len(), MAX_CONTACTS);
+        assert_eq!(book["contact0@example.com"]["name"], "Updated Name");
+        assert!(!book.contains_key("overflow@example.com"));
     }
     #[test]
     fn named_contact_replaces_inferred_empty_name() {

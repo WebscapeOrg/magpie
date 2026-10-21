@@ -236,6 +236,11 @@ fn bounded_option(options: &Value, key: &str, default: usize, cap: usize) -> usi
     };
     numeric.floor().max(0.0).min(cap as f64) as usize
 }
+fn has_data_scheme(source: &str) -> bool {
+    let scheme = re!(r"(?i)^data:");
+    scheme.is_match(source) || scheme.is_match(&normalized(source))
+}
+
 pub(super) struct Images<'a> {
     options: &'a Value,
     pub kept: usize,
@@ -276,10 +281,7 @@ impl<'a> Images<'a> {
     // shared budget before either reader hands those bytes to Qt.
     fn admit(&mut self, source: &str) -> bool {
         const MAX_EMBEDDED_BYTES: usize = 16 * 1024 * 1024;
-        let bytes = if source
-            .get(..5)
-            .is_some_and(|head| head.eq_ignore_ascii_case("data:"))
-        {
+        let bytes = if has_data_scheme(source) {
             source.len()
         } else {
             0
@@ -297,14 +299,15 @@ impl<'a> Images<'a> {
             return true;
         }
         let source = n.attr("src").to_owned();
-        match image_kind(&source) {
+        let kind = image_kind(&source);
+        if matches!(kind, "inline" | "remote") && tracking(n) {
+            self.blocked += 1;
+            return false;
+        }
+        match kind {
             "inline" => self.admit(&source),
             "none" => true,
             "remote" => {
-                if tracking(n) {
-                    self.blocked += 1;
-                    return false;
-                }
                 if self.loadable < self.limit {
                     self.loadable += 1
                 }
@@ -338,7 +341,10 @@ fn clean(n: &mut Node, images: &mut Images<'_>, colors: bool) {
             c.name = "div".into()
         }
         let styles = declarations(c.attr("style"));
-        if !tree::void(&c.name) && hidden(&styles) {
+        if c.name == "img" && c.has("hidden") {
+            continue;
+        }
+        if (!tree::void(&c.name) || c.name == "img") && hidden(&styles) {
             continue;
         }
         if c.name == "img" && images.sources.len() < images.limit {
@@ -429,11 +435,7 @@ pub fn too_heavy_to_draw(n: &Node, size: &Value) -> bool {
             .filter(|c| c.kind != "text")
             .map(|c| {
                 let source = c.attr("src");
-                let own = if c.name == "img"
-                    && source
-                        .get(..5)
-                        .is_some_and(|head| head.eq_ignore_ascii_case("data:"))
-                {
+                let own = if c.name == "img" && has_data_scheme(source) {
                     source.encode_utf16().count() as u64
                 } else {
                     0

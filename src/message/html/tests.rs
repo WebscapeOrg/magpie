@@ -390,3 +390,104 @@ fn rendered_remote_image_bytes_have_an_aggregate_budget() {
         assert!(!html.contains("https://"));
     }
 }
+
+#[test]
+fn image_policy_hidden_images_are_not_offered_for_fetch_or_rendered() {
+    let source = "https://cdn.example.com/hidden.png";
+    let prepared = "data:image/png;base64,iVBORw0KGgoA";
+    for attributes in [
+        "hidden",
+        "hidden='false'",
+        "style='display:none'",
+        "style='visibility:hidden'",
+    ] {
+        let result = sanitize(
+            &format!("<p>Visible body</p><img src='{source}' {attributes}>"),
+            &json!({"withReader":true,"allowRemoteImages":true,"remoteImageData":{source:prepared}}),
+        ).unwrap();
+        assert_eq!(
+            result["remoteImageSources"],
+            json!([]),
+            "{attributes} must never become a fetch candidate"
+        );
+        assert_eq!(result["remoteImages"], 0);
+        for document in [&result, &result["reader"]] {
+            assert!(
+                !document["html"].as_str().unwrap().contains("<img"),
+                "{attributes} must never reach Qt"
+            );
+            assert!(document["html"].as_str().unwrap().contains("Visible body"));
+        }
+    }
+    for attributes in [
+        "style='font-size:0'",
+        "style='max-height:0'",
+        "style='mso-hide:all'",
+    ] {
+        let result = sanitize(
+            &format!("<img src='{source}' {attributes}>"),
+            &json!({"allowRemoteImages":true,"remoteImageData":{source:prepared}}),
+        )
+        .unwrap();
+        assert!(
+            result["html"].as_str().unwrap().contains("<img"),
+            "{attributes} alone does not hide a formatted image"
+        );
+    }
+}
+
+#[test]
+fn image_policy_inline_trackers_never_reach_either_renderer() {
+    for source in ["cid:tracking-pixel", "data:image/png;base64,iVBORw0KGgoA"] {
+        for attributes in ["width='1' height='1'", "style='height:1px'"] {
+            let result = sanitize(
+                &format!("<p>Visible body</p><img src='{source}' {attributes}>"),
+                &json!({"withReader":true}),
+            )
+            .unwrap();
+            for document in [&result, &result["reader"]] {
+                assert!(
+                    !document["html"].as_str().unwrap().contains("<img"),
+                    "{source} {attributes}"
+                );
+                assert!(document["html"].as_str().unwrap().contains("Visible body"));
+            }
+        }
+    }
+}
+
+#[test]
+fn image_policy_encoded_inline_bytes_share_the_rendered_budget() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    png.resize(4 * 1024 * 1024, 0);
+    let data = format!("data:image/png;base64,{}", STANDARD.encode(png));
+    let encoded = data.replacen("data:", "&#100;ata:", 1);
+    let source = format!("<p>Visible body</p><img src='{encoded}'>")
+        + &"<img src='https://cdn.example.com/hero'>".repeat(3);
+    let result = sanitize(
+        &source,
+        &json!({"withReader":true,"allowRemoteImages":true,
+            "remoteImageData":{"https://cdn.example.com/hero":data}}),
+    )
+    .unwrap();
+    for document in [&result, &result["reader"]] {
+        let html = document["html"].as_str().unwrap();
+        assert_eq!(
+            html.matches("<img ").count(),
+            2,
+            "the normalized inline image consumes one budget slot of bytes"
+        );
+        assert!(
+            html.len() < 16 * 1024 * 1024,
+            "refused embedded bytes must not reach Qt"
+        );
+        assert!(html.contains("Visible body"));
+        assert_eq!(
+            document["images"], 1,
+            "the exposed count remains remote-only"
+        );
+        assert_eq!(document["blockedImages"], 2);
+        assert_eq!(document["tooHeavy"], false);
+    }
+}

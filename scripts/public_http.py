@@ -14,6 +14,8 @@ import socket
 import ssl
 from urllib.parse import quote, urlsplit
 
+from raster_image import decoded_bytes
+
 MAX_INPUT_BYTES = 128 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 REQUEST_SECONDS = 20
@@ -197,6 +199,8 @@ def fetch_image(url):
         if len(data) > MAX_IMAGE_BYTES:
             raise Refused("Image exceeds the size limit")
         mime = image_mime(data)
+        if decoded_bytes(data, mime) is None:
+            raise Refused("Image dimensions are invalid or exceed the memory limit")
         claimed = response.getheader("Content-Type", "").split(";", 1)[0].strip().lower()
         if claimed == "image/jpg":
             claimed = "image/jpeg"

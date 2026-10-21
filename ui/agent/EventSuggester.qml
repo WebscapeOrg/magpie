@@ -43,6 +43,14 @@ Item {
   // off and on asks again. The panel says why when the owner opens it.
   property bool unavailable: false
 
+  readonly property bool canSuggest: !!service && service.suggestEvents === true
+    && service.hasAgent && service.agentAvailable !== false && !unavailable
+    && service.backendCanSuggestEvents
+  onCanSuggestChanged: {
+    if (canSuggest) consider()
+    else waiting = []
+  }
+
   readonly property var reading: service ? service.reading : null
   readonly property var suggestions: Agent.eventSuggestions(
     Agent.lookFor(runner ? runner.eventLooks : null,
@@ -71,7 +79,6 @@ Item {
       root.started = []
     }
   }
-  onPreparingChanged: if (!preparing) drain()
 
   function lookedAt(accountId, messageId) {
     return Agent.lookFor(runner ? runner.eventLooks : null, accountId, messageId) !== null
@@ -83,8 +90,7 @@ Item {
   // of looks already running.
   function consider() {
     var account = reading
-    if (!account || !service || service.suggestEvents !== true || !service.hasAgent || service.agentAvailable === false || unavailable
-        || !service.backendCanSuggestEvents) return false
+    if (!account || !canSuggest) return false
     var id = String(account.selectedId || "")
     var summary = account.selectedMessage
     if (id === "" || !summary || String(summary.id || "") !== id) return false
@@ -104,6 +110,7 @@ Item {
   // A look started if nothing else is starting and fewer than the ceiling
   // are running; otherwise kept, once, for the next chance.
   function tryStart(look) {
+    if (!canSuggest || !service.findAccount(look.accountId)) return false
     var free = !preparing && runner && !runner.starting
       && runner.activeEventLooks < Agent.EVENTS_IN_FLIGHT
     if (free && start(look)) {
@@ -119,7 +126,9 @@ Item {
   // with the flag. A read that fails is a look not taken, said on the
   // status line; the message may be looked at again later.
   function start(look) {
-    if (!service || !service.backend || !service.backend.ready) return false
+    if (!canSuggest || !service.backend || !service.backend.ready) return false
+    var owner = service.findAccount(look.accountId)
+    if (!owner) return false
     var token = ++serial
     var selected = typeof runner.selection === "function" ? runner.selection() : null
     preparing = true
@@ -128,15 +137,17 @@ Item {
       summaries: [look.summary], folder: look.folder, prompt: Agent.EVENTS_PROMPT },
       function(result, failure) {
         if (token !== root.serial) return
-        root.preparing = false
         var payload = result ? result.payload : null
-        if (failure || !payload || String(payload.accountId || "") !== look.accountId) {
+        if (!root.canSuggest || root.service.findAccount(look.accountId) !== owner
+            || failure || !payload || String(payload.accountId || "") !== look.accountId) {
           root.started = root.started.filter(function(key) { return key !== look.key })
-          return
+        } else {
+          payload.events = true
+          if (!root.runner.start(payload, true, selected))
+            root.started = root.started.filter(function(key) { return key !== look.key })
         }
-        payload.events = true
-        if (!root.runner.start(payload, true, selected))
-          root.started = root.started.filter(function(key) { return key !== look.key })
+        root.preparing = false
+        root.drain()
       })
     return true
   }
@@ -145,6 +156,7 @@ Item {
   // whose message was looked at meanwhile, or whose account is gone, is
   // dropped rather than asked; keys the listing now carries leave `started`.
   function drain() {
+    if (!canSuggest) { waiting = []; return }
     started = started.filter(function(key) {
       var at = key.indexOf(" ")
       return !root.lookedAt(key.slice(0, at), key.slice(at + 1))

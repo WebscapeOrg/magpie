@@ -2,55 +2,37 @@
 
 .import "Message.js" as Mail
 
-// A meeting invitation, out of the message that carried it.
-//
-// Google Calendar does not send a special kind of mail. It sends an ordinary
-// one with a `text/calendar` part beside the HTML, and every calendar that
-// speaks RFC 5545 does the same — which is why this reads the part rather than
-// the sender, and works for Outlook, Fastmail and a self-hosted CalDAV server
-// without knowing that any of them exist.
-//
-// Answering one is a mail too: an RFC 5546 REPLY, addressed to the organiser,
-// carrying the same UID with this account's ATTENDEE line rewritten. That is
-// the whole protocol, and it is why RSVP needs no calendar API, no second
-// OAuth scope, and works the same on IMAP as on Gmail.
+// Docs: Calendar invitations are MIME parts; RSVP uses an RFC 5546 reply addressed to the organiser.
 
 var MAX_ICS_BYTES = 512 * 1024
 var MAX_COMPONENT_DEPTH = 8
 
-// --------------------------------------------------------------- unfolding
-
-// A long property is split across lines with a leading space or tab, and the
-// break can fall anywhere — including between the two halves of a UTF-8
-// character or in the middle of an escape. Rejoining before anything else
-// looks at the text is what keeps every parse below reading whole values.
+// Invariant: unfold content lines before parsing properties so folded escapes remain intact.
 function unfoldLines(text) {
   var joined = String(text || "").replace(/\r\n[ \t]|\n[ \t]|\r[ \t]/g, "")
   var lines = joined.split(/\r\n|\n|\r/)
   var out = []
-  for (var i = 0; i < lines.length; i++) {
-    if (lines[i] !== "") out.push(lines[i])
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    if (lines[lineIndex] !== "") out.push(lines[lineIndex])
   }
   return out
 }
 
-// ------------------------------------------------------------------ values
-
 function unescapeText(value) {
   var input = String(value === undefined || value === null ? "" : value)
   var out = ""
-  for (var i = 0; i < input.length; i++) {
-    var character = input.charAt(i)
+  for (var index = 0; index < input.length; index++) {
+    var character = input.charAt(index)
     if (character !== "\\") {
       out += character
       continue
     }
-    var next = input.charAt(i + 1)
+    var next = input.charAt(index + 1)
     if (next === "n" || next === "N") out += "\n"
     else if (next === "\\" || next === ";" || next === "," || next === ":") out += next
     else if (next === "") out += character
     else out += next
-    i++
+    index++
   }
   return out
 }
@@ -63,20 +45,16 @@ function escapeText(value) {
     .replace(/\r\n|\n|\r/g, "\\n")
 }
 
-// ------------------------------------------------------------- one property
-//
-// The colon that ends the name and its parameters is not the first colon in
-// the line: a parameter value may be quoted and hold one, and every value that
-// names a person holds "mailto:". So the head is scanned rather than split.
+// Invariant: a quoted parameter can contain the colon that otherwise separates the property value.
 
 function parseProperty(line) {
   var text = String(line || "")
   var quoted = false
   var cut = -1
-  for (var i = 0; i < text.length; i++) {
-    var character = text.charAt(i)
+  for (var index = 0; index < text.length; index++) {
+    var character = text.charAt(index)
     if (character === "\"") quoted = !quoted
-    else if (character === ":" && !quoted) { cut = i; break }
+    else if (character === ":" && !quoted) { cut = index; break }
   }
   if (cut < 0) return null
 
@@ -88,11 +66,11 @@ function parseProperty(line) {
   if (name === "") return null
 
   var params = {}
-  for (var j = 1; j < pieces.length; j++) {
-    var equals = pieces[j].indexOf("=")
+  for (var pieceIndex = 1; pieceIndex < pieces.length; pieceIndex++) {
+    var equals = pieces[pieceIndex].indexOf("=")
     if (equals < 0) continue
-    var key = pieces[j].substring(0, equals).toUpperCase().trim()
-    var raw = pieces[j].substring(equals + 1).trim()
+    var key = pieces[pieceIndex].substring(0, equals).toUpperCase().trim()
+    var raw = pieces[pieceIndex].substring(equals + 1).trim()
     if (key !== "") params[key] = stripQuotes(raw)
   }
 
@@ -104,8 +82,8 @@ function splitOutsideQuotes(text, separator) {
   var out = []
   var current = ""
   var quoted = false
-  for (var i = 0; i < input.length; i++) {
-    var character = input.charAt(i)
+  for (var index = 0; index < input.length; index++) {
+    var character = input.charAt(index)
     if (character === "\"") {
       quoted = !quoted
       current += character
@@ -129,12 +107,7 @@ function stripQuotes(value) {
   return text
 }
 
-// ------------------------------------------------------------- the document
-//
-// A component keeps its own source lines as well as its parsed properties. A
-// REPLY has to hand the organiser's server back a DTSTART it recognises, and
-// the faithful one is the line that arrived rather than one rebuilt out of a
-// time this parser may have had to guess at.
+// Invariant: replies preserve the organiser's original time and timezone source lines.
 
 function parse(text) {
   var source = String(text || "")
@@ -143,8 +116,8 @@ function parse(text) {
   var root = null
   var stack = []
 
-  for (var i = 0; i < lines.length; i++) {
-    var property = parseProperty(lines[i])
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    var property = parseProperty(lines[lineIndex])
     if (!property) continue
     var open = stack.length > 0 ? stack[stack.length - 1] : null
 
@@ -172,10 +145,7 @@ function parse(text) {
       if (open.name !== String(property.value || "").toUpperCase().trim()) return null
       var closing = stack.pop()
       var parent = stack.length > 0 ? stack[stack.length - 1] : null
-      // The whole of the child, not the line that closed it. A component's
-      // `lines` has to be its complete source or the VTIMEZONE a reply carries
-      // back is a header with its rules missing — which is a reply the
-      // organiser's server cannot place in time.
+      // Invariant: retain complete nested VTIMEZONE source in replies, including its transition rules.
       if (parent) {
         parent.lines = parent.lines
           .concat(["BEGIN:" + closing.name], closing.lines, ["END:" + closing.name])
@@ -186,17 +156,13 @@ function parse(text) {
 
     if (!open) continue
     open.properties.push(property)
-    open.lines.push(lines[i])
+    open.lines.push(lines[lineIndex])
   }
 
   return root
 }
 
-// Replace selected top-level properties in the one VEVENT named by UID while
-// leaving every other line alone. CalDAV PUT replaces the whole resource, so
-// rebuilding a small event from parsed fields would erase alarms, attendees,
-// timezone definitions and server extensions the editor never showed. Nested
-// components such as VALARM are deliberately outside the replacement depth.
+// Invariant: CalDAV PUT replaces the resource; edit only the selected VEVENT and preserve unmodelled properties and nested components.
 function rewriteEvent(text, uid, replacementLines, propertyNames) {
   var lines = unfoldLines(text)
   var wantedUid = String(uid || "")
@@ -204,12 +170,12 @@ function rewriteEvent(text, uid, replacementLines, propertyNames) {
   var start = -1
   var depth = 0
   var foundUid = ""
-  for (var i = 0; i < lines.length; i++) {
-    var parsed = parseProperty(lines[i])
+  for (var scanIndex = 0; scanIndex < lines.length; scanIndex++) {
+    var parsed = parseProperty(lines[scanIndex])
     if (!parsed) continue
     if (start < 0 && parsed.name === "BEGIN"
         && String(parsed.value || "").toUpperCase() === "VEVENT") {
-      start = i
+      start = scanIndex
       depth = 1
       foundUid = ""
       continue
@@ -218,7 +184,7 @@ function rewriteEvent(text, uid, replacementLines, propertyNames) {
     if (parsed.name === "BEGIN") { depth++; continue }
     if (parsed.name === "END") {
       if (depth === 1 && String(parsed.value || "").toUpperCase() === "VEVENT") {
-        if (foundUid === wantedUid) matches.push({ start: start, end: i })
+        if (foundUid === wantedUid) matches.push({ start: start, end: scanIndex })
         start = -1
         depth = 0
         foundUid = ""
@@ -233,7 +199,7 @@ function rewriteEvent(text, uid, replacementLines, propertyNames) {
 
   var replace = {}
   var names = Array.isArray(propertyNames) ? propertyNames : []
-  for (var n = 0; n < names.length; n++) replace[String(names[n]).toUpperCase()] = true
+  for (var nameIndex = 0; nameIndex < names.length; nameIndex++) replace[String(names[nameIndex]).toUpperCase()] = true
   var target = matches[0]
   var out = lines.slice(0, target.start + 1)
   depth = 1
@@ -253,8 +219,8 @@ function rewriteEvent(text, uid, replacementLines, propertyNames) {
 function childNamed(component, name) {
   var children = component && Array.isArray(component.children) ? component.children : []
   var wanted = String(name || "").toUpperCase()
-  for (var i = 0; i < children.length; i++) {
-    if (children[i].name === wanted) return children[i]
+  for (var childIndex = 0; childIndex < children.length; childIndex++) {
+    if (children[childIndex].name === wanted) return children[childIndex]
   }
   return null
 }
@@ -263,8 +229,8 @@ function childrenNamed(component, name) {
   var children = component && Array.isArray(component.children) ? component.children : []
   var wanted = String(name || "").toUpperCase()
   var out = []
-  for (var i = 0; i < children.length; i++) {
-    if (children[i].name === wanted) out.push(children[i])
+  for (var childIndex = 0; childIndex < children.length; childIndex++) {
+    if (children[childIndex].name === wanted) out.push(children[childIndex])
   }
   return out
 }
@@ -272,8 +238,8 @@ function childrenNamed(component, name) {
 function property(component, name) {
   var list = component && Array.isArray(component.properties) ? component.properties : []
   var wanted = String(name || "").toUpperCase()
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].name === wanted) return list[i]
+  for (var listIndex = 0; listIndex < list.length; listIndex++) {
+    if (list[listIndex].name === wanted) return list[listIndex]
   }
   return null
 }
@@ -282,8 +248,8 @@ function properties(component, name) {
   var list = component && Array.isArray(component.properties) ? component.properties : []
   var wanted = String(name || "").toUpperCase()
   var out = []
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].name === wanted) out.push(list[i])
+  for (var listIndex = 0; listIndex < list.length; listIndex++) {
+    if (list[listIndex].name === wanted) out.push(list[listIndex])
   }
   return out
 }
@@ -293,15 +259,11 @@ function textOf(component, name) {
   return found ? unescapeText(found.value).trim() : ""
 }
 
-// ------------------------------------------------------------------- times
-
 function twoDigits(value) {
   var number = Math.floor(Number(value) || 0)
   return (number < 10 ? "0" : "") + number
 }
 
-// "20260821", "20260821T140000" or "20260821T140000Z". Anything else is not a
-// date this can be sure about, and a wrong meeting time is worse than none.
 function parseDateValue(value) {
   var text = String(value || "").trim()
   var match = text.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/)
@@ -332,9 +294,7 @@ function parseOffsetMinutes(value) {
   return match[1] === "-" ? -total : total
 }
 
-// The naive local time as a number that sorts: comparing two of these compares
-// the wall clocks they read, which is the only comparison a timezone rule is
-// written in terms of.
+// Docs: naiveKey compares wall-clock readings without applying a timezone offset.
 function naiveKey(fields) {
   return Date.UTC(fields.year, fields.month - 1, fields.day,
     fields.hour, fields.minute, fields.second)
@@ -345,9 +305,7 @@ function daysInMonth(year, month) {
   return [4, 6, 9, 11].indexOf(month) >= 0 ? 30 : 31
 }
 
-// "the second Sunday in March", "the last Sunday in October". Ordinal 0 means
-// the caller had a BYDAY with no number, which for a timezone rule is always
-// the first one.
+// Docs: ordinal zero selects the first matching weekday for a timezone rule.
 function nthWeekdayOfMonth(year, month, weekday, ordinal) {
   var total = daysInMonth(year, month)
   if (ordinal < 0) {
@@ -379,54 +337,38 @@ function weekdayIndex(code) {
 function parseRuleParts(value) {
   var parts = {}
   var pieces = String(value || "").split(";")
-  for (var i = 0; i < pieces.length; i++) {
-    var equals = pieces[i].indexOf("=")
+  for (var pieceIndex = 0; pieceIndex < pieces.length; pieceIndex++) {
+    var equals = pieces[pieceIndex].indexOf("=")
     if (equals < 0) continue
-    parts[pieces[i].substring(0, equals).toUpperCase().trim()] =
-      pieces[i].substring(equals + 1).trim()
+    parts[pieces[pieceIndex].substring(0, equals).toUpperCase().trim()] =
+      pieces[pieceIndex].substring(equals + 1).trim()
   }
   return parts
 }
 
-// A VTIMEZONE's sub-components, read once. Recurrence expansion asks for an
-// offset on every day of a series and an invitation can carry thousands of
-// RDATEs, so nothing below re-reads a property after this. The plan lives on
-// the parsed zone, so a zone timezoneDocument reuses is read only once.
-//
-// STANDARD first, and that ordering is load-bearing: a zone whose rules this
-// cannot place — a lone pair of bare dates outside the years looked at, which
-// is what an Exchange zone looks like from here — falls back to rules[0], and
-// being an hour behind in winter is a better wrong answer than being an hour
-// ahead all year.
+// Performance: parsed timezone plans are reused across recurrence lookups. Invariant: STANDARD precedes DAYLIGHT for Exchange fallback.
 function zonePlan(timezone) {
   if (timezone.transitionPlan) return timezone.transitionPlan
   var rules = []
   var kinds = ["STANDARD", "DAYLIGHT"]
-  for (var k = 0; k < kinds.length; k++) {
-    var found = childrenNamed(timezone, kinds[k])
-    for (var i = 0; i < found.length; i++) {
-      var offset = parseOffsetMinutes(textOf(found[i], "TZOFFSETTO"))
+  for (var kindIndex = 0; kindIndex < kinds.length; kindIndex++) {
+    var found = childrenNamed(timezone, kinds[kindIndex])
+    for (var foundIndex = 0; foundIndex < found.length; foundIndex++) {
+      var offset = parseOffsetMinutes(textOf(found[foundIndex], "TZOFFSETTO"))
       if (offset === null) continue
-      rules.push(zoneRule(found[i], offset))
+      rules.push(zoneRule(found[foundIndex], offset))
     }
   }
-  // A zone that carries its history — retired rules, RDATE lists, more than
-  // one standard/daylight pair — is also asked about each rule's final year,
-  // so one that has given up summer time stays where its last transition left
-  // it. A lone pair of bare dates is the Exchange case above and keeps its
-  // fallback.
+  // Invariant: ended timezone rules retain their final transition; a lone Exchange pair keeps its fallback.
   var history = rules.length > 2
-  for (var q = 0; q < rules.length && !history; q++) {
-    if (rules[q].until || rules[q].listed) history = true
+  for (var ruleIndex = 0; ruleIndex < rules.length && !history; ruleIndex++) {
+    if (rules[ruleIndex].until || rules[ruleIndex].listed) history = true
   }
   timezone.transitionPlan = { rules: rules, history: history, byYear: {} }
   return timezone.transitionPlan
 }
 
-// One STANDARD or DAYLIGHT block. A recurring one keeps its parsed RRULE; one
-// without keeps every date it takes effect on — its DTSTART and each RDATE,
-// which is how iCloud gathers a zone's one-off transitions, so the last of
-// them can sit in an RDATE decades after the DTSTART — grouped by year.
+// Invariant: RDATE can carry a later transition than DTSTART, so retain every dated transition by year.
 function zoneRule(component, offset) {
   var rule = {
     offset: offset,
@@ -445,30 +387,27 @@ function zoneRule(component, offset) {
   var dates = [rule.start]
   var extra = properties(component, "RDATE")
   rule.listed = extra.length > 0
-  for (var i = 0; i < extra.length; i++) {
-    var values = String(extra[i].value || "").split(",")
-    for (var j = 0; j < values.length; j++) {
-      var value = parseDateValue(values[j])
+  for (var extraIndex = 0; extraIndex < extra.length; extraIndex++) {
+    var values = String(extra[extraIndex].value || "").split(",")
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      var value = parseDateValue(values[valueIndex])
       if (value) dates.push(value)
     }
   }
-  for (var d = 0; d < dates.length; d++) {
-    var year = dates[d].year
+  for (var dateIndex = 0; dateIndex < dates.length; dateIndex++) {
+    var year = dates[dateIndex].year
     if (!rule.dates[year]) {
       rule.dates[year] = []
       rule.dateYears.push(year)
     }
-    rule.dates[year].push(naiveKey(dates[d]))
+    rule.dates[year].push(naiveKey(dates[dateIndex]))
     if (rule.lastYear === null || year > rule.lastYear) rule.lastYear = year
   }
-  rule.dateYears.sort(function(a, b) { return a - b })
+  rule.dateYears.sort(function(left, right) { return left - right })
   return rule
 }
 
-// When one of a VTIMEZONE's rules takes effect, in the year asked about. The
-// rules that matter are the ones real zones are written with: a yearly BYMONTH
-// with an ordinal BYDAY, a yearly BYMONTH with a BYMONTHDAY, or no rule at all
-// — dated transitions, one for a fixed-offset zone, a list for a history.
+// Docs: timezone recurrence supports yearly BYMONTH with BYDAY or BYMONTHDAY; fixed histories use dated transitions.
 function transitionsIn(rule, year) {
   if (!rule.start) return []
   if (!rule.parts) return rule.dates[year] || []
@@ -501,13 +440,7 @@ function recurringTransition(rule, year) {
   if (day < 1 || day > daysInMonth(year, month)) return null
 
   var at = Date.UTC(year, month - 1, day, start.hour, start.minute, start.second)
-  // A rule stops at its UNTIL. Zones keep their retired rules — iCloud ships
-  // Vienna's 1981–1995 late-September fall-back to this day — and without
-  // this one of those wins every autumn. UNTIL is normally UTC while `at` is
-  // the wall clock the rule left behind, so it is moved to UTC by the offset
-  // in force before the transition; compared naively, the last transition a
-  // zone east of UTC made under the rule would fall after its own UNTIL. A
-  // bare date includes its whole day.
+  // Invariant: compare UTC UNTIL against the transition using its previous offset; date-only UNTIL includes the entire day.
   if (until) {
     var reading = until.utc && rule.from !== null ? at - rule.from * 60000 : at
     var limit = naiveKey(until) + (until.dateOnly ? 86400000 - 1 : 0)
@@ -516,57 +449,58 @@ function recurringTransition(rule, year) {
   return at
 }
 
-// The transitions a reading in `year` has to choose between. Every one from
-// an earlier year is behind the reading, so of those only the latest is kept;
-// the year's own follow it. Listed histories use the nearest occupied past
-// year. Recurring rules use the year before and, for a zone with a history,
-// their final year and the ones either side — UNTIL
-// is UTC, so the last transition can sit in the year before or after the one
-// UNTIL names. Later years cannot be behind a reading in this one.
+function priorTransitionYears(rule, year, includeHistory) {
+  var years = [year - 1]
+  if (includeHistory && !rule.parts) {
+    var previous = previousListedYear(rule.dateYears, year)
+    return previous === null ? [] : [previous]
+  }
+  var last = includeHistory ? rule.lastYear : null
+  if (rule.parts && last !== null && last < year - 1) years.push(last - 1, last, last + 1)
+  return years
+}
+
+// Performance: binary-search occupied years so sparse histories retain their latest past transition without rescanning all dates.
+function previousListedYear(years, year) {
+  var low = 0
+  var high = years.length
+  while (low < high) {
+    var middle = Math.floor((low + high) / 2)
+    if (years[middle] < year) low = middle + 1
+    else high = middle
+  }
+  return low > 0 ? years[low - 1] : null
+}
+
+function latestTransitionIn(rule, years, latest) {
+  var result = latest
+  for (var yearIndex = 0; yearIndex < years.length; yearIndex++) {
+    var transitions = transitionsIn(rule, years[yearIndex])
+    for (var transitionIndex = 0; transitionIndex < transitions.length; transitionIndex++) {
+      var at = transitions[transitionIndex]
+      if (result === null || at >= result.at) result = { at: at, offset: rule.offset }
+    }
+  }
+  return result
+}
+
+// Invariant: retain the latest past transition and the current year; UTC UNTIL can place the final transition in an adjacent year.
 function transitionsAround(plan, year) {
   if (plan.byYear[year]) return plan.byYear[year]
   var latest = null
   var within = []
-  for (var r = 0; r < plan.rules.length; r++) {
-    var rule = plan.rules[r]
-    var years = [year - 1]
-    // Listed histories can have decades between dates and more dates still
-    // ahead. Find the latest occupied year before this one, not merely the
-    // previous year or the final year in the list. The parsed year index is
-    // sorted once; repeated recurrence lookups need only a binary search.
-    if (plan.history && !rule.parts) {
-      var low = 0
-      var high = rule.dateYears.length
-      while (low < high) {
-        var middle = Math.floor((low + high) / 2)
-        if (rule.dateYears[middle] < year) low = middle + 1
-        else high = middle
-      }
-      years = low > 0 ? [rule.dateYears[low - 1]] : []
-    }
-    var last = plan.history ? rule.lastYear : null
-    if (rule.parts && last !== null && last < year - 1) years.push(last - 1, last, last + 1)
-    for (var y = 0; y < years.length; y++) {
-      var earlier = transitionsIn(rule, years[y])
-      for (var e = 0; e < earlier.length; e++) {
-        if (latest === null || earlier[e] >= latest.at) latest = { at: earlier[e], offset: rule.offset }
-      }
-    }
+  for (var ruleIndex = 0; ruleIndex < plan.rules.length; ruleIndex++) {
+    var rule = plan.rules[ruleIndex]
+    var years = priorTransitionYears(rule, year, plan.history)
+    latest = latestTransitionIn(rule, years, latest)
     var found = transitionsIn(rule, year)
-    for (var f = 0; f < found.length; f++) within.push({ at: found[f], offset: rule.offset })
+    for (var foundIndex = 0; foundIndex < found.length; foundIndex++) within.push({ at: found[foundIndex], offset: rule.offset })
   }
   plan.byYear[year] = latest ? [latest].concat(within) : within
   return plan.byYear[year]
 }
 
-// The offset a zone was on at a given wall-clock reading.
-//
-// This is not a timezone database and does not try to be one. It reads the
-// VTIMEZONE the sender shipped in the same file, which is what the standard
-// asks a sender to include for exactly this reason, and picks the rule whose
-// most recent transition is behind the time being asked about. The hour a
-// clock goes back is genuinely ambiguous and is resolved to the later offset;
-// no reading of that hour is more correct than another.
+// Invariant: inline VTIMEZONE rules determine the offset; an ambiguous repeated hour selects the later transition.
 function zoneOffsetMinutes(timezone, fields) {
   if (!timezone) return null
   var plan = zonePlan(timezone)
@@ -577,20 +511,19 @@ function zoneOffsetMinutes(timezone, fields) {
   var wanted = naiveKey(fields)
   var best = null
   var candidates = transitionsAround(plan, fields.year)
-  for (var c = 0; c < candidates.length; c++) {
-    if (candidates[c].at > wanted) continue
-    if (best === null || candidates[c].at >= best.at) best = candidates[c]
+  for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+    if (candidates[candidateIndex].at > wanted) continue
+    if (best === null || candidates[candidateIndex].at >= best.at) best = candidates[candidateIndex]
   }
   if (best) return best.offset
 
-  // Before every transition this file describes. The offset in force then is
-  // the one the earliest transition moved away from.
+  // Invariant: before the first transition, use the offset that transition moved away from.
   var earliest = null
-  for (var s = 0; s < rules.length; s++) {
-    var openings = transitionsIn(rules[s], fields.year - 1)
-    for (var o = 0; o < openings.length; o++) {
-      if (earliest === null || openings[o] < earliest.at) {
-        earliest = { at: openings[o], offset: rules[s].from }
+  for (var ruleIndex = 0; ruleIndex < rules.length; ruleIndex++) {
+    var openings = transitionsIn(rules[ruleIndex], fields.year - 1)
+    for (var openingIndex = 0; openingIndex < openings.length; openingIndex++) {
+      if (earliest === null || openings[openingIndex] < earliest.at) {
+        earliest = { at: openings[openingIndex], offset: rules[ruleIndex].from }
       }
     }
   }
@@ -601,8 +534,8 @@ function timezoneFor(calendar, tzid) {
   var wanted = String(tzid || "").trim()
   if (wanted === "") return null
   var zones = childrenNamed(calendar, "VTIMEZONE")
-  for (var i = 0; i < zones.length; i++) {
-    if (textOf(zones[i], "TZID") === wanted) return zones[i]
+  for (var zoneIndex = 0; zoneIndex < zones.length; zoneIndex++) {
+    if (textOf(zones[zoneIndex], "TZID") === wanted) return zones[zoneIndex]
   }
   return null
 }
@@ -631,9 +564,7 @@ function dateFieldsFromLine(line) {
   return found ? parseDateValue(found.value) : null
 }
 
-// Recurrence expansion walks calendar dates, then asks this function for each
-// date's absolute moment. Inline VTIMEZONE rules remain authoritative. A zone
-// with no rules uses the same unresolved UTC placeholder on every machine.
+// Invariant: recurrence and invitation times use the same inline timezone rules and unresolved UTC placeholder.
 function timeInZone(fields, tzid, blocks) {
   var offset = zoneOffsetMinutes(timezoneFor(timezoneDocument(blocks), tzid), fields)
   if (offset !== null)
@@ -641,9 +572,7 @@ function timeInZone(fields, tzid, blocks) {
   return { ms: naiveKey(fields), resolved: false }
 }
 
-// A moment, and how sure this is of it. `resolved` false means the wall clock
-// is right and the zone is a guess — which the card says out loud rather than
-// showing a converted time it cannot stand behind.
+// Docs: resolved=false preserves the stated wall clock and exposes the unknown timezone to the view.
 function resolveTime(found, calendar) {
   if (!found) return null
   var fields = parseDateValue(found.value)
@@ -666,15 +595,13 @@ function resolveTime(found, calendar) {
     if (offset !== null) {
       return { ms: naiveKey(fields) - offset * 60000, allDay: false, tzid: tzid, resolved: true }
     }
-    // QML has no IANA timezone database API. Keep the wall fields as a stable
-    // UTC placeholder and mark them unresolved. Using `new Date(...)` here
-    // would silently reinterpret them in each machine's local zone.
+    // Invariant: QML has no IANA timezone database API; an unresolved UTC placeholder must not inherit the machine's local zone.
     return {
       ms: naiveKey(fields),
       allDay: false, tzid: tzid, resolved: false
     }
   }
-  // Floating: the standard says this is local time wherever it is read.
+  // Invariant: floating iCalendar times use the reader's local clock.
   return {
     ms: new Date(fields.year, fields.month - 1, fields.day,
       fields.hour, fields.minute, fields.second).getTime(),
@@ -682,7 +609,7 @@ function resolveTime(found, calendar) {
   }
 }
 
-// "PT1H30M", "P2D", "P1W". Returns milliseconds, or 0 for anything unreadable.
+// Docs: parseDuration returns milliseconds, or zero for unsupported input.
 function parseDuration(value) {
   var text = String(value || "").trim().toUpperCase()
   var match = text.match(/^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/)
@@ -695,8 +622,6 @@ function parseDuration(value) {
   return match[1] === "-" ? -total : total
 }
 
-// -------------------------------------------------------------- recurrence
-
 var WEEKDAY_NAMES = {
   SU: "Sun", MO: "Mon", TU: "Tue", WE: "Wed", TH: "Thu", FR: "Fri", SA: "Sat"
 }
@@ -708,10 +633,7 @@ var FREQUENCY_NAMES = {
   YEARLY: ["Yearly", "years"]
 }
 
-// A sentence for the card, not a full RRULE expansion. It covers what a person
-// actually schedules — every week on two days, every other Tuesday, ten times,
-// until a date — and says "Repeats" for anything more elaborate rather than
-// describing it wrongly.
+// Invariant: unsupported recurrence descriptions use "Repeats" rather than inventing a schedule.
 function describeRecurrence(value) {
   var text = String(value || "").trim()
   if (text === "") return ""
@@ -726,8 +648,8 @@ function describeRecurrence(value) {
   if (parts.BYDAY && (frequency === "WEEKLY" || frequency === "MONTHLY")) {
     var codes = String(parts.BYDAY).split(",")
     var days = []
-    for (var i = 0; i < codes.length; i++) {
-      var match = codes[i].trim().match(/^([+-]?\d+)?([A-Za-z]{2})$/)
+    for (var codeIndex = 0; codeIndex < codes.length; codeIndex++) {
+      var match = codes[codeIndex].trim().match(/^([+-]?\d+)?([A-Za-z]{2})$/)
       if (!match) continue
       var name = WEEKDAY_NAMES[match[2].toUpperCase()]
       if (name) days.push(name)
@@ -746,8 +668,6 @@ function describeRecurrence(value) {
   }
   return sentence
 }
-
-// -------------------------------------------------------------- addressing
 
 function calendarAddress(found) {
   if (!found) return null
@@ -768,14 +688,11 @@ function sameAddress(left, right) {
   return String(left || "").trim().toLowerCase() === String(right || "").trim().toLowerCase()
 }
 
-// Which of the attendee lines is this account, and what it last said. An
-// invitation forwarded to an alias has no line naming the reader at all, which
-// is a real state and not an error: the card still shows the meeting, and
-// answering it speaks for the address the mail is being read from.
+// Invariant: a forwarded invitation can be answered by an account absent from its original attendee list.
 function attendeeFor(invite, address) {
   var list = invite && Array.isArray(invite.attendees) ? invite.attendees : []
-  for (var i = 0; i < list.length; i++) {
-    if (sameAddress(list[i].email, address)) return list[i]
+  for (var listIndex = 0; listIndex < list.length; listIndex++) {
+    if (sameAddress(list[listIndex].email, address)) return list[listIndex]
   }
   return null
 }
@@ -789,32 +706,25 @@ function responseOf(invite, address) {
   return ""
 }
 
-// ------------------------------------------------------------- conferencing
-
 var MEET_URL = /https:\/\/meet\.google\.com\/[a-z0-9-]+/i
 var CONFERENCE_URL = /https:\/\/(?:[a-z0-9-]+\.)*(?:zoom\.us|teams\.microsoft\.com|teams\.live\.com|meet\.google\.com|whereby\.com|webex\.com|chime\.aws)\/[^\s<>"]+/i
 
-// Google puts the Meet link in a property of its own; everyone else leaves it
-// in the location or somewhere in the description. Looked for in that order,
-// because the property is the only one of the three that cannot be a sentence
-// about a link rather than the link itself.
+// Invariant: prefer the declared conference URL, then supported links in location and description.
 function conferenceLink(event) {
   var declared = textOf(event, "X-GOOGLE-CONFERENCE")
   if (MEET_URL.test(declared)) return declared.match(MEET_URL)[0]
 
   var fields = [textOf(event, "LOCATION"), textOf(event, "DESCRIPTION")]
-  for (var i = 0; i < fields.length; i++) {
-    var meet = fields[i].match(MEET_URL)
+  for (var meetFieldIndex = 0; meetFieldIndex < fields.length; meetFieldIndex++) {
+    var meet = fields[meetFieldIndex].match(MEET_URL)
     if (meet) return meet[0]
   }
-  for (var j = 0; j < fields.length; j++) {
-    var other = fields[j].match(CONFERENCE_URL)
+  for (var conferenceFieldIndex = 0; conferenceFieldIndex < fields.length; conferenceFieldIndex++) {
+    var other = fields[conferenceFieldIndex].match(CONFERENCE_URL)
     if (other) return other[0]
   }
   return ""
 }
-
-// ---------------------------------------------------------- the invitation
 
 var METHODS = ["REQUEST", "REPLY", "CANCEL", "PUBLISH", "COUNTER", "REFRESH", "ADD", "DECLINECOUNTER"]
 
@@ -823,13 +733,7 @@ function normalizedMethod(value) {
   return METHODS.indexOf(text) >= 0 ? text : ""
 }
 
-// The MIME part carrying the invitation, if the message has one.
-//
-// Preferred in the order that gets a usable one: a part that came with its own
-// octets first, because the whole invitation is already here. A part that came
-// as an id is the fallback, and not a rare one — Gmail withholds the octets of
-// every part the sender named, and Google Calendar names both of the two it
-// sends, so on Gmail this is how a Google invitation always arrives.
+// Invariant: prefer inline calendar bytes over a fetchable attachment, including Gmail's two-part invitation shape.
 function calendarPart(payload) {
   var carried = null
   var promised = null
@@ -843,9 +747,7 @@ function calendarPart(payload) {
     var data = part.body && part.body.data ? String(part.body.data) : ""
     var attachmentId = part.body && part.body.attachmentId
       ? String(part.body.attachmentId) : ""
-    // Measured before it is decoded, not after. This runs on the thread that
-    // draws the whole desktop, and a part that would be refused for its size
-    // anyway should not be turned into five megabytes of string first.
+    // Performance: check encoded-size bounds before decoding a calendar on the drawing thread.
     var size = Math.max(Math.floor(Number(part.body && part.body.size) || 0),
       Math.floor(data.length * 3 / 4))
     if (isCalendar && size <= MAX_ICS_BYTES) {
@@ -854,31 +756,28 @@ function calendarPart(payload) {
       } else if (attachmentId !== "" && promised === null) promised = part
     }
     var children = Array.isArray(part.parts) ? part.parts : []
-    for (var i = 0; i < children.length; i++) walk(children[i], depth + 1)
+    for (var childIndex = 0; childIndex < children.length; childIndex++) walk(children[childIndex], depth + 1)
   }
 
   walk(payload, 0)
   return carried !== null ? carried : promised
 }
 
-// The Content-Type of the part states the method too, and it is the one a
-// server that rewrote the body may have kept. The property inside the file
-// wins, because it is the one the organiser's calendar wrote.
+// Invariant: the calendar's METHOD overrides the MIME method parameter.
 function partMethod(part) {
   if (!part) return ""
   var declared = Mail.contentTypeParam(String(part.mimeType || ""), "method")
   if (declared === "") {
     var headers = part && Array.isArray(part.headers) ? part.headers : []
-    for (var i = 0; i < headers.length; i++) {
-      if (String(headers[i].name || "").toLowerCase() !== "content-type") continue
-      declared = Mail.contentTypeParam(headers[i].value, "method")
+    for (var headerIndex = 0; headerIndex < headers.length; headerIndex++) {
+      if (String(headers[headerIndex].name || "").toLowerCase() !== "content-type") continue
+      declared = Mail.contentTypeParam(headers[headerIndex].value, "method")
       if (declared !== "") break
     }
   }
   return normalizedMethod(declared)
 }
 
-// Everything the card draws and everything a reply needs, out of one parse.
 function invitationFrom(text, fallbackMethod) {
   var calendar = parse(text)
   if (!calendar || calendar.name !== "VCALENDAR") return null
@@ -888,16 +787,14 @@ function invitationFrom(text, fallbackMethod) {
   return eventFromComponent(calendar, event, fallbackMethod)
 }
 
-// Calendar feeds may carry more than one VEVENT. Keep their conversion on the
-// same path as invitations so a time zone or all-day event cannot mean one
-// thing in mail and another thing in the calendar view.
+// Invariant: calendar feeds and message invitations share event conversion so timezone and all-day semantics agree.
 function eventsFrom(text, fallbackMethod) {
   var calendar = parse(text)
   if (!calendar || calendar.name !== "VCALENDAR") return []
   var components = childrenNamed(calendar, "VEVENT")
   var events = []
-  for (var i = 0; i < components.length; i++) {
-    var event = eventFromComponent(calendar, components[i], fallbackMethod)
+  for (var componentIndex = 0; componentIndex < components.length; componentIndex++) {
+    var event = eventFromComponent(calendar, components[componentIndex], fallbackMethod)
     if (event) events.push(event)
   }
   return events
@@ -917,8 +814,8 @@ function eventFromComponent(calendar, event, fallbackMethod) {
 
   var attendees = []
   var lines = properties(event, "ATTENDEE")
-  for (var i = 0; i < lines.length; i++) {
-    var attendee = calendarAddress(lines[i])
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    var attendee = calendarAddress(lines[lineIndex])
     if (attendee && attendee.email !== "") attendees.push(attendee)
   }
 
@@ -954,9 +851,7 @@ function eventFromComponent(calendar, event, fallbackMethod) {
     recurrenceIdMs: recurrenceId ? recurrenceId.ms : 0,
     excludedMs: excluded,
     meetLink: conferenceLink(event),
-    // Kept verbatim for the reply. A DTSTART rebuilt out of the moment this
-    // parser settled on would answer a question the organiser did not ask; the
-    // line that arrived is the one their server matches against.
+    // Invariant: reply time properties remain verbatim because the organiser matches its original calendar representation.
     source: {
       dtstart: rawLine(event, "DTSTART"),
       dtend: rawLine(event, "DTEND"),
@@ -975,15 +870,12 @@ function rawLine(component, name) {
 function timezoneBlocks(calendar) {
   var zones = childrenNamed(calendar, "VTIMEZONE")
   var out = []
-  for (var i = 0; i < zones.length; i++) {
-    out.push(["BEGIN:VTIMEZONE"].concat(zones[i].lines, ["END:VTIMEZONE"]).join("\r\n"))
+  for (var zoneIndex = 0; zoneIndex < zones.length; zoneIndex++) {
+    out.push(["BEGIN:VTIMEZONE"].concat(zones[zoneIndex].lines, ["END:VTIMEZONE"]).join("\r\n"))
   }
   return out
 }
 
-// The first call the reader makes. Null when the message carried no
-// invitation, which is almost every message — and null too when it carried one
-// the server did not send the octets of, which `pendingPart` below is for.
 function fromPayload(payload) {
   return fromPart(calendarPart(payload))
 }
@@ -995,20 +887,13 @@ function fromPart(part) {
   return invitationFrom(text, partMethod(part))
 }
 
-// The part the reader has to ask for before there is anything to draw: a
-// calendar part described but not sent. Null when the message either carried
-// its invitation or carried none, so the second request is only ever made for
-// a message that has an invitation in it.
 function pendingPart(payload) {
   var part = calendarPart(payload)
   if (!part) return null
   return part.body && part.body.data ? null : part
 }
 
-// The same part, now that the octets it named have arrived. Read through the
-// part rather than on its own so the charset the sender declared still decides
-// how the file is read — an invitation whose SUMMARY is not ASCII is the
-// ordinary case, not the exotic one.
+// Invariant: fetched calendar bytes retain the MIME part's declared charset.
 function fromAttachment(part, data) {
   if (!part) return null
   return fromPart({
@@ -1019,16 +904,14 @@ function fromAttachment(part, data) {
   })
 }
 
-// ------------------------------------------------------------- formatting
-
-function clockOf(ms, utc) {
-  var at = new Date(ms)
+function clockOf(milliseconds, utc) {
+  var at = new Date(milliseconds)
   return twoDigits(utc ? at.getUTCHours() : at.getHours()) + ":"
     + twoDigits(utc ? at.getUTCMinutes() : at.getMinutes())
 }
 
-function dayOf(ms, utc) {
-  var at = new Date(ms)
+function dayOf(milliseconds, utc) {
+  var at = new Date(milliseconds)
   var day = utc ? at.getUTCDay() : at.getDay()
   var month = utc ? at.getUTCMonth() : at.getMonth()
   var date = utc ? at.getUTCDate() : at.getDate()
@@ -1047,10 +930,6 @@ function sameDay(first, second, utc) {
       === (utc ? right.getUTCDate() : right.getDate())
 }
 
-// "Fri, Aug 21, 2026 · 14:00 – 15:00", and the honest variants of it: an
-// all-day event has no clock to show, a meeting that runs past midnight names
-// the second day, and one whose zone could not be resolved says which zone the
-// clock belongs to instead of pretending it is this one.
 function formatWhen(invite) {
   var start = invite && invite.start ? invite.start : null
   if (!start) return ""
@@ -1058,8 +937,7 @@ function formatWhen(invite) {
   var unresolved = !start.resolved && start.tzid !== ""
 
   if (start.allDay) {
-    // An all-day DTEND is the first day *after* the event, so a one-day
-    // meeting shown from its raw end date reads as two.
+    // Invariant: all-day DTEND is exclusive, so display the preceding day.
     if (end && end.ms - start.ms > 86400000) {
       return dayOf(start.ms) + " – " + dayOf(end.ms - 86400000)
     }
@@ -1076,8 +954,7 @@ function formatWhen(invite) {
   return text
 }
 
-// How long it runs, for the line under the date. Left empty rather than shown
-// as "0 minutes" when the invitation gave no end and no duration.
+// Invariant: an absent duration stays empty rather than claiming a zero-minute event.
 function formatDuration(invite) {
   var start = invite && invite.start ? invite.start : null
   var end = invite && invite.end ? invite.end : null
@@ -1095,7 +972,6 @@ function formatDuration(invite) {
   return rest === 0 ? text : text + " " + rest + " min"
 }
 
-// Who is coming, as a count rather than a list the card has no room for.
 function attendeeSummary(invite) {
   var list = invite && Array.isArray(invite.attendees) ? invite.attendees : []
   if (list.length === 0) return ""
@@ -1103,10 +979,10 @@ function attendeeSummary(invite) {
   var no = 0
   var maybe = 0
   var awaiting = 0
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].partstat === "ACCEPTED") yes++
-    else if (list[i].partstat === "DECLINED") no++
-    else if (list[i].partstat === "TENTATIVE") maybe++
+  for (var listIndex = 0; listIndex < list.length; listIndex++) {
+    if (list[listIndex].partstat === "ACCEPTED") yes++
+    else if (list[listIndex].partstat === "DECLINED") no++
+    else if (list[listIndex].partstat === "TENTATIVE") maybe++
     else awaiting++
   }
   var pieces = []
@@ -1118,9 +994,6 @@ function attendeeSummary(invite) {
   return count + (pieces.length > 0 ? " · " + pieces.join(", ") : "")
 }
 
-// What this card is, in the two words above the meeting's name. A cancellation
-// and an update are the two the reader most needs to be told apart from a
-// first invitation, because both arrive looking exactly like one.
 function headline(invite) {
   if (!invite) return ""
   if (invite.method === "CANCEL" || String(invite.status || "") === "CANCELLED")
@@ -1132,9 +1005,6 @@ function headline(invite) {
   return "Event"
 }
 
-// One guest's answer, in the same word the buttons use. "Awaiting" rather than
-// an empty cell: not having answered is a state, and a blank reads as missing
-// data about them.
 function partstatLabel(partstat) {
   var value = String(partstat || "").toUpperCase()
   if (value === "ACCEPTED") return "Yes"
@@ -1143,8 +1013,6 @@ function partstatLabel(partstat) {
   if (value === "DELEGATED") return "Delegated"
   return "Awaiting"
 }
-
-// ------------------------------------------------------------------- reply
 
 var PARTSTATS = {
   accepted: "ACCEPTED",
@@ -1158,11 +1026,7 @@ var REPLY_WORDS = {
   tentative: "Tentative"
 }
 
-// The account being answered for, given either as its address or as the object
-// the panel carries. Written out rather than folded into one expression: the
-// obvious "me.email or me" shorthand is correct until me.email is the empty
-// string — an account whose profile has not loaded — and then it is the object
-// itself, which stringifies into the ATTENDEE line as "[object Object]".
+// Invariant: an account with no loaded address must not stringify into an ATTENDEE value.
 function addressOf(me) {
   if (!me) return ""
   if (typeof me === "string") return me.trim()
@@ -1183,14 +1047,14 @@ function foldIcsLine(line) {
   var text = String(line || "")
   var result = ""
   var octets = 0
-  for (var i = 0; i < text.length; i++) {
-    var code = text.charCodeAt(i)
-    var character = text.charAt(i)
+  for (var characterIndex = 0; characterIndex < text.length; characterIndex++) {
+    var code = text.charCodeAt(characterIndex)
+    var character = text.charAt(characterIndex)
     var size = code < 0x80 ? 1 : (code < 0x800 ? 2 : 3)
-    if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
-      var low = text.charCodeAt(i + 1)
+    if (code >= 0xd800 && code <= 0xdbff && characterIndex + 1 < text.length) {
+      var low = text.charCodeAt(characterIndex + 1)
       if (low >= 0xdc00 && low <= 0xdfff) {
-        character += text.charAt(++i)
+        character += text.charAt(++characterIndex)
         size = 4
       }
     }
@@ -1204,18 +1068,16 @@ function foldIcsLine(line) {
   return result
 }
 
-function icsTimestamp(ms) {
-  var at = new Date(Number(ms) || 0)
+function icsTimestamp(milliseconds) {
+  var at = new Date(Number(milliseconds) || 0)
   return String(at.getUTCFullYear())
     + twoDigits(at.getUTCMonth() + 1) + twoDigits(at.getUTCDate()) + "T"
     + twoDigits(at.getUTCHours()) + twoDigits(at.getUTCMinutes())
     + twoDigits(at.getUTCSeconds()) + "Z"
 }
 
-// The RFC 5546 answer to an invitation: the same UID and SEQUENCE, one
-// ATTENDEE line — this account's — and nobody else's, because a reply speaks
-// only for the person sending it.
-function buildReply(invite, me, response, nowMs) {
+// Invariant: an RSVP preserves UID and SEQUENCE and speaks for exactly one attendee.
+function buildReply(invite, me, response, nowMilliseconds) {
   var answer = normalizedResponse(response)
   if (!invite || answer === "") return ""
   var address = addressOf(me)
@@ -1225,12 +1087,12 @@ function buildReply(invite, me, response, nowMs) {
   var lines = ["BEGIN:VCALENDAR", "PRODID:-//Omamail//Omamail//EN", "VERSION:2.0", "METHOD:REPLY"]
 
   var zones = invite.source && Array.isArray(invite.source.timezones) ? invite.source.timezones : []
-  for (var z = 0; z < zones.length; z++) lines = lines.concat(zones[z].split("\r\n"))
+  for (var zoneIndex = 0; zoneIndex < zones.length; zoneIndex++) lines = lines.concat(zones[zoneIndex].split("\r\n"))
 
   lines.push("BEGIN:VEVENT")
   lines.push("UID:" + escapeText(invite.uid))
   lines.push("SEQUENCE:" + Math.max(0, Math.floor(Number(invite.sequence) || 0)))
-  lines.push("DTSTAMP:" + icsTimestamp(nowMs === undefined ? Date.now() : nowMs))
+  lines.push("DTSTAMP:" + icsTimestamp(nowMilliseconds === undefined ? Date.now() : nowMilliseconds))
   if (invite.organizer && invite.organizer.email !== "")
     lines.push("ORGANIZER:mailto:" + invite.organizer.email)
   lines.push("ATTENDEE;PARTSTAT=" + PARTSTATS[answer]
@@ -1249,21 +1111,18 @@ function buildReply(invite, me, response, nowMs) {
   lines.push("END:VCALENDAR")
 
   var folded = []
-  for (var i = 0; i < lines.length; i++) {
-    if (String(lines[i] || "").trim() !== "") folded.push(foldIcsLine(lines[i]))
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    if (String(lines[lineIndex] || "").trim() !== "") folded.push(foldIcsLine(lines[lineIndex]))
   }
   return folded.join("\r\n") + "\r\n"
 }
 
-// A parameter value may not carry a quote, a colon or a semicolon unquoted,
-// and there is no escape for a quote inside one — so a display name holding
-// one loses it rather than ending the value early.
+// Invariant: quoted calendar parameters cannot contain an embedded quote; discard it rather than introduce another parameter.
 function quoteParam(value) {
   return "\"" + String(value || "").replace(/["\r\n]/g, "") + "\""
 }
 
-// Who the answer goes to. The organiser, and nobody else: a reply copied to
-// every attendee is how one accepted meeting becomes forty mails.
+// Invariant: an RSVP addresses only the organiser.
 function replyRecipient(invite) {
   return invite && invite.organizer ? String(invite.organizer.email || "") : ""
 }
@@ -1275,8 +1134,6 @@ function replySubject(invite, response) {
   return REPLY_WORDS[answer] + ": " + (summary !== "" ? summary : "(no subject)")
 }
 
-// The text part beside the calendar one. A calendar reads the attachment; a
-// person reading the reply in a client that does not gets a sentence.
 function replyBody(invite, me, response) {
   var answer = normalizedResponse(response)
   if (answer === "") return ""
@@ -1286,14 +1143,12 @@ function replyBody(invite, me, response) {
   return who + " has " + word + " this invitation."
 }
 
-// Everything `send` needs for one RSVP, or null when this invitation cannot be
-// answered — no organiser to answer, or not a request in the first place.
-function replyFields(invite, me, response, nowMs) {
+function replyFields(invite, me, response, nowMilliseconds) {
   var answer = normalizedResponse(response)
   if (!invite || answer === "") return null
   var to = replyRecipient(invite)
   if (to === "") return null
-  var calendar = buildReply(invite, me, answer, nowMs)
+  var calendar = buildReply(invite, me, answer, nowMilliseconds)
   if (calendar === "") return null
   return {
     to: to,
@@ -1303,16 +1158,7 @@ function replyFields(invite, me, response, nowMs) {
   }
 }
 
-// The same invitation with this account's answer written into it.
-//
-// Needed because the answer is not in the file: the `text/calendar` part is
-// the organiser's document and an RSVP does not rewrite it, so a message
-// reopened tomorrow would show its buttons unanswered — after the answer had
-// been sent, and had worked. This is what goes back into the body cache.
-//
-// An address with no ATTENDEE line of its own gets one. That is the forwarded
-// invitation, where a reply is still the right thing to have sent and the file
-// is still the wrong place to learn it from.
+// Invariant: cache the local RSVP response because the organiser's original attachment does not change after sending.
 function withResponse(invite, address, response) {
   var answer = normalizedResponse(response)
   if (!invite || answer === "") return invite
@@ -1322,16 +1168,16 @@ function withResponse(invite, address, response) {
   var list = Array.isArray(invite.attendees) ? invite.attendees : []
   var updated = []
   var found = false
-  for (var i = 0; i < list.length; i++) {
-    if (!sameAddress(list[i].email, wanted)) {
-      updated.push(list[i])
+  for (var listIndex = 0; listIndex < list.length; listIndex++) {
+    if (!sameAddress(list[listIndex].email, wanted)) {
+      updated.push(list[listIndex])
       continue
     }
     found = true
     updated.push({
-      name: list[i].name, email: list[i].email,
-      partstat: PARTSTATS[answer], role: list[i].role,
-      optional: list[i].optional, resource: list[i].resource
+      name: list[listIndex].name, email: list[listIndex].email,
+      partstat: PARTSTATS[answer], role: list[listIndex].role,
+      optional: list[listIndex].optional, resource: list[listIndex].resource
     })
   }
   if (!found) {
@@ -1341,18 +1187,14 @@ function withResponse(invite, address, response) {
     })
   }
 
-  // A shallow copy with one field replaced. Rebuilt field by field rather than
-  // mutated, because the object handed in is the one the card is bound to and
-  // a QML binding does not notice a property of an object changing under it.
+  // Invariant: replace the invitation object so QML observes the updated attendee state.
   var copy = {}
   for (var key in invite) copy[key] = invite[key]
   copy.attendees = updated
   return copy
 }
 
-// Whether the panel may draw the buttons at all. A cancellation and a reply
-// somebody else sent are both invitations worth showing and neither is one to
-// answer, and an organiser cannot RSVP to their own meeting.
+// Invariant: cancelled events, replies, and the organiser's own event cannot be answered.
 function canRespond(invite, address) {
   if (!invite || invite.method !== "REQUEST") return false
   if (String(invite.status || "") === "CANCELLED") return false

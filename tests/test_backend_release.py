@@ -162,6 +162,30 @@ class ReleaseTests(unittest.TestCase):
     def check_api(self, *args):
         return self.run_helper('check-api', '--root', self.root, *args)
 
+    def test_legacy_published_contract_validation_never_writes_sibling_files(self):
+        contract = self.api_fixture()
+        del contract['releasedApiVersion']
+        del contract['unreleased']
+        self.published.write_text(json.dumps(contract))
+        sibling = self.published.with_name(self.published.name + '.split')
+        protected = self.root / 'protected'
+        protected.write_text('keep this data')
+        sibling.symlink_to(protected)
+        result = self.check_api('--published', self.published)
+        self.assertEqual(protected.read_text(), 'keep this data')
+        self.assertTrue(sibling.is_symlink())
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_legacy_published_contract_rejects_duplicate_fields(self):
+        contract = self.api_fixture()
+        del contract['releasedApiVersion']
+        del contract['unreleased']
+        raw = json.dumps(contract).replace('"apiVersion": 1', '"apiVersion": 2, "apiVersion": 1')
+        self.published.write_text(raw)
+        result = self.check_api('--published', self.published)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('duplicate API contract field', result.stderr)
+
     def test_internal_rust_versions_and_source_can_reuse_pin_and_api(self):
         self.api_fixture()
         (self.root / 'Cargo.toml').write_text('[package]\nname="omamail"\nversion="9.0.0"\n')

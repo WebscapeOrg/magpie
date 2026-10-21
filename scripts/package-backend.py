@@ -69,7 +69,7 @@ def pin_version(root):
     return raw.decode('ascii').removesuffix('\n')
 
 
-def read_api(path):
+def read_contract(path):
     if path.is_symlink() or not path.is_file():
         raise ValueError('backend API contract must be a regular file')
     with path.open('rb') as stream:
@@ -89,9 +89,16 @@ def read_api(path):
         raise ValueError('non-JSON API contract constant: ' + value)
 
     try:
-        contract = json.loads(raw, object_pairs_hook=unique, parse_constant=invalid_constant)
+        return json.loads(raw, object_pairs_hook=unique, parse_constant=invalid_constant)
     except (UnicodeError, RecursionError) as error:
         raise ValueError('malformed backend API contract') from error
+
+
+def read_api(path):
+    return validate_contract(read_contract(path))
+
+
+def validate_contract(contract):
     if (not isinstance(contract, dict)
             or set(contract) != {'apiVersion', 'releasedApiVersion', 'protocolVersion', 'methods',
                                  'contractCases', 'unreleased'}):
@@ -168,21 +175,10 @@ def read_published_api(path):
     """A published contract: this shape, or the shape before the split had a name."""
     if path.is_symlink() or not path.is_file():
         raise ValueError('published backend API contract must be a regular file')
-    raw = path.read_bytes()
-    try:
-        value = json.loads(raw)
-    except ValueError as error:
-        raise ValueError('malformed published backend API contract') from error
+    value = read_contract(path)
     if isinstance(value, dict) and 'releasedApiVersion' not in value and 'unreleased' not in value:
         value = dict(value, releasedApiVersion=value.get('apiVersion'), unreleased={'methods': [], 'cases': []})
-        # Anything the old binary advertised it also speaks; the split is ours.
-        rewritten = path.with_name(path.name + '.split')
-        rewritten.write_text(json.dumps(value))
-        try:
-            return read_api(rewritten)
-        finally:
-            rewritten.unlink()
-    return read_api(path)
+    return validate_contract(value)
 
 
 def check_api(root, published=None, baseline=None):

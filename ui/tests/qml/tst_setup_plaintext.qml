@@ -34,20 +34,20 @@ Item {
     id: imap
     width: 600
     service: service
-    textColor: "#eeeeee"
-    dimColor: "#aaaaaa"
-    dangerColor: "#ff6666"
-    accentColor: "#e9a35f"
+    textColor: Qt.rgba(238/255, 238/255, 238/255, 1)
+    dimColor: Qt.rgba(170/255, 170/255, 170/255, 1)
+    dangerColor: Qt.rgba(255/255, 102/255, 102/255, 1)
+    accentColor: Qt.rgba(233/255, 163/255, 95/255, 1)
     panelFontFamily: "monospace"
   }
   Views.SetupPage {
     id: gmail
     width: 600
     service: service
-    textColor: "#eeeeee"
-    dimColor: "#aaaaaa"
-    dangerColor: "#ff6666"
-    accentColor: "#e9a35f"
+    textColor: Qt.rgba(238/255, 238/255, 238/255, 1)
+    dimColor: Qt.rgba(170/255, 170/255, 170/255, 1)
+    dangerColor: Qt.rgba(255/255, 102/255, 102/255, 1)
+    accentColor: Qt.rgba(233/255, 163/255, 95/255, 1)
     panelFontFamily: "monospace"
   }
   TestCase {

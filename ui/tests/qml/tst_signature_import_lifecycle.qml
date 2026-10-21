@@ -2,12 +2,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Omamail
 
-// Naming a mailbox.
-//
-// The field draws a box whether or not it can be typed into, which is how it
-// shipped unusable twice. This types into it the way a person does — a click,
-// then keys — rather than assigning `text` from the test, which would pass
-// against a field nothing can reach.
 Item {
   width: 700
   height: 500
@@ -48,7 +42,6 @@ Item {
     property string signatureHtml: ""
     function setAccountSignatureHtml(id, html) { signatureId = id; signatureHtml = html }
 
-    // What the page wrote, and for which mailbox.
     property string namedId: ""
     property string namedText: ""
     property int nameWrites: 0

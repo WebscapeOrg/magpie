@@ -14,6 +14,7 @@ import "components/MailboxIdentity.js" as MailboxIdentity
 import "account" as Account
 import "account/Accounts.js" as Accounts
 import "account/Navigation.js" as Nav
+import "account/Unified.js" as Unified
 import "compose/Recovery.js" as Recovery
 import "compose" as Compose
 import "keys/Keymap.js" as Keymap
@@ -494,11 +495,23 @@ Item {
     closingFromHost = false
     opened = true
     if (service) service.windowOpen = true
-    if (payload.mailbox && service) service.selectMailbox(String(payload.mailbox))
-    if (payload.accountId && service) service.switchTo(String(payload.accountId))
-    if (payload.messageId) Qt.callLater(function() {
-      root.openMessage(String(payload.messageId))
-    })
+    var targetAccount = String(payload.accountId || "")
+    var acceptedAccount = targetAccount === ""
+      || (!!service && service.switchTo(targetAccount) === true)
+    if (acceptedAccount && payload.mailbox && service)
+      service.selectMailbox(String(payload.mailbox))
+    if (acceptedAccount && payload.messageId && service) {
+      var targetService = service
+      var selectedAccount = String(service.activeAccountId || "")
+      Qt.callLater(function() {
+        if (root.service !== targetService
+            || String(targetService.activeAccountId || "") !== selectedAccount) return
+        var messageId = String(payload.messageId)
+        if (targetService.unified && targetAccount !== "")
+          messageId = Unified.unifiedId(targetAccount, messageId)
+        root.openMessage(messageId)
+      })
+    }
     if (payload.view === "calendar") {
       showCalendar()
       Qt.callLater(function() {

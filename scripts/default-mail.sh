@@ -36,8 +36,8 @@ bindings_block() {
 $BLOCK_BEGIN
 hl.unbind("SUPER + SHIFT + E")
 hl.unbind("SUPER + SHIFT + ALT + E")
-o.bind("SUPER + SHIFT + E", "Email", "omarchy-shell shell summon omamail '{}'")
-o.bind("SUPER + SHIFT + ALT + E", "New email", "omarchy-shell shell summon omamail '{\"compose\":true}'")
+o.bind("SUPER + SHIFT + E", "Email", "omarchy-shell shell summon magpie '{}'")
+o.bind("SUPER + SHIFT + ALT + E", "New email", "omarchy-shell shell summon magpie '{\"compose\":true}'")
 $BLOCK_END
 EOF
 }
@@ -49,14 +49,22 @@ has_block() {
 remove_block() {
   has_block || return 0
   tmp=$(mktemp "$BINDINGS_FILE.XXXXXX")
-  # Drop the block and the blank line added above it, so on then off
-  # round-trips the file exactly.
-  awk -v begin="$BLOCK_BEGIN" -v end="$BLOCK_END" '
-    $0 == begin { inblock = 1; blanks = 0; next }
-    inblock { if ($0 == end) inblock = 0; next }
-    /^$/ { blanks++; next }
-    { for (; blanks > 0; blanks--) print ""; print }
-  ' "$BINDINGS_FILE" > "$tmp"
+  # Invariant: remove only the separator added by add_block; preserve all user bytes.
+  python3 - "$BINDINGS_FILE" "$BLOCK_BEGIN" "$BLOCK_END" > "$tmp" <<'PYTHON'
+from pathlib import Path
+import re
+import sys
+
+path, begin, end = sys.argv[1:]
+source = Path(path).read_bytes()
+pattern = rb"(?m)^" + re.escape(begin.encode()) + rb"\n.*?^" + re.escape(end.encode()) + rb"(?:\n|$)"
+for match in reversed(list(re.finditer(pattern, source, re.DOTALL))):
+    start = match.start()
+    if start and source[start - 1:start] == b"\n":
+        start -= 1
+    source = source[:start] + source[match.end():]
+sys.stdout.buffer.write(source)
+PYTHON
   mv "$tmp" "$BINDINGS_FILE"
 }
 

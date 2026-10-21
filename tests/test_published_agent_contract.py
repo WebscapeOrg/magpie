@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location('published_agent', Path(__file__).with_name('test_agent_published_qml.py'))
 fixture = importlib.util.module_from_spec(spec)
@@ -32,6 +32,19 @@ class PublishedContractTests(unittest.TestCase):
                       {'version': '0.10.0', 'apiVersion': 7}):
             with self.subTest(wrong=wrong), self.assertRaises(AssertionError):
                 fixture.verify_contract(wrong, expected)
+
+    def test_import_failure_closes_the_private_http_listener(self):
+        server = Mock(server_port=12345)
+        info = Mock(stdout=json.dumps({'ok': True, 'result': {'version': '0.11.0', 'apiVersion': 7}}))
+        with patch.object(fixture.subprocess, 'run', return_value=info), \
+                patch.object(fixture.http.server, 'ThreadingHTTPServer', return_value=server), \
+                patch.object(fixture.threading, 'Thread'), \
+                patch.object(fixture.shutil, 'copytree', side_effect=OSError('synthetic import failure')), \
+                patch.object(fixture.sys, 'argv', ['test', '--binary', '/unused-synthetic-backend']):
+            with self.assertRaisesRegex(OSError, 'synthetic import failure'):
+                fixture.main()
+        server.shutdown.assert_called_once()
+        server.server_close.assert_called_once()
 
     def test_historical_api5_requires_an_explicit_version(self):
         expected = fixture.expected_contract('0.9.3')

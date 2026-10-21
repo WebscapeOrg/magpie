@@ -561,7 +561,7 @@ function bytesStartWith(bytes, expected) {
   return true
 }
 
-function isRasterDataImage(value) {
+function hasRasterSignature(value) {
   var match = String(value || "").match(
     /^data:image\/(png|jpe?g|gif|webp|bmp);base64,([A-Za-z0-9+/]*={0,2})$/i)
   if (!match) return false
@@ -581,11 +581,226 @@ function isRasterDataImage(value) {
   return kind === "bmp" && bytesStartWith(bytes, [66, 77])
 }
 
+var MAX_DECODED_IMAGE_BYTES = 64 * 1024 * 1024
+var MAX_DECODED_DOCUMENT_BYTES = 128 * 1024 * 1024
+var MAX_RASTER_METADATA_BYTES = 64 * 1024
+
+function rasterReader(payload) {
+  var padding = payload.slice(-2) === "==" ? 2 : (payload.slice(-1) === "=" ? 1 : 0)
+  return { payload: payload, length: payload.length / 4 * 3 - padding, inspected: 0, failed: false }
+}
+
+function rasterRange(reader, offset, length) {
+  return offset >= 0 && length >= 0 && offset <= reader.length - length
+}
+
+// Invariant: inspect bounded metadata directly in base64; compressed pixels are never decoded here.
+function rasterByte(reader, offset) {
+  if (reader.failed || !rasterRange(reader, offset, 1) || reader.inspected >= MAX_RASTER_METADATA_BYTES) {
+    reader.failed = true
+    return 0
+  }
+  reader.inspected++
+  var quartet = Math.floor(offset / 3) * 4
+  var within = offset % 3
+  var left = BASE64_ALPHABET.indexOf(reader.payload.charAt(quartet + within))
+  var right = BASE64_ALPHABET.indexOf(reader.payload.charAt(quartet + within + 1))
+  if (within === 0) return (left << 2) | (right >> 4)
+  if (within === 1) return ((left & 15) << 4) | (right >> 2)
+  return ((left & 3) << 6) | right
+}
+
+function rasterInteger(reader, offset, length, littleEndian) {
+  var value = 0
+  for (var index = 0; index < length; index++)
+    value = value * 256 + rasterByte(reader, offset + (littleEndian ? length - index - 1 : index))
+  return value
+}
+
+function rasterText(reader, offset, length) {
+  var text = ""
+  for (var index = 0; index < length; index++) text += String.fromCharCode(rasterByte(reader, offset + index))
+  return text
+}
+
+function rasterPngSize(reader) {
+  if (!rasterRange(reader, 0, 33) || rasterInteger(reader, 8, 4, false) !== 13
+    || rasterText(reader, 12, 4) !== "IHDR") return null
+  var checksum = 0xffffffff
+  for (var offset = 12; offset < 29; offset++) {
+    checksum ^= rasterByte(reader, offset)
+    for (var bit = 0; bit < 8; bit++) checksum = (checksum >>> 1) ^ ((checksum & 1) ? 0xedb88320 : 0)
+  }
+  if (((checksum ^ 0xffffffff) >>> 0) !== rasterInteger(reader, 29, 4, false)) return null
+  var depth = rasterByte(reader, 24)
+  var color = rasterByte(reader, 25)
+  var validDepth = color === 0 ? [1, 2, 4, 8, 16] : color === 3 ? [1, 2, 4, 8] : [8, 16]
+  if ([0, 2, 3, 4, 6].indexOf(color) < 0 || validDepth.indexOf(depth) < 0
+    || rasterByte(reader, 26) !== 0 || rasterByte(reader, 27) !== 0 || rasterByte(reader, 28) > 1) return null
+  return { width: rasterInteger(reader, 16, 4, false), height: rasterInteger(reader, 20, 4, false) }
+}
+
+function rasterGifBlocks(reader, offset) {
+  while (!reader.failed && offset < reader.length) {
+    var length = rasterByte(reader, offset++)
+    if (length === 0) return offset
+    if (!rasterRange(reader, offset, length)) return -1
+    offset += length
+  }
+  return -1
+}
+
+function rasterGifSize(reader) {
+  if (!rasterRange(reader, 0, 13)) return null
+  var size = { width: rasterInteger(reader, 6, 2, true), height: rasterInteger(reader, 8, 2, true) }
+  var packed = rasterByte(reader, 10)
+  var offset = 13 + ((packed & 128) ? 3 * Math.pow(2, (packed & 7) + 1) : 0)
+  var frames = 0
+  while (!reader.failed && offset < reader.length) {
+    var marker = rasterByte(reader, offset++)
+    if (marker === 59) return frames > 0 ? size : null
+    if (marker === 33) {
+      if (!rasterRange(reader, offset, 1)) return null
+      offset = rasterGifBlocks(reader, offset + 1)
+      if (offset < 0) return null
+      continue
+    }
+    if (marker !== 44 || !rasterRange(reader, offset, 9)) return null
+    var left = rasterInteger(reader, offset, 2, true)
+    var top = rasterInteger(reader, offset + 2, 2, true)
+    var width = rasterInteger(reader, offset + 4, 2, true)
+    var height = rasterInteger(reader, offset + 6, 2, true)
+    if (width === 0 || height === 0 || left + width > size.width || top + height > size.height) return null
+    packed = rasterByte(reader, offset + 8)
+    offset += 9 + ((packed & 128) ? 3 * Math.pow(2, (packed & 7) + 1) : 0)
+    var codeSize = rasterByte(reader, offset++)
+    if (codeSize < 2 || codeSize > 8) return null
+    offset = rasterGifBlocks(reader, offset)
+    if (offset < 0) return null
+    frames++
+  }
+  return null
+}
+
+function rasterBmpSize(reader) {
+  var header = rasterInteger(reader, 14, 4, true)
+  if ([12, 40, 52, 56, 64, 108, 124].indexOf(header) < 0 || !rasterRange(reader, 14, header)) return null
+  if (header === 12) return { width: rasterInteger(reader, 18, 2, true), height: rasterInteger(reader, 20, 2, true) }
+  var width = rasterInteger(reader, 18, 4, true)
+  var height = rasterInteger(reader, 22, 4, true)
+  if (width >= 2147483648) return null
+  return { width: width, height: height >= 2147483648 ? 4294967296 - height : height }
+}
+
+function rasterJpegSize(reader) {
+  var offset = 2
+  while (!reader.failed && offset < reader.length) {
+    if (rasterByte(reader, offset++) !== 255) return null
+    var marker = rasterByte(reader, offset++)
+    while (marker === 255 && !reader.failed) marker = rasterByte(reader, offset++)
+    if (marker === 0 || marker === 217 || marker === 218) return null
+    if (marker === 1 || (marker >= 208 && marker <= 215)) continue
+    var length = rasterInteger(reader, offset, 2, false)
+    if (length < 2 || !rasterRange(reader, offset, length)) return null
+    if (marker >= 192 && marker <= 207 && [196, 200, 204].indexOf(marker) < 0) {
+      var components = rasterByte(reader, offset + 7)
+      if (length < 8 || components === 0 || length !== 8 + components * 3) return null
+      return { width: rasterInteger(reader, offset + 5, 2, false), height: rasterInteger(reader, offset + 3, 2, false) }
+    }
+    offset += length
+  }
+  return null
+}
+
+function rasterWebpFrame(reader, kind, offset, length) {
+  if (kind === "VP8 ") {
+    if (length < 10 || (rasterByte(reader, offset) & 1) !== 0
+      || rasterInteger(reader, offset + 3, 3, false) !== 0x9d012a) return null
+    return { width: rasterInteger(reader, offset + 6, 2, true) & 16383,
+      height: rasterInteger(reader, offset + 8, 2, true) & 16383 }
+  }
+  if (kind !== "VP8L" || length < 5 || rasterByte(reader, offset) !== 47) return null
+  var bits = rasterInteger(reader, offset + 1, 4, true)
+  if (bits >= 536870912) return null
+  return { width: (bits & 16383) + 1, height: ((bits >>> 14) & 16383) + 1 }
+}
+
+function rasterWebpChunks(reader, offset, end, expected) {
+  var frame = null
+  while (!reader.failed && offset + 8 <= end) {
+    var kind = rasterText(reader, offset, 4)
+    var length = rasterInteger(reader, offset + 4, 4, true)
+    var data = offset + 8
+    if (length > end - data) return null
+    if (kind === "VP8 " || kind === "VP8L") {
+      if (frame !== null) return null
+      frame = rasterWebpFrame(reader, kind, data, length)
+      if (frame === null || (expected !== null && (frame.width !== expected.width || frame.height !== expected.height))) return null
+    } else if (kind === "VP8X" || kind === "ANIM" || kind === "ANMF") return null
+    offset = data + length + (length % 2)
+  }
+  return offset === end && !reader.failed ? frame : null
+}
+
+function rasterWebpSize(reader) {
+  var end = rasterInteger(reader, 4, 4, true) + 8
+  if (end > reader.length || end < 20) return null
+  if (rasterText(reader, 12, 4) !== "VP8X") return rasterWebpChunks(reader, 12, end, null)
+  if (rasterInteger(reader, 16, 4, true) !== 10 || !rasterRange(reader, 20, 10)) return null
+  var flags = rasterByte(reader, 20)
+  if ((flags & 193) !== 0 || rasterInteger(reader, 21, 3, true) !== 0) return null
+  var size = { width: rasterInteger(reader, 24, 3, true) + 1, height: rasterInteger(reader, 27, 3, true) + 1 }
+  if ((flags & 2) === 0) return rasterWebpChunks(reader, 30, end, size) !== null ? size : null
+  var frames = 0
+  var animation = false
+  var offset = 30
+  while (!reader.failed && offset + 8 <= end) {
+    var kind = rasterText(reader, offset, 4)
+    var length = rasterInteger(reader, offset + 4, 4, true)
+    var data = offset + 8
+    if (length > end - data) return null
+    if (kind === "ANIM") {
+      if (animation || length !== 6) return null
+      animation = true
+    } else if (kind === "ANMF") {
+      if (!animation || length < 16) return null
+      var left = rasterInteger(reader, data, 3, true) * 2
+      var top = rasterInteger(reader, data + 3, 3, true) * 2
+      var frame = { width: rasterInteger(reader, data + 6, 3, true) + 1,
+        height: rasterInteger(reader, data + 9, 3, true) + 1 }
+      if (left + frame.width > size.width || top + frame.height > size.height
+        || rasterByte(reader, data + 15) > 3
+        || rasterWebpChunks(reader, data + 16, data + length, frame) === null) return null
+      frames++
+    } else if (kind === "VP8 " || kind === "VP8L" || kind === "VP8X") return null
+    offset = data + length + (length % 2)
+  }
+  return offset === end && !reader.failed && frames > 0 ? size : null
+}
+
+function rasterDecodedBytes(value) {
+  var match = String(value || "").match(/^data:image\/(png|jpe?g|gif|webp|bmp);base64,([A-Za-z0-9+/]*={0,2})$/i)
+  if (!match || !hasRasterSignature(value)) return 0
+  var reader = rasterReader(match[2])
+  var kind = match[1].toLowerCase()
+  var size = kind === "png" ? rasterPngSize(reader)
+    : kind === "gif" ? rasterGifSize(reader)
+    : kind === "bmp" ? rasterBmpSize(reader)
+    : kind === "webp" ? rasterWebpSize(reader) : rasterJpegSize(reader)
+  if (reader.failed || size === null || size.width <= 0 || size.height <= 0
+    || size.width > MAX_DECODED_IMAGE_BYTES / 8 / size.height) return 0
+  return size.width * size.height * 8
+}
+
+function isRasterDataImage(value) {
+  return rasterDecodedBytes(value) > 0
+}
+
 function imageSourceKind(value) {
   var url = normalizedUrl(value)
   if (url === "") return "none"
   if (/^cid:/i.test(url)) return "inline"
-  if (/^data:/i.test(url)) return isRasterDataImage(url) ? "inline" : "unsafe"
+  if (/^data:/i.test(url)) return hasRasterSignature(url) ? "inline" : "unsafe"
   if (/^(https?:)?\/\//i.test(url)) return isPublicUrl(value) ? "remote" : "unsafe"
   return /^[a-z][a-z0-9+.-]*:/i.test(url) ? "unsafe" : "local"
 }
@@ -1065,6 +1280,7 @@ function imagePolicy(options) {
     limit: Math.max(0, Math.min(MAX_ALLOWED_IMAGES, Math.floor(isNaN(requested) ? 0 : requested))),
     admitted: 0,
     embeddedBytes: 0,
+    decodedBytes: 0,
     embeddedLayoutLength: 0,
     kept: 0,
     blocked: 0
@@ -1078,13 +1294,16 @@ function preparedImage(policy, source) {
 }
 
 function admitImage(policy, source) {
-  var embedded = /^data:/i.test(source) || /^data:/i.test(normalizedUrl(source))
-  var bytes = embedded ? source.length : 0
-  if (policy.admitted >= policy.limit || bytes > MAX_EMBEDDED_DATA_BYTES - policy.embeddedBytes) {
+  var normalized = normalizedUrl(source)
+  var decodedBytes = rasterDecodedBytes(normalized)
+  var bytes = /^data:/i.test(normalized) ? source.length : 0
+  if (decodedBytes === 0 || decodedBytes > MAX_DECODED_DOCUMENT_BYTES - policy.decodedBytes
+    || policy.admitted >= policy.limit || bytes > MAX_EMBEDDED_DATA_BYTES - policy.embeddedBytes) {
     policy.blocked++
     return false
   }
   policy.admitted++
+  policy.decodedBytes += decodedBytes
   policy.embeddedBytes += bytes
   policy.embeddedLayoutLength += bytes
   return true

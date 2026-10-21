@@ -1,11 +1,5 @@
 .pragma library
 
-function suggestsClear(text) {
-  var value = String(text || "")
-  return !/[\r\n]/.test(value) && /^\s*\/[a-z]*$/.test(value)
-    && "/clear".indexOf(value.trim()) === 0
-}
-
 // Invariant: detach only the app-owned quote suffix; quoted-looking user text must survive.
 function replyOnly(body, quote) {
   body = String(body || "")

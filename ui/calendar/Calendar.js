@@ -2,40 +2,6 @@
 
 .import "../message/Calendar.js" as Ics
 
-function googleResponseError(status, responseText) {
-  var payload = null
-  try { payload = JSON.parse(String(responseText || "")) } catch (parseError) {}
-  var error = payload && payload.error ? payload.error : null
-  var detail = error ? String(error.message || "") : ""
-  var reasons = error && Array.isArray(error.errors) ? error.errors : []
-  var disabled = /Calendar API has not been used|Calendar API.*disabled/i.test(detail)
-  var permissionMissing = /insufficient authentication scopes/i.test(detail)
-  for (var reasonIndex = 0; reasonIndex < reasons.length; reasonIndex++) {
-    if (String(reasons[reasonIndex].reason || "") === "accessNotConfigured") disabled = true
-    if (String(reasons[reasonIndex].reason || "") === "insufficientPermissions") permissionMissing = true
-  }
-  var details = error && Array.isArray(error.details) ? error.details : []
-  for (var detailIndex = 0; detailIndex < details.length; detailIndex++) {
-    if (String(details[detailIndex].reason || "") === "SERVICE_DISABLED") disabled = true
-  }
-
-  if (status === 401) return "Google rejected the calendar session. Sign in again"
-  if (status === 403 && disabled)
-    return "The Google Calendar API is not enabled for this Google Cloud project"
-  if (status === 403 && permissionMissing)
-    return "Google Calendar permission is missing. Sign out and sign in again"
-  if (detail !== "") return detail
-  return "Google Calendar returned HTTP " + status
-}
-
-function isGoogleCalendarApiDisabledError(message) {
-  return /Google Calendar API is not enabled/i.test(String(message || ""))
-}
-
-function googleCalendarApiUrl() {
-  return "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com"
-}
-
 function two(value) {
   var number = Math.floor(Number(value) || 0)
   return (number < 10 ? "0" : "") + number
@@ -421,22 +387,6 @@ function eventKey(event) {
 
 var GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 
-function graphEventsUrl(startMs, endMs) {
-  return GRAPH_ROOT + "/me/calendarView?startDateTime="
-    + encodeURIComponent(new Date(Number(startMs) || 0).toISOString())
-    + "&endDateTime=" + encodeURIComponent(new Date(Number(endMs) || 0).toISOString())
-    + "&$top=500&$orderby=start/dateTime"
-    + "&$select=id,iCalUId,subject,bodyPreview,location,isAllDay,isCancelled,start,end,organizer,attendees,onlineMeeting,webLink,seriesMasterId,type"
-}
-
-function graphEventUrl(eventId) {
-  return GRAPH_ROOT + "/me/events/" + encodeURIComponent(String(eventId || ""))
-}
-
-function graphEventsCreateUrl() {
-  return GRAPH_ROOT + "/me/events"
-}
-
 // Invariant: Graph timestamps omit an offset and name their timezone separately.
 function graphMoment(value, allDay) {
   var text = String(value && value.dateTime || "")
@@ -510,14 +460,6 @@ function graphEventBody(fields, allDay) {
   return body
 }
 
-function graphResponseError(status, responseText) {
-  var payload = null
-  try { payload = JSON.parse(String(responseText || "")) } catch (parseError) {}
-  var detail = payload && payload.error ? String(payload.error.message || payload.error.code || "") : ""
-  if (status === 401 || status === 403) return "Microsoft refused the calendar request. Sign in again"
-  return detail !== "" ? "Microsoft Graph answered: " + detail : "Microsoft Graph answered " + status
-}
-
 // Invariant: provider-facing messages must not expose native backend diagnostics.
 function nativeRequestError(kind) {
   if (kind === "microsoft")
@@ -530,13 +472,6 @@ function nativeRequestError(kind) {
   if (kind === "icloud")
     return "iCloud calendar request failed. Check the mailbox's app-specific password in Settings"
   return "The calendar request failed"
-}
-
-function googleEventsUrl(startMs, endMs) {
-  return "https://www.googleapis.com/calendar/v3/calendars/primary/events?"
-    + "singleEvents=true&orderBy=startTime&maxResults=2500"
-    + "&timeMin=" + encodeURIComponent(new Date(Number(startMs) || 0).toISOString())
-    + "&timeMax=" + encodeURIComponent(new Date(Number(endMs) || 0).toISOString())
 }
 
 function icsText(value) {
@@ -927,11 +862,6 @@ function updateEvent(fields, existing, nowMs) {
   }
 }
 
-function googleEventUrl(eventId) {
-  return "https://www.googleapis.com/calendar/v3/calendars/primary/events/"
-    + encodeURIComponent(String(eventId || ""))
-}
-
 function httpsAuthority(url) {
   var text = String(url || "")
   if (text === "" || /\s/.test(text)) return null
@@ -1237,14 +1167,6 @@ function allDayEventsOnDay(events, day) {
     if (displayInAllDayLane(values[valueIndex])) out.push(values[valueIndex])
   }
   return out
-}
-
-function maxAllDayEvents(events, days) {
-  var values = Array.isArray(days) ? days : []
-  var maximum = 0
-  for (var valueIndex = 0; valueIndex < values.length; valueIndex++)
-    maximum = Math.max(maximum, allDayEventsOnDay(events, values[valueIndex]).length)
-  return maximum
 }
 
 function weekHourRange(events, days, defaultFirst, defaultLast) {

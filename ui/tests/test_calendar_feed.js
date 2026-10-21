@@ -60,31 +60,6 @@ assert.notStrictEqual(feed.eventKey({sourceId:"one",googleId:"first",uid:"series
   assert.strictEqual(feed.transferRefusal(source,source,{...event,recurringEventId:"parent"}),"Open the entire series before changing its calendar")
 }
 
-assert.strictEqual(feed.googleResponseError(403, JSON.stringify({
-  error: {
-    code: 403,
-    message: "Google Calendar API has not been used in project 42 before or it is disabled.",
-    errors: [{ reason: "accessNotConfigured" }],
-    details: [{ reason: "SERVICE_DISABLED", metadata: {
-      service: "calendar-json.googleapis.com"
-    } }]
-  }
-})), "The Google Calendar API is not enabled for this Google Cloud project")
-assert.strictEqual(feed.isGoogleCalendarApiDisabledError(
-  "Google: The Google Calendar API is not enabled for this Google Cloud project"), true)
-assert.strictEqual(feed.isGoogleCalendarApiDisabledError("Google: Network request failed"), false)
-assert.strictEqual(feed.googleCalendarApiUrl(),
-  "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com")
-assert.strictEqual(feed.googleResponseError(401, ""),
-  "Google rejected the calendar session. Sign in again")
-assert.strictEqual(feed.googleResponseError(403, JSON.stringify({
-  error: {
-    message: "Request had insufficient authentication scopes.",
-    errors: [{ reason: "insufficientPermissions" }]
-  }
-})), "Google Calendar permission is missing. Sign out and sign in again")
-assert.strictEqual(feed.googleResponseError(500, "not json"),
-  "Google Calendar returned HTTP 500")
 assert.strictEqual(feed.nativeRequestError("google"),
   "Google could not complete this calendar request. Refresh the event and try again")
 
@@ -127,7 +102,7 @@ const allDayEvents = [
 ]
 assert.strictEqual(feed.allDayEventsOnDay(allDayEvents, week[0]).length, 2)
 assert.strictEqual(feed.allDayEventsOnDay(allDayEvents, week[1]).length, 1)
-assert.strictEqual(feed.maxAllDayEvents(allDayEvents, week), 2)
+
 assert.strictEqual(feed.slotStart(week[1], 93, 7, 60, 30),
   new Date(2026, 7, 18, 8, 30).getTime(), "empty slots snap to half hours")
 
@@ -459,10 +434,6 @@ assert.strictEqual(google[0].googleId, "g1",
   "the write URL needs the item id, separate from the iCalUID")
 assert.strictEqual(google[0].sourceId, "google:me")
 assert.strictEqual(google[0].start.ms, Date.parse("2026-08-24T10:00:00+02:00"))
-const googleUrl = feed.googleEventsUrl(Date.UTC(2026, 7, 1), Date.UTC(2026, 8, 1))
-assert.ok(googleUrl.indexOf("https://www.googleapis.com/calendar/v3/calendars/primary/events?") === 0)
-assert.strictEqual(feed.googleEventUrl("g1_20260824T080000Z"),
-  "https://www.googleapis.com/calendar/v3/calendars/primary/events/g1_20260824T080000Z")
 
 const created = feed.createEvent({
   title: "Planning", startMs: Date.UTC(2026, 7, 24, 8, 0),
@@ -713,9 +684,6 @@ assert.strictEqual(feed.caldavEventUrl("https://dav.example/cal/me/",
   { href: "/cal/me/a.ics\r\nnext" }), "", "same for a path href")
 assert.strictEqual(feed.caldavEventUrl("https://dav.example/cal/me/",
   { href: "a b.ics" }), "", "a raw space is not a URL")
-assert.ok(googleUrl.indexOf("singleEvents=true") > 0)
-assert.ok(googleUrl.indexOf("orderBy=startTime") > 0)
-assert.ok(googleUrl.indexOf("timeMin=2026-08-01T00%3A00%3A00.000Z") > 0)
 
 console.log("test_calendar_feed.js ok")
 
@@ -754,11 +722,6 @@ console.log("test_calendar_feed.js ok")
   assert.strictEqual(events[1].start.allDay, true)
   assert.strictEqual(events[1].start.ms, new Date(2026, 8, 10).getTime(), "an all-day event is its local midnight")
 
-  const url = feed.graphEventsUrl(Date.UTC(2026, 8, 7), Date.UTC(2026, 8, 14))
-  assert.ok(url.indexOf("https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=2026-09-07T00%3A00%3A00.000Z") === 0)
-  assert.ok(url.indexOf("endDateTime=2026-09-14T00%3A00%3A00.000Z") > 0)
-  assert.strictEqual(feed.graphEventUrl("AAMk1/x"), "https://graph.microsoft.com/v1.0/me/events/AAMk1%2Fx", "an id is one path segment")
-
   const timed = feed.graphEventBody({ title: "Call", description: "Notes", location: "Room 1",
     start: Date.UTC(2026, 8, 9, 14, 30), end: Date.UTC(2026, 8, 9, 15, 0) }, false)
   assert.strictEqual(timed.subject, "Call")
@@ -770,9 +733,6 @@ console.log("test_calendar_feed.js ok")
   assert.strictEqual(allDay.isAllDay, true)
   assert.ok(/^2026-09-10T00:00:00$/.test(allDay.start.dateTime))
 
-  assert.strictEqual(feed.graphResponseError(401, "{}"), "Microsoft refused the calendar request. Sign in again")
-  assert.ok(feed.graphResponseError(400, JSON.stringify({ error: { code: "ErrorInvalidRequest", message: "Bad start" } })).indexOf("Bad start") > 0)
-  assert.strictEqual(feed.graphResponseError(500, "not json"), "Microsoft Graph answered 500")
   assert.strictEqual(feed.nativeRequestError("microsoft"),
     "Microsoft calendar request failed. Check Graph permissions in Settings, then sign in again")
   assert.strictEqual(feed.nativeRequestError("caldav"),

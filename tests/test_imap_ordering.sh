@@ -1,5 +1,5 @@
 # The order an IMAP conversation reaches the server in, checked against a real
-# curl and a real server.
+# curl and a controlled loopback server.
 #
 # A Coremail server — 163.com and the mailboxes around it — answers every
 # SELECT with "Unsafe Login" until the client has sent the RFC 2971 ID command.

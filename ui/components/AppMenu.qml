@@ -70,15 +70,8 @@ Item {
     menu.y = placed.y
   }
 
-  function selectableRows() {
-    var values = []
-    for (var i = 0; i < menuRows.length; i++) values.push({
-      selectable: true, visible: menuRows[i].visible, enabled: menuRows[i].enabled
-    })
-    return values
-  }
   function moveCursor(step) {
-    cursorIndex = Menu.nextSelectable(selectableRows(), cursorIndex, step)
+    cursorIndex = Menu.nextSelectable(menuRows, cursorIndex, step)
     if (cursorIndex < 0) return
     var row = menuRows[cursorIndex]
     if (row.y < menuScroll.contentY) menuScroll.contentY = row.y

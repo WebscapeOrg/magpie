@@ -55,14 +55,7 @@ Item {
     menu.y = placed.y
   }
 
-  function selectableRows() {
-    var values = []
-    for (var i = 0; i < menuRows.length; i++) values.push({
-      selectable: true, visible: menuRows[i].visible, enabled: menuRows[i].enabled
-    })
-    return values
-  }
-  function moveCursor(step) { cursorIndex = Menu.nextSelectable(selectableRows(), cursorIndex, step) }
+  function moveCursor(step) { cursorIndex = Menu.nextSelectable(menuRows, cursorIndex, step) }
   function runCursor() { if (cursorIndex >= 0) menuRows[cursorIndex].activated() }
   function close() { menu.close() }
 
@@ -76,7 +69,7 @@ Item {
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
     onHeightChanged: root.place()
     onOpened: {
-      root.cursorIndex = Menu.firstSelectable(root.selectableRows())
+      root.cursorIndex = Menu.firstSelectable(root.menuRows)
       root.place()
     }
     background: Rectangle {

@@ -61,32 +61,36 @@ impl Node {
         }
     }
     pub fn root() -> Self {
-        let mut n = Self::element("");
-        n.kind = "root".into();
-        n
+        let mut node = Self::element("");
+        node.kind = "root".into();
+        node
     }
     pub fn text(text: &str) -> Self {
-        let mut n = Self::element("");
-        n.kind = "text".into();
-        n.text = text.into();
-        n
+        let mut node = Self::element("");
+        node.kind = "text".into();
+        node.text = text.into();
+        node
     }
     pub fn attr(&self, name: &str) -> &str {
         self.attrs
             .iter()
-            .find(|a| a.name == name)
-            .and_then(|a| a.value.as_deref())
+            .find(|attribute| attribute.name == name)
+            .and_then(|attribute| attribute.value.as_deref())
             .unwrap_or("")
     }
     pub fn has(&self, name: &str) -> bool {
-        self.attrs.iter().any(|a| a.name == name)
+        self.attrs.iter().any(|attribute| attribute.name == name)
     }
     pub fn remove(&mut self, name: &str) {
-        self.attrs.retain(|a| a.name != name)
+        self.attrs.retain(|attribute| attribute.name != name)
     }
     pub fn set(&mut self, name: &str, value: &str) {
-        if let Some(a) = self.attrs.iter_mut().find(|a| a.name == name) {
-            a.value = Some(value.into())
+        if let Some(attribute) = self
+            .attrs
+            .iter_mut()
+            .find(|attribute| attribute.name == name)
+        {
+            attribute.value = Some(value.into())
         } else {
             self.attrs.push(Attr {
                 name: name.into(),
@@ -115,85 +119,116 @@ pub fn void(name: &str) -> bool {
             | "keygen"
     )
 }
-fn space(b: u8) -> bool {
-    matches!(b, b' ' | b'\t' | b'\r' | b'\n' | 12)
+fn space(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t' | b'\r' | b'\n' | 12)
 }
-fn name(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || matches!(b, b':' | b'-' | b'_' | b'.')
+fn name(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'-' | b'_' | b'.')
 }
-fn tag(s: &str, start: usize) -> Option<(Node, bool, usize, bool)> {
-    let b = s.as_bytes();
-    let mut i = start + 1;
-    let closing = b.get(i) == Some(&b'/');
+struct Tag {
+    node: Node,
+    closing: bool,
+    end: usize,
+    terminated: bool,
+}
+
+fn tag(source: &str, start: usize) -> Option<Tag> {
+    let bytes = source.as_bytes();
+    let mut cursor = start + 1;
+    let closing = bytes.get(cursor) == Some(&b'/');
     if closing {
-        i += 1
+        cursor += 1
     }
-    if !b.get(i).is_some_and(u8::is_ascii_alphabetic) {
+    if !bytes.get(cursor).is_some_and(u8::is_ascii_alphabetic) {
         return None;
     }
-    let begin = i;
-    while i < b.len() && name(b[i]) {
-        i += 1
+    let token_start = cursor;
+    while cursor < bytes.len() && name(bytes[cursor]) {
+        cursor += 1
     }
-    let mut n = Node::element(&s[begin..i].to_ascii_lowercase());
-    while i < b.len() {
-        while i < b.len() && space(b[i]) {
-            i += 1
+    let mut node = Node::element(&source[token_start..cursor].to_ascii_lowercase());
+    while cursor < bytes.len() {
+        while cursor < bytes.len() && space(bytes[cursor]) {
+            cursor += 1
         }
-        if i == b.len() {
+        if cursor == bytes.len() {
             break;
         }
-        if b[i] == b'>' {
-            return Some((n, closing, i + 1, true));
+        if bytes[cursor] == b'>' {
+            return Some(Tag {
+                node,
+                closing,
+                end: cursor + 1,
+                terminated: true,
+            });
         }
-        if b[i] == b'/' {
-            n.self_closing = b.get(i + 1) == Some(&b'>');
-            i += 1;
+        if bytes[cursor] == b'/' {
+            node.self_closing = bytes.get(cursor + 1) == Some(&b'>');
+            cursor += 1;
             continue;
         }
-        let begin = i;
-        while i < b.len() && !space(b[i]) && !matches!(b[i], b'=' | b'>' | b'/') {
-            i += 1
+        let token_start = cursor;
+        while cursor < bytes.len()
+            && !space(bytes[cursor])
+            && !matches!(bytes[cursor], b'=' | b'>' | b'/')
+        {
+            cursor += 1
         }
-        if i == begin {
-            i += 1;
+        if cursor == token_start {
+            cursor += 1;
             continue;
         }
-        let key = s[begin..i].to_ascii_lowercase();
-        while i < b.len() && space(b[i]) {
-            i += 1
+        let attribute_name = source[token_start..cursor].to_ascii_lowercase();
+        while cursor < bytes.len() && space(bytes[cursor]) {
+            cursor += 1
         }
         let mut value = None;
-        if b.get(i) == Some(&b'=') {
-            i += 1;
-            while i < b.len() && space(b[i]) {
-                i += 1
+        if bytes.get(cursor) == Some(&b'=') {
+            cursor += 1;
+            while cursor < bytes.len() && space(bytes[cursor]) {
+                cursor += 1
             }
-            if b.get(i).is_some_and(|c| matches!(c, b'\'' | b'"')) {
-                let quote = b[i];
-                i += 1;
-                let begin = i;
-                while i < b.len() && b[i] != quote {
-                    i += 1
+            if bytes
+                .get(cursor)
+                .is_some_and(|byte| matches!(byte, b'\'' | b'"'))
+            {
+                let quote = bytes[cursor];
+                cursor += 1;
+                let token_start = cursor;
+                while cursor < bytes.len() && bytes[cursor] != quote {
+                    cursor += 1
                 }
-                value = Some(s[begin..i].into());
-                if i < b.len() {
-                    i += 1
+                value = Some(source[token_start..cursor].into());
+                if cursor < bytes.len() {
+                    cursor += 1
                 }
             } else {
-                let begin = i;
-                while i < b.len() && !space(b[i]) && b[i] != b'>' {
-                    i += 1
+                let token_start = cursor;
+                while cursor < bytes.len() && !space(bytes[cursor]) && bytes[cursor] != b'>' {
+                    cursor += 1
                 }
-                value = Some(s[begin..i].into())
+                value = Some(source[token_start..cursor].into())
             }
         }
-        n.attrs.push(Attr { name: key, value });
-        if n.attrs.len() > 1024 {
-            return Some((n, closing, b.len(), false));
+        node.attrs.push(Attr {
+            name: attribute_name,
+            value,
+        });
+        if node.attrs.len() > 1024 {
+            return Some(Tag {
+                node,
+                closing,
+                end: bytes.len(),
+                terminated: false,
+            });
         }
     }
-    Some((n, closing, b.len(), false))
+    Some(Tag {
+        node,
+        closing,
+        end: bytes.len(),
+        terminated: false,
+    })
 }
 fn implied(new: &str, old: &str) -> bool {
     match new {
@@ -208,8 +243,8 @@ fn implied(new: &str, old: &str) -> bool {
     }
 }
 fn finish(stack: &mut Vec<Node>) {
-    let n = stack.pop().unwrap();
-    stack.last_mut().unwrap().children.push(n)
+    let node = stack.pop().unwrap();
+    stack.last_mut().unwrap().children.push(node)
 }
 fn emitted(count: &mut usize, nodes: usize) -> Result<(), &'static str> {
     *count = count.checked_add(nodes).ok_or("html_too_complex")?;
@@ -218,21 +253,21 @@ fn emitted(count: &mut usize, nodes: usize) -> Result<(), &'static str> {
     }
     Ok(())
 }
-pub fn parse(s: &str) -> Result<Node, &'static str> {
-    if s.len() > MAX_INPUT {
+pub fn parse(source: &str) -> Result<Node, &'static str> {
+    if source.len() > MAX_INPUT {
         return Err("html_too_large");
     }
     let mut stack = vec![Node::root()];
     let mut at = 0;
     let mut count = 1;
-    while at < s.len() {
-        let Some(offset) = s[at..].find('<') else {
+    while at < source.len() {
+        let Some(offset) = source[at..].find('<') else {
             emitted(&mut count, 1)?;
             stack
                 .last_mut()
                 .unwrap()
                 .children
-                .push(Node::text(&s[at..]));
+                .push(Node::text(&source[at..]));
             break;
         };
         let open = at + offset;
@@ -242,77 +277,94 @@ pub fn parse(s: &str) -> Result<Node, &'static str> {
                 .last_mut()
                 .unwrap()
                 .children
-                .push(Node::text(&s[at..open]))
+                .push(Node::text(&source[at..open]))
         }
-        if s[open..].starts_with("<!--") {
-            at = s[open + 4..]
+        if source[open..].starts_with("<!--") {
+            at = source[open + 4..]
                 .find("-->")
-                .map_or(s.len(), |v| open + 4 + v + 3);
+                .map_or(source.len(), |offset| open + 4 + offset + 3);
             continue;
         }
-        if s[open..].starts_with("<!") || s[open..].starts_with("<?") {
-            at = s[open..].find('>').map_or(s.len(), |v| open + v + 1);
+        if source[open..].starts_with("<!") || source[open..].starts_with("<?") {
+            at = source[open..]
+                .find('>')
+                .map_or(source.len(), |offset| open + offset + 1);
             continue;
         }
-        let Some((mut n, closing, end, terminated)) = tag(s, open) else {
+        let Some(Tag {
+            node: mut node,
+            closing,
+            end,
+            terminated,
+        }) = tag(source, open)
+        else {
             emitted(&mut count, 1)?;
             stack.last_mut().unwrap().children.push(Node::text("<"));
             at = open + 1;
             continue;
         };
         at = end;
-        if n.attrs.len() > 1024 {
+        if node.attrs.len() > 1024 {
             return Err("html_too_complex");
         }
         if !terminated {
             break;
         }
         if closing {
-            if let Some(i) = stack.iter().rposition(|v| v.name == n.name) {
-                while stack.len() > i && stack.len() > 1 {
+            if let Some(index) = stack
+                .iter()
+                .rposition(|ancestor| ancestor.name == node.name)
+            {
+                while stack.len() > index && stack.len() > 1 {
                     finish(&mut stack)
                 }
             }
             continue;
         }
-        while stack.len() > 1 && implied(&n.name, &stack.last().unwrap().name) {
+        while stack.len() > 1 && implied(&node.name, &stack.last().unwrap().name) {
             finish(&mut stack)
         }
-        if matches!(n.name.as_str(), "script" | "style" | "textarea" | "title") && !n.self_closing {
-            let needle = format!("</{}", n.name);
+        if matches!(
+            node.name.as_str(),
+            "script" | "style" | "textarea" | "title"
+        ) && !node.self_closing
+        {
+            let needle = format!("</{}", node.name);
             let mut search = at;
             let mut found = None;
-            while let Some(off) = s[search..].find('<') {
+            while let Some(off) = source[search..].find('<') {
                 let pos = search + off;
                 let end = pos + needle.len();
-                if s.as_bytes()
+                if source
+                    .as_bytes()
                     .get(pos..end)
-                    .is_some_and(|v| v.eq_ignore_ascii_case(needle.as_bytes()))
-                    && s.as_bytes()
+                    .is_some_and(|candidate| candidate.eq_ignore_ascii_case(needle.as_bytes()))
+                    && source
+                        .as_bytes()
                         .get(end)
-                        .is_some_and(|v| space(*v) || matches!(v, b'/' | b'>'))
+                        .is_some_and(|byte| space(*byte) || matches!(byte, b'/' | b'>'))
                 {
                     found = Some(pos);
                     break;
                 }
                 search = pos + 1
             }
-            let stop = found.unwrap_or(s.len());
+            let stop = found.unwrap_or(source.len());
             emitted(&mut count, 2)?;
-            let mut raw = Node::text(&s[at..stop]);
+            let mut raw = Node::text(&source[at..stop]);
             raw.raw = true;
-            n.children.push(raw);
+            node.children.push(raw);
             at = found
-                .and_then(|pos| tag(s, pos).map(|v| v.2))
-                .unwrap_or(s.len());
-            stack.last_mut().unwrap().children.push(n);
+                .and_then(|pos| tag(source, pos).map(|tag| tag.end))
+                .unwrap_or(source.len());
+            stack.last_mut().unwrap().children.push(node);
             continue;
         }
         emitted(&mut count, 1)?;
-        if void(&n.name) || n.self_closing || stack.len() >= MAX_DEPTH {
-            stack.last_mut().unwrap().children.push(n)
+        if void(&node.name) || node.self_closing || stack.len() >= MAX_DEPTH {
+            stack.last_mut().unwrap().children.push(node)
         } else {
-            stack.push(n)
+            stack.push(node)
         }
     }
     while stack.len() > 1 {
@@ -320,52 +372,53 @@ pub fn parse(s: &str) -> Result<Node, &'static str> {
     }
     Ok(stack.pop().unwrap())
 }
-pub fn escape_text(s: &str) -> String {
-    s.replace('&', "&amp;")
+pub fn escape_text(source: &str) -> String {
+    source
+        .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
 }
-pub fn serialize(n: &Node) -> Result<String, &'static str> {
-    let mut out = String::new();
-    write(n, &mut out)?;
-    Ok(out)
+pub fn serialize(node: &Node) -> Result<String, &'static str> {
+    let mut output = String::new();
+    write(node, &mut output)?;
+    Ok(output)
 }
-fn write(n: &Node, out: &mut String) -> Result<(), &'static str> {
-    if n.kind == "text" {
-        out.push_str(&n.text.replace('<', "&lt;").replace('>', "&gt;"))
+fn write(node: &Node, output: &mut String) -> Result<(), &'static str> {
+    if node.kind == "text" {
+        output.push_str(&node.text.replace('<', "&lt;").replace('>', "&gt;"))
     } else {
-        if n.kind != "root" {
-            out.push('<');
-            out.push_str(&n.name);
-            for a in &n.attrs {
-                out.push(' ');
-                out.push_str(&a.name);
-                if let Some(v) = &a.value {
-                    out.push_str("=\"");
-                    out.push_str(&v.replace('"', "&quot;"));
-                    out.push('"')
+        if node.kind != "root" {
+            output.push('<');
+            output.push_str(&node.name);
+            for attribute in &node.attrs {
+                output.push(' ');
+                output.push_str(&attribute.name);
+                if let Some(value) = &attribute.value {
+                    output.push_str("=\"");
+                    output.push_str(&value.replace('"', "&quot;"));
+                    output.push('"')
                 }
             }
-            if void(&n.name) || n.self_closing {
-                out.push_str(if n.self_closing { "/>" } else { ">" });
-                return if out.len() > MAX_OUTPUT {
+            if void(&node.name) || node.self_closing {
+                output.push_str(if node.self_closing { "/>" } else { ">" });
+                return if output.len() > MAX_OUTPUT {
                     Err("html_output_too_large")
                 } else {
                     Ok(())
                 };
             }
-            out.push('>')
+            output.push('>')
         }
-        for c in &n.children {
-            write(c, out)?
+        for child in &node.children {
+            write(child, output)?
         }
-        if n.kind != "root" {
-            out.push_str("</");
-            out.push_str(&n.name);
-            out.push('>')
+        if node.kind != "root" {
+            output.push_str("</");
+            output.push_str(&node.name);
+            output.push('>')
         }
     }
-    if out.len() > MAX_OUTPUT {
+    if output.len() > MAX_OUTPUT {
         Err("html_output_too_large")
     } else {
         Ok(())

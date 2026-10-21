@@ -84,8 +84,8 @@ fn secret() -> Result<String> {
 
 pub struct Lease {
     _stream: UnixStream,
-    pub url: String,
-    pub password: String,
+    url: String,
+    password: String,
 }
 impl Lease {
     pub async fn release(&mut self) -> Result<()> {

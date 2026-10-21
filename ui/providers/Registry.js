@@ -82,7 +82,7 @@ function define(source) {
   }
 }
 
-var ALL = [define(Gmail), define(Hey), define(Outlook), define(Imap), define(Jmap)]
+var ALL = [define(Gmail), define(Outlook), define(Hey), define(Jmap), define(Imap)]
 
 var DEFAULT_ID = "gmail"
 

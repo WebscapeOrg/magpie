@@ -35,6 +35,7 @@ Item {
     property bool selectedReaderTooHeavy: rendered.reader.tooHeavy
     property bool selectedReaderEmpty: rendered.reader.empty
     property int selectedRemoteImages: rendered.remoteImages
+    property int selectedReaderRemoteImages: rendered.reader.blockedImages
     property bool remoteImagesAllowed: false
     property bool selectedTooHeavy: rendered.tooHeavy
     property string unsubscribeLabel: ""

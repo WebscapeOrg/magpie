@@ -40,6 +40,7 @@ Item {
     property bool selectedReaderTooHeavy: rendered.reader.tooHeavy
     property bool selectedReaderEmpty: rendered.reader.empty
     property int selectedRemoteImages: rendered.remoteImages
+    property int selectedReaderRemoteImages: rendered.reader.blockedImages
     property bool remoteImagesAllowed: false
     property bool selectedTooHeavy: rendered.tooHeavy
     property string unsubscribeLabel: ""
@@ -101,6 +102,7 @@ Item {
     }
 
     function init() {
+      failOnWarning(/Unable to assign|TypeError|ReferenceError/)
       reader.width = MailStyle.space(900)
       reader.zoom = 1.0
       mailService.canOpenOnWeb = false

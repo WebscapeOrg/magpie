@@ -70,6 +70,9 @@ Item {
     property var calendarController: null
     property var selectedBody: ({ text: "body", source: "plain" })
     property var selectedMessage: null
+    property var agentJobs: ({})
+    property var agentAttentionByMessage: ({})
+    property string contentDirection: "auto"
 
     readonly property var initialMessages: [
       { id: "m1", subject: "first", unread: true, from: { email: "a@x", display: "A" },
@@ -161,6 +164,7 @@ Item {
     }
 
     function init() {
+      failOnWarning(/Unable to assign|TypeError|ReferenceError/)
       app.opened = true
       appWindow().width = 1200
       appWindow().height = 700

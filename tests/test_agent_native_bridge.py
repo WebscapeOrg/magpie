@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 import test_agent_bridge as legacy
 import agent_broker_fixture
@@ -102,6 +103,13 @@ if sys.argv[1] == 'run' and '--session' in sys.argv:
         return answer['result'] if answer.get('ok') else answer.get('error', {}).get('code', '')
 
     def cleanup(self):
+        try:
+            self.cancel_workers()
+            self.assertFalse((self.root/'TERMINAL').exists())
+        finally:
+            agent_broker_fixture.shutdown(self.root)
+
+    def cancel_workers(self):
         active = []
         for ident in self.ids:
             result = subprocess.run([str(BINARY),'--json','call','agent.jobCancel'],
@@ -123,8 +131,6 @@ if sys.argv[1] == 'run' and '--session' in sys.argv:
             if time.monotonic() >= deadline:
                 self.fail('Cancelled workers did not settle before cleanup: ' + ', '.join(active))
             time.sleep(.04)
-        self.assertFalse((self.root/'TERMINAL').exists())
-        agent_broker_fixture.shutdown(self.root)
 
     def test_background_stdin_result_and_resume(self):
         ident = self.new(draft={'body':'Original'}, draftKey='ada-draft', draftFingerprint='abc')
@@ -432,6 +438,11 @@ emit({'type':'result','subtype':'success','result':'','session_id':'11111111-222
         first=self.new();self.wait(first)
         second=self.call('new',value={'parent':first,'prompt':'second'})['id'];self.ids.append(second)
         shown=self.wait(second)
+        for ident in (first, second):
+            path = self.store/ident/'job.json'
+            job = json.loads(path.read_text())
+            job['created'] = 100
+            path.write_text(json.dumps(job))
         self.assertEqual([j['id'] for j in self.call('list')],[second])
         self.assertEqual(shown['transcript'][-2]['text'],'second')
 
@@ -913,6 +924,19 @@ emit({'type':'result','subtype':'success','result':'Visible answer'})
         before=sorted(os.listdir(self.store))
         self.call('new',value={'parent':ident,'prompt':'Continue'},ok=False)
         self.assertEqual(sorted(os.listdir(self.store)),before)
+
+
+class NativeBridgeCleanup(unittest.TestCase):
+    def test_cancellation_timeout_still_shuts_down_fixture_broker(self):
+        bridge = NativeBridge('test_background_stdin_result_and_resume')
+        bridge.root = Path('synthetic-fixture')
+        bridge.ids = ['synthetic-job']
+        bridge.env = {}
+        with patch.object(subprocess, 'run', side_effect=subprocess.TimeoutExpired('cancel', 8)), \
+                patch.object(agent_broker_fixture, 'shutdown') as shutdown:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                bridge.cleanup()
+            shutdown.assert_called_once_with(bridge.root)
 
 
 if __name__ == '__main__':

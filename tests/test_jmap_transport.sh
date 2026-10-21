@@ -271,7 +271,7 @@ cat > "$work/bin/curl-slow" <<'SLOW'
 #!/bin/sh
 cat >/dev/null
 printf '%s\n' "$$" > "$CURL_STUB_PIDFILE"
-sleep 30
+exec sleep 30
 SLOW
 chmod +x "$work/bin/curl-slow"
 mkdir -p "$work/slow"
@@ -291,7 +291,10 @@ curl_pid=$(cat "$pidfile" 2>/dev/null || printf '')
 kill -TERM "$script_pid" 2>/dev/null || true
 wait "$script_pid" 2>/dev/null || true
 sleep 0.3
-if [ -n "$curl_pid" ] && kill -0 "$curl_pid" 2>/dev/null; then
+if [ -z "$curl_pid" ]; then
+  printf '  FAIL %s\n' "the curl fixture never started"
+  failures=$((failures + 1))
+elif kill -0 "$curl_pid" 2>/dev/null; then
   kill -KILL "$curl_pid" 2>/dev/null || true
   printf '  FAIL %s\n' "stopping the stream leaves curl running"
   failures=$((failures + 1))
@@ -328,7 +331,10 @@ for verb in session call download upload; do
   wait "$script_pid" 2>/dev/null || true
   sleep 0.3
   ended=$(date +%s)
-  if [ -n "$curl_pid" ] && kill -0 "$curl_pid" 2>/dev/null; then
+  if [ -z "$curl_pid" ]; then
+    printf '  FAIL %s\n' "the $verb curl fixture never started"
+    failures=$((failures + 1))
+  elif kill -0 "$curl_pid" 2>/dev/null; then
     kill -KILL "$curl_pid" 2>/dev/null || true
     printf '  FAIL %s\n' "stopping a $verb leaves curl running"
     failures=$((failures + 1))
@@ -346,14 +352,16 @@ done
 # hand-edited accounts.json from sending an account password somewhere else.
 
 refuses() {
+  count="$work/refused-curl"
+  rm -f "$count"
   set +e
-  printf '%s\n' "$2" | PATH="$work/bin:$PATH" sh "$script" >/dev/null 2>&1
+  printf '%s\n' "$2" | CURL_STUB_COUNT="$count" PATH="$work/bin:$PATH" sh "$script" >/dev/null 2>&1
   code=$?
   set -e
-  if [ "$code" = "2" ]; then
+  if [ "$code" = "2" ] && [ ! -e "$count" ]; then
     printf '  ok   %s\n' "$1"
   else
-    printf '  FAIL %s: expected exit 2, got %s\n' "$1" "$code"
+    printf '  FAIL %s: expected exit 2 before curl, got %s; curl invoked: %s\n' "$1" "$code" "$([ -e "$count" ] && printf yes || printf no)"
     failures=$(( failures + 1 ))
   fi
 }

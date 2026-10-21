@@ -72,11 +72,13 @@ fn starts(event: &Value, from: i64, to: i64) -> Result<Vec<i64>> {
     let calendar = ics::parse(&format!("BEGIN:VCALENDAR\r\n{zones}\r\nEND:VCALENDAR"))?;
     let mut current = base;
     if count == 0 {
-        let skip = (from.saturating_sub(172_800_000) - base.and_utc().timestamp_millis())
+        let skip = from
+            .saturating_sub(172_800_000)
+            .saturating_sub(base.and_utc().timestamp_millis())
             .div_euclid(86_400_000)
             .max(0);
         current = current
-            .checked_add_signed(Duration::days(skip))
+            .checked_add_signed(Duration::try_days(skip).ok_or("calendar_invalid_response")?)
             .ok_or("calendar_invalid_response")?;
     }
     let mut out = Vec::new();
@@ -198,4 +200,20 @@ pub(super) fn expand(events: Vec<Value>, from: i64, to: i64) -> Result<Vec<Value
     );
     sort(&mut out);
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn review_extreme_ranges_cannot_panic_during_recurrence_seek() {
+        let event = json!({"recurrenceRule":"FREQ=DAILY", "start":{"ms":1767225600000_i64},
+            "source":{"dtstart":"DTSTART:20260101T000000Z","timezones":[]}});
+        assert_eq!(starts(&event, i64::MIN, i64::MIN + 1), Ok(vec![]));
+        assert_eq!(
+            starts(&event, i64::MAX - 1, i64::MAX),
+            Err("calendar_invalid_response")
+        );
+    }
 }

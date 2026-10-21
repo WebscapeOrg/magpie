@@ -14,7 +14,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-LIMIT = 65536
+MAX_RECORD_BYTES = 65536
 # An exact, reviewed vocabulary, never a pattern that could admit a credential or
 # server text. tests/test_diagnostics.py flags new static backend identifiers;
 # review their source before adding them here, never derive this set at runtime.
@@ -285,8 +285,8 @@ def read(fd, name):
         return b''
     with os.fdopen(handle, 'rb') as file:
         check(file.fileno())
-        data = file.read(LIMIT + 1)
-        if len(data) > LIMIT:
+        data = file.read(MAX_RECORD_BYTES + 1)
+        if len(data) > MAX_RECORD_BYTES:
             raise ValueError('Diagnostic file too large')
         return data
 
@@ -294,7 +294,7 @@ def read(fd, name):
 def write(fd, name, data):
     read(fd, name)  # Refuse unsafe existing files before creating a replacement.
     data = data.encode('utf-8')
-    if len(data) > LIMIT:
+    if len(data) > MAX_RECORD_BYTES:
         raise ValueError('Diagnostic file too large')
     temp = '.write-' + secrets.token_hex(12)
     handle = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
@@ -314,8 +314,8 @@ def write(fd, name, data):
 def main(mode):
     incoming = []
     if mode == 'record':
-        raw = sys.stdin.buffer.readline(LIMIT + 1)
-        if len(raw) > LIMIT:
+        raw = sys.stdin.buffer.readline(MAX_RECORD_BYTES + 1)
+        if len(raw) > MAX_RECORD_BYTES:
             raise ValueError('Input too large')
         incoming = json.loads(raw)
         if not isinstance(incoming, list) or len(incoming) > 32:
@@ -366,7 +366,7 @@ def main(mode):
             except (ValueError, OSError):
                 pass
         # Preserve the existing bounded report when the transport history is full.
-        while len(report.encode('utf-8')) + 1 > LIMIT:
+        while len(report.encode('utf-8')) + 1 > MAX_RECORD_BYTES:
             lines = report.splitlines()
             first = next((i for i, line in enumerate(lines) if line.startswith('{')), None)
             if first is None:

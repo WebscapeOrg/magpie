@@ -87,7 +87,7 @@ class Policy(unittest.TestCase):
             connection.close()
 
     def test_input_is_bounded_canonical_and_keeps_controls_for_rejection(self):
-        for line in [b"%%%\n", b"YQ\n", b"YR==\n", b"YQ== extra\n", b"x" * (transport.MAX_INPUT + 1)]:
+        for line in [b"%%%\n", b"YQ\n", b"YR==\n", b"YQ== extra\n", b"x" * (transport.MAX_INPUT_BYTES + 1)]:
             with self.subTest(line=line[:20]), self.assertRaises(ValueError):
                 transport.read_fields(io.BytesIO(line), 1)
         encoded = base64.b64encode(b"https://example.com/\n") + b"\n"
@@ -134,7 +134,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "image/png")
         if self.path == "/oversize":
-            self.send_header("Content-Length", str(transport.MAX_IMAGE + 1))
+            self.send_header("Content-Length", str(transport.MAX_IMAGE_BYTES + 1))
             self.end_headers()
             return
         data = b"<svg/>" if self.path == "/fake" else PNG
@@ -188,7 +188,7 @@ class LocalHTTP(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(transport.Refused):
                 transport.fetch_image("http://example.com" + path)
         self.assertTrue(transport.fetch_image("http://example.com/chunked").startswith("data:image/png;"))
-        with patch.object(transport, "MAX_IMAGE", 8), self.assertRaises(transport.Refused):
+        with patch.object(transport, "MAX_IMAGE_BYTES", 8), self.assertRaises(transport.Refused):
             transport.fetch_image("http://example.com/chunked")
 
     def test_slow_response_deadline(self):

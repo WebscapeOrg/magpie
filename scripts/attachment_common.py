@@ -13,11 +13,11 @@ import unicodedata
 
 # A name longer than this is refused by ext4 and by every filesystem the app is
 # likely to land on, which measures bytes rather than characters.
-NAME_LIMIT = 240
+MAX_FILENAME_BYTES = 240
 
 # Past this, what follows the last dot is not an extension — it is the rest of
 # the name, and there is nothing to preserve by keeping it.
-SUFFIX_LIMIT = 32
+MAX_SUFFIX_BYTES = 32
 
 
 def decode(value: bytes) -> bytes:
@@ -110,15 +110,15 @@ def _within_limit(name: str) -> str:
     PDF does not open in what opens a PDF. The stem gives up the characters
     instead.
     """
-    if len(os.fsencode(name)) <= NAME_LIMIT:
+    if len(os.fsencode(name)) <= MAX_FILENAME_BYTES:
         return name
 
     stem, dot, extension = name.rpartition(".")
     suffix = dot + extension
-    if not stem or len(os.fsencode(suffix)) > SUFFIX_LIMIT:
+    if not stem or len(os.fsencode(suffix)) > MAX_SUFFIX_BYTES:
         stem, suffix = name, ""
 
-    room = NAME_LIMIT - len(os.fsencode(suffix))
+    room = MAX_FILENAME_BYTES - len(os.fsencode(suffix))
     while stem and len(os.fsencode(stem)) > room:
         stem = stem[:-1]
     return stem + suffix

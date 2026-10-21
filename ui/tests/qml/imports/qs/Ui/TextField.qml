@@ -6,6 +6,7 @@ QQC.TextField {
   property color foreground: Qt.rgba(1, 1, 1, 1)
   property color accent: Qt.rgba(1, 0.5, 0, 1)
   property real verticalPadding: 5
+  echoMode: password ? TextInput.Password : TextInput.Normal
   color: foreground
   topPadding: verticalPadding
   bottomPadding: verticalPadding

@@ -20,8 +20,8 @@ try {
   var t = localStorage.getItem("omamail-theme");
   if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
 } catch (e) {}
-/* Motion is opt-out at the root, so nothing depends on the script at the foot
-   of the page having run — without it every section simply stays visible. */
+/* Invariant: entrance motion follows the preference before first paint;
+   section visibility changes only after its observer has initialized. */
 if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
   document.documentElement.className += " js-anim";
 }
@@ -712,14 +712,14 @@ footer p:last-child { margin-bottom: 0; }
 .js-anim .meta { animation: popin 260ms var(--ease) 290ms both; }
 
 /* One movement per section as it arrives, never one per row. */
-.js-anim section > .wrap,
-.js-anim footer > .wrap {
+.js-reveal section > .wrap,
+.js-reveal footer > .wrap {
   opacity: 0;
   transform: translateY(8px);
   transition: opacity 260ms var(--ease), transform 260ms var(--ease);
 }
-.js-anim section > .wrap.revealed,
-.js-anim footer > .wrap.revealed {
+.js-reveal section > .wrap.revealed,
+.js-reveal footer > .wrap.revealed {
   opacity: 1;
   transform: none;
 }
@@ -790,8 +790,8 @@ footer p:last-child { margin-bottom: 0; }
     transition-duration: 0ms !important;
   }
   .btn:active, .copy:active { transform: none; }
-  .js-anim section > .wrap,
-  .js-anim footer > .wrap { opacity: 1; transform: none; }
+  .js-reveal section > .wrap,
+  .js-reveal footer > .wrap { opacity: 1; transform: none; }
 }
 </style>
 </head>
@@ -1132,6 +1132,7 @@ footer p:last-child { margin-bottom: 0; }
         seen.unobserve(entry.target);
       });
     }, { rootMargin: "0px 0px -8% 0px", threshold: 0.04 });
+    root.classList.add("js-reveal");
     Array.prototype.forEach.call(panels, function (n) { seen.observe(n); });
   } else {
     Array.prototype.forEach.call(panels, function (n) { n.classList.add("revealed"); });

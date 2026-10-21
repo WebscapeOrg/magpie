@@ -212,7 +212,7 @@ Item {
     }
     var parsed = payload
     if (typeof parsed === "string") { try { parsed = JSON.parse(parsed) } catch (e) {} }
-    if (parsed && parsed.parent && !canContinueSelection(jobFor2(parsed.parent))) {
+    if (parsed && parsed.parent && !canContinueSelection(jobById(parsed.parent))) {
       lastError = "This chat belongs to a previous AI selection. Start a new chat."
       return false
     }
@@ -255,7 +255,7 @@ Item {
   }
 
   function cancelById(jobId) {
-    var job = jobFor2(jobId)
+    var job = jobById(jobId)
     if (!available() || !job || activeIds.indexOf(String(job.id)) < 0 || cancelling) return false
     cancelling = true
     request("agent.jobCancel", {id: String(job.id)}, function(result, error) {
@@ -378,7 +378,7 @@ Item {
     function onReadyChanged() { root.refreshAvailability(); if (root.available()) {root.refresh();root.drainForgets()} }
     function onApiVersionChanged() { root.refreshAvailability() }
   }
-  function jobFor2(jobId) {
+  function jobById(jobId) {
     for (var i = 0; i < jobs.length; i++) if (String(jobs[i].id) === String(jobId)) return jobs[i]
     return null
   }

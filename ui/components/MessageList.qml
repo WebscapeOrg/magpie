@@ -86,7 +86,7 @@ ListView {
       overviewReason: root.service.inboxTools ? (root.service.inboxTools.available === false ? (!root.service.backend || !root.service.backend.ready ? "mail backend is disconnected" : "backend update required") : String(overviewDetails.reason || "")) : ""
       overviewState: root.service.inboxTools ? (root.service.inboxTools.available === false ? "unavailable" : root.service.inboxTools.paused === true ? "paused" : String(overviewDetails.state || "")) : ""
       onUnreadRequested: root.rowActionRequested(modelData.id, "markUnread")
-      onSnoozeRequested: function(x,y) { root.snoozeRequested(modelData.id,x,y) }
+      onSnoozeRequested: function(sceneX, sceneY) { root.snoozeRequested(modelData.id, sceneX, sceneY) }
       summary: modelData
       textColor: root.textColor
       accentColor: root.accentColor

@@ -22,6 +22,7 @@ Item {
     }
   }
   Component { id: heyFactory; Providers.HeyAuth { pluginDir: "/synthetic" } }
+  Component { id: heyClientFactory; Providers.HeyClient {} }
   TestCase {
     name: "ProviderSessionCallbacks"
     function init() { fakeBackend.requests = [] }
@@ -78,6 +79,15 @@ Item {
       auth.missingTools = []
       fakeBackend.requests = []
       return auth
+    }
+    function test_cancelled_empty_hey_read_does_not_deliver() {
+      var auth = hey()
+      var client = createTemporaryObject(heyClientFactory, root, { auth: auth })
+      var delivered = 0
+      var handle = client.getMessages([], true, function() { delivered++ })
+      client.abortRequest(handle)
+      wait(1)
+      compare(delivered, 0)
     }
     function test_cancelled_hey_start_cannot_restart_polling() {
       var auth = hey()

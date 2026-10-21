@@ -126,7 +126,7 @@ Item {
       var remaining = list.length
       var firstError = ""
       if (remaining === 0) {
-        Qt.callLater(function() { if (root) callback([], "") })
+        Qt.callLater(function() { if (root && !handle.aborted) callback([], "") })
         return handle
       }
       for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {

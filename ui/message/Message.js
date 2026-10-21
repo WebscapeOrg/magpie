@@ -38,41 +38,50 @@ function base64ToBytes(text) {
   return bytes
 }
 
+function utf8Scalar(bytes, index) {
+  var first = bytes[index]
+  if (first < 0x80) return first
+  var width = first >= 0xc2 && first <= 0xdf ? 2
+    : (first >= 0xe0 && first <= 0xef ? 3 : (first >= 0xf0 && first <= 0xf4 ? 4 : 0))
+  if (width === 0 || index + width > bytes.length) return -1
+  var codePoint = first & (width === 2 ? 0x1f : (width === 3 ? 0x0f : 0x07))
+  for (var offset = 1; offset < width; offset++) {
+    var continuation = bytes[index + offset]
+    if (continuation < 0x80 || continuation > 0xbf) return -1
+    codePoint = (codePoint << 6) | (continuation & 0x3f)
+  }
+  if (width === 3 && codePoint < 0x800) return -1
+  if (width === 4 && (codePoint < 0x10000 || codePoint > 0x10ffff)) return -1
+  if (codePoint >= 0xd800 && codePoint <= 0xdfff) return -1
+  return codePoint
+}
+
 function bytesToUtf8(bytes) {
-  var out = ""
+  var result = ""
   var byteIndex = 0
-  var length = bytes.length
-  while (byteIndex < length) {
-    var byte1 = bytes[byteIndex++]
-    if (byte1 < 0x80) {
-      out += String.fromCharCode(byte1)
+  while (byteIndex < bytes.length) {
+    var first = bytes[byteIndex]
+    if (first < 0x80) {
+      result += String.fromCharCode(first)
+      byteIndex++
       continue
     }
-    var codePoint = -1
-    if (byte1 >= 0xc2 && byte1 <= 0xdf && byteIndex < length) {
-      codePoint = ((byte1 & 0x1f) << 6) | (bytes[byteIndex] & 0x3f)
-      byteIndex += 1
-    } else if (byte1 >= 0xe0 && byte1 <= 0xef && byteIndex + 1 < length) {
-      codePoint = ((byte1 & 0x0f) << 12) | ((bytes[byteIndex] & 0x3f) << 6) | (bytes[byteIndex + 1] & 0x3f)
-      byteIndex += 2
-    } else if (byte1 >= 0xf0 && byte1 <= 0xf4 && byteIndex + 2 < length) {
-      codePoint = ((byte1 & 0x07) << 18) | ((bytes[byteIndex] & 0x3f) << 12)
-        | ((bytes[byteIndex + 1] & 0x3f) << 6) | (bytes[byteIndex + 2] & 0x3f)
-      byteIndex += 3
-    }
+    var codePoint = utf8Scalar(bytes, byteIndex)
     if (codePoint < 0) {
       // Invariant: malformed UTF-8 bytes fall back individually to Latin-1 so message text remains readable.
-      out += String.fromCharCode(byte1)
+      result += String.fromCharCode(first)
+      byteIndex++
       continue
     }
-    if (codePoint > 0xffff) {
-      codePoint -= 0x10000
-      out += String.fromCharCode(0xd800 + (codePoint >> 10), 0xdc00 + (codePoint & 0x3ff))
-    } else {
-      out += String.fromCharCode(codePoint)
+    byteIndex += codePoint < 0x800 ? 2 : (codePoint < 0x10000 ? 3 : 4)
+    if (codePoint <= 0xffff) {
+      result += String.fromCharCode(codePoint)
+      continue
     }
+    codePoint -= 0x10000
+    result += String.fromCharCode(0xd800 + (codePoint >> 10), 0xdc00 + (codePoint & 0x3ff))
   }
-  return out
+  return result
 }
 
 function bytesToLatin1(bytes) {
@@ -107,6 +116,7 @@ function utf8Bytes(text) {
         index++
       }
     }
+    if (code >= 0xd800 && code <= 0xdfff) code = 0xfffd
     if (code < 0x80) bytes.push(code)
     else if (code < 0x800) bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f))
     else if (code < 0x10000) bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f))
@@ -159,40 +169,19 @@ function decodeQuotedPrintableWord(text) {
 // Invariant: only fully valid multibyte UTF-8 overrides a declared single-byte charset.
 function looksLikeUtf8(bytes) {
   var values = bytes || []
-  var multi = 0
+  var multibyte = false
   var byteIndex = 0
   while (byteIndex < values.length) {
-    var byte1 = values[byteIndex++]
-    if (byte1 < 0x80) continue
-    var needed = 0
-    var codePoint = 0
-    if (byte1 >= 0xc2 && byte1 <= 0xdf) {
-      needed = 1
-      codePoint = byte1 & 0x1f
-    } else if (byte1 >= 0xe0 && byte1 <= 0xef) {
-      needed = 2
-      codePoint = byte1 & 0x0f
-    } else if (byte1 >= 0xf0 && byte1 <= 0xf4) {
-      needed = 3
-      codePoint = byte1 & 0x07
-    } else {
-
-      return false
+    if (values[byteIndex] < 0x80) {
+      byteIndex++
+      continue
     }
-    if (byteIndex + needed > values.length) return false
-    for (var continuationIndex = 0; continuationIndex < needed; continuationIndex++) {
-      var next = values[byteIndex + continuationIndex]
-      if (next < 0x80 || next > 0xbf) return false
-      codePoint = (codePoint << 6) | (next & 0x3f)
-    }
-    byteIndex += needed
-    if (needed === 1 && codePoint < 0x80) return false
-    if (needed === 2 && codePoint < 0x800) return false
-    if (needed === 3 && (codePoint < 0x10000 || codePoint > 0x10ffff)) return false
-    if (codePoint >= 0xd800 && codePoint <= 0xdfff) return false
-    multi += 1
+    var codePoint = utf8Scalar(values, byteIndex)
+    if (codePoint < 0) return false
+    byteIndex += codePoint < 0x800 ? 2 : (codePoint < 0x10000 ? 3 : 4)
+    multibyte = true
   }
-  return multi > 0
+  return multibyte
 }
 
 function decodeWordBytes(charset, bytes) {

@@ -775,4 +775,18 @@ assert.strictEqual(feedEvents[1].start.allDay, true)
     assert.strictEqual(calendar.parseOffsetMinutes('+010521'),65.35)
 }
 
+
+{
+  const fields = calendar.parseDateValue("00990228T123000Z")
+  assert.strictEqual(new Date(calendar.naiveKey(fields)).getUTCFullYear(), 99)
+  assert.strictEqual(new Date(calendar.naiveKey(fields)).getUTCMonth(), 1)
+  assert.strictEqual(new Date(calendar.naiveKey(fields)).getUTCDate(), 28)
+  for (const stamp of ["00990228T123000", "00990228"]) {
+    const resolved = calendar.resolveTime(calendar.parseProperty("DTSTART:" + stamp), null)
+    assert.strictEqual(new Date(resolved.ms).getFullYear(), 99)
+    assert.strictEqual(new Date(resolved.ms).getMonth(), 1)
+    assert.strictEqual(new Date(resolved.ms).getDate(), 28)
+  }
+}
+
 console.log("test_calendar.js ok")

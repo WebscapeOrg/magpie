@@ -12,4 +12,10 @@ for (const file of [{attachmentId:"1",mimeType:"image/svg+xml"}, {attachmentId:"
 assert.equal(preview.fileLabel({filename:"report.pdf",mimeType:"application/pdf"}), "PDF")
 assert.equal(preview.fileLabel({filename:"budget.xlsx"}), "XLSX")
 assert.equal(preview.fileLabel({filename:'<img src="https://example.invalid/">'}), "File")
+
+for (const size of [-1, Infinity, "unknown"]) {
+  assert.strictEqual(preview.supported({attachmentId: "part", mimeType: "application/pdf", size}), false,
+    "unusable attachment size metadata cannot authorize a preview fetch")
+}
+
 console.log("test_attachment_preview.js ok")

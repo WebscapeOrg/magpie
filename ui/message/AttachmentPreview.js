@@ -4,8 +4,9 @@
 function supported(attachment) {
   var file = attachment || ({})
   var mime = String(file.mimeType || "").toLowerCase()
+  var size = Number(file.size || 0)
   return String(file.attachmentId || "") !== ""
-    && Number(file.size || 0) <= 8 * 1024 * 1024
+    && isFinite(size) && size >= 0 && size <= 8 * 1024 * 1024
     && ["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"].indexOf(mime) >= 0
 }
 

@@ -1339,6 +1339,20 @@ assert.strictEqual(message.composeBody("\n\n", ""), "")
     assert.strictEqual(message.contentTypeParam('attachment; filename="a\\\"b.txt"','filename'),'a"b.txt')
 }
 
+
+{
+  for (const bytes of [[0xc2, 0x41], [0xe0, 0x80, 0xbc], [0xed, 0xa0, 0x80], [0xf4, 0x90, 0x80, 0x80]]) {
+    assert.strictEqual(message.bytesToUtf8(bytes), String.fromCharCode(...bytes))
+    assert.strictEqual(message.looksLikeUtf8(bytes), false)
+  }
+  assert.strictEqual(message.bytesToUtf8([0xe0, 0x80, 0xbc]).includes("<"), false,
+    "an overlong sequence cannot synthesize a markup delimiter")
+  for (const value of ["\ud800x", "x\udc00", "\ud800\ud800", "😀"]) {
+    deepEqual(message.utf8Bytes(value), Array.from(Buffer.from(value)),
+      "isolated surrogates encode as the Unicode replacement character")
+  }
+}
+
 console.log("test_message.js ok")
 // A draft reopened from the server keeps the Reply-To it was saved with.
 assert.strictEqual(message.draftFields({ replyTo: { email: "team@example.com" }, to: [] }, "x").replyTo, "team@example.com")

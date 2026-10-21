@@ -36,18 +36,42 @@ if [ ! -f "$desktop" ]; then
   claim_default=true
 fi
 
-cat > "$desktop" <<EOF
-[Desktop Entry]
+python3 - "$plugin_dir" "$desktop" <<'PYTHON'
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+plugin, destination = sys.argv[1:]
+if any(ord(character) < 32 or ord(character) == 127 for character in plugin) or "=" in plugin:
+    raise SystemExit("register-mailto.sh: unsupported desktop path characters")
+
+def value(text):
+    return text.replace("\\", "\\\\")
+
+def command(text):
+    quoted = "".join("\\" + character if character in '\\"`$' else character for character in text)
+    return value('"' + quoted.replace("%", "%%") + '"')
+
+content = f"""[Desktop Entry]
 Type=Application
 Name=🐦 Magpie
 Comment=Email client for Omarchy
-Exec=$plugin_dir/scripts/mailto.sh %u
-Icon=$plugin_dir/ui/assets/magpie.svg
+Exec=/usr/bin/env -- {command(plugin + '/scripts/mailto.sh')} %u
+Icon={value(plugin + '/ui/assets/magpie.svg')}
 Terminal=false
 StartupNotify=false
 MimeType=x-scheme-handler/mailto;
 Categories=Office;Network;Email;
-EOF
+"""
+with tempfile.NamedTemporaryFile("w", dir=Path(destination).parent, prefix=".omamail-", delete=False, encoding="utf-8") as output:
+    temporary = Path(output.name)
+    output.write(content)
+try:
+    os.replace(temporary, destination)
+finally:
+    temporary.unlink(missing_ok=True)
+PYTHON
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$apps" >/dev/null 2>&1 || true

@@ -12,18 +12,18 @@ Item {
     id: flick
     anchors.fill: parent
     contentWidth: width
-    contentHeight: col.height
+    contentHeight: column.height
     clip: true
 
     Column {
-      id: col
+      id: column
       width: flick.width
       Repeater {
         model: 10
         Rectangle {
           id: row
           required property int index
-          width: col.width
+          width: column.width
           height: 40
           MouseArea {
             anchors.fill: parent

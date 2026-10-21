@@ -38,27 +38,27 @@ Item {
 
     function primary(account) {
       var rows = account.availableSendAsAliases
-      for (var i = 0; i < rows.length; i++) if (rows[i].isPrimary) return rows[i]
+      for (var index = 0; index < rows.length; index++) if (rows[index].isPrimary) return rows[index]
       return null
     }
 
     function test_imap_and_outlook_name_the_primary_address_from_api_7() {
       var providers = ["imap", "outlook"]
-      for (var i = 0; i < providers.length; i++) {
+      for (var index = 0; index < providers.length; index++) {
         var backend = connected(6)
         var account = createTemporaryObject(accountFactory, parent,
-          { backend: backend, providerId: providers[i] })
+          { backend: backend, providerId: providers[index] })
         account.profile = ({ email: "ada@example.org" })
         compare(backend.ready, true)
         compare(primary(account).displayName, "",
-          providers[i] + ": API 6 cannot name agent sends, so the composer does not either")
+          providers[index] + ": API 6 cannot name agent sends, so the composer does not either")
         backend.protocolInfo = ({ apiVersion: 7 })
-        compare(primary(account).displayName, "Ada Lovelace", providers[i])
+        compare(primary(account).displayName, "Ada Lovelace", providers[index])
         backend.latestApiVersion = 8
         backend.protocolInfo = ({ apiVersion: 8 })
-        compare(primary(account).displayName, "Ada Lovelace", providers[i] + ": a later API keeps it")
+        compare(primary(account).displayName, "Ada Lovelace", providers[index] + ": a later API keeps it")
         backend.connected = false
-        compare(primary(account).displayName, "", providers[i] + ": nothing is promised offline")
+        compare(primary(account).displayName, "", providers[index] + ": nothing is promised offline")
       }
     }
 

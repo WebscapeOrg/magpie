@@ -153,10 +153,10 @@ Item {
     function preferredSendAs(recipients) { return null }
     function refreshRecipientContacts() {}
     function cursorOffset(id, delta) {
-      for (var i = 0; i < messages.length; i++) {
-        if (messages[i].id !== String(id)) continue
-        var next = i + (delta > 0 ? 1 : -1)
-        if (next < 0 || next >= messages.length) return messages[i].id
+      for (var index = 0; index < messages.length; index++) {
+        if (messages[index].id !== String(id)) continue
+        var next = index + (delta > 0 ? 1 : -1)
+        if (next < 0 || next >= messages.length) return messages[index].id
         return messages[next].id
       }
       return messages.length > 0 ? messages[0].id : ""
@@ -212,8 +212,8 @@ Item {
       while (stack.length > 0) {
         var item = stack.pop()
         if (item.memberId !== undefined && item.memberId === id) return item
-        var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) stack.push(kids[i])
+        var children = item.children || []
+        for (var index = 0; index < children.length; index++) stack.push(children[index])
       }
       return null
     }
@@ -324,7 +324,7 @@ Item {
       verify(rail.stops[0].open, "the open message keeps its place in the timeline")
       compare(rail.caption, "3 messages", "the length is known before any summary")
 
-      var before = rail.stops.map(function(s) { return s.id })
+      var before = rail.stops.map(function(stop) { return stop.id })
       var placed = members.map(function(id) { return rail.boundsFor(id) })
       verify(placed[0] && placed[0].height > 0, "a skeleton stop has a place and a height")
       mailService.memberSummaries = ({
@@ -333,16 +333,16 @@ Item {
         maaaaaf: memberSummary("maaaaaf", true, ["INBOX", "UNREAD"])
       })
       waitForRendering(app)
-      compare(rail.stops.map(function(s) { return s.id }).join(","), before.join(","))
+      compare(rail.stops.map(function(stop) { return stop.id }).join(","), before.join(","))
       verify(rail.stops[2].known, "and now every stop is settled")
       compare(rail.stops[2].mailbox, "Drafts",
         "the member outside the mailbox on screen says where it is")
       compare(rail.stops[1].mailbox, "", "and one inside it says nothing")
       compare(rail.caption, "3 messages · 1 unread")
-      for (var i = 0; i < members.length; i++) {
-        var after = rail.boundsFor(members[i])
-        compare(after.y, placed[i].y, "the stop for " + members[i] + " did not move")
-        compare(after.height, placed[i].height, "nor change height")
+      for (var index = 0; index < members.length; index++) {
+        var after = rail.boundsFor(members[index])
+        compare(after.y, placed[index].y, "the stop for " + members[index] + " did not move")
+        compare(after.height, placed[index].height, "nor change height")
       }
     }
 

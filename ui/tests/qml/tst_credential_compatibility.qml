@@ -101,8 +101,8 @@ Item {
       tryVerify(function() { return answer !== "" })
       compare(answer, "native secret|")
       var found = null
-      for (var i = 0; i < listener.requests.length; i++)
-        if (listener.requests[i].method === "credentials.get") found = listener.requests[i]
+      for (var index = 0; index < listener.requests.length; index++)
+        if (listener.requests[index].method === "credentials.get") found = listener.requests[index]
       verify(found)
       compare(found.params, {kind:"jmap-secret",accountId:"jmap:one@example.org"})
       compare(findChild(pluginService, "legacy-credential-get"), null)

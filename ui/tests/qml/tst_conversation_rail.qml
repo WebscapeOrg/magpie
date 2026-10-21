@@ -3,20 +3,7 @@ import QtTest 1.3
 import "../.." as Omamail
 import "NativeDomainFixture.js" as NativeDomain
 
-// `n` and `p` walk the conversation rail; Shift+J and Shift+K scroll the open message.
-//
-// Why this needs Qt rather than a node test: the whole claim is that two
-// positions in one window move independently under real keystrokes. Three
-// things have to agree for that — `KeyRouter` binding the letters only in the
-// reader context, `App.runShortcut` routing them to the rail rather than to the
-// cursor, and `openMember` putting the cursor back where it was after
-// `openMessage` moved it. `Conversation.memberStep` is asserted on its own in
-// `tests/test_conversation.js`; a test of that function alone would pass with
-// the keys unbound, with them bound in the list context, or with the cursor
-// following the reader — which are exactly the three ways this breaks.
-//
-// A fake service, the way `tst_app_navigation.qml` uses one: the account's own
-// fetching is not what is under test, and the rail draws whatever it is given.
+// Invariant: real Qt keys must exercise KeyRouter, App routing and member selection together; pure-model tests miss wiring failures.
 Item {
   width: 900
   height: 600
@@ -47,8 +34,6 @@ Item {
     function saveCredentials() {}
   }
 
-  // The seeded thread: three messages, oldest first, the newest one unread and
-  // the one the list drew a row for.
   readonly property var members: ["maaaaad", "maaaaae", "maaaaaf"]
 
   function memberSummary(id, unread, labels) {
@@ -133,8 +118,6 @@ Item {
     property var selectedBody: ({ text: Array(101).join("A body line\n"), source: "plain" })
     property var selectedMessage: null
 
-    // What this test is about. The list is one row per conversation, so the
-    // rail's other two stops are messages the list has no row for at all.
     property bool showsConversations: true
     property bool showsRail: true
     property string viewedMailboxKey: "inbox"
@@ -149,7 +132,6 @@ Item {
       searching: searchQuery !== "" || rawQuery !== "", mailboxes: mailboxes
     })
 
-    // Two conversations in the Inbox, each drawn by its representative.
     property var messages: [
       { id: "maaaaaf", subject: "The engine", unread: true, starred: false,
         from: ({ display: "Ada", email: "ada@example.org" }), time: "3d",
@@ -170,7 +152,6 @@ Item {
     function search(query) { searchQuery = String(query || "") }
     function preferredSendAs(recipients) { return null }
     function refreshRecipientContacts() {}
-    // The list cursor's own movement, over the rows the list actually has.
     function cursorOffset(id, delta) {
       for (var i = 0; i < messages.length; i++) {
         if (messages[i].id !== String(id)) continue
@@ -181,9 +162,7 @@ Item {
       return messages.length > 0 ? messages[0].id : ""
     }
     function clearSelection() { selectedId = "" }
-    // The account's own `select` holds the conversation across a move to one of
-    // its members, which is `Conversation.threadAfterSelect`. Held here too,
-    // because the rail must not empty underneath the keys being tested.
+    // Invariant: the fake selection preserves the thread, matching the account contract so rail navigation stays available.
     function select(id) {
       selectedId = String(id || "")
       selectedMessage = memberSummary(selectedId, selectedId === "maaaaaf",
@@ -225,7 +204,6 @@ Item {
       waitForRendering(app)
     }
 
-    // The stop drawn for one member, found the way the rail itself finds it.
     function stopFor(id) {
       var rail = findChild(app, "conversationRail")
       var column = rail ? findChild(rail, "conversationRailFlick") : null
@@ -248,9 +226,6 @@ Item {
       })
     }
 
-    // A right-click on a stop opens the row's own menu for that one message:
-    // its summary is the member's, what it asks for reaches the member alone,
-    // and the list cursor stays where the list has it.
     function test_a_right_click_on_a_stop_opens_the_message_menu_for_that_member() {
       seedSummaries()
       app.openMessage("maaaaaf")
@@ -279,9 +254,6 @@ Item {
       compare(app.currentView, "reader")
     }
 
-    // Taking the open member out of the view moves the reader to the stop
-    // beside it — the newer one above, else the older below — rather than
-    // leaving it on a message that has just gone.
     function test_trashing_the_open_member_from_its_stop_opens_the_neighbour() {
       seedSummaries()
       app.openMessage("maaaaaf")
@@ -302,7 +274,6 @@ Item {
       compare(app.currentView, "reader")
       compare(app.cursorId, "maaaaaf", "the cursor never moved")
 
-      // The representative is a stop too, and from its stop it is one message.
       waitForRendering(app)
       stop = stopFor("maaaaaf")
       mailService.acted = []
@@ -317,8 +288,6 @@ Item {
       compare(app.currentView, "reader")
     }
 
-    // A conversation of one other stop that goes: back to the list, as the
-    // list's own delete does.
     function test_the_last_stop_going_returns_to_the_list() {
       mailService.selectedThread = ({ id: "d", count: 2, unread: true, flagged: false,
         memberIds: ["maaaaae", "maaaaaf"] })
@@ -335,7 +304,6 @@ Item {
       mailService.selectedThread = ({ id: "d", count: 1, unread: false, flagged: false,
         memberIds: ["maaaaae"] })
       mailService.showsRail = true
-      // Nothing beside it now.
       app.actOnMember("trash", "maaaaae")
       waitForRendering(app)
       compare(app.currentView, "list", "with no neighbour, the reader closes")
@@ -343,8 +311,6 @@ Item {
         memberIds: ["maaaaad", "maaaaae", "maaaaaf"] })
     }
 
-    // The rail is on screen with one stop per member, whether or not the
-    // summaries have arrived — that is what stops it moving when they do.
     function test_the_rail_draws_one_stop_per_member_before_the_summaries_land() {
       app.openMessage("maaaaaf")
       waitForRendering(app)
@@ -358,10 +324,6 @@ Item {
       verify(rail.stops[0].open, "the open message keeps its place in the timeline")
       compare(rail.caption, "3 messages", "the length is known before any summary")
 
-      // The summaries land. The stops do not move: same ids, same order, same
-      // count, and the same place on the rail — only the lanes inside them
-      // fill in. The first member sits in Drafts, so it gains a mailbox name
-      // on settling, which is the one thing that used to add a line.
       var before = rail.stops.map(function(s) { return s.id })
       var placed = members.map(function(id) { return rail.boundsFor(id) })
       verify(placed[0] && placed[0].height > 0, "a skeleton stop has a place and a height")
@@ -384,11 +346,6 @@ Item {
       }
     }
 
-    // The timeline joins the circles and goes nowhere else: it begins under
-    // the first circle and ends above the last, rather than running the whole
-    // height of the rail as if there were a stop above the top and below the
-    // bottom. In between, each stop's segment spans its whole height so the
-    // line is continuous from circle to circle.
     function test_the_timeline_runs_from_the_first_circle_to_the_last() {
       app.openMessage("maaaaaf")
       waitForRendering(app)
@@ -405,9 +362,6 @@ Item {
       compare(bottom.line.bottom, bottom.node.top, "and it ends at the top of the last circle")
       verify(bottom.line.bottom > bottom.line.top, "so the last segment still reaches its circle")
 
-      // One straight line. The open stop's circle is wider than the others,
-      // and its segment must not follow that width sideways: every segment
-      // shares one x, on a whole pixel, and every circle is centred on it.
       verify(rail.stops[0].open, "the open stop is the top one here")
       compare(top.line.x, middle.line.x, "the open stop's segment is in line with the next")
       compare(middle.line.x, bottom.line.x, "and with the last")
@@ -418,8 +372,6 @@ Item {
         "and the line runs through it")
     }
 
-    // The claim. Both keys move the reader along the rail and neither moves the
-    // list cursor, while Shift+J and Shift+K scroll the open message.
     function test_n_and_p_move_along_the_rail_while_shift_j_and_k_scroll_the_message() {
       app.openMessage("maaaaaf")
       waitForRendering(app)
@@ -478,9 +430,6 @@ Item {
       compare(app.currentView, "list", "Escape also returns to the list")
     }
 
-    // Opening a member replaces the reader entry rather than pushing one, so
-    // Back from any member lands on the list. No new rule: `Navigation.push`
-    // already replaces a reader entry with a reader entry.
     function test_back_from_any_member_returns_to_the_list() {
       app.openMessage("maaaaaf")
       waitForRendering(app)
@@ -497,8 +446,6 @@ Item {
       compare(app.currentView, "list", "Back lands on the list from any member")
     }
 
-    // A conversation of one draws no rail, and then both keys are dead letters
-    // rather than keys that do something else.
     function test_a_message_of_one_draws_no_rail() {
       mailService.showsRail = false
       mailService.selectedThread = null

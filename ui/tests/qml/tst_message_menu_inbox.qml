@@ -3,13 +3,7 @@ import QtTest 1.3
 import "../../components" as Omamail
 import "../../account/Model.js" as Model
 
-// "Move to Inbox", where it appears and what it says.
-//
-// The rule is the whole feature: `inInbox === false` alone put this row in
-// Spam, Trash, Drafts and Sent, where adding INBOX is not what it means —
-// `labelChangesFor` removes neither SPAM nor TRASH, so the message would carry
-// both and stay where it was while the row claimed otherwise. Nothing in the
-// suite touched either menu before this.
+// Invariant: adding INBOX alone does not remove SPAM or TRASH; the menu must respect the available recovery action.
 Item {
   width: 500
   height: 500
@@ -51,15 +45,12 @@ Item {
     name: "MessageMenuInbox"
     when: windowShown
 
-    // The rows have no objectName, so they are found by position in the array
-    // the cursor itself indexes — which is also the thing that has to contain
-    // the new row at all.
+    // Invariant: these unnamed rows use the same array positions as keyboard navigation.
     function continueRow() { return menu.menuRows[0] }
     function unarchiveRow() { return menu.menuRows[5] }
     function archiveRow() { return menu.menuRows[4] }
 
-    // The popup builds its rows only once opened, so nothing about their
-    // visibility is readable before that.
+    // Invariant: open the popup before inspecting its lazily constructed rows.
     function show(summary) {
       fakeService.messages = [summary]
       fakeService.rawLabelId = ""
@@ -81,8 +72,6 @@ Item {
         inInbox: false, inTrash: false, inSpam: false, isSent: false,
         isDraft: false, labelIds: ["Label_17"] }
     }
-
-    // ---------------------------------------------------- where it appears
 
     function test_an_archived_message_offers_it_in_place_of_archive() {
       show(archivedMessage())
@@ -113,11 +102,6 @@ Item {
       compare(composeSpy.signalArguments[0][1],"m1")
     }
 
-    // The four that have their own verb or their own place. Adding INBOX to any
-    // of them is not what "move to the inbox" means — except Junk without a
-    // spam verb: an IMAP account has no report-spam to offer instead, so the
-    // row is the only way out, and `actionPlan("unarchive")` already moves to
-    // INBOX from anywhere.
     function test_it_is_not_offered_where_it_would_lie_data() {
       return [
         { tag: "spam", field: "inSpam" },
@@ -135,8 +119,7 @@ Item {
       compare(unarchiveRow().visible, false)
     }
 
-    // Junk without a spam verb is the exception: IMAP has no report-spam to
-    // offer instead, and `unarchive` moves to INBOX from anywhere.
+    // Invariant: IMAP has no report-spam action; unarchive moves Junk to Inbox.
     function test_junk_without_a_spam_verb_offers_it() {
       fakeService.canReportSpam = false
       var summary = archivedMessage()
@@ -150,7 +133,6 @@ Item {
       fakeService.canReportSpam = true
     }
 
-    // Gmail keeps its spam verb, so there the original rule stands.
     function test_junk_with_a_spam_verb_still_hides_it() {
       fakeService.canReportSpam = true
       var summary = archivedMessage()
@@ -195,8 +177,6 @@ Item {
       compare(unarchiveRow().visible, false)
     }
 
-    // ------------------------------------------------------- what it says
-
     function test_from_a_label_it_says_the_label_goes_too() {
       show(archivedMessage())
       compare(unarchiveRow().text, "Move to Inbox")
@@ -206,8 +186,6 @@ Item {
       compare(unarchiveRow().text, "Move to Inbox and remove label")
     }
 
-    // The wording asks the same question `labelChangesFor` does, so it cannot
-    // promise a removal that will not happen.
     function test_a_system_label_is_not_a_label_it_can_remove() {
       show(archivedMessage())
       fakeService.rawLabelId = "IMPORTANT"
@@ -215,8 +193,7 @@ Item {
       compare(unarchiveRow().text, "Move to Inbox")
     }
 
-    // A folder provider's `rawLabelId` is a folder name, which is not a Gmail
-    // label id and must not be promised as one.
+    // Invariant: a folder name is not a removable Gmail label id.
     function test_a_folder_provider_promises_no_label_removal() {
       show(archivedMessage())
       fakeService.rawLabelId = "Archive"
@@ -225,8 +202,6 @@ Item {
       compare(unarchiveRow().text, "Move to Inbox")
       fakeService.hasLabels = true
     }
-
-    // -------------------------------------------------------- the routing
 
     function test_choosing_it_asks_for_unarchive_on_that_message() {
       show(archivedMessage())
@@ -239,12 +214,7 @@ Item {
       compare(menu.opened, false, "choosing a row closes the menu")
     }
 
-    // The cursor is an index into `menuRows`, so a row drawn but unlisted is
-    // mouse-only: j and k step over it and Enter can never reach it.
-    //
-    // Walked rather than looked up. Searching `menuRows` for `menuRows[4]` is
-    // true of whatever that array holds, which is how the first version of
-    // this passed with the row unlisted.
+    // Invariant: walking the cursor detects an unlisted row; looking up its known array index would pass tautologically.
     function test_the_keyboard_can_reach_it() {
       show(archivedMessage())
       var steps = 0
@@ -263,11 +233,7 @@ Item {
         "and Enter on it asks for the action")
     }
 
-    // The two halves composed, which is where this went wrong: the row the
-    // menu reads after a press is the one `applyLabelChange` wrote, and that
-    // used to carry a stale `inSpam`. Reporting spam from the inbox left
-    // "Move to Inbox" on offer — a press that adds INBOX, keeps SPAM, and
-    // leaves the message sitting in Spam.
+    // Invariant: the menu must consume the post-mutation summary so stale inSpam cannot offer an ineffective Inbox action.
     function test_a_message_just_reported_as_spam_is_not_offered_it() {
       var summary = archivedMessage()
       summary.inInbox = true

@@ -2,9 +2,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Omamail
 
-// A right-click in the compose form: Cut, Copy, Paste and Select all on
-// whichever field was clicked, with Paste going the way Ctrl+V goes — through
-// the clipboard-image check first, then into the field that was clicked.
 Item {
   width: 900
   height: 600
@@ -23,7 +20,6 @@ Item {
     property string accountEmail: "me@example.com"
     property string activeAccountId: "me@example.com"
     property var copied: []
-    // Which field had focus each time the clipboard was asked for an image.
     property var pastedInto: []
     function preferredSendAs(_r) { return null }
     function switchTo(_id) { return true }

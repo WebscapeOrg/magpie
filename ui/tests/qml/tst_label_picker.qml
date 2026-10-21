@@ -2,9 +2,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Components
 
-// The move picker gives pointer and keyboard users the same cursor. A single
-// click only places it; moving mail requires Return or the deliberate second
-// click of a double-click.
 Item {
   id: host
   width: 640

@@ -14,9 +14,7 @@ Item {
     property var openedAttachment: null
     property string starredId: ""
     property string browsedId: ""
-    // What the service answers to. It is the summary's own id in a single
-    // mailbox and the mailbox plus that id in a list made of several, and the
-    // reader has to hand back this one rather than the one on the summary.
+    // Invariant: reader actions return selectedId, which includes mailbox ownership in a unified list.
     property string selectedId: "message-4"
     property var selectedMessage: ({
       id: "message-4",
@@ -69,9 +67,7 @@ Item {
     property string savedMessageId: ""
     property var savedAttachment: null
 
-    // Keyed by mailbox and attachment on the real service, because two
-    // mailboxes can be saving parts whose ids collide. Empty here, so a reader
-    // that looks up a bare attachment id finds nothing — which is what it did.
+    // Invariant: the empty legacy map exposes any lookup that omits mailbox ownership.
     property var savingAttachmentIds: ({})
     property string savingFor: ""
 

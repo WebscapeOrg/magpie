@@ -557,6 +557,22 @@ Item {
       }
     }
 
+    function test_compose_notices_leave_send_visible() {
+      app.startCompose("new")
+      var send = named(app, "compose-send-button")
+      var banner = named(app, "mail-notice")
+      app.notice = "Archived"
+      tryVerify(function() { return send.visible && banner.visible })
+      waitForRendering(banner)
+      var noticeBottom = banner.mapToItem(send, 0, banner.height).y
+      verify(noticeBottom <= 0, "Notices must remain above the compose actions")
+      send.forceActiveFocus()
+      verify(send.activeFocus)
+      app.notice = ""
+      app.back()
+      tryCompare(app, "composing", false)
+    }
+
     function test_header_shows_compose_for_mail_and_view_selector_for_calendar() {
       var compose = named(app, "compose-button")
       verify(compose && compose.visible)

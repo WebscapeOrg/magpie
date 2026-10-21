@@ -37,6 +37,7 @@ DropArea {
   readonly property int formInset: MailStyle.space(18)
   readonly property int formLabelWidth: MailStyle.space(52)
   readonly property int formLabelGap: MailStyle.space(10)
+  readonly property real actionBarHeight: actions.height
 
   property bool opened: false
   property bool userModified: false

@@ -74,6 +74,7 @@ $NerdFontsLicensePath = Join-Path $RepoRoot "app\assets\fonts\NerdFonts-LICENSE"
 $NerdFontsReadmePath = Join-Path $RepoRoot "app\assets\fonts\NerdFonts-README.md"
 $NerdFontsProvenancePath = Join-Path $RepoRoot "app\assets\fonts\NerdFonts-PROVENANCE.md"
 $NerdFontsThirdPartyPath = Join-Path $RepoRoot "app\assets\fonts\licenses"
+$UnicodeLicensePath = Join-Path $RepoRoot "data\unicode\LICENSE.txt"
 
 Assert-File $HostPath "standalone host"
 Assert-File $BackendPath "backend"
@@ -85,6 +86,7 @@ Assert-File $NerdFontsLicensePath "Nerd Fonts license"
 Assert-File $NerdFontsReadmePath "Nerd Fonts notices"
 Assert-File $NerdFontsProvenancePath "Nerd Fonts provenance"
 Assert-Directory $NerdFontsThirdPartyPath "Nerd Fonts third-party licenses"
+Assert-File $UnicodeLicensePath "Unicode license"
 Assert-File (Join-Path $QmlPath "Main.qml") "standalone QML entry point"
 Assert-File (Join-Path $UiPath "Service.qml") "shared UI entry point"
 Assert-X64Pe $HostPath "standalone host"
@@ -147,6 +149,7 @@ try {
     Copy-Item -LiteralPath $NerdFontsReadmePath -Destination (Join-Path $Licenses "NerdFonts-README.md")
     Copy-Item -LiteralPath $NerdFontsProvenancePath -Destination (Join-Path $Licenses "NerdFonts-PROVENANCE.md")
     Copy-Item -Path (Join-Path $NerdFontsThirdPartyPath "*") -Destination $Licenses
+    Copy-Item -LiteralPath $UnicodeLicensePath -Destination (Join-Path $Licenses "Unicode-LICENSE.txt")
 
     if ($SyntheticTestMode) {
         $Platforms = Join-Path $Bin "platforms"

@@ -79,6 +79,9 @@ class PackageTest(unittest.TestCase):
             self.assertFalse(any("JetBrainsMono" in name for name in names))
             for path in required:
                 self.assertIn(f"{top}/{path}", names)
+            resources = f"{top}/Contents/Resources" if target == "macos-aarch64" else top
+            unicode_notice = package.extractfile(f"{resources}/licenses/Unicode-LICENSE.txt").read()
+            self.assertEqual(unicode_notice, (ROOT / "data/unicode/LICENSE.txt").read_bytes())
             metadata_name = (f"{top}/Contents/Resources/release.json"
                              if target == "macos-aarch64" else f"{top}/release.json")
             metadata = json.load(package.extractfile(metadata_name))

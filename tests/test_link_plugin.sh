@@ -96,7 +96,7 @@ desktop="$mailto_home/share/applications/omamail.desktop"
 [ -f "$desktop" ] || fail "register-mailto.sh did not write omamail.desktop"
 grep -q '^MimeType=x-scheme-handler/mailto;$' "$desktop" \
   || fail "omamail.desktop must claim mailto"
-grep -q "^Exec=$(pwd)/scripts/mailto.sh %u$" "$desktop" \
+grep -Fx "Exec=/usr/bin/env -- \"$(pwd)/scripts/mailto.sh\" %u" "$desktop" >/dev/null \
   || fail "omamail.desktop Exec must be the plugin mailto handler"
 grep -q "^Icon=$(pwd)/ui/assets/magpie.svg$" "$desktop" \
   || fail "omamail.desktop must use the Omamail mark"

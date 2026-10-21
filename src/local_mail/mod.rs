@@ -104,6 +104,9 @@ impl LocalMail {
         }
     }
     async fn store(&self, account: &str) -> Result<Arc<Store>, &'static str> {
+        self.open_store(account, true).await?.ok_or("local_storage_unavailable")
+    }
+    async fn open_store(&self, account: &str, create: bool) -> Result<Option<Arc<Store>>, &'static str> {
         let account = account.to_owned();
         let stores = self.stores.clone();
         let identity = account.clone();
@@ -119,20 +122,23 @@ impl LocalMail {
             }
             let mut stores = stores.lock().map_err(|_| "local_storage_unavailable")?;
             if let Some(store) = stores.get(&account) {
-                return Ok(store.clone());
+                return Ok(Some(store.clone()));
             }
             let dirs = AppDirs::discover()?;
             let hash = format!("{:x}", Sha256::digest(account.as_bytes()));
-            let directory =
+            let directory = if create {
                 private_fs::directories(&dirs.state, &["omamail", "mail", &hash], true)?
-                    .ok_or("local_storage_unavailable")?;
+            } else {
+                private_fs::directories_readonly(&dirs.state, &["omamail", "mail", &hash])?
+            };
+            let Some(directory) = directory else { return Ok(None) };
             let store = Store::open(directory)?;
             stores.insert(account, store.clone());
-            Ok(store)
+            Ok(Some(store))
         })
         .await
         .map_err(|_| "local_storage_unavailable")??;
-        ipc::listen(&store, &identity)?;
+        if let Some(store) = &store { ipc::listen(store, &identity)?; }
         Ok(store)
     }
     pub(crate) async fn resource(
@@ -140,7 +146,7 @@ impl LocalMail {
         account: &str,
         id: &str,
     ) -> Result<Option<Value>, &'static str> {
-        let store = match self.store(account).await {
+        let store = match self.open_store(account, false).await {
             Err("private_fs_busy") => {
                 return ipc::request(
                     account,
@@ -150,7 +156,8 @@ impl LocalMail {
                 .await
                 .map(|v| if v.is_null() { None } else { Some(v) });
             }
-            answer => answer?,
+            Ok(None) => return Ok(None),
+            answer => answer?.ok_or("local_storage_unavailable")?,
         };
         let id = id.to_owned();
         tokio::task::spawn_blocking(move || store.complete_resource(&id))
@@ -162,7 +169,7 @@ impl LocalMail {
         account: &str,
         id: &str,
     ) -> Result<Option<String>, &'static str> {
-        let store = match self.store(account).await {
+        let store = match self.open_store(account, false).await {
             Err("private_fs_busy") => {
                 return ipc::request(
                     account,
@@ -172,7 +179,8 @@ impl LocalMail {
                 .await
                 .map(|v| v.as_str().map(str::to_owned));
             }
-            answer => answer?,
+            Ok(None) => return Ok(None),
+            answer => answer?.ok_or("local_storage_unavailable")?,
         };
         let id = id.to_owned();
         sync::disk(&store, move |s| s.revision(&id)).await
@@ -183,7 +191,7 @@ impl LocalMail {
         id: &str,
         gmail: &crate::providers::gmail::Session,
     ) -> Result<Value, &'static str> {
-        let store = match self.store(account).await {
+        let store = match self.open_store(account, false).await {
             Err("private_fs_busy") => {
                 if let Some(value) = self.resource(account, id).await? {
                     return Ok(value);
@@ -195,7 +203,16 @@ impl LocalMail {
                     )
                     .await;
             }
-            answer => answer?,
+            Ok(None) => {
+                let mut resource = match crate::cache::resource::read(account, id).await? {
+                    Some(resource) => resource,
+                    None => gmail.call("gmail.read", &json!({"accountId":account,"id":id,"full":true})).await?,
+                };
+                sync::hydrate_text(gmail, account, id, &mut resource, true).await?;
+                let store = self.store(account).await?;
+                return Self::save_read(&store, resource).await;
+            }
+            answer => answer?.ok_or("local_storage_unavailable")?,
         };
         let gate = store.fetch_gate(id)?;
         let _guard = gate.lock().await;
@@ -224,8 +241,11 @@ impl LocalMail {
             }
         };
         sync::hydrate_text(gmail, account, id, &mut resource, true).await?;
+        Self::save_read(&store, resource).await
+    }
+    async fn save_read(store: &Arc<Store>, resource: Value) -> Result<Value, &'static str> {
         let saved = resource.clone();
-        let saved = sync::disk(&store, move |s| {
+        let saved = sync::disk(store, move |s| {
             let generation =
                 s.read(|db| Ok(store::state(db, "generation")?.parse().unwrap_or(1)))?;
             s.put(&saved, generation)

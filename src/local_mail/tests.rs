@@ -309,8 +309,9 @@ fn committed_mail_and_queued_edits_survive_process_exit_without_checkpoint() {
     assert_eq!(
         child.status.code(),
         Some(73),
-        "{}",
-        String::from_utf8_lossy(&child.stdout)
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
     );
     let store = Store::open(open_directory(&path)).unwrap();
     assert_eq!(

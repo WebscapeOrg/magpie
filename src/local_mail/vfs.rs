@@ -146,7 +146,15 @@ unsafe extern "C" fn open(
         Ok(Some(file)) => file,
         Ok(None) if flags & SQLITE_OPEN_CREATE != 0 => {
             match fs::create_private(&root.directory, name) {
-                Ok(file) => file,
+                Ok(file) => {
+                    // Private creation excludes other Windows writers. Reopen
+                    // under the owner lease so our SQLite connections can share it.
+                    drop(file);
+                    match fs::regular(&root.directory, name, true) {
+                        Ok(Some(file)) => file,
+                        _ => return SQLITE_CANTOPEN,
+                    }
+                }
                 Err(_) => return SQLITE_CANTOPEN,
             }
         }

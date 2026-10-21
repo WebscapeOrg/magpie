@@ -292,7 +292,7 @@ pub fn parse(source: &str) -> Result<Node, &'static str> {
             continue;
         }
         let Some(Tag {
-            node: mut node,
+            mut node,
             closing,
             end,
             terminated,

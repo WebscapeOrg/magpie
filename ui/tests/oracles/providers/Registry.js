@@ -98,8 +98,8 @@ function define(source) {
   var raw = source || {}
   var boxes = []
   var list = Array.isArray(raw.MAILBOXES) ? raw.MAILBOXES : []
-  for (var i = 0; i < list.length; i++) {
-    var box = mailbox(list[i])
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var box = mailbox(list[itemIndex])
     boxes.push(box)
   }
   return {
@@ -159,25 +159,25 @@ var ALL = [define(Gmail), define(Outlook), define(Hey), define(Jmap), define(Ima
 var DEFAULT_ID = "gmail"
 
 function ids() {
-  var out = []
-  for (var i = 0; i < ALL.length; i++) out.push(ALL[i].id)
-  return out
+  var output = []
+  for (var itemIndex = 0; itemIndex < ALL.length; itemIndex++) output.push(ALL[itemIndex].id)
+  return output
 }
 
 // An unknown id resolves to the default rather than to nothing: an account
 // written by a newer build, or a hand-edited file, still has to open a window.
 function get(id) {
   var wanted = String(id === undefined || id === null ? "" : id).trim().toLowerCase()
-  for (var i = 0; i < ALL.length; i++) {
-    if (ALL[i].id === wanted) return ALL[i]
+  for (var itemIndex = 0; itemIndex < ALL.length; itemIndex++) {
+    if (ALL[itemIndex].id === wanted) return ALL[itemIndex]
   }
   return ALL[0]
 }
 
 function exists(id) {
   var wanted = String(id === undefined || id === null ? "" : id).trim().toLowerCase()
-  for (var i = 0; i < ALL.length; i++) {
-    if (ALL[i].id === wanted) return true
+  for (var itemIndex = 0; itemIndex < ALL.length; itemIndex++) {
+    if (ALL[itemIndex].id === wanted) return true
   }
   return false
 }
@@ -237,19 +237,19 @@ function mailboxes(id, absent) {
   var list = get(id).mailboxes
   var missing = Array.isArray(absent) ? absent : []
   var drop = []
-  for (var i = 0; i < missing.length; i++) drop.push(String(missing[i]))
-  var out = []
-  for (var j = 0; j < list.length; j++) {
-    if (drop.indexOf(list[j].key) < 0) out.push(list[j])
+  for (var itemIndex = 0; itemIndex < missing.length; itemIndex++) drop.push(String(missing[itemIndex]))
+  var output = []
+  for (var nestedIndex = 0; nestedIndex < list.length; nestedIndex++) {
+    if (drop.indexOf(list[nestedIndex].key) < 0) output.push(list[nestedIndex])
   }
-  return out
+  return output
 }
 
 function mailboxIndex(id, key) {
   var list = get(id).mailboxes
   var wanted = String(key === undefined || key === null ? "" : key)
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].key === wanted) return i
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (list[itemIndex].key === wanted) return itemIndex
   }
   return 0
 }
@@ -266,8 +266,8 @@ function mailboxFor(id, key) {
 function hasMailbox(id, key) {
   var list = get(id).mailboxes
   var wanted = String(key === undefined || key === null ? "" : key)
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].key === wanted) return true
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (list[itemIndex].key === wanted) return true
   }
   return false
 }

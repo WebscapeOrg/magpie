@@ -53,10 +53,7 @@ function draft(value) {
     replyTo: text(row.replyTo),
     subject: text(row.subject),
     body: text(row.body),
-    // What the compose window placed in the body rather than what was typed
-    // into it. A row written before this existed has none, which reads as an
-    // empty string — so any body at all differs from it, and a recovered draft
-    // from the previous build is still offered back.
+    // Invariant: Older recovery records lack placedBody; their existing body must still count as an edit.
     placedBody: text(row.placedBody),
     bodyWasEdited: row.bodyWasEdited === true,
     accountId: text(row.accountId),
@@ -82,8 +79,7 @@ function hasMeaningfulDraft(value) {
   if (text(row.cc).trim() !== "") return true
   if (text(row.bcc).trim() !== "") return true
   if (text(row.subject).trim() !== "") return true
-  // Equality alone cannot say whether somebody typed and then deleted back to
-  // the placed text, so preserve that edit history beside the original body.
+  // Invariant: Editing back to the placed text still preserves the user's edit history.
   if ((row.bodyWasEdited === true || text(row.body) !== text(row.placedBody))
       && text(row.body).trim() !== "") return true
   if (Array.isArray(row.forwardedAttachments) && row.forwardedAttachments.length > 0)
@@ -109,8 +105,6 @@ function parse(raw) {
   }
 }
 
-// The other drafts parked for their send when the file was written: one
-// composer, several undo windows. Each that still says something is kept.
 function meaningful(values) {
   var output = []
   var list = Array.isArray(values) ? values : []

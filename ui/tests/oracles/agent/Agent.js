@@ -1,15 +1,10 @@
 .pragma library
 
-// The message agent's rules: what a job file means, which job a message has,
-// what the row and the popup say about it, and what the runner is handed.
-// The process itself lives in `AgentRunner.qml` and `scripts/agent-job.py`;
-// nothing here starts anything, so all of it runs under node.
+// Invariant: This pure reference model never starts jobs; live job execution belongs to Rust.
 
 var ACTIVE = ["queued", "running"]
 
-
-// The runner's own listing, or nothing: a directory that is not there yet and
-// a line that is not JSON both mean "no jobs", not an error worth a notice.
+// Invariant: Missing or malformed job listings represent no jobs in this historical model.
 function parseJobs(text) {
   var parsed = null
   try { parsed = JSON.parse(String(text || "")) } catch (error) { parsed = null }
@@ -34,14 +29,7 @@ function anyActive(jobs) {
   return false
 }
 
-// The job a message shows: the one still running if there is one, else the
-// newest. A message can have been asked about twice; the row has one glyph.
-// Whose a job is. An IMAP id is a UID and a folder, unique only inside one
-// account, so a job is matched to a message only inside the account that
-// asked — by the id the service gives an account, `provider:address`,
-// because an address alone does not tell two providers apart. A job that
-// names no owner is nobody's message job: it is listed in the pane, and
-// answers to no row.
+// Invariant: Message IDs are unique only within an account; an ownerless job cannot belong to a row.
 function ownedBy(job, accountId) {
   var owner = String(accountId || "")
   return owner !== "" && !!job && String(job.accountId || "") === owner
@@ -61,9 +49,6 @@ function jobFor(jobs, messageId, accountId) {
   return newest
 }
 
-// messageId -> job, for a list that asks per row without walking the whole
-// job list per row.
-// Every message a job is about: the one it names, or the several.
 function messageIdsOf(job) {
   if (!job) return []
   var many = Array.isArray(job.messageIds) ? job.messageIds : []
@@ -91,8 +76,6 @@ function jobsByMessage(jobs, accountId) {
   return output
 }
 
-
-// What the row's glyph means, or "" for a message with nothing to show.
 function glyphState(job) {
   if (!job) return ""
   var state = String(job.state || "")
@@ -103,8 +86,6 @@ function glyphState(job) {
   return ""
 }
 
-// What the agent last wrote while it works, or "" — the listing carries it
-// for a running job, so a row and a popup can show movement.
 function workingText(job, nowMs, preparationStartedMs) {
   var active = isActive(job)
   var startMs = active && Number(job.created) > 0 ? Number(job.created) * 1000 : preparationStartedMs
@@ -119,7 +100,6 @@ function progressText(job) {
   return String(job.progress || "").trim()
 }
 
-// Why a running job is not moving, in words, or "".
 function stallText(job) {
   if (!job || !isActive(job)) return ""
   if (String(job.stall || "") === "permission")
@@ -138,8 +118,6 @@ function stateLabel(job) {
   return ""
 }
 
-// What the popup shows under the state: the question if there is one, the
-// error if it failed, and otherwise the agent's own last line.
 function detailText(job) {
   if (!job) return ""
   if (String(job.question || "") !== "") return String(job.question)
@@ -147,7 +125,6 @@ function detailText(job) {
   return String(job.summary || "")
 }
 
-// The one-line note when a job the window was watching finishes.
 function finishedNote(job) {
   var glyph = glyphState(job)
   var subject = String(job && job.subject ? job.subject : "").trim()
@@ -159,9 +136,7 @@ function finishedNote(job) {
   return ""
 }
 
-// Which jobs crossed from active to finished between two listings: the ones
-// worth a note. Keyed by id, so a job that finished and was replaced by a new
-// one on the same message is still reported.
+// Invariant: Completion transitions use job IDs so replacing a job on one message does not hide its completion.
 function newlyFinished(before, after) {
   var was = {}
   var earlier = Array.isArray(before) ? before : []
@@ -188,9 +163,7 @@ function addressLine(list) {
   return output.join(", ")
 }
 
-// The message as the agent receives it: the headers a reader would want,
-// then the text body. Text only — a stranger's HTML has no business in a
-// prompt, and the reader already has the plain text of every message.
+// Invariant: Prompt context uses plaintext message content, never raw sender HTML.
 function messageText(summary, bodyText) {
   var row = summary || {}
   var from = row.from || {}
@@ -211,8 +184,7 @@ function messageText(summary, bodyText) {
   return lines.join("\n")
 }
 
-// What crosses to the runner: one JSON object on one line. JSON escapes every
-// newline, so a body or a prompt of any shape is one line to `read`.
+// Invariant: JSON escapes embedded newlines so the reference payload stays on one line.
 function payload(summary, bodyText, account, folder, prompt, accountId) {
   var row = summary || {}
   return JSON.stringify({
@@ -226,10 +198,7 @@ function payload(summary, bodyText, account, folder, prompt, accountId) {
   })
 }
 
-// Where a message lives, for the prompt. An IMAP id is `<uid>:<folder>` and
-// says so itself; a Gmail id carries no folder and a HEY id is two numbers,
-// so for those the mailbox key is the nearest honest answer. The provider
-// decides, not the shape of the id: an IMAP folder can be named "2026".
+// Invariant: Only the IMAP provider interprets a message-ID suffix as a folder.
 function folderOf(messageId, mailboxKey, providerId) {
   var id = String(messageId || "")
   var separatorIndex = id.indexOf(":")
@@ -242,15 +211,11 @@ function pluralizeMessages(count) {
   return messageCount === 1 ? "1 message" : messageCount + " messages"
 }
 
-// A continuation: the answer to a job's question, or a follow-up ask. The
-// runner rebuilds the prompt from the parent, so only the parent id and the
-// new words cross — and the owner, which the runner inherits anyway, said
-// again here so the job file and the window agree on whose it is.
+// Invariant: A continuation carries only the parent ID and new prompt; the runner inherits ownership.
 function continuationPayload(parentJob, answer) {
   return JSON.stringify({ parent: String(parentJob && parentJob.id || ""), prompt: String(answer || "").trim() })
 }
 
-// One job over several messages: each as the agent receives it, in list order.
 function selectionPayload(summaries, account, folder, prompt, accountId) {
   var rows = Array.isArray(summaries) ? summaries : []
   var messages = []
@@ -270,7 +235,6 @@ function selectionPayload(summaries, account, folder, prompt, accountId) {
   })
 }
 
-// The pane's listing of one job's output, from `agent-job.py show`.
 function parseShown(text) {
   var parsed = null
   try { parsed = JSON.parse(String(text || "")) } catch (error) { parsed = null }
@@ -278,12 +242,7 @@ function parseShown(text) {
   return { job: parsed.job, output: String(parsed.output || ""), transcript: chatEntries(parsed.transcript) }
 }
 
-// ------------------------------------------------------------ attention
-
-// A job that wants the owner: it asked a question, or it finished and nobody
-// has looked yet. `seen` is the ids the owner has opened since — a popup or
-// a card on screen counts as looking. Running is not attention; the glyph
-// already says that.
+// Invariant: Only unseen ready, answered or failed jobs request attention; running state already has a glyph.
 function wantsAttention(job, seen) {
   if (!job) return false
   var looked = Array.isArray(seen) ? seen : []
@@ -298,7 +257,6 @@ function anyAttention(jobs, seen) {
   return false
 }
 
-// messageId -> true for every message whose newest job wants attention.
 function attentionByMessage(jobs, seen, accountId) {
   var map = jobsByMessage(jobs, accountId)
   var output = {}
@@ -313,10 +271,7 @@ function markSeen(seen, jobId) {
   return list
 }
 
-// ------------------------------------------------------------ the draft
-
-// A job about the draft being written: the fields as the composer has them
-// and the ask. No message, no scope; the answer is text for the draft.
+// Invariant: Draft payloads carry draft identity and editable fields, with no message execution scope.
 function draftPayload(fields, ask, account, accountId) {
   var values = fields || {}
   return JSON.stringify({
@@ -341,9 +296,7 @@ function isDraftJob(job) {
   return !!job && String(job.kind || "") === "draft"
 }
 
-// The composer's own jobs, newest first — what its pane shows.
-// The open account's draft jobs, newest first: a draft is written from one
-// account, and an answer for Ada's draft must not be offered to Bob's.
+// Invariant: A draft job must match both the account and the draft key.
 function draftJobs(jobs, accountId, draftKey) {
   var list = Array.isArray(jobs) ? jobs : []
   var output = []
@@ -352,7 +305,7 @@ function draftJobs(jobs, accountId, draftKey) {
   return output
 }
 
-// Draft scenarios fill the editable prompt before the owner submits it.
+// Invariant: Choosing a draft scenario fills an editable prompt; submission remains a separate action.
 var DRAFT_ASKS = [
   { id: "review", label: "Review", prompt: "Review this draft: is it clear, complete and right in tone for its recipient? Answer with your review, not a rewrite." },
   { id: "rewrite", label: "Rewrite", prompt: "Rewrite this draft so it reads clearly and naturally, keeping every fact and the owner's voice." },
@@ -375,8 +328,7 @@ function draftAsks() {
   return output
 }
 
-// Explicit plaintext results are preserved exactly; incomplete or failed jobs
-// cannot supply draft text. A ready result can arrive before the terminal exits.
+// Invariant: Partial or failed results cannot supply draft text; a ready result may precede process exit.
 function draftAnswer(job, output, transcript) {
   if (!job || (isActive(job) && !job.resultReady) || glyphState(job) === "failed" || job.question) return ""
   var text = String(output || "")
@@ -390,7 +342,7 @@ function draftAnswer(job, output, transcript) {
   return text
 }
 
-// A change indicator, never an authorization check. Ownership is draftKey + account.
+// Invariant: The fingerprint detects changes; only account and draft identity establish ownership.
 function draftFingerprint(fields) {
   var values = fields || {}
   var text = JSON.stringify([values.from || "", values.to || "", values.subject || "", values.body || ""])
@@ -415,7 +367,7 @@ function selectionJob(jobs, ids, accountId) {
   return newest
 }
 
-// Choosing a scenario fills the editable request; only Ask starts a session.
+// Invariant: Choosing a mail scenario fills the request; only submission starts a session.
 var MAIL_ASKS = [
   {label: "Summarize", prompt: "Summarize this mail and highlight its key points."},
   {label: "Explain", prompt: "Explain this mail in plain language, including any unfamiliar terms."},
@@ -486,7 +438,7 @@ function historyLabel(job) {
   return new Date(Number(job.created || 0) * 1000).toLocaleString() + " · " + String(job.requestPreview || job.subject || "Conversation")
 }
 
-// Queue policy is independent of views and never matches a different conversation.
+// Invariant: Pending work never matches a different conversation.
 function pendingJob(jobs, currentJob, scopeMatches, conversationId, previousId) {
   var rows = Array.isArray(jobs) ? jobs : []
   if (!rows.length && scopeMatches && currentJob) rows = [currentJob]

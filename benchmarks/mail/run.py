@@ -47,21 +47,21 @@ def mime_semantics(value):
     data=body.get('data','')
     decoded=base64.urlsafe_b64decode(data+'='*((-len(data))%4))
     return dict(mimeType=value.get('mimeType',''),filename=value.get('filename',''),
-        headers=[dict(name=h['name'].lower(),value=h['value']) for h in value.get('headers',[])],
+        headers=[dict(name=header['name'].lower(),value=header['value']) for header in value.get('headers',[])],
         bodyBytes=len(decoded),bodySha256=hashlib.sha256(decoded).hexdigest(),
-        parts=[mime_semantics(p) for p in value.get('parts',[])])
+        parts=[mime_semantics(part) for part in value.get('parts',[])])
 
 
 def html_semantics(value):
     # Tree caches and absent default fields are implementation details; preserve
     # every renderable node, attribute, text byte, child order and result field.
-    def node(n):
-        kind=n['type']
-        if kind=='text':return dict(type=kind,text=n.get('text',''))
-        children=[node(c) for c in n.get('children',[])]
+    def node(current):
+        kind=current['type']
+        if kind=='text':return dict(type=kind,text=current.get('text',''))
+        children=[node(child) for child in current.get('children',[])]
         if kind=='root':return dict(type=kind,children=children)
-        return dict(type=kind,name=n['name'],attrs=n.get('attrs',[]),
-                    selfClosing=n.get('selfClosing',False),children=children)
+        return dict(type=kind,name=current['name'],attrs=current.get('attrs',[]),
+                    selfClosing=current.get('selfClosing',False),children=children)
     result=dict(value)
     result['document']=node(value['document'])
     if value.get('reader'):
@@ -70,17 +70,23 @@ def html_semantics(value):
     return result
 
 
-def difference(a,b,path='$'):
-    if type(a)!=type(b):return path+': differing types'
-    if isinstance(a,dict):
-        if a.keys()!=b.keys():return path+': differing keys'
-        for key in a:
-            if a[key]!=b[key]:return difference(a[key],b[key],path+'.'+key)
-    elif isinstance(a,list):
-        if len(a)!=len(b):return path+': differing lengths'
-        for i,(x,y) in enumerate(zip(a,b)):
-            if x!=y:return difference(x,y,path+f'[{i}]')
-    elif a!=b:return path+': differing values'
+def difference(expected, actual, path='$'):
+    if type(expected) != type(actual):
+        return path + ': differing types'
+    if isinstance(expected, dict):
+        if expected.keys() != actual.keys():
+            return path + ': differing keys'
+        for key in expected:
+            if expected[key] != actual[key]:
+                return difference(expected[key], actual[key], path + '.' + key)
+    elif isinstance(expected, list):
+        if len(expected) != len(actual):
+            return path + ': differing lengths'
+        for index, (expected_item, actual_item) in enumerate(zip(expected, actual)):
+            if expected_item != actual_item:
+                return difference(expected_item, actual_item, path + f'[{index}]')
+    elif expected != actual:
+        return path + ': differing values'
     return ''
 
 

@@ -23,7 +23,6 @@ import QtQuick
 import QtTest
 import __COMPONENTS__ as Mail
 import __MODEL__ as Model
-import __RECIPIENTS__ as Recipients
 Item {
   width: 720; height: 600
   QtObject {
@@ -122,7 +121,6 @@ def source(root, count):
                   "list.y+bounds.y,bounds.height,viewport.contentHeight,8)")
     return (QML.replace("__COMPONENTS__", json.dumps((root / "ui/components").as_uri()))
             .replace("__MODEL__", json.dumps((root / "ui/account/Model.js").as_uri()))
-            .replace("__RECIPIENTS__", json.dumps((root / "ui/compose/Recipients.js").as_uri()))
             .replace("__LIST__", listing).replace("__REVEAL__", reveal)
             .replace("__COUNT__", str(count)))
 

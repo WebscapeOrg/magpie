@@ -3,6 +3,7 @@
 import argparse
 import base64
 from contextlib import ExitStack
+from dataclasses import dataclass
 import hashlib
 import io
 import json
@@ -11,7 +12,6 @@ import os
 from pathlib import Path
 import platform
 import queue
-import shutil
 import sqlite3
 import subprocess
 import threading
@@ -204,6 +204,74 @@ def readiness(process, name):
     return line.strip()
 
 
+@dataclass
+class PresentedFrame:
+    result: dict
+    window: dict
+
+
+@dataclass
+class DisplayCapture:
+    env: dict
+    pid: int
+    mode: str
+    scale: float
+
+    def window(self):
+        if self.mode == "physical":
+            return window_for(self.env, self.pid)
+        return {"at": [0, 0], "size": [round(1024 * self.scale), round(768 * self.scale)]}
+
+    def marker(self, window):
+        x, y = window["at"]
+        offset = round(12 * self.scale)
+        if self.mode == "physical":
+            region = f"{x + offset},{y + offset} 2x2"
+            capture = subprocess.check_output(["grim", "-g", region, "-t", "ppm", "-"],
+                                              env=self.env, timeout=5)
+            return Image.open(io.BytesIO(capture)).convert("RGB")
+        return ImageGrab.grab(xdisplay=self.env["DISPLAY"]).crop(
+            (offset, offset, offset + 2, offset + 2)).convert("RGB")
+
+    def save(self, window, path, whole_display=False):
+        x, y = window["at"]
+        width, height = window["size"]
+        if self.mode == "physical":
+            subprocess.run(["grim", "-g", f"{x},{y} {width}x{height}", str(path)],
+                           env=self.env, check=True)
+            return
+        pixels = ImageGrab.grab(xdisplay=self.env["DISPLAY"])
+        if not whole_display:
+            pixels = pixels.crop((0, 0, width, height))
+        pixels.save(path)
+
+    def capture(self, event, launched, output):
+        window = self.window()
+        if not window:
+            raise RuntimeError("Synthetic window is not mapped")
+        expected = event["serial"] % 2
+        until = time.monotonic() + 10
+        while time.monotonic() < until:
+            if self.mode == "physical":
+                window = self.window()
+            pixels = self.marker(window)
+            red, green, blue = pixels.getpixel((0, 0))
+            if blue > 100 and ((expected and red > green + 80) or (not expected and green > red + 80)):
+                elapsed = time.time() * 1000 - (launched if event["kind"] == "coldInbox" else event["started"])
+                break
+        else:
+            private(output / "window.json", json.dumps(window, indent=2))
+            self.save(window, output / "failed-window.png", whole_display=True)
+            raise RuntimeError(f"Compositor never presented marker {expected}; last pixel {pixels.getpixel((0, 0))}")
+        return PresentedFrame(dict(event, presentedMs=round(elapsed, 3)), window)
+
+    def acknowledge(self, frame, output):
+        event = frame.result
+        if event["kind"] in ("coldInbox", "compose", "composeFocus", "largeHtml", "offlineEdit"):
+            self.save(frame.window, output / (event["kind"] + ".png"))
+        (output / ("capture-" + str(event["serial"]))).touch()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
@@ -233,7 +301,6 @@ def main():
         cleanup.callback(stop_process, bus)
         env["DBUS_SESSION_BUS_ADDRESS"] = readiness(bus, "DBus")
         os.environ["DBUS_SESSION_BUS_ADDRESS"] = env["DBUS_SESSION_BUS_ADDRESS"]
-        server = None
         if args.display_mode == "physical":
             instances = json.loads(subprocess.check_output(["hyprctl", "instances", "-j"], text=True, timeout=10))
             if len(instances) != 1:
@@ -268,6 +335,7 @@ def main():
             lines.put(None)
 
         threading.Thread(target=read, daemon=True).start()
+        display = DisplayCapture(env, process.pid, args.display_mode, float(args.scale))
         results = []
         code = None
         failure = None
@@ -285,44 +353,9 @@ def main():
                     if "DESKTOP_CAPTURE " not in line:
                         continue
                     event = json.loads(line.split("DESKTOP_CAPTURE ", 1)[1])
-                    window = window_for(env, process.pid) if args.display_mode == "physical" else {
-                        "at": [0, 0], "size": [round(1024 * float(args.scale)), round(768 * float(args.scale))]}
-                    if not window:
-                        raise RuntimeError("Synthetic window is not mapped")
-                    expected = event["serial"] % 2
-                    until = time.monotonic() + 10
-                    while time.monotonic() < until:
-                        if args.display_mode == "physical": window = window_for(env, process.pid)
-                        x, y = window["at"]
-                        scale = float(args.scale)
-                        region = f"{x + round(12 * scale)},{y + round(12 * scale)} 2x2"
-                        if args.display_mode == "physical":
-                            capture = subprocess.check_output(["grim", "-g", region, "-t", "ppm", "-"], env=env, timeout=5)
-                            pixels = Image.open(io.BytesIO(capture)).convert("RGB")
-                        else:
-                            pixels = ImageGrab.grab(xdisplay=env["DISPLAY"]).crop((round(12*scale), round(12*scale), round(12*scale)+2, round(12*scale)+2)).convert("RGB")
-                        red, green, blue = pixels.getpixel((0, 0))
-                        if blue > 100 and ((expected and red > green + 80) or (not expected and green > red + 80)):
-                            elapsed = time.time() * 1000 - (launched if event["kind"] == "coldInbox" else event["started"])
-                            break
-                    else:
-                        private(output / "window.json", json.dumps(window, indent=2))
-                        x, y = window["at"]
-                        width, height = window["size"]
-                        if args.display_mode == "physical":
-                            subprocess.run(["grim", "-g", f"{x},{y} {width}x{height}", str(output / "failed-window.png")], env=env, check=True)
-                        else:
-                            ImageGrab.grab(xdisplay=env["DISPLAY"]).save(output / "failed-window.png")
-                        raise RuntimeError(f"Compositor never presented marker {expected}; last pixel {pixels.getpixel((0, 0))}")
-                    results.append(dict(event, presentedMs=round(elapsed, 3)))
-                    if event["kind"] in ("coldInbox", "compose", "composeFocus", "largeHtml", "offlineEdit"):
-                        x, y = window["at"]
-                        width, height = window["size"]
-                        if args.display_mode == "physical":
-                            subprocess.run(["grim", "-g", f"{x},{y} {width}x{height}", str(output / (event["kind"] + ".png"))], env=env, check=True)
-                        else:
-                            ImageGrab.grab(xdisplay=env["DISPLAY"]).crop((0,0,width,height)).save(output / (event["kind"] + ".png"))
-                    (output / ("capture-" + str(event["serial"]))).touch()
+                    frame = display.capture(event, launched, output)
+                    results.append(frame.result)
+                    display.acknowledge(frame, output)
                 else:
                     raise RuntimeError("Desktop acceptance timed out")
             code = process.wait(timeout=10)

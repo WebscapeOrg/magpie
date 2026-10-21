@@ -13,6 +13,27 @@ use std::{
 };
 type Result<T> = std::result::Result<T, &'static str>;
 
+pub(super) struct ClaimedChanges {
+    pub sequence: i64,
+    pub additions: Vec<String>,
+    pub removals: Vec<String>,
+}
+impl ClaimedChanges {
+    pub(super) fn satisfied_by(&self, resource: &Value) -> Result<bool> {
+        let current = resource["labelIds"]
+            .as_array()
+            .ok_or("gmail_invalid_response")?;
+        Ok(self
+            .additions
+            .iter()
+            .all(|label| current.iter().any(|value| value == label))
+            && self
+                .removals
+                .iter()
+                .all(|label| !current.iter().any(|value| value == label)))
+    }
+}
+
 pub(super) struct Store {
     writer: Mutex<vfs::Database>,
     readers: Vec<Mutex<vfs::Database>>,
@@ -447,7 +468,7 @@ impl Store {
             Ok(())
         })
     }
-    pub(super) fn claim_changes(&self, id: &str) -> Result<Option<(i64, Value, Value)>> {
+    pub(super) fn claim_changes(&self, id: &str) -> Result<Option<ClaimedChanges>> {
         self.write(|db| {
             let mut statement=sql(db.prepare("SELECT sequence,additions,removals FROM edits WHERE id=?1 AND state IN ('queued','sending') ORDER BY sequence"))?;
             let rows=sql(sql(statement.query_map([id],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?))))?.collect::<rusqlite::Result<Vec<_>>>())?;
@@ -457,10 +478,10 @@ impl Store {
                 for value in labels(&decode(add)?) {target.insert(value,true);}
                 for value in labels(&decode(remove)?) {target.insert(value,false);}
             }
-            let add=target.iter().filter(|(_,add)|**add).map(|(label,_)|label).collect::<Vec<_>>();
-            let remove=target.iter().filter(|(_,add)|!**add).map(|(label,_)|label).collect::<Vec<_>>();
+            let add=target.iter().filter(|(_,add)|**add).map(|(label,_)|label.clone()).collect::<Vec<_>>();
+            let remove=target.iter().filter(|(_,add)|!**add).map(|(label,_)|label.clone()).collect::<Vec<_>>();
             sql(db.execute("UPDATE edits SET state='sending' WHERE id=?1 AND sequence<=?2 AND state='queued'",params![id,last]))?;
-            Ok(Some((*last,json!(add),json!(remove))))
+            Ok(Some(ClaimedChanges { sequence: *last, additions: add, removals: remove }))
         })
     }
 }

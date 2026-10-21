@@ -6,7 +6,7 @@ use base64::{
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, fs::File, future::Future, io::Read, path::Path, pin::Pin};
+use std::{collections::HashSet, future::Future, io::Read, pin::Pin};
 
 pub(crate) const MAX_BODY: usize = 16 * 1024 * 1024;
 const MAX_HEADER: usize = 8192;
@@ -29,7 +29,7 @@ pub(crate) struct Prepared {
 }
 
 fn header(value: &str) -> Result<()> {
-    // Inputs are decoded text. The composer owns encoded words; accepting one
+    // Invariant: Inputs are decoded text. The composer owns encoded words; accepting one
     // here lets a downstream MIME decoder change a previewed name or envelope.
     if value.len() > MAX_HEADER || value.chars().any(char::is_control) || value.contains("=?") {
         Err("mail_send_invalid_header")
@@ -117,12 +117,6 @@ fn recipients(values: &[String], seen: &mut HashSet<String>) -> Result<Vec<Strin
     Ok(out)
 }
 
-/// Walk descriptors so neither the last component nor an ancestor can be a
-/// symlink. NONBLOCK prevents a named pipe from hanging before fstat rejects it.
-fn open_file(path: &Path) -> Result<File> {
-    crate::platform::private_fs::open_external(path)
-}
-
 fn attachment(input: &super::AttachmentInput, total: &mut usize) -> Result<Value> {
     header(&input.name)?;
     if input.name.is_empty()
@@ -132,7 +126,7 @@ fn attachment(input: &super::AttachmentInput, total: &mut usize) -> Result<Value
     {
         return Err("mail_send_attachment_name");
     }
-    let file = open_file(&input.path)?;
+    let file = crate::platform::private_fs::open_external(&input.path)?;
     let before = file
         .metadata()
         .map_err(|_| "mail_send_attachment_unreadable")?;
@@ -211,7 +205,6 @@ pub(crate) fn prepare(request: &SendRequest, aliases: &Value) -> Result<Prepared
             .or_else(|| aliases.first())
     }
     .ok_or("mail_send_sender_unavailable")?;
-    // The account-qualified merger is the same identity path the composer uses.
     let merged = crate::account::senders::request(
         &json!({"mailboxes":[{"id":request.account.id,"ready":true,"aliases":[chosen]}]}),
     )?;
@@ -225,7 +218,7 @@ pub(crate) fn prepare(request: &SendRequest, aliases: &Value) -> Result<Prepared
     header(email)?;
     header(name)?;
     address(email)?;
-    // Do not silently trim provider-controlled header bytes before validation.
+    // Invariant: Do not silently trim provider-controlled header bytes before validation.
     header(
         chosen["email"]
             .as_str()

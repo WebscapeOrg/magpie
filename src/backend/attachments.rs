@@ -14,10 +14,13 @@ impl Session {
             return Err("invalid_params");
         }
         let provider = super::reader::registered(account).await?;
-        let (a, m, p) = (account.to_owned(), id.to_owned(), part.to_owned());
-        if let Some(value) = tokio::task::spawn_blocking(move || vault::cached(&a, &m, &p))
-            .await
-            .map_err(|_| "worker_failed")??
+        let (cached_account, message_id, attachment_id) =
+            (account.to_owned(), id.to_owned(), part.to_owned());
+        if let Some(value) = tokio::task::spawn_blocking(move || {
+            vault::cached(&cached_account, &message_id, &attachment_id)
+        })
+        .await
+        .map_err(|_| "worker_failed")??
         {
             return Ok(value);
         }
@@ -35,15 +38,17 @@ impl Session {
             "imap" | "outlook" => crate::providers::imap::call("imap.attachment", &params).await?,
             _ => return Err("attachment_provider_unsupported"),
         };
-        let (a, m, p, saved) = (
+        let (cached_account, message_id, attachment_id, saved) = (
             account.to_owned(),
             id.to_owned(),
             part.to_owned(),
             value.clone(),
         );
-        tokio::task::spawn_blocking(move || vault::cache(&a, &m, &p, &saved))
-            .await
-            .map_err(|_| "worker_failed")??;
+        tokio::task::spawn_blocking(move || {
+            vault::cache(&cached_account, &message_id, &attachment_id, &saved)
+        })
+        .await
+        .map_err(|_| "worker_failed")??;
         Ok(value)
     }
     pub(super) async fn attachment_request(

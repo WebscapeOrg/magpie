@@ -22,8 +22,8 @@ fn random() -> Result<String, &'static str> {
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
-fn text<'a>(params: &'a Value, key: &str) -> Result<&'a str, &'static str> {
-    params[key]
+fn text<'a>(parameters: &'a Value, key: &str) -> Result<&'a str, &'static str> {
+    parameters[key]
         .as_str()
         .filter(|value| value.len() <= 8192 && !value.chars().any(char::is_control))
         .ok_or("invalid_params")
@@ -36,11 +36,11 @@ pub(super) fn form(fields: &[(&str, &str)]) -> String {
 }
 
 impl Flows {
-    pub async fn call(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+    pub async fn call(&self, method: &str, parameters: &Value) -> Result<Value, &'static str> {
         match method {
-            "auth.begin" => self.begin(params).await,
+            "auth.begin" => self.begin(parameters).await,
             "auth.poll" | "auth.cancel" => {
-                let id = text(params, "id")?;
+                let id = text(parameters, "id")?;
                 let mut flows = self.0.lock().await;
                 let task = flows.get(id).ok_or("auth_flow_missing")?;
                 if method == "auth.cancel" {
@@ -59,21 +59,21 @@ impl Flows {
         }
     }
 
-    async fn begin(&self, params: &Value) -> Result<Value, &'static str> {
+    async fn begin(&self, parameters: &Value) -> Result<Value, &'static str> {
         let id = random()?;
         let verifier = random()?;
         let state = random()?;
-        let client_id = text(params, "clientId")?.to_owned();
+        let client_id = text(parameters, "clientId")?.to_owned();
         if client_id.is_empty() {
             return Err("invalid_params");
         }
-        let secret = text(params, "clientSecret")?.to_owned();
-        let hint = text(params, "loginHint")?.to_owned();
-        let port = params["port"]
+        let secret = text(parameters, "clientSecret")?.to_owned();
+        let hint = text(parameters, "loginHint")?.to_owned();
+        let port = parameters["port"]
             .as_u64()
             .filter(|port| (1024..=65535).contains(port))
             .ok_or("invalid_params")? as u16;
-        let scopes = params["scopes"].as_array().ok_or("invalid_params")?;
+        let scopes = parameters["scopes"].as_array().ok_or("invalid_params")?;
         if scopes.len() > 32 {
             return Err("invalid_params");
         }
@@ -365,8 +365,8 @@ mod tests {
                 let reservation=TcpListener::bind("127.0.0.1:0").await.unwrap();
                 let port=reservation.local_addr().unwrap().port();
                 drop(reservation);
-                let params=json!({"clientId":"synthetic-client", "clientSecret":"synthetic-secret", "loginHint":"", "port":port, "scopes":["openid"]});
-                match flows.begin(&params).await {
+                let parameters=json!({"clientId":"synthetic-client", "clientSecret":"synthetic-secret", "loginHint":"", "port":port, "scopes":["openid"]});
+                match flows.begin(&parameters).await {
                     Ok(answer)=>return (port,answer),
                     Err("auth_port_unavailable")=>{
                         assert!(flows.0.lock().await.is_empty(),"Refused admission cannot register a flow");

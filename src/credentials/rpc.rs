@@ -13,19 +13,19 @@ enum Request {
     Delete(CredentialKey),
 }
 
-fn key(params: &serde_json::Map<String, Value>) -> Result<CredentialKey, &'static str> {
-    let kind = params
+fn key(parameters: &serde_json::Map<String, Value>) -> Result<CredentialKey, &'static str> {
+    let kind = parameters
         .get("kind")
         .and_then(Value::as_str)
         .ok_or("invalid_params")?;
-    let account_id = params
+    let account_id = parameters
         .get("accountId")
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or("invalid_params")?
         .to_owned();
     let client_id = || {
-        params
+        parameters
             .get("clientId")
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
@@ -50,7 +50,7 @@ fn key(params: &serde_json::Map<String, Value>) -> Result<CredentialKey, &'stati
         "calendar-password" => ("caldav", CredentialKind::CalendarPassword),
         _ => return Err("invalid_params"),
     };
-    let has_client = params.contains_key("clientId");
+    let has_client = parameters.contains_key("clientId");
     let needs_client = matches!(
         kind,
         CredentialKind::GoogleRefreshToken { .. } | CredentialKind::OutlookRefreshToken { .. }
@@ -67,8 +67,8 @@ fn key(params: &serde_json::Map<String, Value>) -> Result<CredentialKey, &'stati
     Ok(key)
 }
 
-fn parse(method: &str, params: &Value) -> Result<Request, &'static str> {
-    let fields = params.as_object().ok_or("invalid_params")?;
+fn parse(method: &str, parameters: &Value) -> Result<Request, &'static str> {
+    let fields = parameters.as_object().ok_or("invalid_params")?;
     let expected = match method {
         "credentials.get" | "credentials.delete" => {
             2 + usize::from(matches!(
@@ -114,12 +114,12 @@ fn map_error(error: Error) -> &'static str {
 async fn call_with_store(
     store: Arc<dyn super::CredentialStore>,
     method: &str,
-    params: &Value,
+    parameters: &Value,
 ) -> Result<Value, &'static str> {
     // Invariant: Parsing before the first await is deliberate: malformed metadata or a
     // secret containing NUL cannot prompt, read, write, or delete in a native
     // credential store.
-    match parse(method, params)? {
+    match parse(method, parameters)? {
         Request::Get(key) => match tokio::task::spawn_blocking(move || store.get(&key))
             .await
             .map_err(|_| "credential_store_unavailable")?
@@ -148,8 +148,8 @@ async fn call_with_store(
     }
 }
 
-pub async fn call(method: &str, params: &Value) -> Result<Value, &'static str> {
-    call_with_store(Arc::new(super::NativeStore), method, params).await
+pub async fn call(method: &str, parameters: &Value) -> Result<Value, &'static str> {
+    call_with_store(Arc::new(super::NativeStore), method, parameters).await
 }
 
 #[cfg(test)]
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn typed_requests_reject_unknown_fields_kinds_and_control_characters() {
-        for params in [
+        for parameters in [
             json!({"kind":"shell-command","accountId":"imap:a@example.org"}),
             json!({"kind":"imap-password","accountId":"imap:a@example.org","clientId":"forged"}),
             json!({"kind":"imap-password","accountId":"imap:a@example.org\n"}),
@@ -205,7 +205,7 @@ mod tests {
             json!({"kind":"google-refresh-token","accountId":"a@example.org","clientId":"client","nativeAttributes":[]}),
         ] {
             assert!(matches!(
-                parse("credentials.get", &params),
+                parse("credentials.get", &parameters),
                 Err("invalid_params")
             ));
         }
@@ -252,8 +252,8 @@ mod tests {
                 "outlook",
             ),
         ];
-        for (params, provider) in cases {
-            let Request::Get(key) = parse("credentials.get", &params).unwrap() else {
+        for (parameters, provider) in cases {
+            let Request::Get(key) = parse("credentials.get", &parameters).unwrap() else {
                 panic!()
             };
             assert_eq!(key.provider, provider);
@@ -305,7 +305,7 @@ mod tests {
     #[tokio::test]
     async fn rejected_public_requests_have_no_store_side_effect() {
         let store = Arc::new(RecordingStore::default());
-        for (method, params) in [
+        for (method, parameters) in [
             (
                 "credentials.get",
                 json!({"kind":"native-command","accountId":"imap:a@example.org"}),
@@ -320,7 +320,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                call_with_store(store.clone(), method, &params).await,
+                call_with_store(store.clone(), method, &parameters).await,
                 Err("invalid_params")
             );
         }

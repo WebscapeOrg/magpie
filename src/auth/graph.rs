@@ -1,15 +1,15 @@
 //! Microsoft Graph submission: one fixed destination and no automatic retry.
 use super::*;
-pub(super) async fn send(params: &Value) -> Result<Value, &'static str> {
-    let fields = params.as_object().ok_or("invalid_params")?;
+pub(super) async fn send(parameters: &Value) -> Result<Value, &'static str> {
+    let fields = parameters.as_object().ok_or("invalid_params")?;
     if fields
         .keys()
         .any(|key| !["accountId", "raw"].contains(&key.as_str()))
     {
         return Err("invalid_params");
     }
-    let account = params["accountId"].as_str().ok_or("invalid_params")?;
-    let raw = params["raw"].as_str().ok_or("invalid_params")?;
+    let account = parameters["accountId"].as_str().ok_or("invalid_params")?;
+    let raw = parameters["raw"].as_str().ok_or("invalid_params")?;
     if raw.len() > 16 * 1024 * 1024 {
         return Err("message_too_large");
     }

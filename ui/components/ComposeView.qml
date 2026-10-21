@@ -116,8 +116,12 @@ DropArea {
     if (mode !== "reply" && mode !== "replyAll") return ""
     return Agent.replyOnly(bodyEdit.text, bodyQuote) !== bodyEdit.text ? bodyQuote : ""
   }
+  readonly property bool attachmentsReady: !forwardAttachmentsLoading
+    && forwardAttachmentError === "" && !attachmentHostPending
+    && !attachmentReadPending && attachJobs.length === 0
+
   function outgoingEnvelope() {
-    if (forwardAttachmentsLoading || forwardAttachmentError !== "" || attachmentHostPending || attachmentReadPending || attachJobs.length > 0) return null
+    if (!attachmentsReady) return null
     return {accountId: accountId, draftKey: draftKey, from: fromEmail,
       to: toField.text, cc: ccField.text, bcc: bccField.text, replyTo: replyToField.text,
       subject: subjectField.text, body: bodyEdit.text,
@@ -436,7 +440,8 @@ DropArea {
     var recover = []
     for (var i = 0; i < listed.length; i++) {
       var file = listed[i] || ({})
-      if (String(file.path || "") !== "" && String(file.data || "") === "")
+      if (String(file.path || "") !== "" && String(file.data || "") === ""
+          && String(file.handle || "") === "")
         recover.push(file)
       else kept.push(file)
     }
@@ -918,7 +923,7 @@ DropArea {
     // also covers the calendar event form — a composer that is not open must
     // not answer it, or a draft parked for the undo window would send twice.
     if (!opened || !service) return
-    if (forwardAttachmentsLoading || forwardAttachmentError !== "") return
+    if (!attachmentsReady) return
     var accepted = service.send(({
       // The mailbox this draft belongs to, named rather than inferred. Without
       // it the service fell back to matching `from` against each account in
@@ -994,7 +999,8 @@ DropArea {
     var rest = root.attachJobs.slice(1)
     root.attachJobs = rest
     root.attaching = true
-    if (job.mode === "read" || job.mode === "forget") {
+    if (job.mode === "read" || job.mode === "recover" || job.mode === "recover-owned"
+        || job.mode === "forget") {
       if (!root.service || !root.service.backend || !root.service.backend.ready) {
         finishAttach(job.mode, JSON.stringify({ ok: false, error: "Mail backend unavailable" }), owner)
         return
@@ -2069,7 +2075,7 @@ DropArea {
         foreground: root.textColor
         fontFamily: root.panelFontFamily
         enabled: !!root.service
-          && !root.forwardAttachmentsLoading && root.forwardAttachmentError === ""
+          && root.attachmentsReady
         onClicked: root.submit()
       }
 

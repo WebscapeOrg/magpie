@@ -250,6 +250,7 @@ pub(super) struct Images<'a> {
     pub limit: usize,
     admitted: usize,
     embedded_bytes: usize,
+    decoded_bytes: u64,
 }
 impl<'a> Images<'a> {
     pub fn new(options: &'a Value) -> Self {
@@ -262,6 +263,7 @@ impl<'a> Images<'a> {
             limit: bounded_option(options, "maxImages", 24, 256),
             admitted: 0,
             embedded_bytes: 0,
+            decoded_bytes: 0,
         }
     }
     pub fn prepared(&self, source: &str) -> String {
@@ -276,22 +278,27 @@ impl<'a> Images<'a> {
     pub fn allowed(&self) -> bool {
         self.options.get("allowRemoteImages") == Some(&Value::Bool(true))
     }
-    // Count every rendered image, including CID and sender-embedded data. The
-    // markup length budget no longer counts base64, so it must have its own
-    // shared budget before either reader hands those bytes to Qt.
+    // Invariant: both renderers admit only measured raster bytes. Unknown CID
+    // payloads and compressed images cannot bypass the shared memory budgets.
     fn admit(&mut self, source: &str) -> bool {
         const MAX_EMBEDDED_BYTES: usize = 16 * 1024 * 1024;
-        let bytes = if has_data_scheme(source) {
-            source.len()
-        } else {
-            0
-        };
+        const MAX_DECODED_BYTES: u64 = 128 * 1024 * 1024;
+        let bytes = source.len();
         if self.admitted >= self.limit || bytes > MAX_EMBEDDED_BYTES - self.embedded_bytes {
+            self.blocked += 1;
+            return false;
+        }
+        let Some(decoded_bytes) = raster_decoded_bytes(&normalized(source)) else {
+            self.blocked += 1;
+            return false;
+        };
+        if decoded_bytes > MAX_DECODED_BYTES - self.decoded_bytes {
             self.blocked += 1;
             return false;
         }
         self.admitted += 1;
         self.embedded_bytes += bytes;
+        self.decoded_bytes += decoded_bytes;
         true
     }
     fn keep(&mut self, n: &mut Node) -> bool {

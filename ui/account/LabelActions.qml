@@ -82,7 +82,7 @@ QtObject {
     account.labels = Model.replaceById(account.labels, updated)
     if (after > before && monitoredSeen[labelId] !== undefined)
       monitorGrown = monitorGrown.concat([{ name: String(updated.name || labelId), delta: after - before }])
-    var seen = {}
+    var seen = Object.create(null)
     for (var k in monitoredSeen) seen[k] = monitoredSeen[k]
     seen[labelId] = after
     monitoredSeen = seen
@@ -108,7 +108,7 @@ QtObject {
 
   // The last count each watched label was seen at, so a refresh knows growth
   // from the first read. Not persisted: a restart reads once and says nothing.
-  property var monitoredSeen: ({})
+  property var monitoredSeen: Object.create(null)
 
   // Whether the label list can be changed from here, and the four changes:
   // create beside or beneath a label, rename it, move it under another,

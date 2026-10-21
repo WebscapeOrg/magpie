@@ -85,7 +85,7 @@ Item {
   // the first paint; the other modes let that work finish on the next turn.
   property string bodyMode: "reader"
   // Keyed by attachmentId, holding only the saves that are in flight.
-  property var savingAttachmentIds: ({})
+  property var savingAttachmentIds: Object.create(null)
 
   function setting(name, fallback) {
     var value = settings ? settings[name] : undefined
@@ -452,7 +452,7 @@ Item {
 
   // Notifications only start once the first successful load has established
   // what was already there.
-  property var seenIds: ({})
+  property var seenIds: Object.create(null)
   property bool notificationsPrimed: false
   // The mailbox's own newest timestamp at the moment notifications were
   // primed. Set once, from the server's clock rather than this machine's, and
@@ -858,7 +858,7 @@ Item {
 
       // Cached rows count as already seen, so the first live load does not
       // announce a mailbox the user has been looking at all along.
-      var seen = {}
+      var seen = Object.create(null)
       for (var key in seenIds) seen[key] = true
       for (var j = 0; j < restored.length; j++) seen[restored[j].id] = true
       seenIds = seen
@@ -1018,8 +1018,8 @@ Item {
     var previewSearch = messages.slice()
     var settledBase = append ? messages.slice() : []
     var liveSummaries = []
-    var requested = {}
-    var painted = {}
+    var requested = Object.create(null)
+    var painted = Object.create(null)
     var fetchQueue = []
     var fetchActive = false
     var listingDone = false
@@ -1244,7 +1244,7 @@ Item {
       if (error || !result) { root.fail("Could not update message list"); return }
       var arrivals = append || suppressArrivals === true ? [] : result[0]
 
-    var seen = {}
+    var seen = Object.create(null)
     for (var i = 0; i < merged.length; i++) seen[merged[i].id] = true
     // Ids already seen are kept so a message that scrolls off the first page
     // does not get announced again when it comes back.
@@ -1502,7 +1502,7 @@ Item {
   function mergeMembers(additions) { queueConversation("merge", null, additions, null) }
   function rememberMember(summary) {
     if (!summary || !summary.id) return
-    var additions = ({})
+    var additions = Object.create(null)
     additions[summary.id] = summary
     mergeMembers(additions)
   }
@@ -1519,7 +1519,7 @@ Item {
         if (!root || account !== root.accountId || selected !== root.selectedId || serial !== root.detailSerial) return
         root.memberHandle = null
         if (error || !payloads || payloads.length === 0) return
-        var arrived = ({})
+        var arrived = Object.create(null)
         for (var j = 0; j < payloads.length; j++) {
           var summary = payloads[j].nativeSummary
           if (summary && summary.id) arrived[summary.id] = summary
@@ -2200,7 +2200,7 @@ Item {
   // binding on a `var` does not notice a key appearing inside the object it is
   // already holding.
   function markSavingAttachment(key, saving) {
-    var next = ({})
+    var next = Object.create(null)
     for (var id in savingAttachmentIds)
       if (id !== key) next[id] = true
     if (saving) next[key] = true
@@ -2657,7 +2657,7 @@ Item {
     profile = null
     inboxUnread = 0
     listLoaded = false
-    seenIds = ({})
+    seenIds = Object.create(null)
     arrivalFloor = 0
     notificationsPrimed = false
     countPrimed = false

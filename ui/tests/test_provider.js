@@ -17,13 +17,8 @@ for (const method of ["query", "cachedSummaryInSearch", "labelQuery", "addressQu
 
 // ------------------------------------------------------------- the registry
 //
-// Four providers, and the ids are what an accounts.json holds — renaming one
-// silently orphans every account already written with the old name.
-//
-// The order is the order the chooser lists them in: the three hosted mailboxes
-// with a service of their own, then the two that are every other mailbox, IMAP
-// first because it is the one nearly every server speaks.
-deepEqual(provider.ids(), ["gmail", "hey", "outlook", "imap", "jmap"])
+// Stable account IDs and the provider chooser order required by docs/providers/README.md.
+deepEqual(provider.ids(), ["gmail", "outlook", "hey", "jmap", "imap"])
 assert.strictEqual(provider.get("gmail").name, "Gmail")
 assert.strictEqual(provider.get("outlook").name, "Outlook")
 assert.strictEqual(provider.get("imap").name, "IMAP")

@@ -885,7 +885,6 @@ assert.strictEqual(imap.createCommand("日本語"), "CREATE \"&ZeVnLIqe-\"")
 assert.strictEqual(imap.deleteCommand("Entw&APw-rfe"), "DELETE \"Entw&APw-rfe\"")
 assert.strictEqual(imap.renameCommand("Entw&APw-rfe", "Entwürfe/Alt"), "RENAME \"Entw&APw-rfe\" \"Entw&APw-rfe/Alt\"")
 
-console.log("Imap.js ok")
 
 // Folder mutations must refuse original names before quoting or UTF-7 encoding.
 for (const name of ["x\r", "x\n", "x\r\n", "x\0", "x\t", "x\x7f", "x\ud800", "x\udc00"]) {
@@ -894,3 +893,5 @@ for (const name of ["x\r", "x\n", "x\r\n", "x\0", "x\t", "x\x7f", "x\ud800", "x\
   assert.strictEqual(imap.renameCommand("Valid", name), "")
   assert.strictEqual(imap.deleteCommand(name), "")
 }
+
+console.log("ImapProtocol.js ok")

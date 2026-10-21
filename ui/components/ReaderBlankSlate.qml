@@ -6,12 +6,6 @@ import "../account/Model.js" as Model
 import "../providers/Registry.js" as Provider
 import "../keys/Keymap.js" as Keymap
 
-// What the reader shows before a message is picked.
-//
-// An empty pane is a chance to teach, not to decorate: this says which mailbox
-// is open and how much is in it, then lists the keys that do something right
-// now. Everything here is either state the user wanted to know or a shortcut
-// they can use without moving the pointer.
 Item {
   id: root
 
@@ -28,17 +22,13 @@ Item {
     : (service ? Provider.mailboxFor(service.providerId, service.mailboxKey).label : "Inbox")
   readonly property bool empty: !!service && service.listLoaded && service.messages.length === 0
 
-  // The legend is the first thing to go when the pane gets tight: the heading
-  // above it is the part that carries information.
   readonly property bool showLegend: height > MailStyle.space(300) && width > MailStyle.space(320)
 
   readonly property string versionText: !!service && service.version
     ? String(service.pluginName || "Magpie") + " " + String(service.version)
     : ""
-  // The column above is centred, so what is left under it is half the leftover
-  // height — and that has to hold the label, its margin, and a gap wide enough
-  // that the two do not read as one block. A constant threshold cannot do this:
-  // the column is more than twice as tall with the shortcut legend as without.
+  // Invariant: available space below the centered column controls version visibility; a fixed
+  // threshold overlaps the variable-height legend.
   readonly property bool showVersion: versionText !== ""
     && (height - centeredColumn.height) / 2
        >= versionLabel.implicitHeight + MailStyle.space(12) + MailStyle.space(12)
@@ -160,9 +150,6 @@ Item {
     }
   }
 
-  // Not part of the column above: the legend hides itself on a narrow pane and
-  // the version has no reason to move when it does. Quietest thing on screen —
-  // it is there to be found, not read.
   Text {
     id: versionLabel
     objectName: "reader-version"

@@ -13,14 +13,6 @@ import "../compose/Recipients.js" as Recipients
 import "../compose/Senders.js" as Senders
 import "../agent/Agent.js" as Agent
 
-// Composing takes over the whole content area of the one window rather than
-// opening a second one: Omarchy's panel mechanism would give an extra window
-// its own region, which is not what a reply is. Two mail accounts would
-// justify two windows; a reply does not.
-//
-// Compose, reply, reply-all and forward are the same form with different
-// starting values, so `begin()` fills the fields and everything after that is
-// one code path.
 DropArea {
   id: root
 
@@ -42,43 +34,26 @@ DropArea {
   property bool opened: false
   property bool userModified: false
   property bool settingBodyText: false
-  // Drafts parked for their send's undo window, oldest first, each beside
-  // the name of the send it belongs to. The timer owns them while the
-  // visible composer stays free for the next message.
+  // Invariant: undo-window drafts remain paired with their outbox send IDs in dispatch order.
   property var parkedDrafts: []
   readonly property bool parkedForSend: parkedDrafts.length > 0
-  // The timer owns this draft while the visible composer remains free.
-  // The newest parked draft: what recovery keeps, and what Undo takes back.
   readonly property var pendingDraft: parkedDrafts.length > 0
     ? parkedDrafts[parkedDrafts.length - 1].draft : null
-  // Undo temporarily replaces a newer draft. Closing or resending returns here.
   property var interruptedDraft: null
-  // A failed provider save stays reachable after Back or Escape.
   property var recoveryDrafts: []
   property string accountId: ""
-  // The provider message that this form replaces when it is saved.
   property string sourceDraftId: ""
-  // The sign-off of the mailbox this draft belongs to, read when a draft is
-  // started rather than bound into the editor: the text is the user's to edit
-  // once it is in there, and a binding would overwrite what they had changed.
-  //
-  // The draft's own account, not the active one. `begin` sets `accountId`
-  // first, so a reply owned by B is signed by B even while A is on screen —
-  // otherwise one identity's name and contact details go out over another's.
+  // Invariant: draft ownership determines the signature; binding it to the active mailbox can send
+  // another identity’s details and overwrite manual edits.
   readonly property string accountSignature: root.service
     ? String(root.service.signatureFor(root.accountId) || "") : ""
-  // The body exactly as `placeBody` left it, plus whether the editor has seen a
-  // user edit. Equality alone is not an edit history: somebody can type and
-  // delete back to the same text. Together they separate an abandoned compose
-  // from a body the user has taken ownership of.
+  // Invariant: text equality cannot detect an edit later undone; track edit history before
+  // replacing the placed body.
   property string placedBody: ""
   property bool bodyWasEdited: false
-  // What it was built from, so it can be built again for another mailbox.
   property string bodyPrefix: ""
   property string bodyQuote: ""
-  // Both popups reparent themselves into the window overlay, so their state is
-  // not reachable by walking this view's children. Named here so the tests can
-  // ask whether a control put its own popup away.
+  // Docs: overlay popups are exposed because they are not children of this view.
   readonly property bool fromMenuOpened: fromMenu.opened
   readonly property bool contactsPickerOpened: contactsPicker.opened
   property int restoreRevision: 0
@@ -88,19 +63,13 @@ DropArea {
   property string inReplyTo: ""
   property bool ccVisible: false
   property bool bccVisible: false
-  // Where answers should go when that is not the sender. Hidden like Bcc
-  // until asked for: most mail has no use for it.
   property bool replyToVisible: false
 
-  // The agent's card over this draft: whether it is up, working, or wants
-  // the owner — all facts the window passes down.
   property bool agentOpen: false
   property bool agentWorking: false
   property bool agentAttention: false
   signal agentRequested(real sceneX, real sceneY)
 
-  // What the agent is handed, and how its answer lands. Replacing the body
-  // counts as an edit — it is one — so the signature is not placed over it.
   property string draftKey: newDraftKey()
   function newDraftKey() { return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2) }
   function currentFields() {
@@ -144,8 +113,7 @@ DropArea {
   }
   function sendProposal(envelope, proposalId, parentId) {
     if (!service || proposalRoutingChanged(envelope)) return false
-    // Prepare a real recovery draft before dispatch, without replacing newer
-    // manual edits. Undo and failures use the same parked-draft path as Send.
+    // Invariant: create recovery state before dispatch without replacing newer manual edits.
     var draft = Agent.proposalDraft(envelope, parentId, String(envelope.draftKey || newDraftKey()))
     var accepted = service.sendAgentProposal(proposalId, fieldsForDraft(draft))
     if (!accepted) return false
@@ -155,8 +123,8 @@ DropArea {
 
   function proposalRoutingChanged(envelope) {
     if (!opened || !envelope) return false
-    // An unrelated parked draft does not own a reader's proposal. A matching
-    // draft/reply does: never send its old routing after the owner edits it.
+    // Invariant: a matched draft owns its current routing; a proposal must not restore stale
+    // recipients.
     var sameDraft = envelope.draftKey ? String(envelope.draftKey) === draftKey
       : replyMessageId !== "" && String(envelope.replyMessageId || "") === replyMessageId
     if (!sameDraft) return false
@@ -242,9 +210,8 @@ DropArea {
     return root.service.sendAsAliases
   }
 
-  // Filtered against the mailbox this draft belongs to rather than the visible
-  // one, so a reply raised from a merged list offers the aliases of the
-  // mailbox it arrived in.
+  // Invariant: send-as choices belong to the draft’s mailbox, including replies from the merged
+  // list.
   readonly property var fromIdentities: Senders.visible(
     root.service ? root.service.sendIdentities : [],
     root.accountId !== "" ? root.accountId
@@ -278,9 +245,8 @@ DropArea {
     draftKey = newDraftKey()
     forwardLoadSerial++
     fromMenu.close()
-    // Both of these live in the window overlay, and this view is hidden rather
-    // than destroyed — so a popup left open outlives the draft it belonged to
-    // and sits over the message list.
+    // Invariant: popups live in the window overlay and must close when this persistent composer is
+    // hidden.
     contactsPicker.close()
     toField.text = ""
     ccField.text = ""
@@ -319,9 +285,8 @@ DropArea {
     if (forgetAttachments) forgetOwned(owned)
   }
 
-  // Rebuilt rather than patched: the signature is not at a known offset once
-  // the quote is under it, and searching for the old one to swap would find a
-  // sign-off the user had quoted from somebody else.
+  // Invariant: replacing a signature by text search could change a sign-off inside the quoted
+  // message.
   property int composeTextSerial: 0
   property var pendingQuoteSummary: null
   property string pendingQuoteText: ""
@@ -355,9 +320,7 @@ DropArea {
     })
   }
 
-  // From reaches every mailbox, and choosing one switches the active account
-  // under the open window. The sign-off has to follow it — but only while the
-  // body is still the one placed, or this would overwrite what was typed.
+  // Invariant: changing From may rebuild only an untouched placed body, never the user’s edits.
   onAccountSignatureChanged: {
     if (!opened || mode === "draft") return
     if (bodyWasEdited || bodyEdit.text !== placedBody) return
@@ -484,12 +447,8 @@ DropArea {
     if (typeof root.service.switchTo === "function") root.service.switchTo(accountId)
   }
 
-  // When a control opens a popup that closes on a press outside itself, the
-  // press that reaches the control has already closed it — so by the time the
-  // release becomes a click, `opened` reads false and the toggle opens it
-  // straight back up. The control could never be used to put its own popup
-  // away, and it flickers instead. The moment it closed is what tells "the
-  // user wants this open" apart from "this just closed under the same press".
+  // Invariant: outside-press closes the popup before the trigger’s click; remember closure time to
+  // avoid reopening it on the same press.
   property double fromMenuClosedAt: 0
 
   function reopeningAfterOutsidePress(closedAt) {
@@ -617,11 +576,7 @@ DropArea {
     agentParentJobId = ""
     replyMessageId = summary && (nextMode === "reply" || nextMode === "replyAll") ? String(summary.id || "") : ""
     mode = String(nextMode || "new")
-    // The mailbox the message being answered arrived in, not the one that
-    // happens to be active. In a merged list those differ, and a reply sent
-    // from the wrong mailbox with nothing on screen saying so is the failure
-    // this view most has to avoid. `composeAccountId` is the active account
-    // whenever there is no selection, so a new message is unchanged.
+    // Invariant: replies use the message’s owning mailbox even when another mailbox is active.
     accountId = root.service ? String(root.service.composeAccountId || "") : ""
     opened = true
     var quoted = ""
@@ -629,9 +584,8 @@ DropArea {
     if (summary && mode !== "new") {
       threadId = summary.threadId
       inReplyTo = summary.messageId
-      // Cc as well as To: an alias is just as often the address a thread
-      // copied you on as the one it was sent to, and answering from the
-      // account's default instead is how a thread ends up split in two.
+      // Invariant: Cc may name the addressed send-as alias, so both recipient fields determine the
+      // default sender.
       if (mode === "reply" || mode === "replyAll") {
         replyRecipients = (Array.isArray(summary.to) ? summary.to : [])
           .concat(Array.isArray(summary.cc) ? summary.cc : [])
@@ -661,13 +615,10 @@ DropArea {
     if (root.service) root.service.refreshRecipientContacts()
     userModified = false
 
-    // Focus is not placed here. Opening this changes the window's key context,
-    // and the context is what moves the keyboard — one mechanism, so the two
-    // cannot disagree about where the typing goes.
+    // Invariant: the window’s keyboard context owns focus placement; begin must not compete with
+    // it.
   }
 
-  // A mailto: link is a new message with the fields already named. Reply and
-  // forward stay on `begin`; they fill from a message, not from a URL.
   function beginDraft(draft, messageId, attachments) {
     begin("new", null, "", [])
     var values = draft || ({})
@@ -684,8 +635,7 @@ DropArea {
     replyToVisible = replyToField.text !== ""
     subjectField.text = String(values.subject || "")
     if (mode === "draft") {
-      // Somebody wrote this and it was saved. None of it was placed, so all of
-      // it is theirs — including the sign-off it already carries.
+      // Invariant: a restored draft is authored text, including its existing signature.
       root.setBodyText(String(values.body || ""))
       placedBody = ""
       bodyWasEdited = true
@@ -705,8 +655,6 @@ DropArea {
     userModified = false
   }
 
-  // Where the keyboard goes when composing becomes the context. A reply starts
-  // in the body above the quote; a new message starts at the address.
   function takeFocus() {
     if (mode === "reply" || mode === "replyAll") {
       bodyEdit.forceActiveFocus()
@@ -720,13 +668,6 @@ DropArea {
     }
   }
 
-  // The Back control asks the window to resolve user changes. Discard stays local and
-  // destructive. The window owns the save because it owns the provider.
-  // Which way what is being written runs. Qt resolves an editable field from
-  // the text already in it, so Auto needs nothing added; a direction the writer
-  // has chosen has to be carried to the fields, including the empty ones — a
-  // reply begun in a right-to-left mailbox should put the caret on the right
-  // before there is any text to work it out from.
   property string contentDirection: Direction.MODE_DEFAULT
   readonly property string writingDirection: Direction.forced(root.contentDirection)
   readonly property var composeAlignment: Direction.hasAnswer(root.writingDirection)
@@ -841,18 +782,16 @@ DropArea {
 
   function parkDraftForSend(sendId, draft) {
     var parked = parkedDrafts.slice()
-    // A card can appear in both the reader and composer. The outbox send ID
-    // also identifies its one recovery draft.
+    // Invariant: the outbox send ID identifies one recovery draft even when its proposal appears in
+    // two views.
     if (parked.some(function(entry) { return entry.sendId === String(sendId) })) return
     parked.push({ sendId: String(sendId || ""), draft: draft })
     parkedDrafts = parked
     draftChanged()
   }
 
-  // The parked draft a send names — or, for a caller that does not name its
-  // sends, the newest for an undo and the oldest for an answer, since sends
-  // go in the order they were asked. A name that is not parked here belongs
-  // to no draft: answering with another's would restore the wrong words.
+  // Invariant: an unknown named send must not restore another parked draft; unnamed legacy answers
+  // follow dispatch order.
   function takeParked(sendId, oldest) {
     if (parkedDrafts.length === 0) return null
     var parked = parkedDrafts.slice()
@@ -919,16 +858,13 @@ DropArea {
   }
 
   function submit() {
-    // The send key is answered by action id, and the compose keyboard context
-    // also covers the calendar event form — a composer that is not open must
-    // not answer it, or a draft parked for the undo window would send twice.
+    // Invariant: the shared compose keyboard context also covers calendar forms; a hidden mail
+    // composer must not dispatch.
     if (!opened || !service) return
     if (!attachmentsReady) return
     var accepted = service.send(({
-      // The mailbox this draft belongs to, named rather than inferred. Without
-      // it the service fell back to matching `from` against each account in
-      // turn, so two mailboxes sharing a send-as alias sent B's draft from
-      // whichever of them came first.
+      // Invariant: account ownership cannot be inferred from a send-as alias shared by multiple
+      // mailboxes.
       accountId: root.accountId,
       draftKey: root.draftKey,
       from: root.fromEmail,
@@ -939,11 +875,9 @@ DropArea {
       subject: subjectField.text,
       body: bodyEdit.text,
       attachments: root.allOutgoingAttachments(),
-      // The draft this form was opened from, which sending replaces. A save
-      // has always named it; a send dropped it, and the draft stayed in the
-      // list after the message it had become was already gone.
+      // Invariant: sending an existing provider draft must identify the draft it replaces.
       draftId: root.sourceDraftId,
-      // A forward starts a new conversation; a reply must stay in the old one.
+      // Invariant: forwarding starts a new conversation; replying preserves its thread.
       threadId: root.mode === "forward" ? "" : root.threadId,
       inReplyTo: root.mode === "forward" ? "" : root.inReplyTo
     }))
@@ -1048,8 +982,8 @@ DropArea {
     try { result = JSON.parse(String(text || "")) }
     catch (e) { result = null }
 
-    // Helpers outlive the form they started from. A late read/picker/paste
-    // must not put an old draft's file or clipboard text into the next one.
+    // Invariant: attachment helpers outlive the form; stale completions must not enter the next
+    // draft.
     if (mode !== "forget" && owner !== undefined && owner !== root.draftKey) {
       if (mode === "clipboard" && result && result.ok === true && result.path)
         root.forgetOwned([{owned:true,path:result.path}])
@@ -1157,11 +1091,6 @@ DropArea {
     }
   }
 
-  // ----------------------------------------------------------- header
-  //
-  // One compact title band. Back is the exit path and the title names the
-  // draft; splitting them into two stacked bands gave one short decision the
-  // hierarchy of a whole settings page.
   Item {
     id: head
     anchors.top: parent.top
@@ -1201,10 +1130,6 @@ DropArea {
     }
   }
 
-  // ----------------------------------------------------------- fields
-  //
-  // A label column wide enough for the longest of To / Cc / Subject keeps
-  // the three inputs aligned without a grid.
 
   Column {
     id: fields
@@ -1212,9 +1137,8 @@ DropArea {
     anchors.top: head.bottom
     anchors.left: parent.left
     anchors.right: parent.right
-    // Suggestions extend below this column into the message body. Raising only
-    // the row cannot cross the sibling boundary, so the body painted over the
-    // popup even though the popup itself had a high z value.
+    // Invariant: recipient suggestions must cross the body’s sibling boundary, so their containing
+    // column needs the higher z.
     z: 10
 
     Item {
@@ -1234,10 +1158,6 @@ DropArea {
         font.pixelSize: MailStyle.caption
       }
 
-      // Sized to the address rather than to the row: a full-width trigger puts
-      // the chevron a screen away from the name it belongs to. The extra width
-      // is the room the chevron is drawn into, over the button's own trailing
-      // padding, so the two read as one control.
       Widgets.Button {
         id: fromButton
         objectName: "compose-from-button"
@@ -1262,9 +1182,6 @@ DropArea {
         enabled: root.canChooseFrom
         onClicked: root.toggleFromMenu()
 
-        // The kit's own chevron is a font glyph, which at this size renders
-        // thinner than every other mark in the window. This is the app's drawn
-        // set, at the size the rest of the icons use.
         ActionIcon {
           anchors.right: parent.right
           anchors.rightMargin: fromButton.horizontalPadding
@@ -1287,10 +1204,7 @@ DropArea {
     Item {
       width: parent.width
       z: root.toSuggestions.length > 0 ? 100 : 0
-      // The field plus the same breathing room it carries inside itself, so
-      // its border is not crowded against the rules above and below. Derived
-      // rather than a fixed height: the field grows with the theme's font
-      // scale, and a fixed row would scale that growth a second time.
+      // Invariant: derive row height from the scaled field to avoid applying font scale twice.
       implicitHeight: toField.implicitHeight + MailStyle.space(14)
 
       Text {
@@ -1426,10 +1340,7 @@ DropArea {
       visible: root.ccVisible
       width: parent.width
       z: root.ccSuggestions.length > 0 ? 100 : 0
-      // The field plus the same breathing room it carries inside itself, so
-      // its border is not crowded against the rules above and below. Derived
-      // rather than a fixed height: the field grows with the theme's font
-      // scale, and a fixed row would scale that growth a second time.
+      // Invariant: derive row height from the scaled field to avoid applying font scale twice.
       implicitHeight: ccField.implicitHeight + MailStyle.space(14)
 
       Text {
@@ -1634,10 +1545,7 @@ DropArea {
 
     Item {
       width: parent.width
-      // The field plus the same breathing room it carries inside itself, so
-      // its border is not crowded against the rules above and below. Derived
-      // rather than a fixed height: the field grows with the theme's font
-      // scale, and a fixed row would scale that growth a second time.
+      // Invariant: derive row height from the scaled field to avoid applying font scale twice.
       implicitHeight: subjectField.implicitHeight + MailStyle.space(14)
 
       Text {
@@ -1881,10 +1789,6 @@ DropArea {
     }
   }
 
-  // ------------------------------------------------------------- body
-  //
-  // The kit has no multi-line field, so this is a TextEdit on the plain
-  // window ground; the rows above already carry the structure.
   Flickable {
     id: bodyFlick
 
@@ -1910,10 +1814,8 @@ DropArea {
       TextMenuTrigger {}
       activeFocusOnTab: true
       width: bodyFlick.width
-      // Tall enough to fill the visible area even when the draft is short.
-      // A TextEdit sized to its text leaves the space below it belonging to
-      // the Flickable, so clicking into the empty part of a mostly-empty
-      // message does nothing at all.
+      // Invariant: the editor must fill the viewport so clicking below a short draft still places
+      // the cursor.
       height: Math.max(implicitHeight, bodyFlick.height)
       selectByMouse: true
       wrapMode: TextEdit.Wrap
@@ -2044,7 +1946,6 @@ DropArea {
     }
   }
 
-  // ---------------------------------------------------------- actions
 
   Item {
     id: actions
@@ -2069,8 +1970,8 @@ DropArea {
         iconName: "send"
         objectName: "compose-send-button"
         tooltipText: "Send · ctrl+enter"
-        // A send in flight or parked is no reason to hold the next: each is
-        // parked in its account's line and goes in turn.
+        // Invariant: a queued send does not lock the composer; each draft has its own recovery
+        // state.
         text: "Send"
         foreground: root.textColor
         fontFamily: root.panelFontFamily
@@ -2101,12 +2002,8 @@ DropArea {
 
   }
 
-  // -------------------------------------------------------------- text menu
-  //
-  // One menu for every field: the trigger names the field it sits in, and
-  // Paste takes the route Ctrl+V takes — the clipboard is tried for an image
-  // first, and text goes into whichever field has focus, so the clicked one
-  // is given it before the ask.
+  // Invariant: context-menu Paste follows the image-aware clipboard path and focuses the clicked
+  // field first.
   component TextMenuTrigger: MouseArea {
     anchors.fill: parent
     acceptedButtons: Qt.RightButton

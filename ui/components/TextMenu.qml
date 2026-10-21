@@ -5,14 +5,8 @@ import qs.Commons
 import qs.Ui
 import "Menu.js" as Menu
 
-// The menu a right-click opens on text. A reader gets Copy; an editor gets
-// Cut, Paste and Select all around it; a click on a link adds Open and Copy
-// URL to either. The text item is handed in at open time rather than bound,
-// so one menu serves every field of a form.
-//
-// Copy goes out as a signal rather than through the item's own copy(),
-// because the host owns the platform clipboard — the same reason
-// AddressMenu hands an address up instead of setting it here.
+// Invariant: the host owns the platform clipboard, so Copy is emitted rather than delegated to the
+// text item.
 Item {
   id: root
 
@@ -21,11 +15,8 @@ Item {
   required property color popupBorderColor
   required property string panelFontFamily
 
-  // Whether the text can be changed: shows Cut, Paste and Select all.
   property bool editable: false
-  // The TextEdit or TextField the menu was opened on.
   property var target: null
-  // The link under the pointer when it opened, or "" for none.
   property string link: ""
   property int cursorIndex: -1
   readonly property bool opened: menu.opened
@@ -40,8 +31,7 @@ Item {
   readonly property alias copyLinkRow: copyLinkRow
 
   signal copyRequested(string text)
-  // Paste is the owner's: a compose form tries the clipboard for an image
-  // before it pastes text, and only it knows how.
+  // Invariant: the owner’s Paste path imports clipboard images before falling back to text.
   signal pasteRequested(var target)
   signal openLinkRequested(string url)
 

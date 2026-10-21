@@ -18,8 +18,7 @@ ListView {
   required property string panelFontFamily
   property string snoozeId: ""
   property string cursorId: ""
-  // The rows ticked for a bulk action, by id. Held above the list, like the
-  // cursor, because a reload rebuilds every row.
+  // Invariant: checked IDs live above recycled rows so list reloads preserve the selection.
   property var checkedIds: []
   property bool ctrlHeld: false
 
@@ -27,8 +26,8 @@ ListView {
   signal checkToggled(string id)
   signal checkRangeRequested(string id)
   signal agentRequested(string id, real sceneX, real sceneY)
-  // A row's own star, archive and trash buttons. Routed up rather than
-  // straight to the service so a ticked row's button means the selection.
+  // Invariant: route row actions through the window so an action on a checked row applies to the
+  // selection.
   signal snoozeRequested(string id, real sceneX, real sceneY)
   signal rowActionRequested(string id, string action)
   signal menuRequested(string id, real sceneX, real sceneY)
@@ -72,18 +71,20 @@ ListView {
   delegate: MessageRow {
       width: root.width
       required property int index
-      // The array and its count change together, but a row's binding can be
-      // asked between the two; an empty summary for that instant draws an
-      // empty row rather than throwing on every field.
+      // Invariant: the summary array and count can update between bindings; recycled rows need an
+      // empty summary during that transition.
       readonly property var modelData: root.service.messages[index] || ({})
+      readonly property var overviewDetails: root.service.inboxTools
+        ? root.service.inboxTools.overviewFor(modelData) : ({})
+
 
       attachmentIndicatorEnabled: !!root.service.backend && root.service.backend.ready
         && Number(root.service.backend.apiVersion) >= 8
       snoozeOpen: root.snoozeId === modelData.id
       avatarData: root.service.inboxTools ? root.service.inboxTools.avatarFor(modelData) : ""
-      overview: root.service.inboxTools ? String(root.service.inboxTools.overviewFor(modelData).text || "") : ""
-      overviewReason: root.service.inboxTools ? (root.service.inboxTools.available === false ? (!root.service.backend || !root.service.backend.ready ? "mail backend is disconnected" : "backend update required") : String(root.service.inboxTools.overviewFor(modelData).reason || "")) : ""
-      overviewState: root.service.inboxTools ? (root.service.inboxTools.available === false ? "unavailable" : root.service.inboxTools.paused === true ? "paused" : String(root.service.inboxTools.overviewFor(modelData).state || "")) : ""
+      overview: root.service.inboxTools ? String(overviewDetails.text || "") : ""
+      overviewReason: root.service.inboxTools ? (root.service.inboxTools.available === false ? (!root.service.backend || !root.service.backend.ready ? "mail backend is disconnected" : "backend update required") : String(overviewDetails.reason || "")) : ""
+      overviewState: root.service.inboxTools ? (root.service.inboxTools.available === false ? "unavailable" : root.service.inboxTools.paused === true ? "paused" : String(overviewDetails.state || "")) : ""
       onUnreadRequested: root.rowActionRequested(modelData.id, "markUnread")
       onSnoozeRequested: function(x,y) { root.snoozeRequested(modelData.id,x,y) }
       summary: modelData
@@ -124,8 +125,6 @@ ListView {
     textColor: root.textColor
   }
 
-  // Three states share this slot, and only one of them is an error: still
-  // loading, loaded and empty, or nothing loaded yet.
   Item {
     width: parent.width
     visible: root.service.messages.length === 0
@@ -146,13 +145,6 @@ ListView {
     }
   }
 
-  // Pagination is the only thing this footer needs to say. A result estimate
-  // promoted an unreliable server number into interface hierarchy it did not
-  // deserve, and repeated it again in the window status line.
-  //
-  // The next page is asked for as the list is scrolled to its foot, so the
-  // button is for the page that did not come — a refusal, a slow server —
-  // rather than the way every page is reached.
   Item {
     width: parent.width
     visible: root.service.hasMore
@@ -191,8 +183,6 @@ ListView {
   function loadMoreSoon() { Qt.callLater(root.loadMoreIfAtFoot) }
 
   function continueAfterLoad(startCount) {
-    // MailAccount ends the loading state before it applies the summaries.
-    // Judge growth after that callback has finished, when the page is visible.
     Qt.callLater(function() {
       if (!root.service || root.service.messages.length <= startCount) return
       root.loadMoreIfAtFoot()

@@ -40,7 +40,7 @@ Rectangle {
   function chooseGuestSuggestion() { guestSuggestionsList.acceptSelection() }
   function dismissGuestSuggestions() { guestSuggestionsDismissed = true }
   function acceptGuest(contact) {
-    // Calendar's guest payload accepts addresses, not mail's display-name syntax.
+    // Invariant: calendar guests accept addresses only, not mail display-name syntax.
     guestsField.text = Recipients.accept(guestsField.text, { email: contact.email }) + ", "
     guestsField.forceActiveFocus()
   }
@@ -52,15 +52,12 @@ Rectangle {
   readonly property var chosenSource: controller && typeof controller.findSource === "function"
     ? controller.findSource(selectedSourceId) : null
   property string recurrenceFrequency: "WEEKLY"
-  // Set while an existing event is being changed rather than a new one made.
-  // Calendar changes select a transfer destination; they are committed on Save.
   property var editingEvent: null
   property bool loadingSeries: false
   property bool transferring: false
   property bool transferNeedsRefresh: false
   property int editGeneration: 0
-  // Google's options travel only through the API 6 backend; an older one
-  // would save the event without them, so the controls are not offered.
+  // Invariant: Google-specific write options require API6; older backends would silently omit them.
   readonly property bool googleWrites: !!chosenSource && chosenSource.kind === "google"
     && !!controller && !!controller.service && controller.service.backendCanGoogleCalendars === true
   readonly property bool guestUpdate: editing && googleWrites
@@ -69,8 +66,6 @@ Rectangle {
       || guestsField.text.trim() !== "")
   property string editingSourceId: ""
   readonly property bool editing: editingEvent !== null
-  // Nothing typed and nothing being edited: a form that can be replaced
-  // without losing anyone anything.
   readonly property bool pristine: !editing && !writePending
     && String(titleField.text || "") === "" && String(locationField.text || "") === ""
     && String(notesField.text || "") === "" && String(guestsField.text || "").trim() === ""
@@ -86,12 +81,10 @@ Rectangle {
     value: root.opened && !root.pristine
     when: !!root.controller
   }
-  // Set when this form's own write is in flight. A completion is answered only
-  // while it is: a write the user cancelled out of — Escape, then a newer
-  // edit — must not close or report into this one.
+  // Invariant: only this form’s pending write may close it; cancelled older edits must not affect a
+  // newer form.
   property bool writePending: false
-  // An all-day event is edited as the dates it spans; the time fields stand
-  // down, because writing them back would turn the event into a timed one.
+  // Invariant: all-day edits preserve date spans instead of converting them to timed events.
   property bool allDay: false
   readonly property bool editingAllDay: allDay
   readonly property var dateRange: Calendar.editorDateRange(dateField.text, startField.text,
@@ -262,34 +255,27 @@ Rectangle {
     recurring = false
     recurrenceFrequency = "WEEKLY"
     resultText.text = ""
-    // The mailbox being read is the one the event most likely belongs to, and
-    // under the unified view it is not the first group: `groupByAccount` walks
-    // the stored accounts in their own order, so "Create event..." from mailbox
-    // B would otherwise open with A's calendar chosen and write there unless
-    // the user noticed the picker.
+    // Invariant: new events prefer the selected mailbox’s calendar, not the first account in stored
+    // order.
     selectedSourceId = preferredCalendarId()
     timeZoneField.text = chosenSource ? String(chosenSource.timeZone || "") : ""
     opened = true
     Qt.callLater(titleField.forceActiveFocus)
   }
 
+  function preferredCalendarIn(group) {
+    var calendars = group.calendars || []
+    for (var calendarIndex = 0; calendarIndex < calendars.length; calendarIndex++) {
+      if (calendars[calendarIndex].preferred) return String(calendars[calendarIndex].id)
+    }
+    return calendars.length ? String(calendars[0].id) : ""
+  }
+
   function preferredCalendarId() {
     var groups = controller ? controller.writableSourceGroups : []
     if (!groups.length) return ""
-    // `groupByAccount` names an account's group "account:" + its id, which is
-    // the only place the owner survives into the group.
-    var wanted = controller ? String(controller.accountId || "") : ""
-    if (wanted !== "") {
-      for (var i = 0; i < groups.length; i++) {
-        if (String(groups[i].id || "") !== "account:" + wanted) continue
-        for (var c = 0; c < groups[i].calendars.length; c++) {
-          if (groups[i].calendars[c].preferred) return String(groups[i].calendars[c].id)
-        }
-        if (groups[i].calendars && groups[i].calendars.length)
-          return String(groups[i].calendars[0].id)
-      }
-    }
-    return String(groups[0].calendars[0].id)
+    var owned = calendarOf(controller ? String(controller.accountId || "") : "")
+    return owned || String(groups[0].calendars[0].id)
   }
 
   function beginEdit(sourceId, event) {
@@ -322,8 +308,7 @@ Rectangle {
     dateField.text = localDate(start)
     startField.text = localTime(start)
     endField.text = localTime(end)
-    // The stored all-day end is the exclusive midnight after the last shown
-    // day, so the field shows a millisecond before it.
+    // Invariant: stored all-day ends are exclusive; the field displays the preceding date.
     endDateField.text = event.start.allDay && event.end
       ? localDate(new Date(Number(event.end.ms) - 1)) : localDate(end)
     locationField.text = String(event.location || "")
@@ -349,18 +334,14 @@ Rectangle {
   }
 
 
-  // What the form holds, for a test to read without reaching into fields.
   function titleText() { return String(titleField.text || "") }
   function whenText() { return dateField.text + " " + startField.text + " " + endField.text }
   function locationText() { return String(locationField.text || "") }
   function notesText() { return String(notesField.text || "") }
 
-  // Open with fields already filled — a suggestion from a message — for the
-  // owner to look over and put on the calendar of their choice. Nothing is
-  // written until they say so, which is the point of opening here.
+  // Invariant: suggestions only prefill this form; writing requires human submission.
   function beginWith(prefill) {
     var fields = prefill || {}
-    // A form the owner is in the middle of is not replaced.
     if (opened && !pristine) return false
     if (fields.editingEvent) {
       beginReschedule(fields.editingEvent, Number(fields.startMs), Number(fields.endMs))
@@ -377,8 +358,6 @@ Rectangle {
     titleField.text = String(fields.title || "")
     locationField.text = String(fields.location || "")
     notesField.text = String(fields.description || "")
-    // The calendar of the mailbox the message was read in, when it has
-    // one: under the merged view that is not always the open account.
     var owner = calendarOf(String(fields.accountId || ""))
     if (owner !== "") selectedSourceId = owner
     return true
@@ -387,12 +366,10 @@ Rectangle {
   function calendarOf(accountId) {
     var groups = controller ? controller.writableSourceGroups : []
     if (!accountId || !groups) return ""
-    for (var i = 0; i < groups.length; i++) {
-      if (String(groups[i].id || "") !== "account:" + accountId) continue
-      for (var c = 0; c < groups[i].calendars.length; c++) {
-        if (groups[i].calendars[c].preferred) return String(groups[i].calendars[c].id)
-      }
-      if (groups[i].calendars && groups[i].calendars.length) return String(groups[i].calendars[0].id)
+    for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+      if (String(groups[groupIndex].id || "") !== "account:" + accountId) continue
+      var preferred = preferredCalendarIn(groups[groupIndex])
+      if (preferred !== "") return preferred
     }
     return ""
   }
@@ -462,9 +439,8 @@ Rectangle {
 
   function submit(sendUpdates) {
     if (!controller) return
-    // Create, update and delete share one controller write slot. Do not mark
-    // this form pending unless that slot is free: otherwise an older write's
-    // completion could be mistaken for this form's and close it.
+    // Invariant: create/update/delete share one write slot; an older completion must not be
+    // attributed to this form.
     if (controller.creatingEvent || controller.eventWriting || loadingSeries || transferring || transferNeedsRefresh) return
     if (!dateRange.ok) return
     var fields = {
@@ -737,7 +713,6 @@ Rectangle {
         onClicked: root.allDay = !root.allDay
       }
 
-      // Labelled above like every other field, so the form has one left edge.
       FieldLabel { text: "Starts" }
       Row {
         width: parent.width
@@ -1081,7 +1056,6 @@ Rectangle {
           return busy ? "Creating" : "Create event"
         }
         iconName: root.editing ? "check" : "plus"
-        // The Enter action: accent edge and text, not a solid fill.
         foreground: root.accentColor
         accent: root.accentColor
         fontFamily: root.panelFontFamily
@@ -1112,9 +1086,7 @@ Rectangle {
 
   Connections {
     target: root.controller
-    // A completion is answered only while this form's own write is in flight:
-    // one the user cancelled out of belongs to no edit, and its failure is
-    // already on the view's banner.
+    // Invariant: a cancelled form must not consume another edit’s completion.
     function onComposeRequested(prefill) { root.beginWith(prefill) }
     function onEventCreated(ok, error) {
       if (!root.writePending) return

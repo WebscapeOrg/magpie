@@ -5,11 +5,6 @@ import qs.Commons
 import qs.Ui
 import "Menu.js" as Menu
 
-// The menu a label opens on a right-click: what can be done to the label
-// itself, as opposed to the messages in it. Every row that changes the
-// server's list is offered only where the provider can be asked
-// (`canManage`); an ancestor no label names (`labelId` empty) offers only the
-// two rows that make something beneath or beside it.
 Item {
   id: root
 
@@ -21,8 +16,7 @@ Item {
   required property string panelFontFamily
 
   property string labelId: ""
-  // Whose label this is: the account open when the popup opened, by id,
-  // so the answer goes to it even if the window has moved on since.
+  // Invariant: label mutations retain the account that owned the popup when it opened.
   property string accountId: ""
   property string labelPath: ""
   property bool monitored: false
@@ -33,7 +27,7 @@ Item {
   readonly property bool real: labelId !== ""
 
   signal renameRequested(string labelId)
-  // `beneath` false means beside: under the same parent this label has.
+  // Docs: beneath=false creates a sibling under the label’s existing parent.
   signal createRequested(string labelPath, bool beneath)
   signal moveRequested(string labelId)
   signal monitorToggled(string labelId)
@@ -66,8 +60,6 @@ Item {
   function runCursor() { if (cursorIndex >= 0) menuRows[cursorIndex].activated() }
   function close() { menu.close() }
 
-  // The parent a new sibling goes under: the label's own parent, which is
-  // the path with its last segment taken off by whoever handles the signal.
   QQC.Popup {
     id: menu
     width: MailStyle.space(220)
@@ -104,7 +96,6 @@ Item {
         }
       }
 
-      // The label's name, so the menu says which one it is about.
       Text {
         width: menu.width - menu.leftPadding - menu.rightPadding
         leftPadding: MailStyle.space(9)

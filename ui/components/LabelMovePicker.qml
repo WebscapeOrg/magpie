@@ -5,11 +5,7 @@ import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
 import "../account/Model.js" as Model
-import "Menu.js" as Menu
 
-// Where a label goes: the top level, or under another label. The rows are
-// `Model.labelMoveTargets` — not the label itself, nothing beneath it, not
-// the parent it already has — walked with j/k and taken with Enter or o.
 Item {
   id: root
 
@@ -21,8 +17,7 @@ Item {
   required property string panelFontFamily
 
   property string labelId: ""
-  // Whose label this is: the account open when the popup opened, by id,
-  // so the answer goes to it even if the window has moved on since.
+  // Invariant: label mutations retain the account that owned the popup when it opened.
   property string accountId: ""
   property var targets: []
   property int cursorIndex: 0

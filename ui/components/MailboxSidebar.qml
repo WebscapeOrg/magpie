@@ -5,14 +5,7 @@ import QtQuick.Controls
 import qs.Commons
 import qs.Ui
 import "../account/Model.js" as Model
-import "../providers/Registry.js" as Provider
 
-// The left column: the mailboxes this account's provider has, then whatever
-// labels or folders the server reported, A to Z.
-//
-// Icon-first, and narrow enough to leave open: the longest mailbox name is
-// "All mail". Collapsing it to a strip of icons is one click away, and the
-// tooltips carry the names either way, so the collapsed rail stays usable.
 Item {
   id: root
 
@@ -28,23 +21,16 @@ Item {
   signal mailboxSelected(string key)
   signal labelSelected(string labelId, string name)
   signal folderToggled(string path)
-  // A right-click on a label row: the label's id ("" for an ancestor no label
-  // names), its path, and where the menu goes.
   signal labelMenuRequested(string labelId, string path, real sceneX, real sceneY)
   signal calendarRequested()
 
-  // The numbered list App.qml also gives the keys, so a badge and the key that
-  // opens the row it sits on cannot disagree.
+  // Invariant: the sidebar and keyboard router share one numbered row projection.
   property var slots: []
   property bool numbersVisible: false
 
-  // The labels as a tree: a child indented under its parent, a parent that
-  // folds. Model.labelTree decides the shape; this draws it.
   readonly property var userLabels: root.service
     ? Model.labelTree(root.service.labels, root.service.collapsedFolders) : []
 
-  // The rail's own edge. The list already draws one on its far side, so
-  // without this the icons sit on the same surface as the messages.
   PanelSeparator {
     id: edge
     anchors.right: parent.right
@@ -76,19 +62,13 @@ Item {
       spacing: MailStyle.space(1)
 
       Repeater {
-        // The account's own list. A provider with no All mail must not be
-        // offered one, and an IMAP account's Flagged is not Gmail's Starred.
+        // Invariant: display only the resolved mailboxes supported by this account’s provider.
         model: root.service ? root.service.mailboxes : []
 
         Entry {
           required property var modelData
           label: modelData.label
           icon: modelData.icon
-          // No count on the mailboxes. An inbox that is thousands of messages
-          // deep reports "999+" forever, which is a number that never changes
-          // and therefore says nothing. The bar's dot carries whether anything
-          // is waiting; the labels below still count, because those are lists
-          // the user built and their sizes mean something.
           count: 0
           selected: !root.calendarSelected && !!root.service
             && root.service.mailboxKey === modelData.key
@@ -125,10 +105,6 @@ Item {
         Entry {
           required property var modelData
           label: modelData.name
-          // One tag for every user label. An initial letter fails the moment a
-          // label is not written in the Latin alphabet — a Chinese label would
-          // put a single hanzi in a 16px slot, which is neither an icon nor a
-          // readable name. The tooltip carries the name instead.
           icon: modelData.selectable && !!root.service
             && (root.service.monitoredLabelIds || []).indexOf(modelData.id) >= 0 ? "eye" : "label"
           depth: modelData.depth
@@ -157,7 +133,6 @@ Item {
     }
   }
 
-  // Calendar stays fixed at the foot of the rail while mailbox labels scroll.
   Column {
     id: footer
     anchors.left: parent.left
@@ -179,8 +154,6 @@ Item {
 
   }
 
-  // One row: an icon that is always there, a name that appears when there is
-  // room, and a count that survives the collapse as a dot.
   component Entry: Rectangle {
     id: entry
     required property string label
@@ -188,9 +161,6 @@ Item {
     property int count: 0
     property bool selected: false
     property int slotNumber: 0
-    // A label under another is stepped in one indent per level; a parent
-    // carries a chevron that folds its children. An ancestor no label names
-    // is drawn dim and opens nothing — tapping it folds instead.
     property int depth: 0
     property bool foldable: false
     property bool expanded: true
@@ -199,12 +169,9 @@ Item {
     signal activated()
     signal foldRequested()
     signal menuRequested(real sceneX, real sceneY)
-    // Watched for new mail: the row keeps its count in the accent even while
-    // it is not the one open, and the glyph says so.
     property bool monitored: false
 
-    // The badge names the key: Ctrl and the digit. A row past the ninth has
-    // no key and no badge — `Ctrl+0` is reset zoom, not a tenth row.
+    // Invariant: rows after the ninth have no digit shortcut; Ctrl+0 resets zoom.
     readonly property bool showsNumber: root.numbersVisible && slotNumber > 0
     readonly property string numberText: String(slotNumber)
 
@@ -229,8 +196,6 @@ Item {
       objectName: "mailbox-entry-icon"
     }
 
-    // The fold, at the end of the row so the name keeps its column. Its own
-    // tap target, so folding a parent does not also open it.
     Item {
       id: fold
       objectName: "fold"
@@ -252,7 +217,6 @@ Item {
       TapHandler { onTapped: entry.foldRequested() }
     }
 
-    // Modifier hints sit above the icon at the corner of a collapsed row.
     Rectangle {
       id: slotChip
       objectName: "mailbox-shortcut-chip"
@@ -265,9 +229,6 @@ Item {
       width: MailStyle.space(root.collapsed ? 10 : 16)
       height: width
       radius: Style.cornerRadius
-      // This names a shortcut; it is not another selected state layered over
-      // the selected mailbox row. The lighter normal fill stays legible on
-      // dark themes without becoming a stack of grey tabs on Lupine.
       color: Style.normalFillFor(root.textColor, root.accentColor)
 
       Text {
@@ -325,9 +286,8 @@ Item {
     }
 
     HoverHandler { id: hover }
-    // The fold's handler sits inside this one and both see the same tap,
-    // so the row asks where it landed before opening anything: folding a
-    // parent must not also open it.
+    // Invariant: nested fold and row handlers see the same tap; folding must not also open the
+    // mailbox.
     TapHandler {
       onTapped: function(eventPoint) {
         var at = eventPoint.position
@@ -344,8 +304,6 @@ Item {
       }
     }
 
-    // The tooltip is how the rail stays usable while collapsed, and it carries
-    // the count too, which the dot can only hint at.
     Widgets.PanelToolTip {
       objectName: "label-tooltip"
       visible: hover.hovered

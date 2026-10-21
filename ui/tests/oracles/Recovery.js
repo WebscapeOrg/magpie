@@ -11,7 +11,7 @@ function text(value) {
 }
 
 function person(value) {
-  var row = value && typeof value === "object" ? value : ({})
+  var row = value && typeof value === "object" ? value : {}
   return { email: text(row.email), display: text(row.display) }
 }
 
@@ -23,7 +23,7 @@ function people(value) {
 }
 
 function attachment(value) {
-  var row = value && typeof value === "object" ? value : ({})
+  var row = value && typeof value === "object" ? value : {}
   var path = text(row.path)
   return {
     filename: text(row.filename),
@@ -45,7 +45,7 @@ function attachments(value) {
 }
 
 function draft(value) {
-  var row = value && typeof value === "object" ? value : ({})
+  var row = value && typeof value === "object" ? value : {}
   return {
     to: text(row.to),
     cc: text(row.cc),
@@ -74,7 +74,7 @@ function draft(value) {
 }
 
 function hasMeaningfulDraft(value) {
-  var row = value && typeof value === "object" ? value : ({})
+  var row = value && typeof value === "object" ? value : {}
   if (text(row.to).trim() !== "") return true
   if (text(row.cc).trim() !== "") return true
   if (text(row.bcc).trim() !== "") return true

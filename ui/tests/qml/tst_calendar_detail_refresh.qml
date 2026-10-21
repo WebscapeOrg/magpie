@@ -91,6 +91,19 @@ Item {
       reply(0,"first",2)
       compare(view.detailOpen,false)
     }
+    function test_month_today_follows_the_running_clock() {
+      view.setView("month")
+      verify(fixture.clockRunning, "A visible month keeps the current-date clock running")
+      fixture.nowMs = new Date(2026, 9, 20, 23, 59).getTime()
+      compare(view.todayIso, "2026-10-20")
+      fixture.nowMs = new Date(2026, 9, 21, 0, 0).getTime()
+      compare(view.todayIso, "2026-10-21")
+      view.visible = false
+      compare(fixture.clockRunning, false)
+      view.visible = true
+      fixture.nowMs = Date.now()
+    }
+
     function test_agenda_model_survives_a_clock_tick() {
       view.visibleMonth = new Date(2026,9,1)
       fixture.nowMs = Date.UTC(2026,9,20)

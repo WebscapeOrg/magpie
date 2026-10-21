@@ -65,6 +65,8 @@ make validate    # node tests, source regressions, QML tests, qmllint, manifest
 
 `make validate` needs `node`, `python3`, Qt 6 QML test tooling (`qt6-declarative` on Arch, `qt6-declarative-dev-tools` and `qml6-module-qttest` on Debian and Ubuntu) and the `omarchy` CLI. It has to be green before you open the pull request, and green on your machine — nothing in CI runs it for you. Standalone changes must also pass `make test-app-qml` and the native platform gates described in [Backend runtime](docs/BACKEND-RUNTIME.md).
 
+Real agent CLI protocol tests are opt-in: set `OMAMAIL_TEST_CODEX`, `OMAMAIL_TEST_CLAUDE`, or `OMAMAIL_TEST_OPENCODE` to an installed executable and run `make test-agent-cli-protocols`. The tests use isolated temporary homes and a loopback model fixture; they exercise the actual CLI protocol without provider accounts.
+
 ## How the change gets made
 
 In this order, and none of the steps fold into each other:

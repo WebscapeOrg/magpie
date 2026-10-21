@@ -92,7 +92,7 @@ QML_FILES += ui/tests/qml/tst_provider_session_callbacks.qml
 QML_FILES += ui/tests/qml/tst_reader_image_lifecycle.qml
 QML_FILES += ui/tests/qml/tst_setup_plaintext.qml
 QML_FILES += ui/tests/qml/tst_signature_import_lifecycle.qml
-APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml
+APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml app/tests/qml/tst_calendar_palette_bindings.qml app/tests/qml/tst_plain_labels.qml
 APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)
 APP_TARGET_DIR ?= $(CURDIR)/target/standalone
@@ -100,7 +100,7 @@ APP_BACKEND := $(APP_TARGET_DIR)/debug/omamail$(APP_EXEEXT)
 APP_EXECUTABLE := $(APP_BUILD_DIR)/omamail-app$(APP_EXEEXT)
 
 .PHONY: test test-js test-shell test-shell-portable test-shell-independent test-shell-libcurl \
-	test-qml test-app-qml test-local test-backend-process qml-check validate bench install \
+	test-qml test-app-qml test-local test-backend-process test-agent-cli-protocols qml-check validate bench install \
 	app-build app-run help
 
 help:
@@ -117,6 +117,14 @@ test-backend-process:
 	node ui/tests/test_backend_queue.js target/debug/omamail
 	python3 tests/test_backend_process.py
 	python3 tests/test_agent_native_bridge.py
+
+# Invariant: real CLI protocol fixtures are opt-in and use a local model server.
+test-agent-cli-protocols:
+	@test -n "$(OMAMAIL_TEST_CODEX)$(OMAMAIL_TEST_CLAUDE)$(OMAMAIL_TEST_OPENCODE)" || { \
+		echo "Set OMAMAIL_TEST_CODEX, OMAMAIL_TEST_CLAUDE or OMAMAIL_TEST_OPENCODE to an installed executable." >&2; \
+		exit 1; }
+	cargo build --locked --bin omamail
+	python3 tests/test_agent_cli_protocols.py
 
 .PHONY: test-rust backend
 test-rust:
@@ -280,7 +288,7 @@ test-app-qml:
 	cmake -S app -B "$(APP_BUILD_DIR)" -DOMAMAIL_BACKEND="$(APP_BACKEND)" -DQMLTESTRUNNER_EXECUTABLE="$(QMLTESTRUNNER)"
 	cmake --build "$(APP_BUILD_DIR)" --parallel
 	python3 app/tests/test_qml_inventory.py
-	QT_QPA_PLATFORM=offscreen ctest --test-dir "$(APP_BUILD_DIR)" --output-on-failure --no-tests=error -R 'tst_standalone_composition'
+	QT_QPA_PLATFORM=offscreen ctest --test-dir "$(APP_BUILD_DIR)" --output-on-failure --no-tests=error
 
 app-build:
 	cargo build --locked --no-default-features --features standalone --target-dir "$(APP_TARGET_DIR)" --bin omamail

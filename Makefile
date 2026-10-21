@@ -92,7 +92,9 @@ QML_FILES += ui/tests/qml/tst_provider_session_callbacks.qml
 QML_FILES += ui/tests/qml/tst_reader_image_lifecycle.qml
 QML_FILES += ui/tests/qml/tst_setup_plaintext.qml
 QML_FILES += ui/tests/qml/tst_signature_import_lifecycle.qml
-APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml app/tests/qml/tst_calendar_palette_bindings.qml app/tests/qml/tst_plain_labels.qml
+QML_FILES += ui/tests/qml/NativeIntentBridge.qml
+QML_FILES += ui/tests/qml/tst_shell_fixtures.qml
+APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml app/tests/qml/tst_calendar_palette_bindings.qml
 APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)
 APP_TARGET_DIR ?= $(CURDIR)/target/standalone
@@ -134,6 +136,8 @@ backend:
 	cargo build --locked --release --target-dir "$(CURDIR)/target" --bin omamail
 
 test-js:
+	node ui/tests/test_oracles.js
+	node ui/tests/test_load.js
 	node --test tests/test_website.js
 	node ui/tests/test_inbox.js
 	node ui/tests/test_display.js

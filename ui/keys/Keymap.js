@@ -251,8 +251,8 @@ function contextFor(state) {
 }
 
 function byId(id) {
-  for (var i = 0; i < BINDINGS.length; i++) {
-    if (BINDINGS[i].id === id) return BINDINGS[i]
+  for (var bindingIndex = 0; bindingIndex < BINDINGS.length; bindingIndex++) {
+    if (BINDINGS[bindingIndex].id === id) return BINDINGS[bindingIndex]
   }
   return null
 }
@@ -269,8 +269,8 @@ function slotFor(id, sequence) {
 function matchesContext(binding, context) {
   if (!binding) return false
   var contexts = binding.contexts || []
-  for (var i = 0; i < contexts.length; i++) {
-    if (contexts[i] === "*" || contexts[i] === context) return true
+  for (var contextIndex = 0; contextIndex < contexts.length; contextIndex++) {
+    if (contexts[contextIndex] === "*" || contexts[contextIndex] === context) return true
   }
   return false
 }
@@ -279,8 +279,8 @@ function matchesSequenceContext(binding, sequence, context) {
   if (!binding) return false
   var overrides = binding.sequenceContexts || ({})
   var contexts = overrides[String(sequence || "")] || binding.contexts || []
-  for (var i = 0; i < contexts.length; i++) {
-    if (contexts[i] === "*" || contexts[i] === context) return true
+  for (var contextIndex = 0; contextIndex < contexts.length; contextIndex++) {
+    if (contexts[contextIndex] === "*" || contexts[contextIndex] === context) return true
   }
   return false
 }
@@ -302,8 +302,8 @@ function isSequenceEnabled(binding, sequence, context, overlay) {
 
 function bindingsFor(context) {
   var out = []
-  for (var i = 0; i < BINDINGS.length; i++) {
-    if (matchesContext(BINDINGS[i], context)) out.push(BINDINGS[i])
+  for (var bindingIndex = 0; bindingIndex < BINDINGS.length; bindingIndex++) {
+    if (matchesContext(BINDINGS[bindingIndex], context)) out.push(BINDINGS[bindingIndex])
   }
   return out
 }
@@ -314,11 +314,11 @@ function bindingsFor(context) {
 function sequencesFor(context) {
   var out = []
   var rows = BINDINGS
-  for (var i = 0; i < rows.length; i++) {
-    var keys = rows[i].keys || []
-    for (var k = 0; k < keys.length; k++) {
-      if (matchesSequenceContext(rows[i], keys[k], context))
-        out.push(({ id: rows[i].id, sequence: keys[k], binding: rows[i] }))
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    var keys = rows[rowIndex].keys || []
+    for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+      if (matchesSequenceContext(rows[rowIndex], keys[keyIndex], context))
+        out.push(({ id: rows[rowIndex].id, sequence: keys[keyIndex], binding: rows[rowIndex] }))
     }
   }
   return out
@@ -349,8 +349,8 @@ function displayFor(binding) {
   var out = []
   // Return and the numpad's Enter are two keys with one keycap name; the
   // sheet names the keycap once.
-  for (var i = 0; i < keys.length; i++) {
-    var readable = readableSequence(keys[i])
+  for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+    var readable = readableSequence(keys[keyIndex])
     if (out.indexOf(readable) < 0) out.push(readable)
   }
   return out.join(", ")
@@ -384,8 +384,8 @@ function helpGroups(hidden) {
   var groups = []
   var byName = ({})
   var omitted = Array.isArray(hidden) ? hidden : []
-  for (var i = 0; i < BINDINGS.length; i++) {
-    var binding = BINDINGS[i]
+  for (var bindingIndex = 0; bindingIndex < BINDINGS.length; bindingIndex++) {
+    var binding = BINDINGS[bindingIndex]
     if (omitted.indexOf(binding.id) >= 0) continue
     if (!byName[binding.group]) {
       byName[binding.group] = ({ name: binding.group, rows: [] })
@@ -411,12 +411,12 @@ function hintsFor(context, unavailable, hasSelection) {
   var out = []
   var rows = bindingsFor(context)
   var missing = Array.isArray(unavailable) ? unavailable : []
-  for (var i = 0; i < rows.length; i++) {
-    if (rows[i].hintNeedsSelection && hasSelection !== true) continue
-    var unavailableId = rows[i].hintUnavailableId || rows[i].id
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    if (rows[rowIndex].hintNeedsSelection && hasSelection !== true) continue
+    var unavailableId = rows[rowIndex].hintUnavailableId || rows[rowIndex].id
     if (missing.indexOf(unavailableId) >= 0) continue
-    var text = hintTextFor(rows[i], context)
-    if (text !== "") out.push(({ key: hintKeyFor(rows[i]), label: text }))
+    var text = hintTextFor(rows[rowIndex], context)
+    if (text !== "") out.push(({ key: hintKeyFor(rows[rowIndex]), label: text }))
   }
   return out
 }
@@ -443,23 +443,23 @@ function helpColumns(count, hidden) {
   var groups = helpGroups(hidden)
   var columns = Math.max(1, Math.min(groups.length, Math.floor(Number(count)) || 1))
   var out = []
-  for (var c = 0; c < columns; c++) out.push([])
+  for (var columnIndex = 0; columnIndex < columns; columnIndex++) out.push([])
   if (columns === 1) {
     out[0] = groups
     return out
   }
 
   var total = 0
-  for (var i = 0; i < groups.length; i++) total += helpWeight(groups[i])
+  for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) total += helpWeight(groups[groupIndex])
   var at = 0
   var used = 0
   var placed = 0
-  for (var g = 0; g < groups.length; g++) {
+  for (var nextGroupIndex = 0; nextGroupIndex < groups.length; nextGroupIndex++) {
     // Groups still to place, and columns still open, this one included in both.
-    var left = groups.length - g
+    var left = groups.length - nextGroupIndex
     var free = columns - at
     var target = (total - placed) / free
-    var nextWeight = helpWeight(groups[g])
+    var nextWeight = helpWeight(groups[nextGroupIndex])
     // Start the next column when adding this whole group would move farther
     // from the remaining share. A group never splits across columns.
     if (at < columns - 1 && out[at].length > 0
@@ -469,8 +469,8 @@ function helpColumns(count, hidden) {
       at++
       used = 0
     }
-    out[at].push(groups[g])
-    used += helpWeight(groups[g])
+    out[at].push(groups[nextGroupIndex])
+    used += helpWeight(groups[nextGroupIndex])
   }
   return out
 }
@@ -480,15 +480,15 @@ function helpColumns(count, hidden) {
 // rather than a collision.
 function conflicts() {
   var found = []
-  for (var c = 0; c < CONTEXTS.length; c++) {
+  for (var contextIndex = 0; contextIndex < CONTEXTS.length; contextIndex++) {
     var seen = ({})
-    var rows = sequencesFor(CONTEXTS[c])
-    for (var i = 0; i < rows.length; i++) {
-      if (seen[rows[i].sequence]) {
-          found.push(({ context: CONTEXTS[c], keys: rows[i].sequence,
-            ids: [seen[rows[i].sequence], rows[i].id] }))
+    var rows = sequencesFor(CONTEXTS[contextIndex])
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      if (seen[rows[rowIndex].sequence]) {
+          found.push(({ context: CONTEXTS[contextIndex], keys: rows[rowIndex].sequence,
+            ids: [seen[rows[rowIndex].sequence], rows[rowIndex].id] }))
         } else {
-          seen[rows[i].sequence] = rows[i].id
+          seen[rows[rowIndex].sequence] = rows[rowIndex].id
         }
     }
   }

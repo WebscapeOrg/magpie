@@ -69,8 +69,8 @@ function add(list, raw) {
   var source = makeSource(raw)
   if (source.id === "") return next
   var found = -1
-  for (var i = 0; i < next.sources.length; i++) {
-    if (next.sources[i] && next.sources[i].id === source.id) { found = i; break }
+  for (var index = 0; index < next.sources.length; index++) {
+    if (next.sources[index] && next.sources[index].id === source.id) { found = index; break }
   }
   if (found >= 0) next.sources[found] = source
   else next.sources.push(source)
@@ -80,9 +80,9 @@ function add(list, raw) {
 function remove(list, id) {
   var next = copyList(list)
   var wanted = trimmed(id)
-  for (var i = 0; i < next.sources.length; i++) {
-    if (next.sources[i] && next.sources[i].id === wanted) {
-      next.sources.splice(i, 1)
+  for (var index = 0; index < next.sources.length; index++) {
+    if (next.sources[index] && next.sources[index].id === wanted) {
+      next.sources.splice(index, 1)
       break
     }
   }
@@ -92,11 +92,11 @@ function remove(list, id) {
 function setEnabled(list, id, enabled) {
   var next = copyList(list)
   var wanted = trimmed(id)
-  for (var i = 0; i < next.sources.length; i++) {
-    if (!next.sources[i] || next.sources[i].id !== wanted) continue
-    var changed = makeSource(next.sources[i])
+  for (var index = 0; index < next.sources.length; index++) {
+    if (!next.sources[index] || next.sources[index].id !== wanted) continue
+    var changed = makeSource(next.sources[index])
     changed.enabled = enabled !== false
-    next.sources[i] = changed
+    next.sources[index] = changed
     break
   }
   return next
@@ -107,11 +107,11 @@ function setColor(list, id, colorKey) {
   if (normalized === "") return copyList(list)
   var next = copyList(list)
   var wanted = trimmed(id)
-  for (var i = 0; i < next.sources.length; i++) {
-    if (!next.sources[i] || next.sources[i].id !== wanted) continue
-    var changed = makeSource(next.sources[i])
+  for (var index = 0; index < next.sources.length; index++) {
+    if (!next.sources[index] || next.sources[index].id !== wanted) continue
+    var changed = makeSource(next.sources[index])
     changed.colorKey = normalized
-    next.sources[i] = changed
+    next.sources[index] = changed
     break
   }
   return next
@@ -145,10 +145,10 @@ function serialize(list) {
 
 function load(text) {
   var parsed = null
-  try { parsed = JSON.parse(String(text || "")) } catch (e) {}
+  try { parsed = JSON.parse(String(text || "")) } catch (parseError) {}
   var input = parsed && Array.isArray(parsed.sources) ? parsed.sources : []
   var list = emptyList()
-  for (var i = 0; i < input.length; i++) list = add(list, input[i])
+  for (var inputIndex = 0; inputIndex < input.length; inputIndex++) list = add(list, input[inputIndex])
   return list
 }
 
@@ -161,15 +161,15 @@ function keyringAttributes(sourceId) {
 function withGoogleAccounts(list, accountSummaries) {
   var next = copyList(list)
   var accounts = Array.isArray(accountSummaries) ? accountSummaries : []
-  for (var i = 0; i < accounts.length; i++) {
-    var account = accounts[i] || {}
+  for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+    var account = accounts[accountIndex] || {}
     if (account.provider !== "gmail" || account.signedIn !== true) continue
     var accountId = trimmed(account.id || account.email)
     if (accountId === "") continue
     var saved = null
-    for (var s = 0; s < next.sources.length; s++) {
-      if (next.sources[s] && next.sources[s].id === "google:" + accountId) {
-        saved = next.sources[s]
+    for (var sourceIndex = 0; sourceIndex < next.sources.length; sourceIndex++) {
+      if (next.sources[sourceIndex] && next.sources[sourceIndex].id === "google:" + accountId) {
+        saved = next.sources[sourceIndex]
         break
       }
     }
@@ -208,15 +208,15 @@ function withGoogleAccounts(list, accountSummaries) {
 function withMicrosoftAccounts(list, accountSummaries) {
   var next = copyList(list)
   var accounts = Array.isArray(accountSummaries) ? accountSummaries : []
-  for (var i = 0; i < accounts.length; i++) {
-    var account = accounts[i] || {}
+  for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+    var account = accounts[accountIndex] || {}
     if (account.provider !== "outlook" || account.signedIn !== true) continue
     var accountId = trimmed(account.id || account.email)
     if (accountId === "") continue
     var saved = null
     var discovered = false
-    for (var s = 0; s < next.sources.length; s++) {
-      var source = next.sources[s] || {}
+    for (var sourceIndex = 0; sourceIndex < next.sources.length; sourceIndex++) {
+      var source = next.sources[sourceIndex] || {}
       if (source.id === "microsoft:" + accountId) saved = source
       else if (source.kind === "microsoft" && source.discovered === true
           && trimmed(source.accountId) === accountId) discovered = true
@@ -253,9 +253,9 @@ function comesWithAccount(source) {
 function accountSummary(accountId, accountSummaries) {
   var wanted = trimmed(accountId)
   var accounts = Array.isArray(accountSummaries) ? accountSummaries : []
-  for (var i = 0; i < accounts.length; i++) {
-    if (accounts[i] && trimmed(accounts[i].id || accounts[i].email) === wanted)
-      return accounts[i]
+  for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+    if (accounts[accountIndex] && trimmed(accounts[accountIndex].id || accounts[accountIndex].email) === wanted)
+      return accounts[accountIndex]
   }
   return null
 }
@@ -309,13 +309,13 @@ function applyDiscovery(list, result) {
     return copyList(list)
   var current = list && Array.isArray(list.sources) ? list.sources : []
   var discovered = []
-  for (var i = 0; i < value.calendars.length; i++) {
-    var remote = value.calendars[i] || {}
+  for (var index = 0; index < value.calendars.length; index++) {
+    var remote = value.calendars[index] || {}
     var id = trimmed(remote.sourceId)
     if (id === "") continue
     var saved = null
-    for (var s = 0; s < current.length; s++) {
-      var candidate = current[s] || {}
+    for (var candidateIndex = 0; candidateIndex < current.length; candidateIndex++) {
+      var candidate = current[candidateIndex] || {}
       if (trimmed(candidate.id) === id
           || (kind === "icloud" && trimmed(remote.url) !== ""
             && sameUrl(candidate.url, remote.url))) {
@@ -339,14 +339,14 @@ function applyDiscovery(list, result) {
     }))
   }
   var next = emptyList()
-  for (var c = 0; c < current.length; c++) {
-    var source = current[c] || {}
+  for (var sourceIndex = 0; sourceIndex < current.length; sourceIndex++) {
+    var source = current[sourceIndex] || {}
     var owned = source.kind === kind && trimmed(source.accountId) === accountId
     var adopted = kind === "icloud" && source.kind === "caldav"
       && discovered.some(function(item) { return sameUrl(item.url, source.url) })
     if (!owned && !adopted) next = add(next, source)
   }
-  for (var d = 0; d < discovered.length; d++) next = add(next, discovered[d])
+  for (var discoveredIndex = 0; discoveredIndex < discovered.length; discoveredIndex++) next = add(next, discovered[discoveredIndex])
   return next
 }
 
@@ -356,10 +356,10 @@ function forAccount(list, accountId) {
   if (wanted === "") return copyList(source)
   var next = emptyList()
   var values = Array.isArray(source.sources) ? source.sources : []
-  for (var i = 0; i < values.length; i++) {
-    if (!values[i]) continue
-    if (!comesWithAccount(values[i]) || trimmed(values[i].accountId) === wanted)
-      next = add(next, values[i])
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    if (!values[valueIndex]) continue
+    if (!comesWithAccount(values[valueIndex]) || trimmed(values[valueIndex].accountId) === wanted)
+      next = add(next, values[valueIndex])
   }
   return next
 }
@@ -388,11 +388,11 @@ function groupByAccount(list, accountSummaries) {
     return source.kind === "caldav" && email !== "" && username === email
   }
 
-  for (var a = 0; a < accounts.length; a++) {
-    var account = accounts[a] || {}
+  for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+    var account = accounts[accountIndex] || {}
     var calendars = []
-    for (var i = 0; i < values.length; i++) {
-      var source = values[i] || {}
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      var source = values[valueIndex] || {}
       if (assigned[source.id] || !calendarMatches(source, account)) continue
       calendars.push(source)
       assigned[source.id] = true
@@ -408,15 +408,15 @@ function groupByAccount(list, accountSummaries) {
     })
   }
 
-  for (var v = 0; v < values.length; v++) {
-    var remaining = values[v] || {}
+  for (var remainingIndex = 0; remainingIndex < values.length; remainingIndex++) {
+    var remaining = values[remainingIndex] || {}
     if (assigned[remaining.id]) continue
     var ownerKey = trimmed(remaining.accountId || remaining.username)
     if (ownerKey === "") ownerKey = providerLabel(remaining.kind)
     var groupId = "source:" + remaining.kind + ":" + ownerKey.toLowerCase()
     var group = null
-    for (var g = 0; g < groups.length; g++) {
-      if (groups[g].id === groupId) { group = groups[g]; break }
+    for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+      if (groups[groupIndex].id === groupId) { group = groups[groupIndex]; break }
     }
     if (!group) {
       group = { id: groupId, providerLabel: providerLabel(remaining.kind),
@@ -445,8 +445,8 @@ function nativeCalendarFeatures(source) {
 function writableGroups(groups) {
   var values = Array.isArray(groups) ? groups : []
   var out = []
-  for (var i = 0; i < values.length; i++) {
-    var group = values[i] || {}
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    var group = values[valueIndex] || {}
     var calendars = (Array.isArray(group.calendars) ? group.calendars : [])
       .filter(function(source) { return writable(source) })
     if (calendars.length === 0) continue
@@ -458,8 +458,8 @@ function writableGroups(groups) {
 
 function calendarEditorUrl(list) {
   var values = list && Array.isArray(list.sources) ? list.sources : []
-  for (var i = 0; i < values.length; i++) {
-    var source = values[i] || {}
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    var source = values[valueIndex] || {}
     if (source.enabled === false) continue
     if (source.kind === "google")
       return "https://calendar.google.com/calendar/u/0/r/eventedit"

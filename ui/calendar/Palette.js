@@ -16,20 +16,20 @@ function normalizeKey(value) {
 function defaultKey(identity) {
   var text = String(identity || "")
   var hash = 0
-  for (var i = 0; i < text.length; i++) hash = ((hash * 31) + text.charCodeAt(i)) >>> 0
+  for (var index = 0; index < text.length; index++) hash = ((hash * 31) + text.charCodeAt(index)) >>> 0
   return SLOT_KEYS[hash % SLOT_KEYS.length]
 }
 
 function parse(raw) {
   var values = {}
   var lines = String(raw || "").split("\n")
-  for (var i = 0; i < lines.length; i++) {
-    var match = lines[i].match(/^\s*([A-Za-z0-9_-]+)\s*=\s*["']?(#[0-9A-Fa-f]{6})/)
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    var match = lines[lineIndex].match(/^\s*([A-Za-z0-9_-]+)\s*=\s*["']?(#[0-9A-Fa-f]{6})/)
     if (match) values[match[1].toLowerCase()] = match[2]
   }
   var result = {}
-  for (var k = 0; k < SLOT_KEYS.length; k++) {
-    var key = SLOT_KEYS[k]
+  for (var slotKeyIndex = 0; slotKeyIndex < SLOT_KEYS.length; slotKeyIndex++) {
+    var key = SLOT_KEYS[slotKeyIndex]
     var value = values[key] || values[ANSI_KEYS[key]] || ""
     if (value !== "") result[key] = value
   }

@@ -28,9 +28,9 @@ function proposalEnvelope(envelope) {
 // of a temporary file that the current editor may remove.
 function proposalDraft(envelope, parentId, draftKey) {
   var attachments = JSON.parse(JSON.stringify(envelope.attachments || []))
-  for (var i = 0; i < attachments.length; i++) {
-    attachments[i].owned = false
-    if (attachments[i].data) attachments[i].path = ""
+  for (var attachmentIndex = 0; attachmentIndex < attachments.length; attachmentIndex++) {
+    attachments[attachmentIndex].owned = false
+    if (attachments[attachmentIndex].data) attachments[attachmentIndex].path = ""
   }
   return {draftKey: draftKey, agentParentJobId: String(parentId || ""),
     replyMessageId: String(envelope.replyMessageId || ""),
@@ -62,25 +62,25 @@ function canUseDraftChat(job, fields) {
 
 function conversationWithProposals(conversation, proposals) {
   var rows = []
-  for (var i = 0; i <= conversation.length; i++) {
-    for (var p = 0; p < proposals.length; p++) {
-      var at = typeof proposals[p].afterTurn === "number" ? proposals[p].afterTurn : conversation.length
+  for (var conversationIndex = 0; conversationIndex <= conversation.length; conversationIndex++) {
+    for (var proposalIndex = 0; proposalIndex < proposals.length; proposalIndex++) {
+      var at = typeof proposals[proposalIndex].afterTurn === "number" ? proposals[proposalIndex].afterTurn : conversation.length
       at = Math.max(0, Math.min(conversation.length, at))
       // Tool execution can precede the answer's closing explanation. Keep the
       // draft below that complete reply, before the next user question.
       while (at < conversation.length && conversation[at].role !== "user") at++
-      if (at === i)
-        rows.push({role: "proposal", text: String(proposals[p].id)})
+      if (at === conversationIndex)
+        rows.push({role: "proposal", text: String(proposals[proposalIndex].id)})
     }
-    if (i < conversation.length) rows.push(conversation[i])
+    if (conversationIndex < conversation.length) rows.push(conversation[conversationIndex])
   }
   return rows
 }
 
 function attachmentLabels(attachments) {
   var labels = []
-  for (var i = 0; i < attachments.length; i++) {
-    var item = attachments[i]
+  for (var attachmentIndex = 0; attachmentIndex < attachments.length; attachmentIndex++) {
+    var item = attachments[attachmentIndex]
     var details = []
     if (item.mimeType) details.push(String(item.mimeType))
     if (typeof item.size === "number") details.push(item.size + " bytes")
@@ -156,16 +156,16 @@ function finishedNote(job) {
 }
 
 function pluralizeMessages(count) {
-  var n = Math.max(0, Math.floor(Number(count) || 0))
-  return n === 1 ? "1 message" : n + " messages"
+  var messageCount = Math.max(0, Math.floor(Number(count) || 0))
+  return messageCount === 1 ? "1 message" : messageCount + " messages"
 }
 
 function draftAnswer(job, output, transcript) {
   if (!job || (isActive(job) && !job.resultReady) || glyphState(job) === "failed" || job.question) return ""
   var text = String(output || "")
   var rows = Array.isArray(transcript) ? transcript : []
-  for (var i = 0; i < rows.length; i++) {
-    if (rows[i].role === "user" && rows[i].text.indexOf(MAIL_TRANSFORM_FORMAT) >= 0) {
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    if (rows[rowIndex].role === "user" && rows[rowIndex].text.indexOf(MAIL_TRANSFORM_FORMAT) >= 0) {
       var body = /^Title: [^\r\n]*\r?\n\r?\nBody:\r?\n([\s\S]*)$/.exec(text)
       return body ? body[1] : ""
     }
@@ -175,18 +175,18 @@ function draftAnswer(job, output, transcript) {
 
 // Editor change indicator only; ownership remains accountId plus draftKey.
 function draftFingerprint(fields) {
-  var v = fields || {}
-  var text = JSON.stringify([v.from || "", v.to || "", v.subject || "", v.body || ""])
+  var draft = fields || {}
+  var text = JSON.stringify([draft.from || "", draft.to || "", draft.subject || "", draft.body || ""])
   var hash = 2166136261
-  for (var i = 0; i < text.length; i++) { hash ^= text.charCodeAt(i); hash = (hash * 16777619) >>> 0 }
+  for (var characterIndex = 0; characterIndex < text.length; characterIndex++) { hash ^= text.charCodeAt(characterIndex); hash = (hash * 16777619) >>> 0 }
   return String(hash)
 }
 
 function chatEntries(value) {
   var rows = Array.isArray(value) ? value : []
   var out = []
-  for (var i = 0; i < rows.length; i++) {
-    var entry = rows[i]
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    var entry = rows[rowIndex]
     if (!entry || ["user", "assistant", "status"].indexOf(entry.role) < 0 || typeof entry.text !== "string") continue
     out.push({role: entry.role, text: entry.text})
   }
@@ -205,8 +205,8 @@ function pendingJob(jobs, currentJob, scopeMatches, conversationId, previousId) 
   var rows = Array.isArray(jobs) ? jobs : []
   if (!rows.length && scopeMatches && currentJob) rows = [currentJob]
   var result = null
-  for (var i = 0; i < rows.length; i++) {
-    var job = rows[i]
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    var job = rows[rowIndex]
     if (conversationId === "") {
       if (!scopeMatches || !currentJob || job.id !== currentJob.id || String(job.id) === previousId) continue
     } else if (String(job.conversationId || job.id) !== conversationId) continue
@@ -218,7 +218,7 @@ function pendingJob(jobs, currentJob, scopeMatches, conversationId, previousId) 
 function pendingLimit(messages, text) {
   if (messages.length >= 20) return "The queue is full. Wait for a reply or remove a pending message."
   var size = text.length
-  for (var i = 0; i < messages.length; i++) size += messages[i].length
+  for (var messageIndex = 0; messageIndex < messages.length; messageIndex++) size += messages[messageIndex].length
   if (text.length > 65536 || size > 262144) return "This pending message is too long. Shorten it before sending."
   return ""
 }
@@ -260,7 +260,7 @@ var DATE_HINTS = [
 function mentionsDate(text) {
   var value = String(text || "")
   if (value === "") return false
-  for (var i = 0; i < DATE_HINTS.length; i++) if (DATE_HINTS[i].test(value)) return true
+  for (var dateHintIndex = 0; dateHintIndex < DATE_HINTS.length; dateHintIndex++) if (DATE_HINTS[dateHintIndex].test(value)) return true
   return false
 }
 
@@ -277,7 +277,7 @@ function automatedMail(summary) {
   var email = String(row.from && row.from.email ? row.from.email : "").trim().toLowerCase()
   if (AUTOMATED_LOCAL.test(email) || AUTOMATED_WITHIN.test(email)) return true
   var labels = Array.isArray(row.labelIds) ? row.labelIds : []
-  for (var i = 0; i < labels.length; i++) if (CATEGORY_LABELS.indexOf(String(labels[i])) >= 0) return true
+  for (var labelIndex = 0; labelIndex < labels.length; labelIndex++) if (CATEGORY_LABELS.indexOf(String(labels[labelIndex])) >= 0) return true
   return false
 }
 
@@ -329,15 +329,15 @@ function eventSuggestions(look, dismissed) {
   if (!isEventsJob(job) || String(job.state || "") !== "done") return []
   var events = Array.isArray(job.events) ? job.events : []
   var out = []
-  for (var k = 0; k < events.length; k++) {
-    var event = events[k] || {}
-    var key = suggestionKey(job.id, k)
+  for (var eventIndex = 0; eventIndex < events.length; eventIndex++) {
+    var event = events[eventIndex] || {}
+    var key = suggestionKey(job.id, eventIndex)
     if (gone.indexOf(key) >= 0) continue
     var startMs = Number(event.startMs) || 0
     if (String(event.title || "").trim() === "" || startMs <= 0) continue
     var endMs = Number(event.endMs) || 0
     out.push({
-      key: key, jobId: String(job.id), index: k,
+      key: key, jobId: String(job.id), index: eventIndex,
       title: String(event.title).trim(),
       startMs: startMs,
       endMs: endMs > startMs ? endMs : startMs + 3600000,
@@ -355,18 +355,18 @@ function eventSuggestions(look, dismissed) {
 var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 var MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 function suggestionWhen(suggestion, nowMs) {
-  var s = suggestion || {}
-  var start = new Date(Number(s.startMs) || 0)
+  var event = suggestion || {}
+  var start = new Date(Number(event.startMs) || 0)
   if (!isFinite(start.getTime()) || start.getTime() <= 0) return ""
   var now = new Date(Number(nowMs) || Date.now())
-  function two(n) { return n < 10 ? "0" + n : String(n) }
-  function day(d) {
-    var text = DAY_NAMES[d.getDay()] + " " + d.getDate() + " " + MONTH_NAMES[d.getMonth()]
-    return d.getFullYear() !== now.getFullYear() ? text + " " + d.getFullYear() : text
+  function two(number) { return number < 10 ? "0" + number : String(number) }
+  function day(date) {
+    var text = DAY_NAMES[date.getDay()] + " " + date.getDate() + " " + MONTH_NAMES[date.getMonth()]
+    return date.getFullYear() !== now.getFullYear() ? text + " " + date.getFullYear() : text
   }
-  function clock(d) { return two(d.getHours()) + ":" + two(d.getMinutes()) }
-  var end = new Date(Number(s.endMs) || 0)
-  if (s.allDay === true) {
+  function clock(date) { return two(date.getHours()) + ":" + two(date.getMinutes()) }
+  var end = new Date(Number(event.endMs) || 0)
+  if (event.allDay === true) {
     var lastDay = isFinite(end.getTime()) && end.getTime() > start.getTime() ? new Date(end.getTime() - 1) : start
     return day(start) + (day(lastDay) !== day(start) ? " – " + day(lastDay) : "") + " (all day)"
   }
@@ -382,15 +382,15 @@ function suggestionWhen(suggestion, nowMs) {
 // notes saying what the message actually put — the owner reads the form
 // before anything is written, which is the point of opening it.
 function eventPrefill(suggestion, accountId) {
-  var s = suggestion || {}
-  var start = Number(s.startMs) || 0
-  var end = Number(s.endMs) || 0
-  var notes = String(s.notes || "")
+  var event = suggestion || {}
+  var start = Number(event.startMs) || 0
+  var end = Number(event.endMs) || 0
+  var notes = String(event.notes || "")
   function add(line) { notes = (notes === "" ? "" : notes + "\n\n") + line }
-  function sameDay(a, b) {
-    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  function sameDay(left, right) {
+    return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate()
   }
-  if (s.allDay === true) {
+  if (event.allDay === true) {
     var at = new Date(start)
     var last = end > start ? new Date(end - 1) : at
     at.setHours(9, 0, 0, 0)
@@ -404,6 +404,6 @@ function eventPrefill(suggestion, accountId) {
     add("The message has it ending " + suggestionWhen({ startMs: end, endMs: end }, Date.now()) + ".")
     end = dayEnd.getTime()
   }
-  return { title: String(s.title || ""), startMs: start, endMs: end > start ? end : start + 3600000,
-    location: String(s.location || ""), description: notes, accountId: String(accountId || "") }
+  return { title: String(event.title || ""), startMs: start, endMs: end > start ? end : start + 3600000,
+    location: String(event.location || ""), description: notes, accountId: String(accountId || "") }
 }

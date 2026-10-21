@@ -195,8 +195,8 @@ Item {
   function discoverableAccount(accountId) {
     var accounts = service && Array.isArray(service.accountSummaries)
       ? service.accountSummaries : []
-    for (var i = 0; i < accounts.length; i++) {
-      var account = accounts[i] || {}
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      var account = accounts[accountIndex] || {}
       if (String(account.id || "") !== String(accountId || "")) continue
       return account.signedIn === true
         && (account.calendarProvider === "microsoft" || account.calendarProvider === "icloud"
@@ -209,8 +209,8 @@ Item {
     var values = availableSources && Array.isArray(availableSources.sources)
       ? availableSources.sources : []
     var count = 0
-    for (var i = 0; i < values.length; i++) {
-      var source = values[i] || {}
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      var source = values[valueIndex] || {}
       if (String(source.accountId || "") === String(accountId || "")
           && source.discovered === true) count++
     }
@@ -337,8 +337,8 @@ Item {
 
   function sourceById(list, sourceId) {
     var values = list.sources
-    for (var i = 0; i < values.length; i++) {
-      if (values[i] && values[i].id === String(sourceId)) return values[i]
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      if (values[valueIndex] && values[valueIndex].id === String(sourceId)) return values[valueIndex]
     }
     return null
   }
@@ -477,7 +477,7 @@ Item {
     nativeRequest(owner, "get", { eventId: occurrence.recurringEventId }, function(result, error) {
       if (error) { root.lastError = error; return }
       var parent
-      try { parent = JSON.parse(result.body) } catch (e) { root.lastError = "Could not read the series"; return }
+      try { parent = JSON.parse(result.body) } catch (parseError) { root.lastError = "Could not read the series"; return }
       var events = Calendar.eventsFromGoogle({ items: [parent] }, owner.id)
       if (events.length !== 1) { root.lastError = "Could not read the series"; return }
       events[0].deleteSendUpdates = occurrence.deleteSendUpdates === "none" ? "none" : "all"
@@ -517,7 +517,7 @@ Item {
       if (error) { callback(null, error); return }
       root.undoChange = null
       var resource = null
-      try { resource = JSON.parse(result.body) } catch (e) {}
+      try { resource = JSON.parse(result.body) } catch (parseError) {}
       var moved = resource ? Calendar.eventsFromGoogle({items:[resource]}, destination.id) : []
       callback(moved.length === 1 ? moved[0] : null,
         moved.length === 1 ? "" : "The calendar changed, but its updated details could not be read. Reopen the event before editing further.", true)
@@ -628,10 +628,10 @@ Item {
       if (!error && root.writeOp === "update" && root.writeSource.kind === "google"
           && root.service.backendCanGoogleCalendars === true
           && root.writeEvent.start && root.writeEvent.end
-          && !root.writeDraft.destination && !(root.writeEvent.attendees || []).some(function(a) { return a.self !== true })
-          && !(root.writeDraft.google.attendees || []).some(function(a) { return a.self !== true })) {
+          && !root.writeDraft.destination && !(root.writeEvent.attendees || []).some(function(attendee) { return attendee.self !== true })
+          && !(root.writeDraft.google.attendees || []).some(function(attendee) { return attendee.self !== true })) {
         var saved = null
-        try { saved = JSON.parse(result.body) } catch (e) {}
+        try { saved = JSON.parse(result.body) } catch (parseError) {}
         if (saved && saved.etag) {
           var previous = root.writeEvent
           var inverse = Calendar.googleEventPatch({ title: previous.summary, description: previous.description,
@@ -640,8 +640,8 @@ Item {
           if (root.writeDraft.google.recurrence !== undefined) inverse.recurrence = previous.recurrenceLines || []
           var preserved = ["reminders", "transparency", "visibility", "attendees"]
           var completeUndo = true
-          for (var p = 0; p < preserved.length; p++) {
-            var field = preserved[p]
+          for (var preservedIndex = 0; preservedIndex < preserved.length; preservedIndex++) {
+            var field = preserved[preservedIndex]
             if (root.writeDraft.google[field] !== undefined && previous[field] !== undefined)
               inverse[field] = previous[field]
             else if (root.writeDraft.google[field] !== undefined) completeUndo = false
@@ -686,8 +686,8 @@ Item {
     if (password === "") { passwordSaved(false, "Enter the calendar password"); return }
     var values = sourceList && Array.isArray(sourceList.sources) ? sourceList.sources : []
     var targets = []
-    for (var i = 0; i < values.length; i++) {
-      if (values[i] && values[i].kind === "caldav") targets.push(values[i])
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      if (values[valueIndex] && values[valueIndex].kind === "caldav") targets.push(values[valueIndex])
     }
     if (targets.length === 0) { passwordSaved(false, "No CalDAV calendars are configured"); return }
     passwordToSave = password
@@ -731,8 +731,8 @@ Item {
     var values = availableSources && Array.isArray(availableSources.sources)
       ? availableSources.sources : []
     var source = null
-    for (var i = 0; i < values.length; i++) {
-      if (values[i] && values[i].id === String(sourceId)) { source = values[i]; break }
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      if (values[valueIndex] && values[valueIndex].id === String(sourceId)) { source = values[valueIndex]; break }
     }
     if (!source) return
     var next = Sources.add(sourceList, source)
@@ -748,8 +748,8 @@ Item {
   function colorKeyFor(sourceId) {
     var values = availableSources && Array.isArray(availableSources.sources)
       ? availableSources.sources : []
-    for (var i = 0; i < values.length; i++) {
-      if (values[i] && values[i].id === String(sourceId)) return values[i].colorKey
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      if (values[valueIndex] && values[valueIndex].id === String(sourceId)) return values[valueIndex].colorKey
     }
     return Sources.defaultColorKey(sourceId)
   }
@@ -793,8 +793,8 @@ Item {
     var values = availableSources && Array.isArray(availableSources.sources)
       ? availableSources.sources : []
     var source = null
-    for (var i = 0; i < values.length; i++) {
-      if (values[i] && values[i].id === String(sourceId)) { source = values[i]; break }
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      if (values[valueIndex] && values[valueIndex].id === String(sourceId)) { source = values[valueIndex]; break }
     }
     if (!source) return
     var next = Sources.add(sourceList, source)
@@ -923,10 +923,10 @@ Item {
       return String(event && event.sourceId || "") !== sourceId
     })
     var additions = Array.isArray(values) ? values : []
-    for (var i = 0; i < additions.length; i++) {
-      additions[i].sourceName = source
+    for (var additionIndex = 0; additionIndex < additions.length; additionIndex++) {
+      additions[additionIndex].sourceName = source
         ? String(source.name || source.id || "Calendar") : "Calendar"
-      next.push(additions[i])
+      next.push(additions[additionIndex])
     }
     next.sort(Calendar.compareEvents)
     setEvents(next)
@@ -953,7 +953,7 @@ Item {
         return root.sourceIncluded(source)
       }).map(function(source) { return String(source.id || "") })
       var allowed = {}
-      for (var i=0;i<enabled.length;i++) allowed[enabled[i]]=true
+      for (var enabledIndex=0;enabledIndex<enabled.length;enabledIndex++) allowed[enabled[enabledIndex]]=true
       if (refreshScope===calendarScope) setEvents(events.filter(function(event) {
         return allowed[String(event && event.sourceId || "")] === true
       }))
@@ -981,7 +981,7 @@ Item {
         if (source.kind === "caldav" || source.kind === "icloud") values=Calendar.eventsFromCaldav(body,source.id,start,end)
         else {
           var payload=null
-          try {payload=JSON.parse(body)} catch(e) {}
+          try {payload=JSON.parse(body)} catch(parseError) {}
           if (!payload) error="The calendar returned an unreadable response"
           else values=source.kind === "google" ? Calendar.eventsFromGoogle(payload,source.id) : Calendar.eventsFromGraph(payload,source.id)
         }

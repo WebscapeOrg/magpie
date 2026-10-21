@@ -4,19 +4,19 @@
 
 function googleResponseError(status, responseText) {
   var payload = null
-  try { payload = JSON.parse(String(responseText || "")) } catch (e) {}
+  try { payload = JSON.parse(String(responseText || "")) } catch (parseError) {}
   var error = payload && payload.error ? payload.error : null
   var detail = error ? String(error.message || "") : ""
   var reasons = error && Array.isArray(error.errors) ? error.errors : []
   var disabled = /Calendar API has not been used|Calendar API.*disabled/i.test(detail)
   var permissionMissing = /insufficient authentication scopes/i.test(detail)
-  for (var i = 0; i < reasons.length; i++) {
-    if (String(reasons[i].reason || "") === "accessNotConfigured") disabled = true
-    if (String(reasons[i].reason || "") === "insufficientPermissions") permissionMissing = true
+  for (var reasonIndex = 0; reasonIndex < reasons.length; reasonIndex++) {
+    if (String(reasons[reasonIndex].reason || "") === "accessNotConfigured") disabled = true
+    if (String(reasons[reasonIndex].reason || "") === "insufficientPermissions") permissionMissing = true
   }
   var details = error && Array.isArray(error.details) ? error.details : []
-  for (var d = 0; d < details.length; d++) {
-    if (String(details[d].reason || "") === "SERVICE_DISABLED") disabled = true
+  for (var detailIndex = 0; detailIndex < details.length; detailIndex++) {
+    if (String(details[detailIndex].reason || "") === "SERVICE_DISABLED") disabled = true
   }
 
   if (status === 401) return "Google rejected the calendar session. Sign in again"
@@ -124,11 +124,11 @@ function caldavResponses(xml) {
 function recurrenceParts(value) {
   var out = {}
   var pieces = String(value || "").split(";")
-  for (var i = 0; i < pieces.length; i++) {
-    var equals = pieces[i].indexOf("=")
+  for (var pieceIndex = 0; pieceIndex < pieces.length; pieceIndex++) {
+    var equals = pieces[pieceIndex].indexOf("=")
     if (equals < 0) continue
-    out[pieces[i].substring(0, equals).toUpperCase().trim()] =
-      pieces[i].substring(equals + 1).trim()
+    out[pieces[pieceIndex].substring(0, equals).toUpperCase().trim()] =
+      pieces[pieceIndex].substring(equals + 1).trim()
   }
   return out
 }
@@ -166,8 +166,8 @@ function lastWeekday(date, utc) {
 
 function matchesByDay(date, raw, utc) {
   var values = String(raw || "").split(",")
-  for (var i = 0; i < values.length; i++) {
-    var match = values[i].trim().toUpperCase().match(/^([+-]?\d+)?([A-Z]{2})$/)
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    var match = values[valueIndex].trim().toUpperCase().match(/^([+-]?\d+)?([A-Z]{2})$/)
     if (!match || RECURRENCE_DAYS[datePart(date, "getDay", "getUTCDay", utc)] !== match[2])
       continue
     if (!match[1]) return true
@@ -180,8 +180,8 @@ function matchesByDay(date, raw, utc) {
 
 function matchesNumberList(value, raw) {
   var values = String(raw || "").split(",")
-  for (var i = 0; i < values.length; i++) {
-    if (Number(values[i]) === Number(value)) return true
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    if (Number(values[valueIndex]) === Number(value)) return true
   }
   return false
 }
@@ -316,8 +316,8 @@ function expandRecurringEvents(events, startMs, endMs) {
   var masters = []
   var overrides = {}
   var standalone = []
-  for (var i = 0; i < values.length; i++) {
-    var item = values[i]
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    var item = values[valueIndex]
     if (!item) continue
     if (item.recurrenceIdMs) {
       overrides[String(item.uid) + "\n" + Number(item.recurrenceIdMs)] = item
@@ -326,25 +326,25 @@ function expandRecurringEvents(events, startMs, endMs) {
   }
   var out = []
   var usedOverrides = {}
-  for (var s = 0; s < standalone.length; s++) {
-    if (standalone[s].status !== "CANCELLED" && eventInRange(standalone[s], startMs, endMs))
-      out.push(standalone[s])
+  for (var standaloneIndex = 0; standaloneIndex < standalone.length; standaloneIndex++) {
+    if (standalone[standaloneIndex].status !== "CANCELLED" && eventInRange(standalone[standaloneIndex], startMs, endMs))
+      out.push(standalone[standaloneIndex])
   }
-  for (var m = 0; m < masters.length; m++) {
-    var master = masters[m]
+  for (var masterIndex = 0; masterIndex < masters.length; masterIndex++) {
+    var master = masters[masterIndex]
     var excluded = {}
     var exclusions = Array.isArray(master.excludedMs) ? master.excludedMs : []
-    for (var x = 0; x < exclusions.length; x++) excluded[Number(exclusions[x])] = true
+    for (var exclusionIndex = 0; exclusionIndex < exclusions.length; exclusionIndex++) excluded[Number(exclusions[exclusionIndex])] = true
     var starts = recurrenceStarts(master, startMs, endMs)
-    for (var o = 0; o < starts.length; o++) {
-      var key = String(master.uid) + "\n" + Number(starts[o])
+    for (var startIndex = 0; startIndex < starts.length; startIndex++) {
+      var key = String(master.uid) + "\n" + Number(starts[startIndex])
       var replacement = overrides[key]
       if (replacement) {
         usedOverrides[key] = true
         if (replacement.status !== "CANCELLED" && eventInRange(replacement, startMs, endMs))
           out.push(replacement)
-      } else if (!excluded[Number(starts[o])]) {
-        var occurrence = occurrenceOf(master, starts[o])
+      } else if (!excluded[Number(starts[startIndex])]) {
+        var occurrence = occurrenceOf(master, starts[startIndex])
         if (eventInRange(occurrence, startMs, endMs)) out.push(occurrence)
       }
     }
@@ -361,16 +361,16 @@ function expandRecurringEvents(events, startMs, endMs) {
 function eventsFromCaldav(xml, sourceId, rangeStart, rangeEnd) {
   var responses = caldavResponses(xml)
   var out = []
-  for (var i = 0; i < responses.length; i++) {
-    var events = Ics.eventsFrom(responses[i].data)
-    for (var j = 0; j < events.length; j++) {
-      events[j].sourceId = String(sourceId || "")
-      events[j].href = responses[i].href
+  for (var responseIndex = 0; responseIndex < responses.length; responseIndex++) {
+    var events = Ics.eventsFrom(responses[responseIndex].data)
+    for (var eventIndex = 0; eventIndex < events.length; eventIndex++) {
+      events[eventIndex].sourceId = String(sourceId || "")
+      events[eventIndex].href = responses[responseIndex].href
       // A CalDAV update replaces this entire resource. Keep the source so the
       // writer can change the fields it owns without dropping everything it
       // does not model, such as alarms, attendees and server extensions.
-      events[j].calendarData = responses[i].data
-      out.push(events[j])
+      events[eventIndex].calendarData = responses[responseIndex].data
+      out.push(events[eventIndex])
     }
   }
   if (Number(rangeStart) && Number(rangeEnd))
@@ -394,8 +394,8 @@ function googleMoment(value, dateOnly) {
 function eventsFromGoogle(payload, sourceId) {
   var items = payload && Array.isArray(payload.items) ? payload.items : []
   var out = []
-  for (var i = 0; i < items.length; i++) {
-    var item = items[i] || {}
+  for (var itemIndex = 0; itemIndex < items.length; itemIndex++) {
+    var item = items[itemIndex] || {}
     if (String(item.status || "").toLowerCase() === "cancelled") continue
     var start = googleMoment(item.start && (item.start.dateTime || item.start.date),
       !!(item.start && item.start.date && !item.start.dateTime))
@@ -489,15 +489,15 @@ function graphPerson(value) {
 function eventsFromGraph(payload, sourceId) {
   var items = payload && Array.isArray(payload.value) ? payload.value : []
   var out = []
-  for (var i = 0; i < items.length; i++) {
-    var item = items[i] || {}
+  for (var itemIndex = 0; itemIndex < items.length; itemIndex++) {
+    var item = items[itemIndex] || {}
     if (item.isCancelled === true) continue
     var allDay = item.isAllDay === true
     var start = graphMoment(item.start, allDay)
     if (!start) continue
     var attendees = Array.isArray(item.attendees) ? item.attendees : []
     var people = []
-    for (var a = 0; a < attendees.length; a++) people.push(graphPerson(attendees[a]))
+    for (var attendeeIndex = 0; attendeeIndex < attendees.length; attendeeIndex++) people.push(graphPerson(attendees[attendeeIndex]))
     out.push({
       method: "", uid: String(item.iCalUId || item.id || ""),
       // The write URL needs Graph's own id; an occurrence of a series carries
@@ -544,7 +544,7 @@ function graphEventBody(fields, allDay) {
 
 function graphResponseError(status, responseText) {
   var payload = null
-  try { payload = JSON.parse(String(responseText || "")) } catch (e) {}
+  try { payload = JSON.parse(String(responseText || "")) } catch (parseError) {}
   var detail = payload && payload.error ? String(payload.error.message || payload.error.code || "") : ""
   if (status === 401 || status === 403) return "Microsoft refused the calendar request. Sign in again"
   return detail !== "" ? "Microsoft Graph answered: " + detail : "Microsoft Graph answered " + status
@@ -729,12 +729,12 @@ function googleOptions(body, fields, source, existing) {
       return { ok: false, error: "Enter valid guest email addresses separated by commas" }
     var seen = {}, previous = existing && Array.isArray(existing.attendees) ? existing.attendees : []
     next.attendees = []
-    for (var i = 0; i < emails.length; i++) {
-      var email = emails[i].toLowerCase()
+    for (var emailIndex = 0; emailIndex < emails.length; emailIndex++) {
+      var email = emails[emailIndex].toLowerCase()
       if (seen[email]) continue
       seen[email] = true
       var matched = previous.filter(function(attendee) { return String(attendee.email || "").toLowerCase() === email })
-      next.attendees.push(matched.length ? matched[0] : { email: emails[i] })
+      next.attendees.push(matched.length ? matched[0] : { email: emails[emailIndex] })
     }
   }
   if (fields.transparency === "opaque" || fields.transparency === "transparent") next.transparency = fields.transparency
@@ -810,14 +810,14 @@ function timedLayout(events, day) {
     return { event: event, start: Math.max(Number(event.start.ms), day.startMs),
       end: Math.min(Number(event.end && event.end.ms || event.start.ms + 900000), day.endMs), column: 0, columns: 1 }
   }).filter(function(row) { return row.end > row.start })
-  rows.sort(function(a, b) { return a.start - b.start || b.end - a.end || eventKey(a.event).localeCompare(eventKey(b.event)) })
+  rows.sort(function(left, right) { return left.start - right.start || right.end - left.end || eventKey(left.event).localeCompare(eventKey(right.event)) })
   var group = [], ends = [], groupEnd = 0
   function finish() {
-    for (var j = 0; j < group.length; j++) group[j].columns = ends.length
+    for (var groupIndex = 0; groupIndex < group.length; groupIndex++) group[groupIndex].columns = ends.length
     group = []; ends = []; groupEnd = 0
   }
-  for (var i = 0; i < rows.length; i++) {
-    var row = rows[i]
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    var row = rows[rowIndex]
     if (group.length && row.start >= groupEnd) finish()
     var lane = 0
     while (lane < ends.length && ends[lane] > row.start) lane++
@@ -853,11 +853,11 @@ function agendaEvents(events, nowMs) {
 
 function calendarChoiceRows(groups, editingSource, event) {
   var rows = []
-  for (var i = 0; i < (groups || []).length; i++) {
-    var group = groups[i]
+  for (var groupIndex = 0; groupIndex < (groups || []).length; groupIndex++) {
+    var group = groups[groupIndex]
     var first = true
-    for (var j = 0; j < (group.calendars || []).length; j++) {
-      var source = group.calendars[j]
+    for (var calendarIndex = 0; calendarIndex < (group.calendars || []).length; calendarIndex++) {
+      var source = group.calendars[calendarIndex]
       if (event && (!editingSource || String(source.id) !== String(editingSource.id))
           && transferRefusal(editingSource, source, event) !== "") continue
       rows.push({ source: source, firstInGroup: first,
@@ -1103,8 +1103,8 @@ function monthDays(year, monthIndex, weekStart) {
   var offset = (first.getDay() - startDay + 7) % 7
   var cursor = new Date(first.getFullYear(), first.getMonth(), 1 - offset)
   var out = []
-  for (var i = 0; i < 42; i++) {
-    var day = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + i)
+  for (var dayIndex = 0; dayIndex < 42; dayIndex++) {
+    var day = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + dayIndex)
     out.push({
       isoDate: isoDate(day), day: day.getDate(), month: day.getMonth(), year: day.getFullYear(),
       startMs: day.getTime(), endMs: new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime(),
@@ -1142,14 +1142,14 @@ function spanLayout(events, days) {
   var segments = [], laneCounts = []
   var values = (events || []).filter(function(event) {
     return event && event.start && event.end && Number(event.end.ms) > Number(event.start.ms)
-  }).slice().sort(function(a, b) {
-    return Number(a.start.ms) - Number(b.start.ms)
-      || Number(b.end.ms) - Number(a.end.ms) || compareEvents(a, b)
+  }).slice().sort(function(left2, right2) {
+    return Number(left2.start.ms) - Number(right2.start.ms)
+      || Number(right2.end.ms) - Number(left2.end.ms) || compareEvents(left2, right2)
   })
   for (var week = 0; week < Math.ceil(days.length / 7); week++) {
     var first = week * 7, last = Math.min(first + 6, days.length - 1), laneEnds = []
-    for (var i = 0; i < values.length; i++) {
-      var event = values[i], start = Number(event.start.ms), end = Number(event.end.ms)
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      var event = values[valueIndex], start = Number(event.start.ms), end = Number(event.end.ms)
       if (start >= days[last].endMs || end <= days[first].startMs) continue
       var left = 0, right = last - first
       while (left < last - first && start >= days[first + left].endMs) left++
@@ -1172,8 +1172,8 @@ function weekDays(anchorMs, weekStart) {
   var offset = (anchor.getDay() - startDay + 7) % 7
   var start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - offset)
   var out = []
-  for (var i = 0; i < 7; i++) {
-    var day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)
+  for (var dayIndex = 0; dayIndex < 7; dayIndex++) {
+    var day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + dayIndex)
     out.push({
       isoDate: isoDate(day), day: day.getDate(), month: day.getMonth(), year: day.getFullYear(),
       startMs: day.getTime(), endMs: new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime(),
@@ -1266,8 +1266,8 @@ function dateTimeLabel(timeMs, dateFormat, localeFormat, separator) {
 // Returns -1 when today is not in view at all, which is every week but this one.
 function weekNowOffset(days, firstHour, lastHour, hourHeight, nowMs) {
   var values = Array.isArray(days) ? days : []
-  for (var i = 0; i < values.length; i++) {
-    var offset = nowOffset(values[i], firstHour, lastHour, hourHeight, nowMs)
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    var offset = nowOffset(values[valueIndex], firstHour, lastHour, hourHeight, nowMs)
     if (offset >= 0) return offset
   }
   return -1
@@ -1276,8 +1276,8 @@ function weekNowOffset(days, firstHour, lastHour, hourHeight, nowMs) {
 function eventsOnDay(events, day) {
   var values = Array.isArray(events) ? events : []
   var out = []
-  for (var i = 0; i < values.length; i++) {
-    var event = values[i] || {}
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    var event = values[valueIndex] || {}
     if (!event.start) continue
     var end = event.end ? event.end.ms : event.start.ms + 1
     if (event.start.ms < day.endMs && end > day.startMs) out.push(event)
@@ -1290,9 +1290,9 @@ function indexDays(events, days) {
   var result = {}
   var ordered = (Array.isArray(events) ? events : []).slice().sort(compareEvents)
   var dates = Array.isArray(days) ? days : []
-  for (var d=0;d<dates.length;d++) result[dates[d].startMs]=[]
-  for (var i=0;i<ordered.length;i++) {
-    var event=ordered[i]
+  for (var emptyDayIndex=0;emptyDayIndex<dates.length;emptyDayIndex++) result[dates[emptyDayIndex].startMs]=[]
+  for (var orderedIndex=0;orderedIndex<ordered.length;orderedIndex++) {
+    var event=ordered[orderedIndex]
     if (!event || !event.start) continue
     var end=event.end ? event.end.ms : event.start.ms+1
     var low=0, high=dates.length
@@ -1301,7 +1301,7 @@ function indexDays(events, days) {
       if (dates[middle].endMs<=event.start.ms) low=middle+1
       else high=middle
     }
-    for (var j=low;j<dates.length && dates[j].startMs<end;j++) result[dates[j].startMs].push(event)
+    for (var overlapDayIndex=low;overlapDayIndex<dates.length && dates[overlapDayIndex].startMs<end;overlapDayIndex++) result[dates[overlapDayIndex].startMs].push(event)
   }
   return result
 }
@@ -1321,8 +1321,8 @@ function displayInAllDayLane(event) {
 function allDayEventsOnDay(events, day) {
   var values = eventsOnDay(events, day)
   var out = []
-  for (var i = 0; i < values.length; i++) {
-    if (displayInAllDayLane(values[i])) out.push(values[i])
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    if (displayInAllDayLane(values[valueIndex])) out.push(values[valueIndex])
   }
   return out
 }
@@ -1330,8 +1330,8 @@ function allDayEventsOnDay(events, day) {
 function maxAllDayEvents(events, days) {
   var values = Array.isArray(days) ? days : []
   var maximum = 0
-  for (var i = 0; i < values.length; i++)
-    maximum = Math.max(maximum, allDayEventsOnDay(events, values[i]).length)
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++)
+    maximum = Math.max(maximum, allDayEventsOnDay(events, values[valueIndex]).length)
   return maximum
 }
 
@@ -1343,14 +1343,14 @@ function weekHourRange(events, days, defaultFirst, defaultLast) {
   if (week.length === 0) return { first: first, last: last }
   var rangeStart = Number(week[0].startMs)
   var rangeEnd = Number(week[week.length - 1].endMs)
-  for (var i = 0; i < values.length; i++) {
-    var event = values[i] || {}
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    var event = values[valueIndex] || {}
     if (!event.start || displayInAllDayLane(event)) continue
     var startMs = Number(event.start.ms)
     var endMs = event.end ? Number(event.end.ms) : startMs + 1800000
     if (startMs >= rangeEnd || endMs <= rangeStart) continue
-    for (var d = 0; d < week.length; d++) {
-      var day = week[d]
+    for (var weekIndex = 0; weekIndex < week.length; weekIndex++) {
+      var day = week[weekIndex]
       var segmentStart = Math.max(startMs, Number(day.startMs))
       var segmentEnd = Math.min(endMs, Number(day.endMs))
       if (segmentEnd <= segmentStart) continue
@@ -1363,10 +1363,10 @@ function weekHourRange(events, days, defaultFirst, defaultLast) {
   return { first: first, last: last }
 }
 
-function slotStart(day, y, firstHour, hourHeight, minuteStep) {
+function slotStart(day, verticalPosition, firstHour, hourHeight, minuteStep) {
   var height = Math.max(1, Number(hourHeight) || 1)
   var step = Math.max(1, Math.floor(Number(minuteStep) || 30))
-  var minutes = Number(firstHour) * 60 + Math.max(0, Number(y)) / height * 60
+  var minutes = Number(firstHour) * 60 + Math.max(0, Number(verticalPosition)) / height * 60
   minutes = Math.floor(minutes / step) * step
   var localDay = new Date(Number(day.startMs))
   return new Date(localDay.getFullYear(), localDay.getMonth(), localDay.getDate(),

@@ -14,12 +14,12 @@
 function asList(value) {
   if (value === undefined || value === null) return []
   if (Array.isArray(value)) return value
-  var n = value.length
-  if (typeof n !== "number" || n < 1) return []
+  var count = value.length
+  if (typeof count !== "number" || count < 1) return []
   var out = []
-  var i
-  for (i = 0; i < n; i++) {
-    if (value[i] !== undefined) out.push(value[i])
+  var valueIndex
+  for (valueIndex = 0; valueIndex < count; valueIndex++) {
+    if (value[valueIndex] !== undefined) out.push(value[valueIndex])
   }
   return out
 }
@@ -30,9 +30,9 @@ function visible(rows, accountId, mode) {
   if (kind === "new" || kind === "") return list
   var wanted = String(accountId || "")
   var kept = []
-  var i
-  for (i = 0; i < list.length; i++) {
-    if (String(list[i].accountId || "") === wanted) kept.push(list[i])
+  var listIndex
+  for (listIndex = 0; listIndex < list.length; listIndex++) {
+    if (String(list[listIndex].accountId || "") === wanted) kept.push(list[listIndex])
   }
   return kept
 }

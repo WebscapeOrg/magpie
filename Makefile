@@ -86,7 +86,7 @@ APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)
 APP_TARGET_DIR ?= $(CURDIR)/target/standalone
 APP_BACKEND := $(APP_TARGET_DIR)/debug/omamail$(APP_EXEEXT)
-APP_EXECUTABLE := $(CURDIR)/$(APP_BUILD_DIR)/omamail-app$(APP_EXEEXT)
+APP_EXECUTABLE := $(APP_BUILD_DIR)/omamail-app$(APP_EXEEXT)
 
 .PHONY: test test-js test-shell test-shell-portable test-shell-independent test-shell-libcurl \
 	test-qml test-app-qml test-local test-backend-process qml-check validate bench install \

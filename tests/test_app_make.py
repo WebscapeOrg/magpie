@@ -2,6 +2,7 @@
 """The local standalone targets use the portable backend and explicit dev paths."""
 from pathlib import Path
 import os
+import shlex
 import subprocess
 
 
@@ -36,10 +37,17 @@ assert len(launches) == 1, run
 launch = launches[0]
 assert "OMAMAIL_DEVELOPMENT_RESOURCES=1" in launch
 assert 'OMAMAIL_BIN="' in launch and "/target/standalone/debug/omamail" in launch
-assert "/app/build/omamail-app" in launch
+assert '"app/build/omamail-app"' in launch
 assert "backend-runtime.py" not in run
 assert "install" not in run
 assert "PATH=" not in launch
+
+for build_dir in ("/tmp/magpie-app-build", "app/custom build"):
+    custom_run = make("-n", "app-run", "APP_BUILD_DIR=" + build_dir)
+    custom_launch = next(line for line in custom_run.splitlines()
+                        if "OMAMAIL_DEVELOPMENT_RESOURCES=1" in line)
+    executable = (ROOT / build_dir / "omamail-app").resolve()
+    assert (ROOT / shlex.split(custom_launch)[-1]).resolve() == executable, custom_launch
 
 cmake = (ROOT / "app/CMakeLists.txt").read_text()
 assert 'ui/assets/*' in cmake

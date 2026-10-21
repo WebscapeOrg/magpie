@@ -5,6 +5,7 @@
 // Docs: Calendar invitations are MIME parts; RSVP uses an RFC 5546 reply addressed to the organiser.
 
 var MAX_ICS_BYTES = 512 * 1024
+var MAX_ICS_CODE_UNITS = 512 * 1024
 var MAX_COMPONENT_DEPTH = 8
 
 // Invariant: unfold content lines before parsing properties so folded escapes remain intact.
@@ -111,7 +112,7 @@ function stripQuotes(value) {
 
 function parse(text) {
   var source = String(text || "")
-  if (source.length > MAX_ICS_BYTES) return null
+  if (source.length > MAX_ICS_CODE_UNITS) return null
   var lines = unfoldLines(source)
   var root = null
   var stack = []
@@ -296,8 +297,21 @@ function parseOffsetMinutes(value) {
 
 // Docs: naiveKey compares wall-clock readings without applying a timezone offset.
 function naiveKey(fields) {
-  return Date.UTC(fields.year, fields.month - 1, fields.day,
-    fields.hour, fields.minute, fields.second)
+  return utcDate(fields).getTime()
+}
+
+function utcDate(fields) {
+  var date = new Date(0)
+  date.setUTCFullYear(fields.year, fields.month - 1, fields.day)
+  date.setUTCHours(fields.hour || 0, fields.minute || 0, fields.second || 0, 0)
+  return date
+}
+
+function localDate(fields) {
+  var date = new Date(0)
+  date.setFullYear(fields.year, fields.month - 1, fields.day)
+  date.setHours(fields.hour || 0, fields.minute || 0, fields.second || 0, 0)
+  return date
 }
 
 function daysInMonth(year, month) {
@@ -310,7 +324,7 @@ function nthWeekdayOfMonth(year, month, weekday, ordinal) {
   var total = daysInMonth(year, month)
   if (ordinal < 0) {
     for (var back = total; back >= 1; back--) {
-      if (new Date(Date.UTC(year, month - 1, back)).getUTCDay() === weekday) {
+      if (utcDate({ year: year, month: month, day: back }).getUTCDay() === weekday) {
         var skipped = -ordinal - 1
         var day = back - skipped * 7
         return day >= 1 ? day : 0
@@ -321,7 +335,7 @@ function nthWeekdayOfMonth(year, month, weekday, ordinal) {
   var wanted = ordinal < 1 ? 1 : ordinal
   var seen = 0
   for (var forward = 1; forward <= total; forward++) {
-    if (new Date(Date.UTC(year, month - 1, forward)).getUTCDay() !== weekday) continue
+    if (utcDate({ year: year, month: month, day: forward }).getUTCDay() !== weekday) continue
     seen++
     if (seen === wanted) return forward
   }
@@ -439,7 +453,7 @@ function recurringTransition(rule, year) {
   }
   if (day < 1 || day > daysInMonth(year, month)) return null
 
-  var at = Date.UTC(year, month - 1, day, start.hour, start.minute, start.second)
+  var at = naiveKey({ year: year, month: month, day: day, hour: start.hour, minute: start.minute, second: start.second })
   // Invariant: compare UTC UNTIL against the transition using its previous offset; date-only UNTIL includes the entire day.
   if (until) {
     var reading = until.utc && rule.from !== null ? at - rule.from * 60000 : at
@@ -581,7 +595,7 @@ function resolveTime(found, calendar) {
 
   if (fields.dateOnly) {
     return {
-      ms: new Date(fields.year, fields.month - 1, fields.day).getTime(),
+      ms: localDate(fields).getTime(),
       allDay: true, tzid: "", resolved: true
     }
   }
@@ -603,8 +617,7 @@ function resolveTime(found, calendar) {
   }
   // Invariant: floating iCalendar times use the reader's local clock.
   return {
-    ms: new Date(fields.year, fields.month - 1, fields.day,
-      fields.hour, fields.minute, fields.second).getTime(),
+    ms: localDate(fields).getTime(),
     allDay: false, tzid: "", resolved: true
   }
 }

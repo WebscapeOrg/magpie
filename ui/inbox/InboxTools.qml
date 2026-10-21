@@ -53,33 +53,37 @@ Item {
   function retry() { retryFailed = true; error = ""; refresh() }
   function drain() {
     if (!available || !browsing) return
-    var rows = visibleRows
-    var chosen = []; var account = ""
-    if (!requesting && !paused && service.windowPrefsLoaded !== false) {
+    if (!requesting && !paused && service.windowPrefsLoaded !== false)
+      requestOverviews(overviewBatch(visibleRows))
+    for (var avatarIndex=0;avatarIndex<Math.min(visibleRows.length,100);avatarIndex++) avatar(visibleRows[avatarIndex])
+  }
+  function overviewBatch(rows) {
+    var batch = {accountId: "", ids: []}
     for (var rowIndex=0;rowIndex<rows.length;rowIndex++) {
       var row = rows[rowIndex]; var host = owner(row)
       if (!host || host.providerId !== "gmail") continue
       var old = overviewFor(row)
       if (old.text || (old.state === "failed" && !retryFailed && Date.now()-Number(old.updated || 0)<900000)) continue
-      if (account !== "" && account !== host.accountId) continue
-      account = host.accountId; chosen.push(id(row))
-      if (chosen.length>=4) break
+      if (batch.accountId !== "" && batch.accountId !== host.accountId) continue
+      batch.accountId = host.accountId; batch.ids.push(id(row))
+      if (batch.ids.length>=4) break
     }
-    if (chosen.length) {
-      requesting = true
-      service.backend.call("inbox.overviews", {accountId:account,ids:chosen,retry:retryFailed}, function(result,failure) {
-        root.requesting = false
-        if (failure) {
-          root.error = "AI overviews could not start. Check the Claude login, then choose Menu → Retry AI overviews."
-          var next = Object.assign({},root.overviews)
-          for (var chosenIndex=0;chosenIndex<chosen.length;chosenIndex++) next[root.key(account,chosen[chosenIndex])] = {state:"failed",reason:"AI request could not start; retry from Menu",updated:Date.now()}
-          root.overviews = next
-        }
-        root.retryFailed = false
-      })
-    }
-    }
-    for (var avatarIndex=0;avatarIndex<Math.min(rows.length,100);avatarIndex++) avatar(rows[avatarIndex])
+    return batch
+  }
+  function requestOverviews(batch) {
+    if (batch.ids.length === 0) return
+    requesting = true
+    service.backend.call("inbox.overviews", {accountId:batch.accountId,ids:batch.ids,retry:retryFailed}, function(result,failure) {
+      root.requesting = false
+      if (failure) {
+        root.error = "AI overviews could not start. Check the Claude login, then choose Menu → Retry AI overviews."
+        var next = Object.assign({},root.overviews)
+        for (var messageIndex=0;messageIndex<batch.ids.length;messageIndex++)
+          next[root.key(batch.accountId,batch.ids[messageIndex])] = {state:"failed",reason:"AI request could not start; retry from Menu",updated:Date.now()}
+        root.overviews = next
+      }
+      root.retryFailed = false
+    })
   }
   function avatar(row) {
     var host = owner(row)

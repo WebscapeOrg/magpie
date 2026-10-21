@@ -128,26 +128,27 @@ QtObject {
   }
   function acknowledgeComposeReceipts() {
     if (!root.service || !root.service.backend || !root.service.backend.ready) return
-    for (var index = 0; index < root.composeReceiptAcks.length; index++) {
-      (function(entry) {
-        var key = entry.accountId + "\n" + entry.sendId
-        if (entry.revision > root.composeCommittedRevision || root.composeReceiptAckBusy[key]) return
-        var busy = Object.assign({}, root.composeReceiptAckBusy); busy[key] = true; root.composeReceiptAckBusy = busy
-        root.service.backend.call("outbox.snapshot", {accountId:entry.accountId,sendId:entry.sendId}, function(result,error) {
-          if (!root || typeof root.acknowledgeComposeReceipts !== "function") return
-          var state = !error && result && result.entries && result.entries.length ? result.entries[0].state : ""
-          if (state !== "sent" && state !== "cancelled" && state !== "failed") {
-            var busy = Object.assign({}, root.composeReceiptAckBusy); delete busy[key]; root.composeReceiptAckBusy = busy
-            return
-          }
-          root.service.backend.call("outbox.forget", {accountId:entry.accountId,sendId:entry.sendId}, function(result,error) {
-            if (!root || typeof root.acknowledgeComposeReceipts !== "function") return
-            var busy = Object.assign({}, root.composeReceiptAckBusy); delete busy[key]; root.composeReceiptAckBusy = busy
-            if (!error) root.composeReceiptAcks = root.composeReceiptAcks.filter(function(value) { return value.accountId !== entry.accountId || value.sendId !== entry.sendId })
-          })
-        })
-      })(root.composeReceiptAcks[index])
-    }
+    for (var receiptIndex = 0; receiptIndex < root.composeReceiptAcks.length; receiptIndex++)
+      acknowledgeComposeReceipt(root.composeReceiptAcks[receiptIndex])
+  }
+
+  function acknowledgeComposeReceipt(entry) {
+    var key = entry.accountId + "\n" + entry.sendId
+    if (entry.revision > root.composeCommittedRevision || root.composeReceiptAckBusy[key]) return
+    var busy = Object.assign({}, root.composeReceiptAckBusy); busy[key] = true; root.composeReceiptAckBusy = busy
+    root.service.backend.call("outbox.snapshot", {accountId:entry.accountId,sendId:entry.sendId}, function(result,error) {
+      if (!root || typeof root.acknowledgeComposeReceipts !== "function") return
+      var state = !error && result && result.entries && result.entries.length ? result.entries[0].state : ""
+      if (state !== "sent" && state !== "cancelled" && state !== "failed") {
+        var busy = Object.assign({}, root.composeReceiptAckBusy); delete busy[key]; root.composeReceiptAckBusy = busy
+        return
+      }
+      root.service.backend.call("outbox.forget", {accountId:entry.accountId,sendId:entry.sendId}, function(result,error) {
+        if (!root || typeof root.acknowledgeComposeReceipts !== "function") return
+        var busy = Object.assign({}, root.composeReceiptAckBusy); delete busy[key]; root.composeReceiptAckBusy = busy
+        if (!error) root.composeReceiptAcks = root.composeReceiptAcks.filter(function(value) { return value.accountId !== entry.accountId || value.sendId !== entry.sendId })
+      })
+    })
   }
 
   function readComposeRecovery() {

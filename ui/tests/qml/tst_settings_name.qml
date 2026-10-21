@@ -133,6 +133,7 @@ Item {
       fakeService.signatureHtml = ""
       page.selectedSignatureAccountId = "a@example.org"
       page.importStage = "read"
+      page.importingAccountId = "a@example.org"
       page.importing = true
       page.finishImport(JSON.stringify({ok: true, mimeType: "image/png", data: "iVBORw0KGgoAAA=="}))
       compare(fakeBackend.method, "message.signatureImport")

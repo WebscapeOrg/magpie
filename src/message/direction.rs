@@ -1,6 +1,7 @@
 //! Mail direction rules shared by summaries, rendering and outgoing MIME.
 use regex::Regex;
 use std::sync::LazyLock;
+mod data;
 pub const AUTO: &str = "Auto";
 pub const LTR: &str = "ltr";
 pub const RTL: &str = "rtl";
@@ -17,55 +18,17 @@ pub fn forced(mode: &str) -> &'static str {
         _ => "",
     }
 }
-fn neutral(code: u32) -> bool {
-    (code <= 0x0040)
-        || (0x005B..=0x0060).contains(&code)
-        || (0x007B..=0x00BF).contains(&code)
-        || (code == 0x00D7 || code == 0x00F7)
-        || (0x0600..=0x0605).contains(&code)
-        || (0x0660..=0x066C).contains(&code)
-        || (code == 0x06DD || code == 0x08E2)
-        || (0x06F0..=0x06F9).contains(&code)
-        || (0x10E60..=0x10E7E).contains(&code)
-        || (0x0300..=0x036F).contains(&code)
-        || (0x2000..=0x2BFF).contains(&code)
-        || (0x2E00..=0x2E7F).contains(&code)
-        || (0x3000..=0x303F).contains(&code)
-        || (0xFE00..=0xFE0F).contains(&code)
-        || (0xFF01..=0xFF20).contains(&code)
-        || (0xFF3B..=0xFF40).contains(&code)
-        || (0xFF5B..=0xFF65).contains(&code)
-        || (code == 0xFEFF)
-        || (0x1F000..=0x1F0FF).contains(&code)
-        || (0x1F1E6..=0x1F1FF).contains(&code)
-        || (0x1F300..=0x1FAFF).contains(&code)
-}
 pub fn direction_of_code(code: u32) -> &'static str {
-    if code == 0x200f || code == 0x061c {
-        RTL
-    } else if code == 0x200e {
-        LTR
-    } else if neutral(code) {
-        ""
-    } else if [
-        (0x0590, 0x05FF),
-        (0x0600, 0x07BF),
-        (0x07C0, 0x085F),
-        (0x0860, 0x08FF),
-        (0xFB1D, 0xFB4F),
-        (0xFB50, 0xFDFF),
-        (0xFE70, 0xFEFC),
-        (0x10800, 0x10CFF),
-        (0x10D00, 0x10FFF),
-        (0x1E800, 0x1EFFF),
-    ]
-    .iter()
-    .any(|(a, b)| (*a..=*b).contains(&code))
-    {
-        RTL
-    } else {
-        LTR
+    if char::from_u32(code).is_none() {
+        return "";
     }
+    let index = data::RANGES.partition_point(|&(_, end, _)| end < code);
+    if let Some(&(start, _, direction)) = data::RANGES.get(index)
+        && start <= code
+    {
+        return direction;
+    }
+    LTR
 }
 pub fn strong_direction(text: &str) -> &'static str {
     let mut depth = 0usize;
@@ -157,6 +120,51 @@ pub fn end_edge(direction: &str) -> &'static str {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+    #[test]
+    fn unicode_classes_drive_first_strong_direction() {
+        for code in [0x05b0, 0x064b, 0x037e, 0x10d40, 0x20c1] {
+            let prefix = char::from_u32(code).unwrap();
+            assert_eq!(direction_of_code(code), "", "non-strong U+{code:04X}");
+            assert_eq!(strong_direction(&format!("{prefix}hello")), LTR);
+            assert_eq!(strong_direction(&format!("{prefix}שלום")), RTL);
+        }
+        for code in [0x00aa, 0x2102, 0x1f1e6] {
+            assert_eq!(direction_of_code(code), LTR, "strong L U+{code:04X}");
+        }
+        for code in [0x0590, 0x086b, 0x10ec0] {
+            assert_eq!(
+                direction_of_code(code),
+                RTL,
+                "reserved default U+{code:04X}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_scalar_matches_pinned_unicode_classes() {
+        let output = std::process::Command::new("python3")
+            .args(["scripts/generate-direction-data.py", "--classes"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout.len(), 0x110000);
+        for (code, expected) in output.stdout.into_iter().enumerate() {
+            let code = code as u32;
+            let direction = if char::from_u32(code).is_none() {
+                ""
+            } else {
+                ["", LTR, RTL][usize::from(expected)]
+            };
+            assert_eq!(direction_of_code(code), direction, "U+{code:04X}");
+        }
+        assert_eq!(direction_of_code(0x110000), "");
+        assert_eq!(direction_of_code(u32::MAX), "");
+    }
+
     #[test]
     fn existing_direction_suite_is_a_live_golden_oracle() {
         let script = r#"const loader=require('./ui/tests/load');const load=loader.load;const rows=[];loader.load=function(p){const m=load(p);if(p==='message/Direction.js')for(const name of ['attributeFor','endEdge','forced','hasAnswer','isRightToLeft','normalizeMode','resolve','resolveBody','resolveSubject','startEdge','strongDirectionOf','subjectDirectionOf']){const f=m[name];m[name]=function(...args){const result=f(...args);rows.push({name,args,result});return result;};}return m;};console.log=()=>{};require('./ui/tests/test_direction');process.stdout.write(JSON.stringify(rows));"#;

@@ -1,4 +1,5 @@
 .pragma library
+.import "DirectionData.js" as Bidi
 
 // Which way a piece of a message runs.
 //
@@ -61,36 +62,6 @@ function isRightToLeft(direction) {
   return String(direction) === RTL
 }
 
-// ------------------------------------------------------- strong and neutral
-//
-// The classification runs on code points rather than on UTF-16 units, because
-// the RTL blocks above the BMP — Kharoshthi, Old Hungarian, Adlam, the Arabic
-// mathematical alphabets — are written as surrogate pairs, and a scan that
-// read the halves separately would see two unassigned BMP characters and call
-// a wholly right-to-left message left-to-right.
-
-// Every right-to-left block Unicode defines, as [first, last] pairs. This list
-// is the one thing here that has to be complete: a script missing from it is
-// classified strong left-to-right by the fallback below, which is a wrong
-// answer rather than an absent one.
-var RTL_RANGES = [
-  [0x0590, 0x05FF], // Hebrew
-  [0x0600, 0x07BF], // Arabic, Syriac, Arabic Supplement, Thaana
-  [0x07C0, 0x085F], // NKo, Samaritan, Mandaic
-  [0x0860, 0x08FF], // Syriac Supplement, Arabic Extended-A and -B
-  [0xFB1D, 0xFB4F], // Hebrew presentation forms
-  [0xFB50, 0xFDFF], // Arabic presentation forms-A
-  [0xFE70, 0xFEFC], // Arabic presentation forms-B (the last assigned is FEFC)
-  [0x10800, 0x10CFF], // Cypriot, Phoenician, Kharoshthi, Old Hungarian
-  [0x10D00, 0x10FFF], // Hanifi Rohingya, Sogdian, Elymaic, Old Sogdian
-  [0x1E800, 0x1EFFF] // Mende Kikakui, Adlam, Arabic mathematical alphabets
-]
-
-// The marks and the embedding controls, which say a direction outright instead
-// of being a character that happens to have one.
-var LEFT_TO_RIGHT_MARK = 0x200E
-var RIGHT_TO_LEFT_MARK = 0x200F
-var ARABIC_LETTER_MARK = 0x061C
 var LEFT_TO_RIGHT_EMBEDDING = 0x202A
 var RIGHT_TO_LEFT_EMBEDDING = 0x202B
 var LEFT_TO_RIGHT_OVERRIDE = 0x202D
@@ -100,84 +71,17 @@ var RIGHT_TO_LEFT_ISOLATE = 0x2067
 var FIRST_STRONG_ISOLATE = 0x2068
 var POP_DIRECTIONAL_ISOLATE = 0x2069
 
-function isRtlCode(code) {
-  for (var rangeIndex = 0; rangeIndex < RTL_RANGES.length; rangeIndex++) {
-    if (code >= RTL_RANGES[rangeIndex][0] && code <= RTL_RANGES[rangeIndex][1]) return true
-  }
-  return false
-}
-
-// Neutral rather than "not a letter": the question P2 asks is which characters
-// may be skipped over, and digits are the ones that matter. A subject that
-// opens with a year — `2024 مرحبا` — is right-to-left, and a scan that treated
-// `2` as strong left-to-right would get it backwards. European and Arabic
-// digits are both types of their own (EN and AN) and neither is strong.
-function isNeutralCode(code) {
-  // Controls, space, the ASCII digits, and the two runs of ASCII punctuation
-  // and symbols on either side of the capital letters.
-  if (code <= 0x0040) return true
-  if (code >= 0x005B && code <= 0x0060) return true
-  // The punctuation after the small letters, then Latin-1 punctuation, signs
-  // and currency, which run to the first accented letter at 0x00C0.
-  if (code >= 0x007B && code <= 0x00BF) return true
-  if (code === 0x00D7 || code === 0x00F7) return true // × ÷
-  // The Arabic block's own numbers. These sit inside the strong ranges below,
-  // so they are only reachable because `directionOfCode` asks this question
-  // first — see the note there.
-  if (code >= 0x0600 && code <= 0x0605) return true // Arabic number signs (AN)
-  if (code >= 0x0660 && code <= 0x066C) return true // Arabic-Indic digits and separators
-  if (code === 0x06DD || code === 0x08E2) return true // end of ayah, disputed end of ayah
-  if (code >= 0x06F0 && code <= 0x06F9) return true // extended Arabic-Indic digits
-  if (code >= 0x10E60 && code <= 0x10E7E) return true // Rumi numeral symbols (AN)
-  if (code >= 0x0300 && code <= 0x036F) return true // combining marks (NSM)
-  if (code >= 0x2000 && code <= 0x2BFF) return true // punctuation, symbols, arrows
-  if (code >= 0x2E00 && code <= 0x2E7F) return true // supplemental punctuation
-  if (code >= 0x3000 && code <= 0x303F) return true // CJK punctuation
-  if (code >= 0xFE00 && code <= 0xFE0F) return true // variation selectors
-  // Fullwidth punctuation, in the three runs around the fullwidth letters —
-  // which are strong left-to-right and are not here.
-  if (code >= 0xFF01 && code <= 0xFF20) return true
-  if (code >= 0xFF3B && code <= 0xFF40) return true
-  if (code >= 0xFF5B && code <= 0xFF65) return true
-  // U+FEFF is the byte order mark, which says nothing about direction and
-  // arrives at the front of a great many plain text parts. It sits just past
-  // the end of Arabic presentation forms-B, so a range that reached the end of
-  // the block would have read a BOM as a strong Arabic letter — and an English
-  // message that carried one would have been laid out right to left.
-  if (code === 0xFEFF) return true
-  // Emoji and the pictographic symbols beside them. A subject opening with one
-  // is the house style of most of the mail anybody receives, and every one of
-  // them is Other Neutral: the emoji says nothing about which way the sentence
-  // after it runs.
-  if (code >= 0x1F000 && code <= 0x1F0FF) return true // mahjong, dominoes, cards
-  if (code >= 0x1F1E6 && code <= 0x1F1FF) return true // regional indicators (flags)
-  if (code >= 0x1F300 && code <= 0x1FAFF) return true // pictographs and symbols
-  return false
-}
-
-// The direction a single code point asserts, or UNKNOWN when it asserts none.
-//
-// The neutral question comes before the range question, and the order is the
-// whole of it. A block is a range of code points and a direction class is not:
-// the Arabic block holds the Arabic-Indic digits, which are AN and assert
-// nothing, so a scan that asked "is this in a right-to-left block?" first
-// answered RTL for a digit and never reached the line written to say otherwise.
-// That put `١٢٣ hello` on the right and — because `outgoingDirection` reads a
-// body by this same rule — grew a `dir="rtl"` HTML twin onto an English message
-// whose first character happened to be an Arabic-Indic number.
-//
-// The marks stay in front of both: an explicit RLM or ALM is the author saying
-// outright which way this runs, and U+200F sits inside the neutral punctuation
-// range.
 function directionOfCode(code) {
-  if (code === RIGHT_TO_LEFT_MARK || code === ARABIC_LETTER_MARK) return RTL
-  if (code === LEFT_TO_RIGHT_MARK) return LTR
-  if (isNeutralCode(code)) return UNKNOWN
-  if (isRtlCode(code)) return RTL
-  // Everything left is a letter of some script, and every right-to-left script
-  // was named above. Falling through to left-to-right rather than listing the
-  // hundred that are keeps a newly encoded script — Latin, Cyrillic, Devanagari,
-  // Han, or one that does not exist yet — rendering the way it did before.
+  if (typeof code !== "number" || code !== Math.floor(code) || code < 0 || code > 0x10FFFF
+      || (code >= 0xD800 && code <= 0xDFFF)) return UNKNOWN
+  var low = 0
+  var high = Bidi.RANGES.length
+  while (low < high) {
+    var middle = Math.floor((low + high) / 2)
+    if (Bidi.RANGES[middle][1] < code) low = middle + 1
+    else high = middle
+  }
+  if (low < Bidi.RANGES.length && Bidi.RANGES[low][0] <= code) return Bidi.RANGES[low][2]
   return LTR
 }
 

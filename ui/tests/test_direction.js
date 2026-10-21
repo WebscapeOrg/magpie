@@ -3,6 +3,20 @@ const { load } = require("./load")
 
 const direction = load("message/Direction.js")
 
+for (const code of [0x05b0, 0x064b, 0x037e, 0x10d40, 0x20c1]) {
+  const prefix = String.fromCodePoint(code)
+  assert.strictEqual(direction.directionOfCode(code), "", "non-strong Unicode class " + code.toString(16))
+  assert.strictEqual(direction.strongDirectionOf(prefix + "hello"), "ltr")
+  assert.strictEqual(direction.strongDirectionOf(prefix + "שלום"), "rtl")
+}
+for (const code of [0x00aa, 0x2102, 0x1f1e6]) {
+  assert.strictEqual(direction.directionOfCode(code), "ltr", "Unicode L class " + code.toString(16))
+  assert.strictEqual(direction.strongDirectionOf(String.fromCodePoint(code) + "שלום"), "ltr")
+}
+for (const code of [0x0590, 0x086b, 0x10ec0]) {
+  assert.strictEqual(direction.directionOfCode(code), "rtl", "reserved RTL default " + code.toString(16))
+}
+
 // ------------------------------------------------------------ first strong
 
 assert.strictEqual(direction.strongDirectionOf("Hello world"), "ltr")
@@ -45,11 +59,10 @@ assert.strictEqual(direction.strongDirectionOf("\uFEFC"), "rtl",
   "and the last character that really is one still is")
 
 // An emoji in front of the subject is how most marketing mail is written, and
-// every one of them is Other Neutral: it says nothing about the sentence after
-// it. The same goes for the combining marks, the supplemental punctuation and
-// the fullwidth punctuation, none of which are letters.
+// pictographs are neutral, while regional indicator symbols have class L.
+// Combining marks and punctuation also defer to a later strong character.
 assert.strictEqual(direction.strongDirectionOf("🎉 مرحبا"), "rtl", "an emoji is neutral")
-assert.strictEqual(direction.strongDirectionOf("🇸🇦 مرحبا"), "rtl", "so is a flag")
+assert.strictEqual(direction.strongDirectionOf("🇸🇦 مرحبا"), "ltr", "regional indicators have Unicode class L")
 assert.strictEqual(direction.strongDirectionOf("🎉 Hello"), "ltr")
 assert.strictEqual(direction.strongDirectionOf("\u0301 مرحبا"), "rtl", "a combining mark is neutral")
 assert.strictEqual(direction.strongDirectionOf("\uFF01 مرحبا"), "rtl", "fullwidth punctuation is neutral")
@@ -210,5 +223,21 @@ assert.strictEqual(direction.resolveBody("Hello [image 1] مرحبا", "Auto"), 
 // A chosen direction answers before any of this, as it does everywhere.
 assert.strictEqual(direction.resolveBody("[image 1]Hello", "Right to left"), "rtl")
 assert.strictEqual(direction.resolveBody("مرحبا", "Left to right"), "ltr")
+
+const { spawnSync } = require("child_process")
+const path = require("path")
+const generator = path.join(__dirname, "../../scripts/generate-direction-data.py")
+const checked = spawnSync("python3", [generator, "--check"], { encoding: "utf8" })
+assert.strictEqual(checked.status, 0, checked.stderr)
+const reference = spawnSync("python3", [generator, "--classes"], { maxBuffer: 2 * 1024 * 1024 })
+assert.strictEqual(reference.status, 0, String(reference.stderr))
+assert.strictEqual(reference.stdout.length, 0x110000)
+for (var code = 0; code < reference.stdout.length; code++) {
+  const expected = code >= 0xD800 && code <= 0xDFFF ? "" : ["", "ltr", "rtl"][reference.stdout[code]]
+  assert.strictEqual(direction.directionOfCode(code), expected, "Unicode class U+" + code.toString(16))
+}
+for (const code of [-1, 1.5, 0x110000, NaN, Infinity, "65", null]) {
+  assert.strictEqual(direction.directionOfCode(code), "", "invalid code point must not assert a direction")
+}
 
 console.log("direction tests passed")

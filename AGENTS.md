@@ -1,5 +1,9 @@
 # Repository working agreements
 
+## Showing Dave completed work
+
+Read and follow the [canonical Peacock guide](/home/anotherdave/.local/share/peacock/agent-instructions.md), including “Noting a small finished thing”, when delivering completed work. Keep publishing policy in that guide and link to it here instead of copying it.
+
 ## Required reading by task
 
 Read the relevant document before changing its area; these contain constraints that are easy to miss in the code.

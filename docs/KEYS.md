@@ -50,6 +50,8 @@ readonly property string keyContext:
 `Ctrl+,` opens Settings from every context, including a focused draft field.
 Back returns to the previous screen with the draft intact.
 
+When a button has keyboard focus, unmodified Return, keypad Enter and Space activate that button. The shared button controls accept `ShortcutOverride` for those keys so mailbox open/selection shortcuts cannot intercept them. Modified application shortcuts and Escape retain their normal routing.
+
 While an AI request is running, Escape interrupts it and keeps the dock open; otherwise Escape closes the dock. An open command suggestion or history view is left first.
 
 The AI input uses `assistant`: Return/Enter sends and Shift+Return/Enter inserts a newline. Ctrl+Return/Enter also sends for compatibility. Typing `/` offers `/clear` (new chat), `/history` (conversation history), and `/diagnose` (diagnostics). Up/Down selects a suggestion; Return/Enter completes a partial command or executes an exact command immediately; choosing `/history` always opens the history at once. Commands stay local. Outside suggestions, Up/Down retain normal text navigation.
@@ -255,7 +257,7 @@ message list clamps.
 
 ## The cursor
 
-Hover must not write `cursorId`: Qt re-reports hover as content scrolls beneath a stationary pointer. Reveal keyboard selection with `Model.contentYToReveal`; the list is a `Column`, not a view with `positionViewAtIndex`.
+Hover must not write `cursorId`: Qt re-reports hover as content scrolls beneath a stationary pointer. Reveal keyboard selection with `MessageList.reveal`, which calls `positionViewAtIndex` with `ListView.Contain`.
 
 `cursorId` is where the keyboard is. `selectedId` is what the reader shows.
 They are two different things, and conflating them was the first bug in this
@@ -290,14 +292,7 @@ The last two exist because a cursor pointing at a message that is not listed
 cannot be found, and `cursorAfterOffset` restarts at the top from there. Every
 "the cursor jumped back to the first row" report is that.
 
-The list is a `Column` of rows inside a `Flickable`, not a `ListView` — the
-panel already owns a scroller, and nesting a second gives every wheel event two
-plausible targets. So there is no `positionViewAtIndex`, and keyboard movement
-has to scroll the list itself: **`Model.contentYToReveal`** decides where the
-scroller goes, leaving it alone while the row is already visible so stepping one
-row does not drag the list under someone reading it. It is called from
-`moveCursor`, not from `cursorId` changing. Hover never changes the cursor, and
-scrolling under the pointer would fight the mouse.
+The message list owns the panel's only scroller. Its `ListView` creates visible rows and a small surrounding buffer, preserving delegates during summary-only refreshes. `revealCursorRow` calls `MessageList.reveal` only during keyboard movement; pointer hover never moves the cursor. Selection and checked IDs belong to the window, so delegate reuse cannot change them.
 
 ## The mouse
 

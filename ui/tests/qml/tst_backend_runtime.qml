@@ -30,6 +30,7 @@ Item {
       bundledExecutable: "/synthetic/app/omamail"
       bundledVersion: "0.10.7"
       bundledApiVersion: 5
+      bundledContract: ({apiVersion:6, releasedApiVersion:5, contractHash:"", unreleasedMethods:[]})
     }
   }
   TestCase {
@@ -48,6 +49,13 @@ Item {
         compare(Compatibility.accepts(info, runtime.requiredVersion, runtime.requiredApiVersion,
           runtime.latestApiVersion), api !== 7, "API " + api)
       }
+    }
+
+    function test_bundle_never_invents_an_unreleased_step() {
+      var runtime = createTemporaryObject(bundledFactory, parent)
+      runtime.bundledContract = ({})
+      runtime.refresh()
+      compare(runtime.latestApiVersion, 5)
     }
 
     function make() { return createTemporaryObject(factory, parent) }
@@ -146,7 +154,7 @@ Item {
       var handshake = JSON.parse(process.written.trim())
       backend.receive(JSON.stringify({ jsonrpc: "2.0", id: handshake.id,
         result: { name: "omamail", apiVersion: 1, protocol: 1, version: "0.8.2",
-          methods: ["system.info", "system.quit"] } }))
+          methods: ["system.info", "system.quit", "gmail.modify", "reader.render"] } }))
       verify(backend.ready)
       return backend
     }
@@ -254,7 +262,7 @@ Item {
       var request = JSON.parse(processOf(backend).written.trim().split("\n").pop())
       backend.receive(JSON.stringify({ jsonrpc: "2.0", id: request.id,
         result: { name: "omamail", apiVersion: 1, protocol: 1, version: "0.8.2",
-          methods: ["system.info", "system.quit"] } }))
+          methods: ["system.info", "system.quit", "gmail.modify", "reader.render"] } }))
       verify(!backend.ready)
       verify(!processOf(backend).running)
     }

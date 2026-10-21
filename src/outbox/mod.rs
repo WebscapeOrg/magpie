@@ -1,6 +1,6 @@
 //! Durable delayed sends. Every delivery is attempted once, in account order.
-//! A restart never resumes a send: queued mail is recoverable and an interrupted
-//! delivery is unknown, because a lost acknowledgement cannot prove non-delivery.
+//! A restart resumes explicitly authorized waiting mail after a connectivity check.
+//! An interrupted delivery remains unknown and is never automatically retried.
 use futures_util::{FutureExt, future::BoxFuture};
 use serde_json::{Value, json};
 use std::{
@@ -20,6 +20,8 @@ mod storage;
 mod tests;
 pub type Executor =
     Arc<dyn Fn(Value) -> BoxFuture<'static, Result<Value, &'static str>> + Send + Sync>;
+pub type Readiness =
+    Arc<dyn Fn(String, String) -> BoxFuture<'static, Result<(), &'static str>> + Send + Sync>;
 static SERIAL: AtomicU64 = AtomicU64::new(0);
 const MAX_ENTRIES: usize = 65536;
 const MAX_RECOVERABLE: usize = 128;
@@ -28,10 +30,12 @@ struct State {
     loaded: bool,
     workers: HashSet<String>,
     revision: u64,
+    dirty: bool,
 }
 struct Inner {
     state: tokio::sync::Mutex<State>,
     executor: Executor,
+    readiness: Option<Readiness>,
     events: broadcast::Sender<Value>,
     wake: Notify,
     stopping: AtomicBool,
@@ -63,11 +67,18 @@ fn terminal(state: &str) -> bool {
     matches!(state, "sent" | "failed" | "unknown" | "cancelled")
 }
 fn summary(entry: &Value, payload: bool) -> Value {
-    let mut copy = entry.clone();
-    if !payload {
-        copy.as_object_mut().unwrap().remove("payload");
-    }
-    copy
+    Value::Object(
+        entry
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(key, _)| payload || key.as_str() != "payload")
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
+}
+fn waiting(entry: &Value) -> bool {
+    matches!(entry["state"].as_str(), Some("queued" | "waiting"))
 }
 fn snapshot(state: &State, account: &str, payload: bool) -> Value {
     json!({"accountId":account,"revision":state.revision,"entries":state.entries.iter().filter(|entry|entry["accountId"]==account&&(payload||entry["acknowledged"]!=true)).map(|entry|summary(entry,payload)).collect::<Vec<_>>()})
@@ -119,6 +130,16 @@ async fn load(inner: &Arc<Inner>, state: &mut State) -> Result<(), &'static str>
         .as_array()
         .filter(|entries| entries.len() <= MAX_ENTRIES)
         .ok_or("outbox_storage_invalid")?;
+    let recovered = recover(entries)?;
+    *inner.lease.lock().unwrap_or_else(|e| e.into_inner()) = Some(lease);
+    save(inner, &recovered).await?;
+    state.entries = recovered;
+    ipc::listen(inner)?;
+    state.loaded = true;
+    start_workers(inner, state);
+    Ok(())
+}
+fn recover(entries: &[Value]) -> Result<Vec<Value>, &'static str> {
     let mut recovered = Vec::new();
     let mut ids = HashSet::new();
     for entry in entries {
@@ -138,6 +159,7 @@ async fn load(inner: &Arc<Inner>, state: &mut State) -> Result<(), &'static str>
             entry.as_object_mut().unwrap().remove("payload");
         }
         match entry["state"].as_str() {
+            Some("waiting") if entry["resumeUnsent"] == true => (),
             Some("queued") => {
                 entry["state"] = json!("cancelled");
                 entry["error"] = json!("outbox_recovered_unsent");
@@ -151,14 +173,15 @@ async fn load(inner: &Arc<Inner>, state: &mut State) -> Result<(), &'static str>
         }
         recovered.push(entry);
     }
-    *inner.lease.lock().unwrap_or_else(|e| e.into_inner()) = Some(lease);
-    save(inner, &recovered).await?;
-    state.entries = recovered;
-    ipc::listen(inner)?;
-    state.loaded = true;
-    Ok(())
+    Ok(recovered)
 }
 impl Outbox {
+    pub fn with_readiness(mut self, readiness: Readiness) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.readiness = Some(readiness);
+        }
+        self
+    }
     pub fn new(executor: Executor) -> Self {
         Self::with_root(executor, None)
     }
@@ -171,8 +194,10 @@ impl Outbox {
                     loaded: false,
                     workers: HashSet::new(),
                     revision: 0,
+                    dirty: false,
                 }),
                 executor,
+                readiness: None,
                 events,
                 wake: Notify::new(),
                 stopping: AtomicBool::new(false),
@@ -320,6 +345,7 @@ impl Inner {
                 "sendId",
                 "order",
                 "delaySeconds",
+                "resumeUnsent",
             ],
             "outbox.snapshot" => &["accountId", "includePayloads", "sendId"],
             "outbox.undo" | "outbox.forget" => &["accountId", "sendId"],
@@ -345,16 +371,11 @@ impl Inner {
             if params["includePayloads"] == true && wanted.is_none() {
                 return Err("outbox_payload_id_required");
             }
-            if let Some(id) = wanted
-                && state.entries.iter().any(|entry| {
-                    entry["accountId"] == account
-                        && entry["id"] == id
-                        && terminal(entry["state"].as_str().unwrap_or(""))
-                })
-            {
+            if state.dirty {
                 // A delivery acknowledgement is authoritative only after this
                 // transition is durable, including replies to another process.
                 save(self, &state.entries).await?;
+                state.dirty = false;
             }
             return Ok(if let Some(id) = wanted {
                 json!({"accountId":account,"revision":state.revision,"entries":state.entries.iter().filter(|entry|entry["accountId"]==account&&entry["id"]==id).map(|entry|summary(entry,params["includePayloads"]==true)).collect::<Vec<_>>()})
@@ -369,6 +390,12 @@ impl Inner {
         let mut selected = String::new();
         match method {
             "outbox.enqueue" => {
+                if params
+                    .get("resumeUnsent")
+                    .is_some_and(|value| !value.is_boolean())
+                {
+                    return Err("outbox_invalid_params");
+                }
                 let provider = text(params, "provider")?;
                 if !["gmail", "outlook", "imap", "jmap", "hey"].contains(&provider) {
                     return Err("outbox_invalid_provider");
@@ -430,7 +457,8 @@ impl Inner {
                     .map(|v| v.as_u64().ok_or("outbox_invalid_params"))
                     .transpose()?
                     .unwrap_or(stamp);
-                next.push(json!({"id":selected,"accountId":account,"provider":provider,"payload":payload,"digest":digest(payload),"state":"queued","queuedAt":stamp,"dueAt":stamp.saturating_add(delay*1000),"order":order,"draftId":payload.get("draftId").and_then(Value::as_str).unwrap_or("")}));
+                let resumable = params["resumeUnsent"] == true;
+                next.push(json!({"id":selected,"accountId":account,"provider":provider,"payload":payload,"digest":digest(payload),"state":if resumable {"waiting"}else{"queued"},"resumeUnsent":resumable,"queuedAt":stamp,"dueAt":stamp.saturating_add(delay*1000),"order":order,"draftId":payload.get("draftId").and_then(Value::as_str).unwrap_or("")}));
             }
             "outbox.undo" => {
                 let wanted = params
@@ -442,7 +470,7 @@ impl Inner {
                     .rev()
                     .find(|entry| {
                         entry["accountId"] == account
-                            && entry["state"] == "queued"
+                            && waiting(entry)
                             && wanted.is_none_or(|id| entry["id"] == id)
                     })
                     .ok_or("outbox_not_queued")?;
@@ -451,14 +479,14 @@ impl Inner {
             }
             "outbox.flush" => {
                 for entry in &mut next {
-                    if entry["accountId"] == account && entry["state"] == "queued" {
+                    if entry["accountId"] == account && waiting(entry) {
                         entry["dueAt"] = json!(0);
                     }
                 }
             }
             "outbox.abandon" => {
                 for entry in &mut next {
-                    if entry["accountId"] == account && entry["state"] == "queued" {
+                    if entry["accountId"] == account && waiting(entry) {
                         entry["state"] = json!("cancelled");
                     }
                 }
@@ -488,7 +516,7 @@ impl Inner {
         if state
             .entries
             .iter()
-            .any(|entry| entry["accountId"] == account && entry["state"] == "queued")
+            .any(|entry| entry["accountId"] == account && waiting(entry))
             && state.workers.insert(account.clone())
         {
             let inner = self.clone();
@@ -502,6 +530,27 @@ impl Inner {
         }
         self.wake.notify_waiters();
         Ok(json!({"id":selected,"snapshot":snapshot(&state,&account,false)}))
+    }
+}
+fn start_workers(inner: &Arc<Inner>, state: &mut State) {
+    let accounts: HashSet<String> = state
+        .entries
+        .iter()
+        .filter(|entry| waiting(entry))
+        .filter_map(|entry| entry["accountId"].as_str().map(str::to_owned))
+        .collect();
+    for account in accounts {
+        if !state.workers.insert(account.clone()) {
+            continue;
+        }
+        let inner = inner.clone();
+        let owner = inner.clone();
+        let job = tokio::spawn(async move { worker(owner, account).await });
+        inner
+            .jobs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(job);
     }
 }
 impl Drop for Outbox {
@@ -530,10 +579,10 @@ async fn worker(inner: Arc<Inner>, account: String) {
             state.workers.remove(&account);
             return;
         }
-        let Some(index) = state
+        let Some(mut index) = state
             .entries
             .iter()
-            .position(|entry| entry["accountId"] == account && entry["state"] == "queued")
+            .position(|entry| entry["accountId"] == account && waiting(entry))
         else {
             state.workers.remove(&account);
             return;
@@ -545,11 +594,54 @@ async fn worker(inner: Arc<Inner>, account: String) {
             tokio::select! {_=tokio::time::sleep(delay)=>(),_=&mut notified=>()};
             continue;
         }
+        if state.entries[index]["state"] == "waiting" {
+            let identity = state.entries[index]["id"].clone();
+            let provider = state.entries[index]["provider"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned();
+            let readiness = inner.readiness.clone();
+            drop(state);
+            let ready = match readiness {
+                Some(check) => {
+                    tokio::time::timeout(Duration::from_secs(20), check(account.clone(), provider))
+                        .await
+                        .unwrap_or(Err("outbox_connection_unavailable"))
+                }
+                None => Ok(()),
+            };
+            state = inner.state.lock().await;
+            let Some(current) = state.entries.iter().position(|entry| {
+                entry["accountId"] == account
+                    && entry["id"] == identity
+                    && entry["state"] == "waiting"
+            }) else {
+                continue;
+            };
+            index = current;
+            if inner.stopping.load(Ordering::Acquire) {
+                continue;
+            }
+            if ready.is_err() {
+                let mut next = state.entries.clone();
+                next[index]["dueAt"] = json!(now() + 30_000);
+                next[index]["error"] = json!("outbox_awaiting_connection");
+                if save(&inner, &next).await.is_err() {
+                    state.workers.remove(&account);
+                    return;
+                }
+                state.entries = next;
+                state.revision += 1;
+                emit(&inner, &state, &account);
+                continue;
+            }
+        }
         let mut next = state.entries.clone();
         next[index]["state"] = json!("sending");
         if save(&inner, &next).await.is_err() {
             state.entries[index]["state"] = json!("failed");
             state.entries[index]["error"] = json!("outbox_storage_unavailable");
+            state.dirty = true;
             state.revision += 1;
             emit(&inner, &state, &account);
             state.workers.remove(&account);
@@ -595,7 +687,7 @@ async fn worker(inner: Arc<Inner>, account: String) {
         // If this write fails, disk still says sending and restart recovers unknown.
         // No retry is safe, regardless of whether the acknowledgement was received.
         state.revision += 1;
-        let _ = save(&inner, &state.entries).await;
+        state.dirty = save(&inner, &state.entries).await.is_err();
         emit(&inner, &state, &account);
     }
 }

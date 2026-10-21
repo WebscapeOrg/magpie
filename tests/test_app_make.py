@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The local standalone targets use the portable backend and explicit dev paths."""
 from pathlib import Path
+import os
 import subprocess
 
 
@@ -8,8 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def make(*args):
+    environment = {key: value for key, value in os.environ.items()
+                   if key not in {"MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES",
+                                  "APP_BACKEND", "APP_TARGET_DIR", "APP_BUILD_DIR"}}
     return subprocess.run(
-        ["make", *args], cwd=ROOT, text=True, stdout=subprocess.PIPE,
+        ["make", *args], cwd=ROOT, env=environment, text=True, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, check=True).stdout
 
 

@@ -570,6 +570,8 @@ fn configured_read_failures_do_not_repair_registry_metadata() {
     ] {
         let output = call_mail_read(&fixture.0, account, id);
         assert!(!output.status.success(), "{account}: {output:?}");
+        assert!(!state_root(&fixture.0).join("omamail/mail").exists(),
+            "a failed read must not initialize local storage");
         if let Some(expected_error) = expected_error {
             assert_eq!(
                 serde_json::from_slice::<Value>(&output.stdout).unwrap()["error"]["code"],

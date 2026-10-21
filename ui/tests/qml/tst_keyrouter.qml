@@ -3,6 +3,7 @@ import QtQuick.Window 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtTest 1.3
 import "../../components" as Omamail
+import "../../controls" as Widgets
 
 // The keyboard belongs to the application, and the context says what a key
 // means where. Two things are exercised: that a key is live only in the
@@ -27,6 +28,12 @@ Item {
   }
 
   readonly property Item focusItem: host.Window.activeFocusItem
+
+  Omamail.IconButton { id: iconButton; tooltipText: "Test action" }
+  Omamail.IconTextButton { id: iconTextButton; text: "Test action" }
+  Widgets.Button { id: textButton; text: "Test action"; focusable: true }
+  Widgets.PanelActionButton { id: panelButton; tooltipText: "Test action"; focusable: true }
+  SignalSpy { id: buttonClicks; signalName: "clicked" }
 
   // Stands in for the window's focus scope: a home for the keyboard, and a
   // field that is only on screen while its context is.
@@ -68,6 +75,42 @@ Item {
     function test_a_bare_letter_fires_in_its_context() {
       keyClick(Qt.Key_E)
       compare(host.lastId, "archive")
+    }
+
+    function test_focused_buttons_activate_before_mailbox_shortcuts_data() {
+      return [{tag: "icon", button: iconButton}, {tag: "text", button: textButton},
+              {tag: "panel", button: panelButton}, {tag: "icon-text", button: iconTextButton}]
+    }
+
+    function test_focused_buttons_activate_before_mailbox_shortcuts(data) {
+      var button = data.button
+      buttonClicks.target = button
+      buttonClicks.clear()
+      button.forceActiveFocus()
+      verify(button.activeFocus)
+      compare(button.Accessible.role, Accessible.Button)
+      compare(button.Accessible.name, "Test action")
+      keyClick(Qt.Key_Return)
+      keyClick(Qt.Key_Enter, Qt.KeypadModifier)
+      keyClick(Qt.Key_Space)
+      compare(buttonClicks.count, 3)
+      compare(host.lastId, "", "activation must not open or select a mailbox row")
+      keyClick(Qt.Key_Comma, Qt.ControlModifier)
+      compare(host.lastId, "settings", "modified application shortcuts remain available")
+      compare(buttonClicks.count, 3)
+      host.lastId = ""
+      keyClick(Qt.Key_Escape)
+      compare(host.lastId, "back", "Escape still follows normal navigation")
+      compare(buttonClicks.count, 3)
+      button.Accessible.pressAction()
+      compare(buttonClicks.count, 4)
+      try {
+        button.enabled = false
+        button.Accessible.pressAction()
+        compare(buttonClicks.count, 4, "disabled controls refuse accessible press actions")
+      } finally {
+        button.enabled = true
+      }
     }
 
     function test_space_toggles_selection_in_the_list() {

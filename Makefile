@@ -4,9 +4,11 @@ QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tool
 	ui/tests/compatibility/tst_published_agent.qml \
 	ui/tests/qml/tst_unified_batch.qml ui/tests/qml/tst_clipboard_arguments.qml \
 	ui/tests/qml/tst_reader_subject_menu.qml \
+	ui/tests/qml/tst_local_mail_status.qml \
+	ui/tests/qml/tst_calendar_pending_ranges.qml \
 	ui/backend/Backend.qml ui/backend/Runtime.qml ui/diagnostics/Diagnostics.qml \
-	ui/components/BackendSetup.qml ui/components/MagpieLogo.qml ui/components/DisplaySettings.qml ui/settings/MailStyle.qml \
-	ui/account/MailAccount.qml ui/account/BackendSync.qml ui/account/SendQueue.qml ui/account/Intents.qml ui/account/BatchAction.qml ui/account/UnifiedBatchAction.qml ui/account/UnifiedBatchSelection.qml ui/account/Rsvp.qml ui/account/LabelActions.qml ui/account/Unsubscribe.qml ui/account/NewMailNotification.qml \
+	ui/components/BackendSetup.qml ui/components/LocalMailStatus.qml ui/components/MagpieLogo.qml ui/components/DisplaySettings.qml ui/settings/MailStyle.qml \
+	ui/account/MailAccount.qml ui/account/LocalMailbox.qml ui/account/AccountResources.qml ui/account/BackendSync.qml ui/account/SendQueue.qml ui/account/Intents.qml ui/account/BatchAction.qml ui/account/UnifiedBatchAction.qml ui/account/UnifiedBatchSelection.qml ui/account/Rsvp.qml ui/account/LabelActions.qml ui/account/Unsubscribe.qml ui/account/NewMailNotification.qml \
 	ui/cache/CacheStore.qml ui/cache/BodyCache.qml \
 	ui/providers/AuthManager.qml ui/providers/GmailApiClient.qml \
 	ui/providers/OutlookAuth.qml \
@@ -86,7 +88,7 @@ APP_TARGET_DIR ?= $(CURDIR)/target/standalone
 APP_BACKEND := $(APP_TARGET_DIR)/debug/omamail$(APP_EXEEXT)
 APP_EXECUTABLE := $(CURDIR)/$(APP_BUILD_DIR)/omamail-app$(APP_EXEEXT)
 
-.PHONY: test test-js test-shell test-shell-portable test-shell-libcurl \
+.PHONY: test test-js test-shell test-shell-portable test-shell-independent test-shell-libcurl \
 	test-qml test-app-qml test-local test-backend-process qml-check validate bench install \
 	app-build app-run help
 
@@ -180,8 +182,14 @@ test-shell: test-shell-portable test-shell-libcurl
 
 # Everything here drives one of our own scripts against a fake server and
 # asserts what the script did with the answer, so any libcurl can run it.
-test-shell-portable:
+test-shell-portable: test-shell-independent
+	python3 tests/test_calendar_notifications.py
+	python3 tests/test_curl_config.py
+	python3 tests/test_public_http.py
+
+test-shell-independent:
 	python3 tests/test_app_make.py
+	python3 tests/test_performance_verification.py
 	python3 tests/test_diagnostics.py
 	python3 tests/test_network_migration.py
 	python3 tests/test_plugin_workflow.py
@@ -191,9 +199,7 @@ test-shell-portable:
 	sh tests/test_dev.sh
 	python3 tests/test_attachment_common.py
 	python3 tests/test_notification.py
-	python3 tests/test_calendar_notifications.py
-	python3 tests/test_curl_config.py
-	python3 tests/test_public_http.py
+	python3 tests/test_public_http.py Policy
 	python3 tests/test_contacts.py
 	python3 tests/test_qml_names.py
 	python3 tests/test_qml_text_format.py
@@ -294,6 +300,12 @@ qml-check:
 validate: test test-app-qml qml-check
 	omarchy plugin validate .
 	git diff --check
+
+.PHONY: verify-performance
+VERIFY_PROFILE ?= ci
+VERIFY_OUTPUT ?= /tmp/magpie-verification-$(shell date +%Y%m%d-%H%M%S)
+verify-performance:
+	python3 scripts/verify-performance.py --profile "$(VERIFY_PROFILE)" --output "$(VERIFY_OUTPUT)"
 
 # Development only: the Marketplace installs the plugin for ordinary users.
 .PHONY: install-backend-local install-plugin

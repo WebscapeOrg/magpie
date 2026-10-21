@@ -323,6 +323,8 @@ not authorize a production fallback. The immutable benchmark oracle is under
 
 ## Cached reader data and disk limits
 
+API 8 adds a durable Gmail replica and account/draft-scoped attachment handles. See [local mail and responsiveness](LOCAL-MAIL.md) for ownership, coverage, offline edits, recovery and measurement boundaries. The disposable cache below remains the fallback for older backends and other providers.
+
 `cache.resourceRead`, `cache.resourcePut` and `cache.resourceClear` manage full
 provider message resources. Parsed body files and these resources share a
 256 MiB quota across all accounts; LRU eviction and entry-count limits bound
@@ -352,7 +354,7 @@ Approved image bytes survive revalidation of the same selected message, and
 image completions are coalesced before rerendering. Changing the selection
 invalidates pending image callbacks and clears those bytes.
 
-The native source store has a 64 MiB serialized-payload budget, with at most 64
+The native source store has a 64 MiB serialized-payload budget, with at most 32
 entries overall and 12 per account; this is not a total heap/RSS limit. Existing
 interactive message limits are unchanged. A cache
 hit can paint before live revalidation; a failed refresh retains the displayed
@@ -380,6 +382,8 @@ and status projections; the native detached worker streams only validated
 public answers into private storage.
 
 ## Automatic mailbox checks
+
+API 8 Gmail accounts use the local replica watch instead of this summary poll/preloader; the paths below remain in use for other providers and compatible older backends.
 
 `mail.watch` registers one background task per account with a query, page size
 (default 25, UI supplies its configured page size), and interval

@@ -10,10 +10,30 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(backend_contract_path "${CMAKE_CURRENT_SOURCE_DIR}/../backend-api.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${backend_contract_path}")
+file(READ "${backend_contract_path}" backend_contract)
+file(SHA256 "${backend_contract_path}" OMAMAIL_BACKEND_CONTRACT_HASH)
+string(JSON OMAMAIL_BACKEND_API_VERSION GET "${backend_contract}" apiVersion)
+string(JSON OMAMAIL_RELEASED_API_VERSION GET "${backend_contract}" releasedApiVersion)
+string(JSON OMAMAIL_UNRELEASED_METHODS GET "${backend_contract}" unreleased methods)
+configure_file(src/backend_contract.h.in backend_contract.h @ONLY)
+
 find_package(Qt6 6.5 REQUIRED COMPONENTS
   Core Gui Qml Quick QuickControls2 Network Test)
 
 qt_standard_project_setup(REQUIRES 6.5)
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(standalone_manifest "${CMAKE_CURRENT_BINARY_DIR}/manifest.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/../manifest.json"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../Cargo.toml"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/package-backend.py")
+execute_process(COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/package-backend.py"
+  standalone-manifest --output "${standalone_manifest}"
+  COMMAND_ERROR_IS_FATAL ANY)
 
 set(OMAMAIL_NATIVE_SOURCES
   src/app_icon.cpp
@@ -64,10 +84,11 @@ if(WIN32)
   target_compile_definitions(omamail_native PRIVATE
     _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 endif()
-target_include_directories(omamail_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(omamail_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(omamail_native PUBLIC
   OMAMAIL_APP_VERSION="${PROJECT_VERSION}"
   OMAMAIL_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+  OMAMAIL_MANIFEST_PATH="${standalone_manifest}"
 )
 if(DEFINED OMAMAIL_BACKEND AND NOT OMAMAIL_BACKEND STREQUAL "")
   get_filename_component(OMAMAIL_BACKEND_ABSOLUTE "${OMAMAIL_BACKEND}" ABSOLUTE)
@@ -110,8 +131,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml")
   qt_add_resources(omamail-app standalone_qml
     PREFIX "/omamail"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/.."
-    FILES ${OMAMAIL_STANDALONE_QML} "${CMAKE_CURRENT_SOURCE_DIR}/../manifest.json"
+    FILES ${OMAMAIL_STANDALONE_QML}
   )
+  qt_add_resources(omamail-app standalone_manifest
+    PREFIX "/omamail" BASE "${CMAKE_CURRENT_BINARY_DIR}"
+    FILES "${standalone_manifest}")
   qt_add_resources(omamail-app standalone_brand
     PREFIX "/omamail/app"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -121,6 +145,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml")
 endif()
 
 include(CTest)
+option(OMAMAIL_DESKTOP_ACCEPTANCE "Build the synthetic desktop acceptance driver" OFF)
+if(OMAMAIL_DESKTOP_ACCEPTANCE)
+  find_package(Qt6 REQUIRED COMPONENTS QuickTest)
+  qt_add_executable(desktop_acceptance ../benchmarks/mail/desktop_main.cpp)
+  target_link_libraries(desktop_acceptance PRIVATE
+    omamail_native omamail_nativeplugin Qt6::QuickTest Qt6::QuickControls2)
+endif()
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   function(omamail_native_test name source)
@@ -155,6 +186,14 @@ if(BUILD_TESTING)
 
   find_program(QMLTESTRUNNER_EXECUTABLE qmltestrunner HINTS "${QT6_INSTALL_PREFIX}/bin")
   if(QMLTESTRUNNER_EXECUTABLE)
+    add_test(NAME tst_host_contract COMMAND ${QMLTESTRUNNER_EXECUTABLE}
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/imports"
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/styles"
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/../ui"
+      -input "${CMAKE_CURRENT_SOURCE_DIR}/tests/qml/tst_host_contract.qml"
+      -o -,txt)
+    set_tests_properties(tst_host_contract PROPERTIES
+      ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Omamail;QT_QUICK_CONTROLS_FALLBACK_STYLE=Basic")
     add_test(NAME tst_standalone_composition COMMAND ${QMLTESTRUNNER_EXECUTABLE}
       -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/imports"
       -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/styles"

@@ -17,7 +17,7 @@ host=${OMAMAIL_APP_HOST:-"$repo_root/app/build/omamail-app"}
 backend=${OMAMAIL_BACKEND:-"$repo_root/target/release/omamail"}
 qml=${OMAMAIL_STANDALONE_QML:-"$repo_root/app/qml"}
 ui=${OMAMAIL_SHARED_UI:-"$repo_root/ui"}
-manifest=${OMAMAIL_MANIFEST:-"$repo_root/manifest.json"}
+manifest=${OMAMAIL_MANIFEST:-}
 dist=${OMAMAIL_DIST:-"$repo_root/dist"}
 qt_bin=${OMAMAIL_QT_BIN:-}
 platform_plugin=${OMAMAIL_PLATFORM_PLUGIN:-}
@@ -46,13 +46,15 @@ fi
 
 version=$(sed -n '/^\[package\]/,/^\[/s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$repo_root/Cargo.toml" | head -n 1)
 [ -n "$version" ] || { printf 'Cargo.toml has no package version\n' >&2; exit 1; }
-manifest_version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' "$manifest")
-[ "$manifest_version" = "$version" ] || { printf 'manifest version %s does not match Cargo version %s\n' "$manifest_version" "$version" >&2; exit 1; }
+if [ -n "$manifest" ]; then
+  manifest_version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' "$manifest")
+  [ "$manifest_version" = "$version" ] || { printf 'manifest version %s does not match Cargo version %s\n' "$manifest_version" "$version" >&2; exit 1; }
+fi
 [ -x "$host" ] || { printf 'standalone host is missing or not executable: %s\n' "$host" >&2; exit 1; }
 [ -x "$backend" ] || { printf 'backend is missing or not executable: %s\n' "$backend" >&2; exit 1; }
 [ -f "$qml/Main.qml" ] || { printf 'standalone QML is missing: %s/Main.qml\n' "$qml" >&2; exit 1; }
 [ -f "$ui/Service.qml" ] || { printf 'shared UI is missing: %s/Service.qml\n' "$ui" >&2; exit 1; }
-[ -f "$manifest" ] || { printf 'manifest is missing: %s\n' "$manifest" >&2; exit 1; }
+[ -z "$manifest" ] || [ -f "$manifest" ] || { printf 'manifest is missing: %s\n' "$manifest" >&2; exit 1; }
 if find "$qml" "$ui" -type l -print | grep -q .; then
   printf 'QML inputs must not contain symbolic links\n' >&2
   exit 1
@@ -76,7 +78,11 @@ copy_product_files() {
   mkdir -p "$destination/qml" "$destination/ui" "$destination/licenses"
   cp -R "$qml/." "$destination/qml/"
   cp -R "$ui/." "$destination/ui/"
-  cp "$manifest" "$destination/manifest.json"
+  if [ -n "$manifest" ]; then
+    cp "$manifest" "$destination/manifest.json"
+  else
+    python3 "$repo_root/scripts/package-backend.py" standalone-manifest --output "$destination/manifest.json"
+  fi
   cp "$repo_root/app/assets/fonts/NerdFonts-LICENSE" "$destination/licenses/NerdFonts-LICENSE"
   cp "$repo_root/app/assets/fonts/NerdFonts-README.md" "$destination/licenses/NerdFonts-README.md"
   cp "$repo_root/app/assets/fonts/NerdFonts-PROVENANCE.md" "$destination/licenses/NerdFonts-PROVENANCE.md"

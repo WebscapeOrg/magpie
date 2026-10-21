@@ -50,7 +50,10 @@ pub(super) fn call_at(root: &Path, method: &str, params: &Value) -> Result<Value
     let empty = || normalize(&Value::Null);
     let name = if calendar {
         let name = field(params, "name")?;
-        if !matches!(name, "calendar" | "calendar-bar" | "calendar-reminders") {
+        if !matches!(
+            name,
+            "calendar" | "calendar-bar" | "calendar-reminders" | "calendar-shared"
+        ) {
             return Err("cache_invalid_input");
         }
         format!("{name}.json")
@@ -110,7 +113,7 @@ fn normalize_calendar(value: &Value) -> Value {
                 .unwrap_or(0.0)
                 .total_cmp(&a.1["at"].as_f64().unwrap_or(0.0))
         });
-        for (key, entry) in entries.into_iter().take(8) {
+        for (key, entry) in entries.into_iter().take(32) {
             let mut entry = entry.clone();
             if !entry.is_object() {
                 continue;
@@ -118,9 +121,15 @@ fn normalize_calendar(value: &Value) -> Value {
             entry["events"] = json!(
                 entry["events"]
                     .as_array()
-                    .map(|v| v.iter().take(2500).cloned().collect::<Vec<_>>())
+                    .map(|v| v.iter().take(25000).cloned().collect::<Vec<_>>())
                     .unwrap_or_default()
             );
+            if value["ranges"][key]["events"]
+                .as_array()
+                .is_some_and(|v| v.len() > 25000)
+            {
+                entry["sources"] = json!([]);
+            }
             out["ranges"][key] = entry;
         }
     }

@@ -157,3 +157,33 @@ assert.strictEqual(withdrawn, 1, 'cancellation withdraws the queued physical fra
 assert.strictEqual(context.inFlight, beforeCancel, 'withdrawal releases the in-flight count')
 context.abortRequest(unsent)
 assert.strictEqual(withdrawn, 1, 'withdrawal settles only once')
+
+vm.runInContext(method('localEdit'),context)
+const compatibility=load('backend/Compatibility.js')
+const contractHash='a'.repeat(64)
+for (const [info,expected] of [
+  [{apiVersion:8},'gmail.trash'],
+  [{apiVersion:8,contractHash:'b'.repeat(64)},'gmail.trash'],
+  [{apiVersion:8,contractHash},'local.edit'],
+  [{apiVersion:7},'gmail.trash']
+]) {
+  const requests=[]
+  context.backend={ready:true,executable:'/test/omamail',
+    apiVersion:compatibility.usableApiVersion(info,7,8,contractHash),
+    call(method,params,callback){requests.push({method,params,callback})}}
+  let failure
+  context.trashMessage('frozen-message',(value,error)=>failure=error)
+  assert.strictEqual(requests.length,1)
+  assert.strictEqual(requests[0].method,expected)
+  assert.strictEqual(requests[0].params.accountId,'synthetic@example.org')
+  if (expected==='local.edit') {
+    assert.deepStrictEqual(Array.from(requests[0].params.ids),['frozen-message'])
+    requests[0].callback(null,{message:'local_disk_full'})
+    assert(failure.includes('disk space'))
+  } else {
+    assert.strictEqual(requests[0].params.id,'frozen-message')
+    requests[0].callback({},null)
+    assert.strictEqual(failure,'')
+  }
+}
+console.log('Gmail deletion uses only the confirmed API contract and preserves error reasons')

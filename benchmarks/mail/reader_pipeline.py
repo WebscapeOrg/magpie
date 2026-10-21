@@ -109,7 +109,7 @@ Scope {
   id:backend
   executable:BINARY
   expectedVersion:VERSION
-  expectedApiVersion: 1
+  expectedApiVersion: API_REVISION
   onReadyChanged:if(ready&&!root.began){root.began=true;Qt.callLater(root.nextCase)}
   onFailureChanged:if(failure!=="")root.fail(failure)
  }
@@ -196,7 +196,7 @@ def main():
         config=Path(env['XDG_CONFIG_HOME'])/'omamail';config.mkdir(mode=0o700)
         registry=config/'accounts.json';registry.write_text(json.dumps({'version':1,'accounts':[{'provider':'gmail','email':'reader-benchmark@example.test'}],'activeId':'reader-benchmark@example.test'}));registry.chmod(0o600)
         for engine in ENGINES:
-            text=QML.replace('PAYLOAD',json.dumps(cases)).replace('SAMPLES',str(args.samples)).replace('ENGINE',json.dumps(engine)).replace('BINARY',json.dumps(str(frozen))).replace('VERSION',json.dumps(version))
+            text=QML.replace('API_REVISION',str(json.loads((ROOT/'backend-api.json').read_text())['apiVersion'])).replace('PAYLOAD',json.dumps(cases)).replace('SAMPLES',str(args.samples)).replace('ENGINE',json.dumps(engine)).replace('BINARY',json.dumps(str(frozen))).replace('VERSION',json.dumps(version))
             (temp/'shell.qml').write_text(text)
             child=subprocess.Popen([shutil.which('qs'),'--no-color','--path',str(temp/'shell.qml')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)
             try:output,_=child.communicate(timeout=920)

@@ -33,7 +33,8 @@ def check(root, tag=None, require_pin=False):
     manifest = json.loads((root / 'manifest.json').read_bytes())
     if not isinstance(manifest, dict) or not isinstance(manifest.get('version'), str):
         raise ValueError('manifest.json requires a string version')
-    versions['manifest'] = manifest['version']
+    if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', manifest['version']):
+        raise ValueError('plugin manifest requires canonical MAJOR.MINOR.PATCH')
     cmake = (root / 'app/CMakeLists.txt').read_text()
     app_versions = re.findall(
         r'^\s*project\s*\(\s*omamail-app\s+VERSION\s+([^\s\)]+)', cmake,
@@ -48,6 +49,13 @@ def check(root, tag=None, require_pin=False):
     if any(value != version for value in versions.values()):
         raise ValueError(f'versions disagree with Cargo {version}: {versions}')
     return version
+
+
+def standalone_manifest(root):
+    version = check(root)
+    manifest = json.loads((root / 'manifest.json').read_bytes())
+    manifest.update(id='omamail', name='Omamail', version=version)
+    return json.dumps(manifest, ensure_ascii=False, indent=2) + '\n'
 
 
 def pin_version(root):
@@ -504,6 +512,9 @@ def main():
     cmd.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     cmd.add_argument('--tag')
     cmd.add_argument('--require-pin', action='store_true')
+    cmd = sub.add_parser('standalone-manifest')
+    cmd.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
+    cmd.add_argument('--output', type=Path)
     cmd = sub.add_parser('pin-version')
     cmd.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     cmd = sub.add_parser('check-api')
@@ -535,6 +546,12 @@ def main():
     try:
         if args.command == 'check':
             print(check(args.root, args.tag, args.require_pin))
+        elif args.command == 'standalone-manifest':
+            contents = standalone_manifest(args.root)
+            if args.output:
+                args.output.write_text(contents, encoding='utf-8')
+            else:
+                print(contents, end='')
         elif args.command == 'pin-version':
             print(pin_version(args.root))
         elif args.command == 'check-api':

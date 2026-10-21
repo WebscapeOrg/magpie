@@ -68,7 +68,7 @@ QtObject {
       var entry = entries[i]
       var id = String(entry.id || "")
       delete remaining[id]
-      if (entry.state === "queued") waiting.push(entry)
+      if (entry.state === "queued" || entry.state === "waiting") waiting.push(entry)
       if (entry.state === "sending") busy = true
       if (done[id] === entry.state) continue
       if (entry.state === "sent") {
@@ -102,7 +102,7 @@ QtObject {
       })(receipts[r])
     }
   }
-  function park(payload, id, order) {
+  function park(payload, id, order, nativeFields) {
     var sendId = String(id || "")
     var now = Date.now()
     var next = Object.assign({}, submitted)
@@ -110,8 +110,11 @@ QtObject {
     submitted = next
     parked = parked.concat([next[sendId]])
     arm()
-    request("outbox.enqueue", { provider: String(account.providerId || ""), payload: payload,
-      sendId: sendId, order: Math.max(0, Math.floor(Number(order) || 0)), delaySeconds: account.undoSendSeconds }, function(result, error) {
+    var params = {provider:String(account.providerId || ""),sendId:sendId,
+      order:Math.max(0,Math.floor(Number(order) || 0)),delaySeconds:account.undoSendSeconds}
+    if (nativeFields) { params.fields = nativeFields; params.resumeUnsent = true }
+    else params.payload = payload
+    request(nativeFields ? "outbox.compose" : "outbox.enqueue", params, function(result, error) {
       if (error) {
         if (queue.handled[sendId] === "sent") return
         var unknown = Object.assign({}, queue.uncertain)

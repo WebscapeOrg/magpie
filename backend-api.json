@@ -190,7 +190,28 @@
     "jmap.request",
     "jmap.stream.open",
     "jmap.stream.poll",
-    "jmap.stream.close"
+    "jmap.stream.close",
+    "reader.prefetch",
+    "local.list",
+    "local.status",
+    "local.overview",
+    "local.edits",
+    "local.edit",
+    "local.pause",
+    "local.cancelEdit",
+    "local.dismissConflict",
+    "local.watch",
+    "local.unwatch",
+    "local.refresh",
+    "attachment.import",
+    "attachment.preview",
+    "attachment.download",
+    "attachment.retain",
+    "outbox.compose",
+    "draft.compose",
+    "calendar.read",
+    "calendar.parse",
+    "local.labelCounts"
   ],
   "contractCases": [
     {
@@ -1432,6 +1453,145 @@
       "equals": {
         "hasAttachments": false
       }
+    },
+    {
+      "name": "Local list rejects unsupported search before opening storage",
+      "method": "local.list",
+      "params": {
+        "accountId": "missing@example.org",
+        "query": "larger:1M"
+      },
+      "errorCode": -32000,
+      "equals": {
+        "message": "local_search_unsupported"
+      }
+    },
+    {
+      "name": "Local edits reject duplicated frozen message IDs before storage",
+      "method": "local.edit",
+      "params": {
+        "accountId": "missing@example.org",
+        "ticket": "same",
+        "ids": [
+          "one",
+          "one"
+        ],
+        "addLabelIds": [
+          "STARRED"
+        ],
+        "removeLabelIds": []
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Local edits refuse immutable Gmail labels",
+      "method": "local.edit",
+      "params": {
+        "accountId": "missing@example.org",
+        "ticket": "bad",
+        "ids": [
+          "one"
+        ],
+        "addLabelIds": [
+          "SENT"
+        ],
+        "removeLabelIds": []
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Local pause rejects untyped controls before storage",
+      "method": "local.pause",
+      "params": {
+        "accountId": "missing@example.org",
+        "paused": "yes"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Native attachments refuse arbitrary resource URLs",
+      "method": "attachment.preview",
+      "params": {
+        "accountId": "missing@example.org",
+        "url": "https://example.invalid/file"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Native draft composition rejects unknown controls",
+      "method": "draft.compose",
+      "params": {
+        "accountId": "missing@example.org",
+        "fields": {},
+        "send": true
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Native outbox composition requires structured fields",
+      "method": "outbox.compose",
+      "params": {
+        "fields": "raw"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Calendar reads refuse mutations",
+      "method": "calendar.read",
+      "params": {
+        "operation": "delete"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Native Google calendar parsing retains display data",
+      "method": "calendar.parse",
+      "params": {
+        "kind": "google",
+        "sourceId": "synthetic",
+        "body": "{\"items\": [{\"id\": \"one\", \"summary\": \"Meeting\", \"start\": {\"dateTime\": \"2026-10-20T12:00:00Z\"}, \"end\": {\"dateTime\": \"2026-10-20T13:00:00Z\"}}]}"
+      },
+      "equals": {
+        "events.length": 1,
+        "events.0.googleId": "one",
+        "events.0.summary": "Meeting",
+        "events.0.sourceId": "synthetic",
+        "events.0.start.ms": 1792497600000
+      }
+    },
+    {
+      "name": "Native calendar parser refuses document type expansion",
+      "method": "calendar.parse",
+      "params": {
+        "kind": "caldav",
+        "sourceId": "synthetic",
+        "body": "<!DOCTYPE x [<!ENTITY s SYSTEM \"file:///etc/passwd\">]><x>&s;</x>"
+      },
+      "errorCode": -32000,
+      "equals": {
+        "message": "calendar_invalid_response"
+      }
+    },
+    {
+      "name": "Shared calendar ranges have an independent namespace",
+      "method": "cache.calendarRead",
+      "params": {
+        "name": "calendar-shared"
+      },
+      "equals": {
+        "version": 3
+      },
+      "types": {
+        "ranges": "object"
+      }
+    },
+    {
+      "name": "Unreleased handshake identifies its exact API contract",
+      "method": "system.info",
+      "params": {},
+      "types": {
+        "contractHash": "string"
+      }
     }
   ],
   "unreleased": {
@@ -1442,7 +1602,28 @@
       "inbox.snooze",
       "inbox.wake",
       "inbox.tick",
-      "attachment.thumbnail"
+      "attachment.thumbnail",
+      "reader.prefetch",
+      "local.list",
+      "local.status",
+      "local.overview",
+      "local.edits",
+      "local.edit",
+      "local.pause",
+      "local.cancelEdit",
+      "local.dismissConflict",
+      "local.watch",
+      "local.unwatch",
+      "local.refresh",
+      "attachment.import",
+      "attachment.preview",
+      "attachment.download",
+      "attachment.retain",
+      "outbox.compose",
+      "draft.compose",
+      "calendar.read",
+      "calendar.parse",
+      "local.labelCounts"
     ],
     "cases": [
       "Inbox snapshot refuses unknown accounts",
@@ -1455,7 +1636,19 @@
       "Attachment thumbnail rejects resource URLs before rendering",
       "Attachment thumbnail prepares only raster PNG data",
       "Message summaries identify explicit file attachments without body bytes",
-      "Message summaries do not count inline sender logos as attachments"
+      "Message summaries do not count inline sender logos as attachments",
+      "Local list rejects unsupported search before opening storage",
+      "Local edits reject duplicated frozen message IDs before storage",
+      "Local edits refuse immutable Gmail labels",
+      "Local pause rejects untyped controls before storage",
+      "Native attachments refuse arbitrary resource URLs",
+      "Native draft composition rejects unknown controls",
+      "Native outbox composition requires structured fields",
+      "Calendar reads refuse mutations",
+      "Native Google calendar parsing retains display data",
+      "Native calendar parser refuses document type expansion",
+      "Shared calendar ranges have an independent namespace",
+      "Unreleased handshake identifies its exact API contract"
     ]
   }
 }

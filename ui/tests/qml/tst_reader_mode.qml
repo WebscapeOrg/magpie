@@ -123,6 +123,13 @@ Item {
     }
 
     function init() {
+      reader.width = MailStyle.space(900)
+      reader.zoom = 1.0
+      mailService.canOpenOnWeb = false
+      mailService.selectedInvite = null
+      mailService.selectedReaderTooHeavy = rendered.reader.tooHeavy
+      mailService.selectedTooHeavy = rendered.tooHeavy
+      mailService.selectedReaderEmpty = rendered.reader.empty
       reader.bodyMode = "reader"
       reader.forceRichAnyway = false
       reader.alwaysRenderHeavyMessages = false

@@ -104,51 +104,32 @@ Item {
     property var selectedBody: ({ text: "Original body", source: "plain" })
     property var selectedMessage: null
 
-    property var log: []
-    property var lastSavedDraft: null
-
     signal accountAdded()
     signal replySent()
 
-    function record(text) {
-      var next = log.slice()
-      next.push(text)
-      log = next
-    }
-    function count(text) {
-      var matchCount = 0
-      for (var index = 0; index < log.length; index++) if (log[index] === text) matchCount++
-      return matchCount
-    }
     function editingIndex() { return 0 }
     function addAccount(provider) {
-      record("add:" + String(provider || ""))
       accountCount += 1
       accountAdded()
     }
     function configureCurrentAccount(values) {
-      record("configure:" + String(values.provider || ""))
       if (values.provider !== undefined) providerId = String(values.provider)
     }
     function discardCurrentDraft() {
-      record("discard")
       if (accountCount > 1) accountCount -= 1
     }
     function switchToIndex(_index) { return true }
     function selectMailbox(key) {
       mailboxKey = String(key || "")
-      record("mailbox:" + mailboxKey)
     }
     function search(query) {
       searchQuery = String(query || "")
-      record("search:" + searchQuery)
     }
     function preferredSendAs(_recipients) { return null }
     function refreshRecipientContacts() {}
     function cursorOffset(_id, _delta) { return "" }
     function clearSelection() {
       selectedId = ""
-      record("clear")
     }
     function select(id) {
       selectedId = String(id || "")
@@ -158,27 +139,10 @@ Item {
       detailPainted = false
       detailLoading = true
     }
-    function land() {
-      detailLoading = false
-      detailPainted = true
-      selectedMessage = ({
-        id: selectedId,
-        messageId: "<" + selectedId + "@example.com>",
-        threadId: "thread-1",
-        subject: "One",
-        from: ({ email: "sender@example.com", display: "Sender" }),
-        replyTo: ({ email: "sender@example.com" }),
-        to: [], cc: [], bcc: [],
-        fullTime: "today"
-      })
-      selectedBody = ({ text: "Original body", source: "plain" })
-    }
     function loadAttachments(_messageId, _attachments, callback) { callback([], "") }
     function send(_fields) { return true }
     function undoSend() { return false }
     function saveDraft(fields, callback) {
-      lastSavedDraft = fields
-      record("saveDraft")
       callback("draft-1", "")
     }
     function refresh() {}

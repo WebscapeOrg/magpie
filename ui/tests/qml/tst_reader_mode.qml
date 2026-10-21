@@ -1,7 +1,6 @@
 import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
-import qs.Commons
 import "../../components" as Omamail
 import "../../message/Html.js" as Html
 

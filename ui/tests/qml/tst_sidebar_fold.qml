@@ -1,6 +1,5 @@
 import QtQuick 2.15
 import QtTest 1.3
-import qs.Commons
 import qs.Commons as Commons
 import "../../components" as Mail
 
@@ -99,7 +98,7 @@ Item {
       verify(chip.y < chip.parent.height / 4, "hint stays at the top")
       verify(chip.height < chip.parent.height / 2, "hint is smaller than the row icon")
       verify(visibleNamed(sidebar, "mailbox-entry-icon", [])[0].visible, "modifier preserves mailbox icon")
-      verify(chip.color.a < Style.selectedFillFor(Commons.Color.foreground, Commons.Color.accent).a,
+      verify(chip.color.a < Commons.Style.selectedFillFor(Commons.Color.foreground, Commons.Color.accent).a,
         "a shortcut hint must not use the much heavier selected-state fill")
     }
   }

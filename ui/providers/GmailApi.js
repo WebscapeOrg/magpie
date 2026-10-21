@@ -59,9 +59,9 @@ function appendQuery(url, values) {
     var value = values[key]
     if (value === undefined || value === null || value === "") continue
     if (Array.isArray(value)) {
-      for (var i = 0; i < value.length; i++) {
-        if (value[i] === undefined || value[i] === null || value[i] === "") continue
-        parts.push(encode(key) + "=" + encode(value[i]))
+      for (var itemIndex = 0; itemIndex < value.length; itemIndex++) {
+        if (value[itemIndex] === undefined || value[itemIndex] === null || value[itemIndex] === "") continue
+        parts.push(encode(key) + "=" + encode(value[itemIndex]))
       }
     } else {
       parts.push(encode(key) + "=" + encode(value))
@@ -85,7 +85,7 @@ function parseJson(text, fallback) {
   try {
     var parsed = JSON.parse(String(text || ""))
     return parsed === null || parsed === undefined ? fallback : parsed
-  } catch (e) {
+  } catch (error) {
     return fallback
   }
 }
@@ -147,8 +147,8 @@ function draftListQuery(pageToken) {
 function draftIdForMessage(payload, messageId) {
   var wanted = String(messageId || "")
   var rows = arrayValues(payload && payload.drafts)
-  for (var i = 0; i < rows.length; i++) {
-    var row = rows[i] || {}
+  for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
+    var row = rows[itemIndex] || {}
     if (row.message && String(row.message.id || "") === wanted)
       return String(row.id || "")
   }
@@ -204,11 +204,11 @@ function parseMessageList(payload) {
   var messages = arrayValues(body.messages)
   var ids = []
   var threadIds = []
-  for (var i = 0; i < messages.length; i++) {
-    var id = String(messages[i] && messages[i].id ? messages[i].id : "")
+  for (var itemIndex = 0; itemIndex < messages.length; itemIndex++) {
+    var id = String(messages[itemIndex] && messages[itemIndex].id ? messages[itemIndex].id : "")
     if (!id) continue
     ids.push(id)
-    threadIds.push(String(messages[i].threadId || ""))
+    threadIds.push(String(messages[itemIndex].threadId || ""))
   }
   return {
     ids: ids,
@@ -228,8 +228,8 @@ function labelDisplayName(label) {
 function parseLabels(payload) {
   var labels = arrayValues(payload && payload.labels)
   var result = []
-  for (var i = 0; i < labels.length; i++) {
-    var label = labels[i]
+  for (var itemIndex = 0; itemIndex < labels.length; itemIndex++) {
+    var label = labels[itemIndex]
     var id = String(label && label.id ? label.id : "")
     if (!id) continue
     result.push({
@@ -277,8 +277,8 @@ function parseProfile(payload) {
 function parseSendAs(payload) {
   var entries = arrayValues(payload && payload.sendAs)
   var aliases = []
-  for (var i = 0; i < entries.length; i++) {
-    var entry = entries[i] || {}
+  for (var itemIndex = 0; itemIndex < entries.length; itemIndex++) {
+    var entry = entries[itemIndex] || {}
     var email = String(entry.sendAsEmail || "").trim()
     var primary = entry.isPrimary === true
     var status = String(entry.verificationStatus || "").toLowerCase()
@@ -302,18 +302,18 @@ function aliasEmail(alias) {
 function preferredSendAs(aliases, recipients) {
   var choices = Array.isArray(aliases) ? aliases : []
   var addressed = Array.isArray(recipients) ? recipients : []
-  for (var i = 0; i < addressed.length; i++) {
-    var recipient = aliasEmail(addressed[i])
+  for (var itemIndex = 0; itemIndex < addressed.length; itemIndex++) {
+    var recipient = aliasEmail(addressed[itemIndex])
     if (!recipient) continue
-    for (var j = 0; j < choices.length; j++) {
-      if (aliasEmail(choices[j]) === recipient) return choices[j]
+    for (var nestedIndex = 0; nestedIndex < choices.length; nestedIndex++) {
+      if (aliasEmail(choices[nestedIndex]) === recipient) return choices[nestedIndex]
     }
   }
-  for (var k = 0; k < choices.length; k++) {
-    if (choices[k] && choices[k].isDefault === true) return choices[k]
+  for (var choiceIndex = 0; choiceIndex < choices.length; choiceIndex++) {
+    if (choices[choiceIndex] && choices[choiceIndex].isDefault === true) return choices[choiceIndex]
   }
-  for (var p = 0; p < choices.length; p++) {
-    if (choices[p] && choices[p].isPrimary === true) return choices[p]
+  for (var primaryIndex = 0; primaryIndex < choices.length; primaryIndex++) {
+    if (choices[primaryIndex] && choices[primaryIndex].isPrimary === true) return choices[primaryIndex]
   }
   return choices.length > 0 ? choices[0] : null
 }
@@ -322,8 +322,8 @@ function sendAsFor(aliases, email) {
   var wanted = aliasEmail(email)
   if (!wanted) return null
   var choices = Array.isArray(aliases) ? aliases : []
-  for (var i = 0; i < choices.length; i++) {
-    if (aliasEmail(choices[i]) === wanted) return choices[i]
+  for (var itemIndex = 0; itemIndex < choices.length; itemIndex++) {
+    if (aliasEmail(choices[itemIndex]) === wanted) return choices[itemIndex]
   }
   return null
 }

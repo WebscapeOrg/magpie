@@ -177,7 +177,7 @@ function parseJson(text) {
   try {
     var parsed = JSON.parse(String(text || ""))
     return parsed && typeof parsed === "object" ? parsed : null
-  } catch (e) {
+  } catch (error) {
     return null
   }
 }
@@ -255,21 +255,21 @@ function parseTokenResponse(status, text, previousRefreshToken) {
 function base64UrlDecode(text) {
   var alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
   var input = String(text || "").replace(/=+$/, "")
-  var out = ""
+  var output = ""
   var bits = 0
   var value = 0
-  for (var i = 0; i < input.length; i++) {
-    var index = alphabet.indexOf(input.charAt(i))
+  for (var itemIndex = 0; itemIndex < input.length; itemIndex++) {
+    var index = alphabet.indexOf(input.charAt(itemIndex))
     if (index < 0) return ""
     value = ((value << 6) | index) & 0xffff
     bits += 6
     if (bits >= 8) {
       bits -= 8
       var byte = (value >> bits) & 255
-      out += "%" + (byte < 16 ? "0" : "") + byte.toString(16)
+      output += "%" + (byte < 16 ? "0" : "") + byte.toString(16)
     }
   }
-  try { return decodeURIComponent(out) } catch (e) { return "" }
+  try { return decodeURIComponent(output) } catch (error) { return "" }
 }
 
 function idTokenClaims(idToken) {
@@ -282,8 +282,8 @@ function signedInAs(idToken) {
   var claims = idTokenClaims(idToken)
   if (!claims) return ""
   var names = ["preferred_username", "email", "upn"]
-  for (var i = 0; i < names.length; i++) {
-    var value = trimmed(claims[names[i]]).toLowerCase()
+  for (var itemIndex = 0; itemIndex < names.length; itemIndex++) {
+    var value = trimmed(claims[names[itemIndex]]).toLowerCase()
     if (value !== "") return value
   }
   return ""
@@ -317,8 +317,8 @@ function otherAccountMessage(who, email) {
 
 function graphScopeNames() {
   var names = []
-  for (var i = 0; i < GRAPH_SCOPES.length; i++) {
-    var value = String(GRAPH_SCOPES[i] || "")
+  for (var itemIndex = 0; itemIndex < GRAPH_SCOPES.length; itemIndex++) {
+    var value = String(GRAPH_SCOPES[itemIndex] || "")
     names.push(value.substring(value.lastIndexOf("/") + 1))
   }
   return names.join(" and ")
@@ -344,7 +344,7 @@ function consentRequired(payload) {
   if (code !== "invalid_grant" && code !== "interaction_required") return false
   if (String(payload.suberror || "") === "consent_required") return true
   var codes = Array.isArray(payload.error_codes) ? payload.error_codes : []
-  for (var i = 0; i < codes.length; i++) if (Number(codes[i]) === 65001) return true
+  for (var itemIndex = 0; itemIndex < codes.length; itemIndex++) if (Number(codes[itemIndex]) === 65001) return true
   return /AADSTS65001/.test(String(payload.error_description || ""))
 }
 
@@ -355,8 +355,8 @@ function graphConsentMessage() {
 
 function missingMailScopes(granted) {
   var missing = []
-  for (var i = 0; i < SCOPES.length; i++) {
-    var scope = SCOPES[i]
+  for (var itemIndex = 0; itemIndex < SCOPES.length; itemIndex++) {
+    var scope = SCOPES[itemIndex]
     // Not resource scopes: a token answer does not list them.
     if (scope === "offline_access" || scope === "openid") continue
     if (!scopeListed(granted, scope)) missing.push(scope)
@@ -367,8 +367,8 @@ function missingMailScopes(granted) {
 function missingScopeMessage(missing) {
   if (!Array.isArray(missing) || missing.length === 0) return ""
   var names = []
-  for (var i = 0; i < missing.length; i++) {
-    var value = String(missing[i] || "")
+  for (var itemIndex = 0; itemIndex < missing.length; itemIndex++) {
+    var value = String(missing[itemIndex] || "")
     names.push(value.substring(value.lastIndexOf("/") + 1))
   }
   return "Microsoft sign-in finished without the " + names.join(" and ")

@@ -140,9 +140,9 @@ Item {
   function finishWaiters(value, error) {
     var pending = credentialWaiters.slice()
     credentialWaiters = []
-    for (var i = 0; i < pending.length; i++) {
-      try { pending[i](value, safeError(error)) }
-      catch (e) { /* consumers own their callback errors */ }
+    for (var itemIndex = 0; itemIndex < pending.length; itemIndex++) {
+      try { pending[itemIndex](value, safeError(error)) }
+      catch (error) { /* consumers own their callback errors */ }
     }
   }
 

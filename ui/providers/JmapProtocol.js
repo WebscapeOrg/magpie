@@ -79,12 +79,12 @@ function trimmed(value) {
 // order. One id or an array of them, which is what every action takes.
 function uniqueIds(ids) {
   var source = Array.isArray(ids) ? ids : [ids]
-  var out = []
-  for (var i = 0; i < source.length; i++) {
-    var id = trimmed(source[i])
-    if (id !== "" && out.indexOf(id) < 0) out.push(id)
+  var output = []
+  for (var itemIndex = 0; itemIndex < source.length; itemIndex++) {
+    var id = trimmed(source[itemIndex])
+    if (id !== "" && output.indexOf(id) < 0) output.push(id)
   }
-  return out
+  return output
 }
 
 // A value that is there. JMAP's maps of keywords and of mailbox ids carry
@@ -103,7 +103,7 @@ function parseJson(text) {
   try {
     var parsed = JSON.parse(String(text))
     return parsed !== null && typeof parsed === "object" ? parsed : null
-  } catch (e) {
+  } catch (error) {
     return null
   }
 }
@@ -265,28 +265,28 @@ function requestError(payload) {
 function invocations(responses) {
   var list = responses && typeof responses === "object" && responses.length !== undefined
     ? responses : []
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var row = list[i]
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var row = list[itemIndex]
     if (!row || typeof row !== "object" || row.length < 2) continue
-    out.push({
+    output.push({
       name: trimmed(row[0]),
       arguments: row[1] && typeof row[1] === "object" ? row[1] : {},
       callId: row.length > 2 ? trimmed(row[2]) : ""
     })
   }
-  return out
+  return output
 }
 
 // The first `error` invocation in a `methodResponses` array, or null.
 function firstMethodError(responses) {
   var list = invocations(responses)
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].name !== "error") continue
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (list[itemIndex].name !== "error") continue
     return {
-      type: errorType(list[i].arguments.type),
-      arguments: list[i].arguments,
-      callId: list[i].callId
+      type: errorType(list[itemIndex].arguments.type),
+      arguments: list[itemIndex].arguments,
+      callId: list[itemIndex].callId
     }
   }
   return null
@@ -323,8 +323,8 @@ function methodError(responses, expected) {
 function expectsType(type, expected) {
   if (expected === undefined || expected === null) return false
   if (typeof expected === "object" && expected.length !== undefined) {
-    for (var i = 0; i < expected.length; i++) {
-      if (String(expected[i]) === type) return true
+    for (var itemIndex = 0; itemIndex < expected.length; itemIndex++) {
+      if (String(expected[itemIndex]) === type) return true
     }
     return false
   }
@@ -372,9 +372,9 @@ function makeQueue(limit) {
   }
 
   queue.withdraw = function (entry) {
-    for (var i = 0; i < queue.waiting.length; i++) {
-      if (queue.waiting[i] === entry) {
-        queue.waiting.splice(i, 1)
+    for (var itemIndex = 0; itemIndex < queue.waiting.length; itemIndex++) {
+      if (queue.waiting[itemIndex] === entry) {
+        queue.waiting.splice(itemIndex, 1)
         return true
       }
     }
@@ -407,7 +407,7 @@ function makeWaiters() {
     gate.loading = false
     var pending = gate.waiting
     gate.waiting = []
-    for (var i = 0; i < pending.length; i++) pending[i](String(error || ""))
+    for (var itemIndex = 0; itemIndex < pending.length; itemIndex++) pending[itemIndex](String(error || ""))
   }
 
   return gate
@@ -472,12 +472,12 @@ var AUTH_SCHEME_ORDER = [AUTH_BASIC, AUTH_BEARER]
 // the two — nothing recorded yet, or `none` — is the default order.
 function schemeOrder(recorded) {
   var first = trimmed(recorded).toLowerCase()
-  var out = []
-  if (first === AUTH_BASIC || first === AUTH_BEARER) out.push(first)
-  for (var i = 0; i < AUTH_SCHEME_ORDER.length; i++) {
-    if (out.indexOf(AUTH_SCHEME_ORDER[i]) < 0) out.push(AUTH_SCHEME_ORDER[i])
+  var output = []
+  if (first === AUTH_BASIC || first === AUTH_BEARER) output.push(first)
+  for (var itemIndex = 0; itemIndex < AUTH_SCHEME_ORDER.length; itemIndex++) {
+    if (output.indexOf(AUTH_SCHEME_ORDER[itemIndex]) < 0) output.push(AUTH_SCHEME_ORDER[itemIndex])
   }
-  return out
+  return output
 }
 
 // What a discovery step is. `typed` is the URL built from what the user wrote,
@@ -642,16 +642,16 @@ function discoveryHop(status, redirectUrl) {
 }
 
 function looksLikeSessionDocument(body) {
-  var doc = parseJson(body)
-  if (!doc) return false
-  return hasCapability(doc.capabilities, CAPABILITY_CORE)
+  var document = parseJson(body)
+  if (!document) return false
+  return hasCapability(document.capabilities, CAPABILITY_CORE)
 }
 
 function looksLikeJmapChallenge(body) {
   var text = trimmed(body)
-  var doc = parseJson(text)
-  if (doc) {
-    var type = trimmed(doc.type)
+  var document = parseJson(text)
+  if (document) {
+    var type = trimmed(document.type)
     return type.indexOf("urn:ietf:params:jmap:error:") === 0
   }
   // Fastmail's session 401 is text/plain, not a problem document.
@@ -698,8 +698,8 @@ function countKeys(object) {
 
 function containsValue(list, value) {
   if (!Array.isArray(list)) return false
-  for (var i = 0; i < list.length; i++) {
-    if (String(list[i]) === value) return true
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (String(list[itemIndex]) === value) return true
   }
   return false
 }
@@ -717,16 +717,16 @@ function containsValue(list, value) {
 // JMAP. `accountId` on success is `primaryAccounts` for the mail capability,
 // which is the id every later request names.
 function verifySession(session) {
-  var doc = parseJson(session)
+  var document = parseJson(session)
   var notMail = { error: "The server answered, but not as a JMAP mail server", accountId: "" }
-  if (!doc) return notMail
-  var capabilities = doc.capabilities
+  if (!document) return notMail
+  var capabilities = document.capabilities
   if (!hasCapability(capabilities, CAPABILITY_CORE)) return notMail
   if (!hasCapability(capabilities, CAPABILITY_MAIL)) return notMail
 
-  var accounts = doc.accounts && typeof doc.accounts === "object" ? doc.accounts : null
-  var primary = doc.primaryAccounts && typeof doc.primaryAccounts === "object"
-    ? trimmed(doc.primaryAccounts[CAPABILITY_MAIL]) : ""
+  var accounts = document.accounts && typeof document.accounts === "object" ? document.accounts : null
+  var primary = document.primaryAccounts && typeof document.primaryAccounts === "object"
+    ? trimmed(document.primaryAccounts[CAPABILITY_MAIL]) : ""
   var account = accounts && primary !== "" ? accounts[primary] : null
   var noMailbox = { error: "The server has no mailbox for this account", accountId: "" }
   if (!accounts || countKeys(accounts) === 0 || !account) return noMailbox
@@ -748,8 +748,8 @@ function verifySession(session) {
   // so nothing would have been sent either way; refusing here is the same
   // rule one gate earlier, where the session is still being judged and the
   // sentence is this client's rather than the script's stderr.
-  for (var i = 0; i < SESSION_ADDRESSES.length; i++) {
-    var address = trimmed(doc[SESSION_ADDRESSES[i]])
+  for (var itemIndex = 0; itemIndex < SESSION_ADDRESSES.length; itemIndex++) {
+    var address = trimmed(document[SESSION_ADDRESSES[itemIndex]])
     if (address !== "" && !/^https:\/\//i.test(address)) {
       return { error: "The server's session names an address that is not HTTPS", accountId: "" }
     }
@@ -783,20 +783,20 @@ function hasSubmission(session, accountId) {
 // The primary mail account of a session, which is the id `verifySession`
 // records and every method call carries.
 function primaryAccountId(session) {
-  var doc = parseJson(session)
-  if (!doc || !doc.primaryAccounts || typeof doc.primaryAccounts !== "object") return ""
-  return trimmed(doc.primaryAccounts[CAPABILITY_MAIL])
+  var document = parseJson(session)
+  if (!document || !document.primaryAccounts || typeof document.primaryAccounts !== "object") return ""
+  return trimmed(document.primaryAccounts[CAPABILITY_MAIL])
 }
 
 // One account object out of a parsed session, by id or by primary. Null when
 // the session names no such account, which is what a stale account id on a
 // server that has been rebuilt looks like.
-function accountFor(doc, accountId) {
-  if (!doc || typeof doc !== "object") return null
-  var accounts = doc.accounts && typeof doc.accounts === "object" ? doc.accounts : null
+function accountFor(document, accountId) {
+  if (!document || typeof document !== "object") return null
+  var accounts = document.accounts && typeof document.accounts === "object" ? document.accounts : null
   if (!accounts) return null
   var wanted = trimmed(accountId)
-  if (wanted === "") wanted = primaryAccountId(doc)
+  if (wanted === "") wanted = primaryAccountId(document)
   if (wanted === "") return null
   var account = accounts[wanted]
   return account && typeof account === "object" ? account : null
@@ -806,8 +806,8 @@ function accountFor(doc, accountId) {
 // and state the session publishes is read in, and read by name here so the
 // five readers below cannot disagree about what an absent one means.
 function sessionField(session, name) {
-  var doc = parseJson(session)
-  return doc ? trimmed(doc[name]) : ""
+  var document = parseJson(session)
+  return document ? trimmed(document[name]) : ""
 }
 
 // Where every method call goes. Read from the session rather than assumed:
@@ -840,8 +840,8 @@ function sessionState(session) {
 // says nothing, and a held session with no state of its own has nothing to
 // compare, so neither moves anything.
 function movedSessionState(session, payload) {
-  var doc = parseJson(payload)
-  var reported = doc ? trimmed(doc.sessionState) : ""
+  var document = parseJson(payload)
+  var reported = document ? trimmed(document.sessionState) : ""
   if (reported === "") return ""
   var held = sessionState(session)
   return held !== "" && held !== reported ? reported : ""
@@ -884,9 +884,9 @@ var DEFAULT_OBJECTS_IN_GET = 100
 // A positive whole number off the session's core capability, or 0 for one the
 // session does not state.
 function coreLimit(session, name) {
-  var doc = parseJson(session)
-  var core = doc && doc.capabilities && typeof doc.capabilities === "object"
-    ? doc.capabilities[CAPABILITY_CORE] : null
+  var document = parseJson(session)
+  var core = document && document.capabilities && typeof document.capabilities === "object"
+    ? document.capabilities[CAPABILITY_CORE] : null
   var value = core && typeof core === "object" ? Math.floor(Number(core[trimmed(name)])) : NaN
   return isFinite(value) && value > 0 ? value : 0
 }
@@ -905,9 +905,9 @@ function sessionLimit(session, name, fallback) {
 function chunked(ids, size) {
   var list = Array.isArray(ids) ? ids : []
   var limit = Math.max(1, Math.floor(Number(size)) || 1)
-  var out = []
-  for (var i = 0; i < list.length; i += limit) out.push(list.slice(i, i + limit))
-  return out
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex += limit) output.push(list.slice(itemIndex, itemIndex + limit))
+  return output
 }
 
 // The arguments of the first invocation with this name in a reply. A JMAP
@@ -918,8 +918,8 @@ function chunked(ids, size) {
 function responseArguments(responses, name) {
   var list = invocations(responses)
   var wanted = trimmed(name)
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].name === wanted) return list[i].arguments
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    if (list[itemIndex].name === wanted) return list[itemIndex].arguments
   }
   return null
 }
@@ -939,22 +939,22 @@ function responseArguments(responses, name) {
 // and filing it under `Email` would silence a real change.
 
 function recordStates(known, responses) {
-  var out = {}
+  var output = {}
   var source = known && typeof known === "object" ? known : {}
-  for (var key in source) out[key] = String(source[key])
+  for (var key in source) output[key] = String(source[key])
 
   var list = invocations(responses)
-  for (var i = 0; i < list.length; i++) {
-    var name = list[i].name
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var name = list[itemIndex].name
     var slash = name.indexOf("/")
     if (slash <= 0) continue
-    var args = list[i].arguments
+    var parameters = list[itemIndex].arguments
     // `newState` is where a `/set` left the type; `state` is where a `/get`
     // read it. Either is the newest this client has been told about.
-    var state = trimmed(args.newState) !== "" ? trimmed(args.newState) : trimmed(args.state)
-    if (state !== "") out[name.substring(0, slash)] = state
+    var state = trimmed(parameters.newState) !== "" ? trimmed(parameters.newState) : trimmed(parameters.state)
+    if (state !== "") output[name.substring(0, slash)] = state
   }
-  return out
+  return output
 }
 
 // ------------------------------------------------------------ the event stream
@@ -1321,14 +1321,14 @@ function resolveRole(role, mailboxes) {
   var wanted = trimmed(role).toLowerCase()
   if (wanted === "") return ""
   var list = mailboxArray(mailboxes)
-  for (var i = 0; i < list.length; i++) {
-    var box = list[i] || {}
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var box = list[itemIndex] || {}
     if (trimmed(box.role).toLowerCase() === wanted) return trimmed(box.id)
   }
   var guess = ROLE_NAME_GUESSES[wanted]
   if (!guess) return ""
-  for (var j = 0; j < list.length; j++) {
-    var candidate = list[j] || {}
+  for (var nestedIndex = 0; nestedIndex < list.length; nestedIndex++) {
+    var candidate = list[nestedIndex] || {}
     if (trimmed(candidate.parentId) !== "") continue
     if (guess.test(trimmed(candidate.name).toLowerCase())) return trimmed(candidate.id)
   }
@@ -1345,8 +1345,8 @@ function resolveRole(role, mailboxes) {
 // Each value is a mailbox id, or "" for a role this account has no mailbox for.
 function roleMap(mailboxes) {
   var map = {}
-  for (var i = 0; i < RAIL_ROLES.length; i++) {
-    map[RAIL_ROLES[i]] = resolveRole(RAIL_ROLES[i], mailboxes)
+  for (var itemIndex = 0; itemIndex < RAIL_ROLES.length; itemIndex++) {
+    map[RAIL_ROLES[itemIndex]] = resolveRole(RAIL_ROLES[itemIndex], mailboxes)
   }
   return map
 }
@@ -1361,12 +1361,12 @@ function roleMap(mailboxes) {
 function absentMailboxes(mailboxes) {
   var list = mailboxArray(mailboxes)
   if (list.length === 0) return null
-  var out = []
-  for (var i = 0; i < OPTIONAL_RAIL_ROWS.length; i++) {
-    var row = OPTIONAL_RAIL_ROWS[i]
-    if (resolveRole(row.role, list) === "") out.push(row.key)
+  var output = []
+  for (var itemIndex = 0; itemIndex < OPTIONAL_RAIL_ROWS.length; itemIndex++) {
+    var row = OPTIONAL_RAIL_ROWS[itemIndex]
+    if (resolveRole(row.role, list) === "") output.push(row.key)
   }
-  return out
+  return output
 }
 
 // The sentence a user reads when a row, a button or a request needs a mailbox
@@ -1538,7 +1538,7 @@ function parsePageToken(token) {
 // `anchorNotFound`, and is the only thing that reads the token's first half.
 function emailQuery(accountId, filter, limit, token, byPosition) {
   var page = parsePageToken(token)
-  var args = {
+  var parameters = {
     accountId: trimmed(accountId),
     filter: filter,
     sort: EMAIL_SORT,
@@ -1550,12 +1550,12 @@ function emailQuery(accountId, filter, limit, token, byPosition) {
     calculateTotal: true
   }
   if (page.anchor !== "" && byPosition !== true) {
-    args.anchor = page.anchor
-    args.anchorOffset = 1
+    parameters.anchor = page.anchor
+    parameters.anchorOffset = 1
   } else {
-    args.position = page.position
+    parameters.position = page.position
   }
-  return args
+  return parameters
 }
 
 // One `Email/query` reply as the page `listMessages` answers with:
@@ -1575,12 +1575,12 @@ function emailQuery(accountId, filter, limit, token, byPosition) {
 // every representative's thread id and hands it over on the summary instead;
 // nothing above the seam reads the parallel array, and a second place to state
 // a thread id is a second place for it to be wrong.
-function queryPage(args, limit) {
-  var body = args && typeof args === "object" ? args : {}
+function queryPage(parameters, limit) {
+  var body = parameters && typeof parameters === "object" ? parameters : {}
   var ids = []
   var source = Array.isArray(body.ids) ? body.ids : []
-  for (var i = 0; i < source.length; i++) {
-    var id = trimmed(source[i])
+  for (var itemIndex = 0; itemIndex < source.length; itemIndex++) {
+    var id = trimmed(source[itemIndex])
     if (id !== "") ids.push(id)
   }
   var position = Math.max(0, Math.floor(Number(body.position)) || 0)
@@ -1658,9 +1658,9 @@ function mailboxLabels(mailboxes, roles) {
   var map = roles || {}
   var byId = {}
   var systemIds = {}
-  var i
-  for (i = 0; i < list.length; i++) {
-    var box = list[i] || {}
+  var itemIndex
+  for (itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var box = list[itemIndex] || {}
     var key = trimmed(box.id)
     if (key !== "") byId[key] = box
   }
@@ -1670,8 +1670,8 @@ function mailboxLabels(mailboxes, roles) {
   }
 
   var rows = []
-  for (i = 0; i < list.length; i++) {
-    var entry = list[i] || {}
+  for (itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var entry = list[itemIndex] || {}
     var id = trimmed(entry.id)
     if (id === "") continue
     rows.push({
@@ -1693,9 +1693,9 @@ function mailboxLabels(mailboxes, roles) {
     return a.label.name < b.label.name ? -1 : 1
   })
 
-  var out = []
-  for (i = 0; i < rows.length; i++) out.push(rows[i].label)
-  return out
+  var output = []
+  for (itemIndex = 0; itemIndex < rows.length; itemIndex++) output.push(rows[itemIndex].label)
+  return output
 }
 
 // One mailbox's counts, in the shape `getLabelCounts` answers with.
@@ -1769,14 +1769,14 @@ function labelIdsFor(email, roles) {
 
 function addressHeaderValue(values) {
   var list = Array.isArray(values) ? values : []
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var entry = list[i] || {}
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var entry = list[itemIndex] || {}
     var address = trimmed(entry.email)
     if (address === "") continue
-    out.push(Mail.addressHeader(address, trimmed(entry.name)))
+    output.push(Mail.addressHeader(address, trimmed(entry.name)))
   }
-  return out.join(", ")
+  return output.join(", ")
 }
 
 // `messageId`, `inReplyTo` and `references` are bare ids in JMAP and
@@ -1784,13 +1784,13 @@ function addressHeaderValue(values) {
 // back and what `Message.parseRfc822` reads, so the composer restores it.
 function angleBracketed(values) {
   var list = Array.isArray(values) ? values : []
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var id = trimmed(list[i])
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var id = trimmed(list[itemIndex])
     if (id === "") continue
-    out.push(/^<[\s\S]*>$/.test(id) ? id : "<" + id + ">")
+    output.push(/^<[\s\S]*>$/.test(id) ? id : "<" + id + ">")
   }
-  return out.join(" ")
+  return output.join(" ")
 }
 
 // A raw header value, whichever key the server filed it under.
@@ -1881,14 +1881,14 @@ function extraHeaders(email) {
   var written = {}
   for (var c = 0; c < COMPOSED_HEADERS.length; c++)
     written[COMPOSED_HEADERS[c].toLowerCase()] = true
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var entry = list[i] || {}
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var entry = list[itemIndex] || {}
     var name = trimmed(entry.name)
     if (name === "" || written[name.toLowerCase()]) continue
-    out.push({ name: name, value: trimmed(entry.value) })
+    output.push({ name: name, value: trimmed(entry.value) })
   }
-  return out
+  return output
 }
 
 function toMessage(email, roles, full) {
@@ -1967,16 +1967,16 @@ var MAX_PART_DEPTH = 12
 // The `Email/get` arguments for a list read or a full one, so the two requests
 // are described in one place and a test can read exactly what crosses.
 function emailGet(accountId, ids, full) {
-  var args = {
+  var parameters = {
     accountId: trimmed(accountId),
     ids: Array.isArray(ids) ? ids : [],
     properties: full === true ? FULL_PROPERTIES : LIST_PROPERTIES
   }
-  if (full !== true) return args
-  args.bodyProperties = BODY_PROPERTIES
-  args.fetchTextBodyValues = true
-  args.fetchHTMLBodyValues = true
-  return args
+  if (full !== true) return parameters
+  parameters.bodyProperties = BODY_PROPERTIES
+  parameters.fetchTextBodyValues = true
+  parameters.fetchHTMLBodyValues = true
+  return parameters
 }
 
 function isTextType(type) {
@@ -2004,14 +2004,14 @@ function partMimeType(type, charset) {
 // trimmed of the leading space the server writes after the colon.
 function partHeaders(part) {
   var list = part && Array.isArray(part.headers) ? part.headers : []
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var entry = list[i] || {}
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var entry = list[itemIndex] || {}
     var name = trimmed(entry.name)
     if (name === "") continue
-    out.push({ name: name, value: trimmed(entry.value) })
+    output.push({ name: name, value: trimmed(entry.value) })
   }
-  return out
+  return output
 }
 
 function bodyValueFor(values, partId) {
@@ -2068,8 +2068,8 @@ function toPart(part, values, depth) {
   if (cid !== "") node.cid = cid
 
   if (children.length > 0 && depth < MAX_PART_DEPTH) {
-    for (var i = 0; i < children.length; i++)
-      node.parts.push(toPart(children[i], values, depth + 1))
+    for (var itemIndex = 0; itemIndex < children.length; itemIndex++)
+      node.parts.push(toPart(children[itemIndex], values, depth + 1))
     return node
   }
 
@@ -2100,14 +2100,14 @@ function toPart(part, values, depth) {
 function truncatedParts(email) {
   var source = email && typeof email === "object" ? email : {}
   var values = source.bodyValues
-  var out = []
+  var output = []
 
   function walk(part, depth) {
     var entry = part && typeof part === "object" ? part : null
     if (!entry || depth > MAX_PART_DEPTH) return
     var children = Array.isArray(entry.subParts) ? entry.subParts : []
     if (children.length > 0) {
-      for (var i = 0; i < children.length; i++) walk(children[i], depth + 1)
+      for (var itemIndex = 0; itemIndex < children.length; itemIndex++) walk(children[itemIndex], depth + 1)
       return
     }
     if (!isTextType(entry.type)) return
@@ -2115,7 +2115,7 @@ function truncatedParts(email) {
     if (!value || value.isTruncated !== true) return
     var blob = trimmed(entry.blobId)
     if (blob === "") return
-    out.push({
+    output.push({
       partId: trimmed(entry.partId),
       blobId: blob,
       size: countOf(entry.size),
@@ -2125,7 +2125,7 @@ function truncatedParts(email) {
   }
 
   walk(source.bodyStructure, 0)
-  return out
+  return output
 }
 
 // The octets of a truncated part, put back where the short value was.
@@ -2158,7 +2158,7 @@ function substitutePart(payload, part, data) {
       done = true
       return
     }
-    for (var i = 0; i < children.length; i++) walk(children[i], depth + 1)
+    for (var itemIndex = 0; itemIndex < children.length; itemIndex++) walk(children[itemIndex], depth + 1)
   }
 
   walk(payload, 0)
@@ -2215,8 +2215,8 @@ var MOVES = {
 
 function hasLabel(list, id) {
   var source = Array.isArray(list) ? list : []
-  for (var i = 0; i < source.length; i++) {
-    if (trimmed(source[i]).toUpperCase() === id) return true
+  for (var itemIndex = 0; itemIndex < source.length; itemIndex++) {
+    if (trimmed(source[itemIndex]).toUpperCase() === id) return true
   }
   return false
 }
@@ -2266,8 +2266,8 @@ function moveFor(added, removed) {
 function movesMember(move, mailboxIds, map) {
   if (!Array.isArray(mailboxIds)) return true
   var held = []
-  for (var i = 0; i < mailboxIds.length; i++) {
-    var id = trimmed(mailboxIds[i])
+  for (var itemIndex = 0; itemIndex < mailboxIds.length; itemIndex++) {
+    var id = trimmed(mailboxIds[itemIndex])
     if (id !== "") held.push(id)
   }
   if (move === "archive") {
@@ -2363,8 +2363,8 @@ function patchIsEmpty(patch) {
 function emailSet(accountId, ids, patch) {
   var update = {}
   var list = Array.isArray(ids) ? ids : []
-  for (var i = 0; i < list.length; i++) {
-    var id = trimmed(list[i])
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var id = trimmed(list[itemIndex])
     if (id !== "") update[id] = patch
   }
   return { accountId: trimmed(accountId), update: update }
@@ -2401,8 +2401,8 @@ function setError(entry) {
 // been changed. The account restores its whole list on the error and the next
 // poll or push corrects the rows that did change, which is the contract it
 // already keeps for every provider.
-function notUpdatedError(args, tolerateNotFound) {
-  var source = args && typeof args === "object" ? args.notUpdated : null
+function notUpdatedError(parameters, tolerateNotFound) {
+  var source = parameters && typeof parameters === "object" ? parameters.notUpdated : null
   if (!source || typeof source !== "object") return ""
   for (var id in source) {
     var entry = source[id] && typeof source[id] === "object" ? source[id] : {}
@@ -2473,8 +2473,8 @@ function uploadUrl(template, accountId) {
 // What an upload answers with: a small JSON object naming the blob the import
 // then names. Anything else is an answer this client cannot use.
 function uploadedBlobId(body) {
-  var doc = parseJson(body)
-  return doc ? trimmed(doc.blobId) : ""
+  var document = parseJson(body)
+  return document ? trimmed(document.blobId) : ""
 }
 
 // The server's own ceiling on an upload, or 0 for a server that did not say.
@@ -2532,8 +2532,8 @@ function messageHeader(message, name) {
   var lines = (end < 0 ? text : text.substring(0, end)).split(/\r?\n/)
   var value = ""
   var found = false
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i]
+  for (var itemIndex = 0; itemIndex < lines.length; itemIndex++) {
+    var line = lines[itemIndex]
     if (found) {
       if (/^[ \t]/.test(line)) {
         value = trimmed(value + " " + trimmed(line))
@@ -2576,14 +2576,14 @@ function headerAddress(header) {
 function identityAliases(identities, address) {
   var list = Array.isArray(identities) ? identities : []
   var own = trimmed(address).toLowerCase()
-  var out = []
-  for (var i = 0; i < list.length; i++) {
-    var row = list[i] && typeof list[i] === "object" ? list[i] : {}
+  var output = []
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var row = list[itemIndex] && typeof list[itemIndex] === "object" ? list[itemIndex] : {}
     var id = trimmed(row.id)
     var email = trimmed(row.email)
     if (id === "" || email === "") continue
     var mine = own !== "" && email.toLowerCase() === own
-    out.push({
+    output.push({
       id: id,
       email: email,
       displayName: trimmed(row.name),
@@ -2591,7 +2591,7 @@ function identityAliases(identities, address) {
       isDefault: mine
     })
   }
-  return out
+  return output
 }
 
 // Which identity a message goes out under: the one whose address the From
@@ -2609,8 +2609,8 @@ function identityFor(identities, fromHeader) {
   var wanted = headerAddress(fromHeader)
   var first = ""
   var fallback = ""
-  for (var i = 0; i < list.length; i++) {
-    var row = list[i] && typeof list[i] === "object" ? list[i] : {}
+  for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
+    var row = list[itemIndex] && typeof list[itemIndex] === "object" ? list[itemIndex] : {}
     var id = trimmed(row.id)
     if (id === "") continue
     if (first === "") first = id
@@ -2695,14 +2695,14 @@ function destroyRequest(accountId, ids) {
 // What a `create` map answered for one creation id: the new object's id, or
 // the entry saying why there is none. Null rather than an empty object for the
 // second, so "was it refused" is a question with an answer.
-function createdId(args, creationId) {
-  var source = args && typeof args === "object" ? args.created : null
+function createdId(parameters, creationId) {
+  var source = parameters && typeof parameters === "object" ? parameters.created : null
   var entry = source && typeof source === "object" ? source[trimmed(creationId)] : null
   return entry && typeof entry === "object" ? trimmed(entry.id) : ""
 }
 
-function notCreatedEntry(args, creationId) {
-  var source = args && typeof args === "object" ? args.notCreated : null
+function notCreatedEntry(parameters, creationId) {
+  var source = parameters && typeof parameters === "object" ? parameters.notCreated : null
   var entry = source && typeof source === "object" ? source[trimmed(creationId)] : null
   return entry && typeof entry === "object" ? entry : null
 }
@@ -2744,8 +2744,8 @@ function submissionError(entry, fallback) {
 // outcome that was wanted.
 var DRAFT_COPY_WARNING = "Draft saved, but the older copy could not be removed"
 
-function draftSaveResult(args) {
-  var source = args && typeof args === "object" ? args.notDestroyed : null
+function draftSaveResult(parameters) {
+  var source = parameters && typeof parameters === "object" ? parameters.notDestroyed : null
   if (!source || typeof source !== "object") return { saved: true, warning: "" }
   for (var id in source) {
     var entry = source[id] && typeof source[id] === "object" ? source[id] : {}
@@ -2813,15 +2813,15 @@ function endsWithHost(host, suffix) {
 }
 
 function learnsFromJunk(session, accountId) {
-  var doc = parseJson(session)
-  if (!doc) return false
-  var account = accountFor(doc, accountId)
-  var host = apiHost(doc)
-  for (var i = 0; i < LEARNS_FROM_JUNK.length; i++) {
-    var row = LEARNS_FROM_JUNK[i]
+  var document = parseJson(session)
+  if (!document) return false
+  var account = accountFor(document, accountId)
+  var host = apiHost(document)
+  for (var itemIndex = 0; itemIndex < LEARNS_FROM_JUNK.length; itemIndex++) {
+    var row = LEARNS_FROM_JUNK[itemIndex]
     if (row.capability !== "") {
       if (account && hasCapability(account.accountCapabilities, row.capability)) return true
-      if (hasCapability(doc.capabilities, row.capability)) return true
+      if (hasCapability(document.capabilities, row.capability)) return true
     }
     if (row.apiHostSuffix !== "" && endsWithHost(host, row.apiHostSuffix)) return true
   }
@@ -2838,13 +2838,13 @@ function learnsFromJunk(session, accountId) {
 // layers saying the same sentence, which is why the wording is shared.
 function refusals(session, accountId, mailboxes) {
   var list = mailboxArray(mailboxes)
-  var doc = parseJson(session)
-  if (!doc || list.length === 0) return null
+  var document = parseJson(session)
+  if (!document || list.length === 0) return null
 
-  var out = {}
-  if (resolveRole("archive", list) === "") out.archive = REFUSAL_NO_ARCHIVE
-  if (resolveRole("junk", list) === "") out.spam = REFUSAL_NO_JUNK
-  else if (!learnsFromJunk(doc, accountId)) out.spam = REFUSAL_NO_LEARNING
-  if (!hasSubmission(doc, accountId)) out.send = REFUSAL_NO_SEND
-  return out
+  var output = {}
+  if (resolveRole("archive", list) === "") output.archive = REFUSAL_NO_ARCHIVE
+  if (resolveRole("junk", list) === "") output.spam = REFUSAL_NO_JUNK
+  else if (!learnsFromJunk(document, accountId)) output.spam = REFUSAL_NO_LEARNING
+  if (!hasSubmission(document, accountId)) output.send = REFUSAL_NO_SEND
+  return output
 }

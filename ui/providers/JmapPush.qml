@@ -68,8 +68,8 @@ Item {
       if (!root || generation !== root.epoch) return
       if (error || !result || result.closed) { root.stop(); return }
       var events = result.events || []
-      for (var i = 0; i < events.length; i++) {
-        var event = events[i]
+      for (var itemIndex = 0; itemIndex < events.length; itemIndex++) {
+        var event = events[itemIndex]
         if (event.kind === "rejected") { root.secretRejected(); root.stop(); return }
         if (event.kind === "connected") root.remoteChanged({ mail: true, mailboxes: true })
         if (event.kind === "change") root.remoteChanged(event.plan)

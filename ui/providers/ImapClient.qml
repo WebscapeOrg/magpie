@@ -43,7 +43,7 @@ Item {
       backend.call("imap.cancel", { accountId: handle.accountId,
         requestToken: handle.requestToken }, function() {})
     var children = handle.children || []
-    for (var i = 0; i < children.length; i++) abortRequest(children[i])
+    for (var itemIndex = 0; itemIndex < children.length; itemIndex++) abortRequest(children[itemIndex])
     handle.children = []
   }
 
@@ -58,7 +58,7 @@ Item {
     return "Mail request failed"
   }
 
-  function nativeRequest(method, params, callback, existingHandle, suppliedSettings, suppliedCredential) {
+  function nativeRequest(method, parameters, callback, existingHandle, suppliedSettings, suppliedCredential) {
     var handle = existingHandle || newHandle()
     if (!backend || !backend.ready) {
       if (typeof callback === "function") callback(null, "Mail backend is unavailable")
@@ -67,8 +67,8 @@ Item {
     var read = ["imap.folders", "imap.list", "imap.listContinue", "imap.messages",
       "imap.count", "imap.attachment"].indexOf(method) >= 0
     if (read) {
-      if (!params.requestToken) params.requestToken = nativeRequestPrefix + ":" + String(++nativeRequestGeneration)
-      handle.requestToken = params.requestToken
+      if (!parameters.requestToken) parameters.requestToken = nativeRequestPrefix + ":" + String(++nativeRequestGeneration)
+      handle.requestToken = parameters.requestToken
       handle.accountId = suppliedCredential !== undefined ? "" : String(auth.accountId || "")
     }
     root.inFlight++
@@ -88,11 +88,11 @@ Item {
         return
       }
       if (suppliedCredential !== undefined) {
-        params.settings = suppliedSettings || auth.settings
-        params.credential = credential
-        params.oauth = root.oauthTransport
-      } else params.accountId = account
-      backend.call(method, params, function(result, failure) {
+        parameters.settings = suppliedSettings || auth.settings
+        parameters.credential = credential
+        parameters.oauth = root.oauthTransport
+      } else parameters.accountId = account
+      backend.call(method, parameters, function(result, failure) {
         root.inFlight = Math.max(0, root.inFlight - 1)
         if (handle.aborted || !current()) return
         if (typeof callback === "function") callback(result, failure ? root.backendError(failure) : "")
@@ -135,7 +135,7 @@ Item {
       }
       var waiting = root.folderWaiters
       root.folderWaiters = []
-      for (var i = 0; i < waiting.length; i++) waiting[i](error)
+      for (var itemIndex = 0; itemIndex < waiting.length; itemIndex++) waiting[itemIndex](error)
     })
   }
 
@@ -144,24 +144,24 @@ Item {
 
   function listMessages(query, maxResults, pageToken, callback, progress) {
     var handle = newHandle()
-    var params = { query: String(query || ""), limit: maxResults,
+    var parameters = { query: String(query || ""), limit: maxResults,
       pageToken: String(pageToken || ""), progressive: typeof progress === "function",
       requestToken: nativeRequestPrefix + ":" + String(++nativeRequestGeneration) }
     var emitted = {}
     function next(method) {
-      nativeRequest(method, params, function(result, error) {
+      nativeRequest(method, parameters, function(result, error) {
         if (error) { if (typeof callback === "function") callback(null, error); return }
         var page = result.page
         if (typeof progress === "function") {
           var ids = []
-          for (var i = 0; i < page.ids.length; i++) {
-            if (!emitted[page.ids[i]]) { emitted[page.ids[i]] = true; ids.push(page.ids[i]) }
+          for (var itemIndex = 0; itemIndex < page.ids.length; itemIndex++) {
+            if (!emitted[page.ids[itemIndex]]) { emitted[page.ids[itemIndex]] = true; ids.push(page.ids[itemIndex]) }
           }
           if (ids.length > 0) progress({ ids: ids, threadIds: [],
             nextPageToken: page.nextPageToken, estimate: page.estimate })
         }
         if (result.continuation) {
-          params.continuation = result.continuation
+          parameters.continuation = result.continuation
           next("imap.listContinue")
         } else if (typeof callback === "function") callback(page,
           result.warning ? "The mailbox search could not be completed" : "")
@@ -182,17 +182,17 @@ Item {
 
   function getMessages(ids, full, callback, existingHandle, progress) {
     var handle = existingHandle || newHandle()
-    var params = { ids: ids, full: full === true,
+    var parameters = { ids: ids, full: full === true,
       progressive: typeof progress === "function" && full !== true,
       requestToken: nativeRequestPrefix + ":" + String(++nativeRequestGeneration) }
     var messages = []
     function next() {
-      nativeRequest("imap.messages", params, function(result, error) {
+      nativeRequest("imap.messages", parameters, function(result, error) {
         if (error) { if (typeof callback === "function") callback(messages, error); return }
         messages = messages.concat(result.messages)
         if (result.messages.length > 0 && typeof progress === "function") progress(result.messages)
         if (result.continuation && !result.warning) {
-          params.continuation = result.continuation
+          parameters.continuation = result.continuation
           next()
         } else if (typeof callback === "function") callback(messages,
           result.warning ? "Some messages could not be loaded" : "")
@@ -273,8 +273,8 @@ Item {
     return changeFolder("imap.deleteFolder", { id: id }, callback)
   }
 
-  function changeFolder(method, params, callback) {
-    return nativeRequest(method, params, function(result, error) {
+  function changeFolder(method, parameters, callback) {
+    return nativeRequest(method, parameters, function(result, error) {
       if (!error) { root.foldersGeneration++; root.foldersLoaded = false }
       if (typeof callback === "function") callback(result, error)
     })

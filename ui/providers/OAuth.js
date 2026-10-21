@@ -45,7 +45,7 @@ function encode(value) {
 
 function decode(value) {
   try { return decodeURIComponent(String(value || "").replace(/\+/g, " ")) }
-  catch (e) { return "" }
+  catch (error) { return "" }
 }
 
 function formBody(values) {
@@ -62,11 +62,11 @@ function parseQuery(raw) {
   var query = String(raw || "")
   if (query.charAt(0) === "?") query = query.substring(1)
   var parts = query.split("&")
-  for (var i = 0; i < parts.length; i++) {
-    if (!parts[i]) continue
-    var separator = parts[i].indexOf("=")
-    var key = separator < 0 ? parts[i] : parts[i].substring(0, separator)
-    var value = separator < 0 ? "" : parts[i].substring(separator + 1)
+  for (var itemIndex = 0; itemIndex < parts.length; itemIndex++) {
+    if (!parts[itemIndex]) continue
+    var separator = parts[itemIndex].indexOf("=")
+    var key = separator < 0 ? parts[itemIndex] : parts[itemIndex].substring(0, separator)
+    var value = separator < 0 ? "" : parts[itemIndex].substring(separator + 1)
     result[decode(key)] = decode(value)
   }
   return result
@@ -140,7 +140,7 @@ function parseJson(text, fallback) {
   try {
     var parsed = JSON.parse(String(text || ""))
     return parsed === null || parsed === undefined ? fallback : parsed
-  } catch (e) {
+  } catch (error) {
     return fallback
   }
 }
@@ -219,8 +219,8 @@ function missingScopes(granted, required) {
   var have = String(granted || "").split(/\s+/)
   var want = Array.isArray(required) && required.length > 0 ? required : requiredScopes(SCOPES)
   var missing = []
-  for (var i = 0; i < want.length; i++) {
-    if (have.indexOf(want[i]) < 0) missing.push(want[i])
+  for (var itemIndex = 0; itemIndex < want.length; itemIndex++) {
+    if (have.indexOf(want[itemIndex]) < 0) missing.push(want[itemIndex])
   }
   return missing
 }
@@ -234,7 +234,7 @@ function scopeShortName(scope) {
 function missingScopeMessage(missing) {
   if (!Array.isArray(missing) || missing.length === 0) return ""
   var names = []
-  for (var i = 0; i < missing.length; i++) names.push(scopeShortName(missing[i]))
+  for (var itemIndex = 0; itemIndex < missing.length; itemIndex++) names.push(scopeShortName(missing[itemIndex]))
   return "Google sign-in finished without the " + names.join(" and ")
     + " permission. Sign in again and leave every checkbox ticked"
 }
@@ -247,11 +247,11 @@ function missingScopeMessage(missing) {
 function byteLength(text) {
   var value = String(text || "")
   var bytes = 0
-  for (var i = 0; i < value.length; i++) {
-    var code = value.charCodeAt(i)
-    if (code >= 0xd800 && code <= 0xdbff && i + 1 < value.length) {
+  for (var itemIndex = 0; itemIndex < value.length; itemIndex++) {
+    var code = value.charCodeAt(itemIndex)
+    if (code >= 0xd800 && code <= 0xdbff && itemIndex + 1 < value.length) {
       bytes += 4
-      i++
+      itemIndex++
     } else if (code < 0x80) bytes += 1
     else if (code < 0x800) bytes += 2
     else bytes += 3
@@ -314,8 +314,8 @@ function cssFontFamily(value) {
 function themedPage(theme, options) {
   var palette = theme || defaultTheme()
   var settings = options || {}
-  var fg = cssColor(palette.foreground, "#DEDEDE")
-  var bg = cssColor(palette.background, "#131313")
+  var foreground = cssColor(palette.foreground, "#DEDEDE")
+  var background = cssColor(palette.background, "#131313")
   var mark = settings.failed ? cssColor(palette.urgent, "#FF5257")
     : cssColor(palette.accent, "#077CFD")
   var family = cssFontFamily(palette.fontFamily)
@@ -325,15 +325,15 @@ function themedPage(theme, options) {
     + "<title>" + escapeHtml(settings.title) + "</title><style>"
     + "*{box-sizing:border-box}"
     + "html,body{height:100%}"
-    + "body{margin:0;background:" + bg + ";color:" + fg + ";"
+    + "body{margin:0;background:" + background + ";color:" + foreground + ";"
     + "font-family:\"CaskaydiaMono Nerd Font\",\"JetBrains Mono\",\"" + family + "\",ui-monospace,monospace;"
     + "font-size:13px;line-height:1.7;display:flex;align-items:center;justify-content:center;padding:24px}"
-    + "main{width:100%;max-width:420px;border:1px solid " + fg + "66;padding:28px 30px}"
+    + "main{width:100%;max-width:420px;border:1px solid " + foreground + "66;padding:28px 30px}"
     + "svg{display:block;margin-bottom:18px}"
     + "h1{margin:0 0 10px;font-size:16px;font-weight:700;letter-spacing:-0.01em}"
-    + "p{margin:0;color:" + fg + "a6}"
-    + "p+p{margin-top:14px;font-size:11px;color:" + fg + "70}"
-    + "b{color:" + fg + ";font-weight:700}"
+    + "p{margin:0;color:" + foreground + "a6}"
+    + "p+p{margin-top:14px;font-size:11px;color:" + foreground + "70}"
+    + "b{color:" + foreground + ";font-weight:700}"
     + "</style></head><body><main>"
     + "<svg width=\"26\" height=\"26\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"" + mark + "\" "
     + "stroke-width=\"1.3\" stroke-linejoin=\"round\">"

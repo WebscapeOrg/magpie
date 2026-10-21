@@ -1,8 +1,6 @@
 .pragma library
 
-// Replacement bars cannot receive the credential-bearing Service QObject.
-// This plugin-owned interface shares only detached preview data and the three
-// operations already offered by the bar. It never stores a service object.
+// Invariant: replacement bars must never receive the credential-bearing Service QObject.
 var active = null
 
 function text(value) {
@@ -76,5 +74,5 @@ function publish(readSnapshot, applySettings, refresh, refreshCalendarPreview) {
 
 function current() { return active }
 
-// Retiring services must not clear a replacement registered during hot reload.
+// Invariant: a retiring service must not clear a replacement registered during hot reload.
 function clear(api) { if (active === api) active = null }

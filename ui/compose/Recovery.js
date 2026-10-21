@@ -1,6 +1,6 @@
 .pragma library
 
-// Presentation initial state only. Rust validates and stores recovery records.
+// Invariant: Rust validates and persists recovery records; QML owns only their presentation state.
 function empty() {
   return { active: false, returnView: "", draft: null, parked: [] }
 }

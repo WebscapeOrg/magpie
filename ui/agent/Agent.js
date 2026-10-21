@@ -6,7 +6,7 @@ function suggestsClear(text) {
     && "/clear".indexOf(value.trim()) === 0
 }
 
-// Only detach the exact app-owned suffix, never text that merely looks quoted.
+// Invariant: detach only the app-owned quote suffix; quoted-looking user text must survive.
 function replyOnly(body, quote) {
   body = String(body || "")
   quote = String(quote || "")
@@ -23,9 +23,7 @@ function proposalEnvelope(envelope) {
   return result
 }
 
-// A proposal is a separate local draft, including when another draft is open.
-// Keep attachment bytes in its recovery record rather than sharing ownership
-// of a temporary file that the current editor may remove.
+// Invariant: each proposed draft owns its attachments, including while another draft is open.
 function proposalDraft(envelope, parentId, draftKey) {
   var attachments = JSON.parse(JSON.stringify(envelope.attachments || []))
   for (var attachmentIndex = 0; attachmentIndex < attachments.length; attachmentIndex++) {
@@ -47,9 +45,7 @@ function proposalDraft(envelope, parentId, draftKey) {
     originalAttachments: [], forwardedAttachments: [], replyRecipients: []}
 }
 
-// UI labels, editable prompts and local composer/queue interaction.
-// Job parsing, ownership, attention, history and payload construction live in
-// Rust; their historical JS baselines are confined to tests/oracles/agent.
+// Invariant: Rust owns execution and durable jobs; these helpers own editable presentation state.
 
 var ACTIVE = ["queued", "running"]
 
@@ -66,8 +62,7 @@ function conversationWithProposals(conversation, proposals) {
     for (var proposalIndex = 0; proposalIndex < proposals.length; proposalIndex++) {
       var at = typeof proposals[proposalIndex].afterTurn === "number" ? proposals[proposalIndex].afterTurn : conversation.length
       at = Math.max(0, Math.min(conversation.length, at))
-      // Tool execution can precede the answer's closing explanation. Keep the
-      // draft below that complete reply, before the next user question.
+      // Invariant: tool proposals may arrive before the closing answer; preserve their conversation order.
       while (at < conversation.length && conversation[at].role !== "user") at++
       if (at === conversationIndex)
         rows.push({role: "proposal", text: String(proposals[proposalIndex].id)})
@@ -89,7 +84,7 @@ function attachmentLabels(attachments) {
   return labels.join("\n")
 }
 
-// Historical command answers still need their original body-only insertion rule.
+// Invariant: historical command answers retain their body-only insertion rule.
 var MAIL_TRANSFORM_FORMAT = "Use exactly this reply layout: Title: <mail title>, then a blank line, then Body: on its own line followed by the mail body. Do not include any other headers or commentary."
 
 function isActive(job) {
@@ -142,8 +137,7 @@ function finishedNote(job) {
   var glyph = glyphState(job)
   var subject = String(job && job.subject ? job.subject : "").trim()
   var about = subject === "" ? "the message" : "“" + subject + "”"
-  // A look for events was not asked for by name: it says something only
-  // when it found something, and nothing at all when it found nothing.
+  // Invariant: background event checks notify only when they found a suggestion.
   if (isEventsJob(job)) {
     var found = glyph === "done" && Array.isArray(job.events) ? job.events.length : 0
     return found > 0 ? "The agent found " + (found === 1 ? "an event" : found + " events") + " in " + about : ""
@@ -173,7 +167,7 @@ function draftAnswer(job, output, transcript) {
   return text
 }
 
-// Editor change indicator only; ownership remains accountId plus draftKey.
+// Invariant: this fingerprint detects edits; accountId and draftKey still own the draft.
 function draftFingerprint(fields) {
   var draft = fields || {}
   var text = JSON.stringify([draft.from || "", draft.to || "", draft.subject || "", draft.body || ""])
@@ -223,25 +217,11 @@ function pendingLimit(messages, text) {
   return ""
 }
 
-// ------------------------------------------------------------ suggested events
-
-// A message the owner opens is handed to the agent to look for calendar
-// events in — a meeting, a dinner, a flight, a deadline — when the setting
-// is on and the text so much as mentions a date or a time. The look is a
-// background job: it draws no glyph, asks for no attention and answers to
-// no row; its findings are the card the reader shows. Rust runs the look and
-// reads the array out of the answer; what is here is the gate before it and
-// the words after it.
 function isEventsJob(job) {
   return !!job && String(job.kind || "") === "events"
 }
 
-// Whether the text says when: a clock time, a month with a day, a numeric
-// date, a day said relative to today, or a weekday bound to a plan ("on
-// Thursday", "next Fri"). Cheap, and it decides only whether the agent is
-// worth asking — but not generous: a look costs a model call with the whole
-// message in it, and a bare "May", "March" or "Sunday" in running prose is
-// a word, not a plan. The short forms are read only beside a number.
+// Invariant: a month name alone (especially "May") is not evidence of a date.
 var MONTH_ANY = "january|february|march|april|may|june|july|august|september|october|november|december"
   + "|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec"
 var DAY_ANY = "monday|tuesday|wednesday|thursday|friday|saturday|sunday"
@@ -264,11 +244,6 @@ function mentionsDate(text) {
   return false
 }
 
-// Mail no person wrote to the owner: a notification, a bounce, a newsletter,
-// a list — or one Gmail already filed under a category. A bank's notice
-// and a CI run both mention dates, and neither is asking the owner to
-// dinner; a look at them is a model call for `[]`. Read from what the row
-// already carries, so it costs nothing.
 var AUTOMATED_LOCAL = /^(no-?reply|noreply|do-?not-?reply|donotreply|mailer-daemon|postmaster|bounces?|notifications?|alerts?|newsletters?|digests?|updates?|news|info|marketing|support|billing|receipts?|orders?)([@.+_-]|$)/i
 var AUTOMATED_WITHIN = /(no-?reply|donotreply|do-not-reply|notifications?@|mailer-daemon|bounce)/i
 var CATEGORY_LABELS = ["CATEGORY_PROMOTIONS", "CATEGORY_UPDATES", "CATEGORY_FORUMS", "CATEGORY_SOCIAL"]
@@ -281,16 +256,11 @@ function automatedMail(summary) {
   return false
 }
 
-// The whole gate before the model: mail from a person, not from a list —
-// the reader knows a list by its List-Unsubscribe header — that says when.
 function worthALook(summary, text, listMail) {
   if (listMail === true || automatedMail(summary)) return false
   return mentionsDate(text)
 }
 
-// A message from two months ago is about events that have passed; the
-// agent is not asked about it. Nor about one whose date is unknown: a
-// look costs an agent run, and "no idea when" is not a reason to spend one.
 var EVENTS_MAX_AGE_MS = 60 * 24 * 3600 * 1000
 function tooOldForEvents(messageMs, nowMs) {
   var when = Number(messageMs) || 0
@@ -298,16 +268,10 @@ function tooOldForEvents(messageMs, nowMs) {
   return Number(nowMs) - when > EVENTS_MAX_AGE_MS
 }
 
-// How many looks may run at once. Opening a mailbox's worth of mail one
-// message after another must not fan out into one agent per message.
 var EVENTS_IN_FLIGHT = 2
 
-// The one fixed ask a look carries. The rules around it are the worker's.
 var EVENTS_PROMPT = "Find the calendar events in this message."
 
-// The look the projection holds for a message, in its account — running or
-// finished — or null. A look that failed or was cancelled answered nothing
-// and is not held, so the message may be looked at again.
 function lookFor(looks, accountId, messageId) {
   var account = String(accountId || "")
   var id = String(messageId || "")
@@ -320,9 +284,6 @@ function suggestionKey(jobId, index) {
   return String(jobId || "") + ":" + Math.max(0, Math.floor(Number(index) || 0))
 }
 
-// The events a finished look found, less the ones the owner has waved away
-// this session, each with the key that names it. A look still running has
-// found nothing yet.
 function eventSuggestions(look, dismissed) {
   var job = look || null
   var gone = Array.isArray(dismissed) ? dismissed : []
@@ -349,9 +310,6 @@ function eventSuggestions(look, dismissed) {
   return out
 }
 
-// "Thu 12 Sep, 19:00–20:00", "Thu 12 Sep (all day)", "Fri 12 Sep 2027, 09:00 – Sat 13 Sep 2027, 17:00":
-// the year only when it is not this one, the end only when it is not the
-// hour after the start.
 var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 var MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 function suggestionWhen(suggestion, nowMs) {
@@ -376,11 +334,7 @@ function suggestionWhen(suggestion, nowMs) {
   return day(start) + ", " + clock(start) + " – " + day(end) + ", " + clock(end)
 }
 
-// What the composer opens with, and whose calendar. The composer creates
-// timed events on one day, so a whole day opens as nine to ten and an
-// event that runs past midnight ends at the day's last minute, with the
-// notes saying what the message actually put — the owner reads the form
-// before anything is written, which is the point of opening it.
+// Invariant: the single-day composer preserves all-day and cross-day suggestions in notes instead of dropping their original duration.
 function eventPrefill(suggestion, accountId) {
   var event = suggestion || {}
   var start = Number(event.startMs) || 0

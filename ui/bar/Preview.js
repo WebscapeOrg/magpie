@@ -36,9 +36,7 @@ function latestMessages(accounts, limit) {
   return out.slice(0, Math.max(0, Math.floor(Number(limit) || 0)))
 }
 
-// The month the bar previews, keyed by the day rather than the moment: the
-// range is what the event cache stores under, so a start that moved with the
-// clock never hit, and the cache filled with copies of the same month.
+// Performance: key the preview month by day so repeated clock ticks reuse its calendar range.
 function previewRange(nowMs) {
   var now = new Date(Number(nowMs) || Date.now())
   var today = new Date(now.getFullYear(), now.getMonth(), now.getDate())

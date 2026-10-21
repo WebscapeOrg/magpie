@@ -14,11 +14,9 @@ Column {
   required property color accentColor
   required property color dimColor
   required property string panelFontFamily
-  // The same setting the window reads. A subject that lands on the right edge
-  // in the list and on the left one here would be the setting half-applied.
+  // Invariant: preview subjects use the same content-direction preference as the main window.
   property string contentDirection: Direction.MODE_DEFAULT
-  // Only a chosen direction reaches the lines that are not subjects: Qt already
-  // resolves a sender's name and a date from their own text.
+  // Invariant: names and dates keep Qt auto-direction unless the user explicitly overrides it.
   readonly property var textAlignment: alignmentFor(Direction.forced(root.contentDirection))
 
   function alignmentFor(direction) {
@@ -69,8 +67,7 @@ Column {
           font.bold: mailRow.modelData.unread === true
           elide: Text.ElideRight
           textFormat: Text.PlainText
-          // The reply prefix in front of a subject is Latin whatever the thread
-          // is written in, so the subject is asked on its own account here too.
+          // Invariant: a Latin reply prefix must not determine an RTL subject's direction.
           horizontalAlignment: root.alignmentFor(Direction.forced(root.contentDirection)
             || String(mailRow.modelData.subjectDirection || ""))
         }

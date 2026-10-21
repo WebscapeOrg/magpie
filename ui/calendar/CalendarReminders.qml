@@ -49,7 +49,7 @@ Item {
 
   function deliver(record) {
     var notice = reminderInbox.receive(record)
-    // The process budget limits desktop waiters, never the actionable inbox.
+    // Invariant: the process budget limits desktop notification waiters, never the actionable inbox.
     if (waiters >= 16) return
     var body = Calendar.dateTimeLabel(record.start, "ddd, MMM d", root.timeFormat, " · ")
     var process = notification.createObject(root, { record: notice,

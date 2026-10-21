@@ -1,31 +1,15 @@
 .pragma library
 
-// Every key this window answers to, in one table.
-//
-// Three descriptions of this list used to exist — the Shortcut declarations in
-// App.qml, the help sheet, and the status-bar hints — and they had already
-// drifted: the sheet listed Esc twice, was missing `u` and `?`, and carried a
-// mouse gesture among the keys. Anything that shows or fires a binding now
-// reads this file, so there is nothing left to keep in step by hand.
+// Invariant: this table is the shared authority for shortcut dispatch, help and status hints.
 
-// The window is in exactly one of these at a time. The context is the single
-// owner of "where am I": App.qml derives it from the screen, and the keyboard
-// follows it — a context that is not text entry parks the focus rather than
-// leaving it wherever the last click put it. Keeping those two as separate
-// things is what let a dismissed compose field go on eating j and k.
+// Invariant: one active context determines bindings; stale hidden focus must not enable shortcuts.
 var CONTEXTS = ["list", "reader", "search", "compose", "eventCompose", "eventGuests", "page", "calendar", "assistant", "assistantCommands"]
 
-// Shorthands, so a row says where it lives rather than restating the set.
 var MAIL = ["list", "reader"]
 var ANY = ["*"]
 
 var BINDINGS = [
-  // These survive the shortcut sheet, and they are the only mailbox keys that
-  // do: behind the sheet they scroll it. A reference sheet taller than the
-  // window that could only be read with a mouse would be the one screen here
-  // that contradicts the rest. The account switcher is not on this list — it is
-  // a popup, and a popup takes every key before the shortcut map sees it, so it
-  // answers `j`/`k` itself.
+  // Invariant: popup and help contexts retain only the explicitly allowed global actions.
   { id: "cursorDown", keys: ["j", "Down"], contexts: MAIL,
     survivesOverlay: true,
     group: "Moving", label: "Move down",
@@ -40,8 +24,7 @@ var BINDINGS = [
   { id: "scrollUp", keys: ["Shift+K"], contexts: ["reader"],
     survivesOverlay: true,
     group: "Moving", label: "Scroll up" },
-  // Explicit opening remains available, but cursor movement already opens the
-  // reader, so the footer does not need an additional open hint.
+
   { id: "open", keys: ["Return", "Enter", "o"], contexts: MAIL,
     group: "Moving", label: "Open the selected message",
     hintKey: "o" },
@@ -49,21 +32,7 @@ var BINDINGS = [
     group: "Moving", label: "Open the selected message" },
   { id: "backToList", keys: ["u", "Left"], contexts: ["reader"],
     group: "Moving", label: "Back to the list" },
-  // Along the conversation rail, which only the reader has. Two letters rather
-  // than a reuse of `j` and `k`: those move the list cursor, and they go on
-  // moving it while the reader is open — the cursor and the open message are
-  // two different things, and a key that moved both would collapse them. Gmail
-  // uses this pair for the same movement, and both were unbound here.
-  //
-  // A conversation of one draws no rail and these do nothing, which is the
-  // context doing its job: what a key means is a property of the application,
-  // and whether there is anywhere to go is a property of the message.
-  //
-  // No status hint. The hint row says what the keyboard does *here*, and here
-  // is any open message — while these two do something only on a conversation
-  // of two or more. Offering them on every message would be the promise the
-  // hint filter exists to stop being made, one line lower down. They are on the
-  // shortcut sheet, with the rest of the table.
+  // Invariant: conversation movement uses chords so bare letters remain available for message actions.
   { id: "nextMember", keys: ["n"], contexts: ["reader"],
     group: "Moving", label: "Next message in the conversation" },
   { id: "previousMember", keys: ["p"], contexts: ["reader"],
@@ -77,13 +46,7 @@ var BINDINGS = [
     hint: { list: "trash", reader: "trash" } },
   { id: "star", keys: ["s"], contexts: MAIL,
     group: "Acting", label: "Star or unstar" },
-  // `v` because that is the key Gmail moves a message with, and issue #58 asks
-  // for those shortcuts one for one. Not `m`: free here, but Gmail's `m` mutes
-  // a conversation, and taking it for a move would be the one binding somebody
-  // arriving from Gmail has to unlearn.
-  //
-  // "Move to" rather than "Move to a label" because the destination is a label
-  // on Gmail and a folder on IMAP, and the sheet has no provider to ask.
+
   { id: "moveToLabel", keys: ["v"], contexts: MAIL,
     group: "Acting", label: "Move to",
     hint: { list: "move to", reader: "move to" },
@@ -92,17 +55,13 @@ var BINDINGS = [
     group: "Acting", label: "Mark read" },
   { id: "markUnread", keys: ["Shift+U"], contexts: MAIL,
     group: "Acting", label: "Mark unread" },
-  // Space or Gmail's x toggles the cursor row, including while the reader
-  // is open beside the list.
+
   { id: "toggleCheck", keys: ["x", "Space"], contexts: MAIL,
     group: "Acting", label: "Select or deselect the message",
     hintKey: "Space", hint: { list: "select" } },
   { id: "checkAll", keys: ["Ctrl+A"], contexts: ["list"],
     group: "Acting", label: "Select every message loaded, or none" },
 
-  // Answering works from the list too, the way the row's own menu does: the
-  // message is opened first and the draft waits for it. Binding these to the
-  // reader only left the keyboard able to do less than a right-click.
   { id: "reply", keys: ["r"], contexts: MAIL,
     group: "Writing", label: "Reply", hint: { reader: "reply" } },
   { id: "replyAll", keys: ["a"], contexts: MAIL,
@@ -137,8 +96,7 @@ var BINDINGS = [
     group: "Calendar", label: "Undo the last event change", hint: { calendar: "undo" } },
   { id: "calendarMonth", keys: ["m"], contexts: ["calendar"],
     group: "Calendar", label: "Show month view" },
-  // Both Enters: the main keyboard's is Return, the numpad's is Enter, and
-  // a hand on the numpad expects the same thing of them.
+  // Invariant: Qt names the main keyboard Enter key Return and the numeric keypad key Enter.
   { id: "send", keys: ["Ctrl+Return", "Ctrl+Enter"], contexts: ["compose"],
     group: "Writing", label: "Send", hint: { compose: "send" } },
   { id: "saveEvent", keys: ["Return", "Enter", "Ctrl+Return", "Ctrl+Enter"], contexts: ["eventCompose"],
@@ -153,45 +111,27 @@ var BINDINGS = [
     survivesOverlay: true,
     group: "Writing", label: "Undo send" },
 
-  // Reachable from the mailbox. `/` is a bare key, so it is only offered where
-  // bare keys mean anything — inside the field it is a character being typed,
-  // and Qt gives the field its keys before any Shortcut sees them.
+  // Invariant: bare search shortcuts must not intercept typing in text fields.
   { id: "search", keys: ["/"], contexts: MAIL,
     group: "Finding", label: "Search" },
 
-  // The rail by number, and nothing to remember: hold Ctrl and every row says
-  // which digit opens it. This replaced `g i` / `g s` / `g u` / `g t`, which
-  // were two problems in one row — a chord nobody recalls under pressure, and
-  // Qt's own 400ms deadline on an unfinished sequence, so half of them did
-  // nothing and said nothing about why. A modifier has no deadline.
-  //
-  // One row, nine sequences: `slotFor` reads which one fired off this row's
-  // own key list, so the `Ctrl+` prefix is not written down a second time.
-  // Nine and not ten, because `Ctrl+0` is reset zoom in every browser and
-  // stays that here; a tenth row on the rail would have taken it.
   { id: "goMailbox",
     keys: ["Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4", "Ctrl+5",
       "Ctrl+6", "Ctrl+7", "Ctrl+8", "Ctrl+9"],
     contexts: MAIL, group: "Going", label: "Go to that mailbox",
     display: "Ctrl+1…9" },
 
-  // Accounts are surfaces rather than destinations inside the current one, so
-  // they use Alt and the same visible order as the account switcher.
+  // Invariant: mailbox switching remains available across mailbox contexts.
   { id: "goAccount",
     keys: ["Alt+1", "Alt+2", "Alt+3", "Alt+4", "Alt+5",
       "Alt+6", "Alt+7", "Alt+8", "Alt+9", "Alt+0"],
     contexts: ["list", "reader", "calendar"], group: "Going",
     label: "Go to that email account", display: "Alt+1…0" },
 
-  // One key, not nine, and modified rather than bare. Switching mailboxes is
-  // not frequent enough to spend a letter on — the bare ones are the scarce
-  // thing here — and not a chord either, because it opens a list the keyboard
-  // then walks — or types into: letters narrow it, the arrows move, `Enter`
-  // takes one.
+  // Invariant: modified mailbox switching keys preserve bare keys for message actions.
   { id: "switchAccount", keys: ["Alt+A"], contexts: MAIL,
     group: "Going", label: "Switch account" },
-  // The message agent, on the cursor row. A popup, so the same shape as the
-  // account switcher: opened through the table, then answering its own keys.
+
   { id: "askAgent", keys: ["Alt+G"], contexts: ["list", "reader", "compose"],
     group: "Acting", label: "Ask AI about the message or draft" },
   { id: "assistantSend", keys: ["Return", "Enter", "Ctrl+Return", "Ctrl+Enter"], contexts: ["assistant", "assistantCommands"],
@@ -211,8 +151,7 @@ var BINDINGS = [
   { id: "toggleSidebar", keys: ["["], contexts: ["list", "reader", "calendar"],
     group: "Going", label: "Show or hide the sidebar" },
 
-  // Only where there is a message body to size. These carried no context at
-  // all, which left them live on a settings form.
+  // Invariant: text sizing applies only where a message body exists.
   { id: "zoomIn", keys: ["Ctrl++", "Ctrl+="], contexts: ["reader"],
     group: "Reading", label: "Zoom the message body in" },
   { id: "zoomOut", keys: ["Ctrl+-"], contexts: ["reader"],
@@ -224,8 +163,7 @@ var BINDINGS = [
     group: "Mailbox", label: "Check for mail" },
   { id: "settings", keys: ["Ctrl+,"], contexts: ANY,
     group: "Mailbox", label: "Open settings" },
-  // A question mark asks for the key reference while the keyboard belongs to
-  // mail. Text-entry contexts keep it as text instead.
+  // Invariant: the help shortcut belongs to the mailbox context, not active text input.
   { id: "help", keys: ["?"], contexts: MAIL,
     survivesOverlay: true,
     group: "Mailbox", label: "Toggle all keybindings" },
@@ -235,9 +173,7 @@ var BINDINGS = [
     hint: { reader: "back", page: "back", compose: "close", eventCompose: "close", search: "leave" } }
 ]
 
-// A pending send is a transient action over the screen, not a screen of its
-// own. It does not replace this context, so mailbox navigation stays live while
-// the toast offers Alt+Z and its button.
+// Invariant: undo-send remains available across navigation while a send is pending.
 function contextFor(state) {
   var value = state || ({})
   if (value.assistantEditing) return value.assistantCommands ? "assistantCommands" : "assistant"
@@ -257,9 +193,6 @@ function byId(id) {
   return null
 }
 
-// Which of a row's keys fired, as a zero-based position in the row's own list.
-// Derived rather than parsed: `Ctrl+3` is the third entry because the table
-// says so, and changing the modifier would need nothing here.
 function slotFor(id, sequence) {
   var row = byId(id)
   var keys = row ? row.keys || [] : []
@@ -285,9 +218,7 @@ function matchesSequenceContext(binding, sequence, context) {
   return false
 }
 
-// Context decides what is live, and nothing else does. There is no "are they
-// typing" question left to get wrong: a text-entry context binds no bare keys,
-// and Qt hands a focused field its keys before any Shortcut sees them.
+// Invariant: binding eligibility comes from active context, never hidden focus state.
 function isEnabled(binding, context, overlay) {
   if (!matchesContext(binding, context)) return false
   if (overlay && !binding.survivesOverlay) return false
@@ -308,9 +239,6 @@ function bindingsFor(context) {
   return out
 }
 
-// One entry per sequence rather than per row, because that is the shape a
-// Shortcut needs: each sequence is its own object, and each decides its own
-// `enabled` — each sequence still carries the context that owns it.
 function sequencesFor(context) {
   var out = []
   var rows = BINDINGS
@@ -324,10 +252,7 @@ function sequencesFor(context) {
   return out
 }
 
-// Qt's sequence syntax is not the UI's. A chord is written "g,i" and read "g
-// then i"; Escape and Return are named for the keycaps people look at. Written
-// as rules rather than per-row overrides, so a chord added later reads properly
-// without anyone remembering to spell it out.
+// Docs: Qt chord syntax uses commas; keycap labels display consecutive keys separated by spaces.
 function readableSequence(sequence) {
   var text = String(sequence || "")
   if (text.charAt(text.length - 1) === ",") return text
@@ -337,18 +262,13 @@ function readableSequence(sequence) {
   return text
 }
 
-// How a row reads on the help sheet, which enumerates: every key that works is
-// named, separated so a slash inside a sequence is not mistaken for the
-// separator.
 function displayFor(binding) {
   if (!binding) return ""
-  // A row of ten keys reads as a range. Enumerating them would be ten lines of
-  // sheet for one idea.
+
   if (binding.display) return binding.display
   var keys = binding.keys || []
   var out = []
-  // Return and the numpad's Enter are two keys with one keycap name; the
-  // sheet names the keycap once.
+  // Invariant: Return and Enter share one displayed keycap name.
   for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
     var readable = readableSequence(keys[keyIndex])
     if (out.indexOf(readable) < 0) out.push(readable)
@@ -356,17 +276,13 @@ function displayFor(binding) {
   return out.join(", ")
 }
 
-// How a row reads on the status bar, which is a hint rather than a reference:
-// one short form, and sometimes one line standing for a pair, as "j / k" does
-// for moving. These are two different jobs, and one field could not do both —
-// enumerating gave the sheet "j / k  Move down", which is not true of either.
 function hintKeyFor(binding) {
   if (!binding) return ""
   if (binding.hintKey) return binding.hintKey
   return displayFor(binding)
 }
 
-// Keycaps are presentation; Qt's case-sensitive sequence names stay intact.
+// Invariant: keycap presentation must preserve Qt's case-sensitive sequence identifiers.
 function keycapLabel(text) {
   return String(text || "").toLowerCase()
 }
@@ -378,8 +294,7 @@ function hintTextFor(binding, context) {
   return hint[context] || ""
 }
 
-// Grouped in the order the groups first appear in the table, so the sheet's
-// shape is a property of the table rather than a second list to maintain.
+// Invariant: help-group order follows first appearance in the binding table.
 function helpGroups(hidden) {
   var groups = []
   var byName = ({})
@@ -399,14 +314,6 @@ function helpGroups(hidden) {
   return groups
 }
 
-// What the status bar offers from where the user is standing.
-//
-// `unavailable` is the ids the active provider cannot honour — a mailbox with
-// no archive, star, or named destination should not offer those actions in the
-// row that says what the keyboard does here. The table itself stays whole:
-// what a key means is a property of the application, and only whether it is on
-// offer depends on which mailbox is open. `hasSelection` makes the few hints
-// that act on a particular row contextual without changing their bindings.
 function hintsFor(context, unavailable, hasSelection) {
   var out = []
   var rows = bindingsFor(context)
@@ -421,24 +328,11 @@ function hintsFor(context, unavailable, hasSelection) {
   return out
 }
 
-// A heading costs a line as surely as a row does, so it counts as one.
-// Balancing on rows alone put the small groups together and left the last
-// column visibly short of the others.
 function helpWeight(group) {
   return (group && Array.isArray(group.rows) ? group.rows.length : 0) + 1
 }
 
-// The help groups laid out in `count` columns.
-//
-// The sheet was one narrow column, which was taller than a short window — so it
-// scrolled, and its scrollbar rode the edge of that column rather than the edge
-// of the sheet, which put a scrollbar down the middle of the screen. Wide and
-// short is the shape a reference sheet wants, and at two or three columns it
-// usually does not scroll at all.
-//
-// Split in order rather than packed by size: a reader who knows the sheet finds
-// a group where it has always been, and "smallest column so far" moves them
-// about every time a binding is added.
+// Algorithm: contiguous group partitioning balances help columns while retaining reading order.
 function helpColumns(count, hidden) {
   var groups = helpGroups(hidden)
   var columns = Math.max(1, Math.min(groups.length, Math.floor(Number(count)) || 1))
@@ -455,13 +349,12 @@ function helpColumns(count, hidden) {
   var used = 0
   var placed = 0
   for (var nextGroupIndex = 0; nextGroupIndex < groups.length; nextGroupIndex++) {
-    // Groups still to place, and columns still open, this one included in both.
+
     var left = groups.length - nextGroupIndex
     var free = columns - at
     var target = (total - placed) / free
     var nextWeight = helpWeight(groups[nextGroupIndex])
-    // Start the next column when adding this whole group would move farther
-    // from the remaining share. A group never splits across columns.
+
     if (at < columns - 1 && out[at].length > 0
         && (left <= free - 1
           || Math.abs(used - target) <= Math.abs(used + nextWeight - target))) {
@@ -475,9 +368,6 @@ function helpColumns(count, hidden) {
   return out
 }
 
-// Two bindings claiming one sequence in one context is a bug the table can find
-// by itself. Sequences compare whole, so `s` and `g,s` are different keys
-// rather than a collision.
 function conflicts() {
   var found = []
   for (var contextIndex = 0; contextIndex < CONTEXTS.length; contextIndex++) {

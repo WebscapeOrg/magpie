@@ -72,24 +72,13 @@ function decodeXml(value) {
     .replace(/&amp;/g, "&")
 }
 
-// An element's text, with both of the encodings a server is allowed to use.
-// RFC 4791 section 9.6 lets a calendar object arrive entity-escaped or inside a
-// CDATA section, and servers send the second: DAViCal wraps every object, and
-// this reached the project from an iCloud account whose calendars read empty.
-// Unwrapped, the payload begins `<![CDATA[BEGIN:VCALENDAR`, which is not a
-// property line, so the parse finds no VCALENDAR root and there are no events.
-//
-// The two encodings cannot be undone in one pass. A CDATA section's content is
-// already literal — `&amp;` inside one is those five characters, and a summary
-// of "Q&amp;A" would come out "Q&A" if the entity pass ran over it. So the
-// markers are cut and the entity pass runs only on the text between sections,
-// which is where the entities an escaping server wrote actually are.
+// Invariant: CalDAV XML text may use entities or CDATA; entity decoding inside CDATA would corrupt event text.
 function decodeXmlText(value) {
   var text = String(value || "")
   var out = ""
   var index = 0
   while (true) {
-    // Case-sensitive: `<![cdata[` is ordinary text in XML, not a section.
+    // Invariant: XML CDATA delimiters are case-sensitive.
     var start = text.indexOf("<![CDATA[", index)
     if (start < 0) break
     var end = text.indexOf("]]>", start + 9)
@@ -221,13 +210,7 @@ function recurrenceStarts(event, rangeStart, rangeEnd) {
   var limit = zoned ? rangeLimit + 86400000
     : Math.min(rangeLimit, until > 0 ? until + 1 : rangeLimit)
 
-  // Every test below is a delta from `base`, so the walk can begin on any day
-  // and still match the same ones. Begin it two days short of the range rather
-  // than at DTSTART: the two days cover the zone offset a zoned cursor carries
-  // (no zone sits more than 14 hours from UTC), and a rule from years back no longer pays for every day since it started
-  // on each refresh — nor runs into the ceiling below before reaching the
-  // range at all. COUNT is the one rule that counts from the start, so it is
-  // still walked from there.
+  // Performance: recurrence deltas allow skipping old days unless COUNT requires counting from the base.
   var from = Number(rangeStart) || 0
   if (countLimit === 0 && from > 0) {
     var skipped = Math.floor((from - 2 * 86400000 - base.getTime()) / 86400000)
@@ -366,9 +349,7 @@ function eventsFromCaldav(xml, sourceId, rangeStart, rangeEnd) {
     for (var eventIndex = 0; eventIndex < events.length; eventIndex++) {
       events[eventIndex].sourceId = String(sourceId || "")
       events[eventIndex].href = responses[responseIndex].href
-      // A CalDAV update replaces this entire resource. Keep the source so the
-      // writer can change the fields it owns without dropping everything it
-      // does not model, such as alarms, attendees and server extensions.
+      // Invariant: CalDAV replaces the entire resource; preserve fields the editor cannot model.
       events[eventIndex].calendarData = responses[responseIndex].data
       out.push(events[eventIndex])
     }
@@ -404,10 +385,7 @@ function eventsFromGoogle(payload, sourceId) {
       !!(item.end && item.end.date && !item.end.dateTime))
     out.push({
       method: "", uid: String(item.iCalUID || item.id || ""),
-      // The write URL needs the item's own id, not the iCalUID: with
-      // singleEvents=true an expanded occurrence carries an instance id, and
-      // patching or deleting it does exactly what Google Calendar does to one
-      // occurrence of a series.
+      // Invariant: Google writes require the item ID, which can differ from iCalUID for recurring occurrences.
       googleId: String(item.id || ""),
       etag: String(item.etag || ""),
       recurringEventId: String(item.recurringEventId || ""),
@@ -440,13 +418,6 @@ function eventKey(event) {
     || String(event.uid || "") + "\n" + String(event.recurrenceIdMs || event.start && event.start.ms || ""))
 }
 
-// ------------------------------------------------------------- Microsoft
-//
-// Graph's calendar view: the primary calendar's events between two moments,
-// occurrences of a series already expanded, asked for in UTC so a moment
-// parses without a timezone table. Written the way Google's is read: the
-// same event shape out, the same fields in.
-
 var GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 
 function graphEventsUrl(startMs, endMs) {
@@ -465,8 +436,7 @@ function graphEventsCreateUrl() {
   return GRAPH_ROOT + "/me/events"
 }
 
-// A Graph moment arrives as "2026-09-07T15:00:00.0000000" in the timezone
-// the request preferred, UTC here; an all-day one as midnight of its day.
+// Invariant: Graph timestamps omit an offset and name their timezone separately.
 function graphMoment(value, allDay) {
   var text = String(value && value.dateTime || "")
   if (text === "") return null
@@ -500,8 +470,7 @@ function eventsFromGraph(payload, sourceId) {
     for (var attendeeIndex = 0; attendeeIndex < attendees.length; attendeeIndex++) people.push(graphPerson(attendees[attendeeIndex]))
     out.push({
       method: "", uid: String(item.iCalUId || item.id || ""),
-      // The write URL needs Graph's own id; an occurrence of a series carries
-      // an id of its own, and writing to it changes that occurrence alone.
+      // Invariant: Graph writes require its item ID; occurrence identities differ from their series master.
       graphId: String(item.id || ""),
       sequence: 0,
       summary: String(item.subject || "Untitled event"),
@@ -518,9 +487,7 @@ function eventsFromGraph(payload, sourceId) {
   return out
 }
 
-// What Graph is sent for a new or edited event. A timed event is a UTC
-// moment written without its Z and named as UTC beside it, which is how
-// Graph spells one; an all-day event is midnight to the next midnight.
+// Invariant: Graph timed writes use UTC timestamps; all-day writes use local date boundaries.
 function graphStamp(ms) {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "")
 }
@@ -550,9 +517,7 @@ function graphResponseError(status, responseText) {
   return detail !== "" ? "Microsoft Graph answered: " + detail : "Microsoft Graph answered " + status
 }
 
-// Keep native backend diagnostics private while giving each provider an
-// actionable recovery path. This deliberately does not depend on backend
-// error-message semantics, so it remains compatible with the pinned API.
+// Invariant: provider-facing messages must not expose native backend diagnostics.
 function nativeRequestError(kind) {
   if (kind === "microsoft")
     return "Microsoft calendar request failed. Check Graph permissions in Settings, then sign in again"
@@ -560,8 +525,7 @@ function nativeRequestError(kind) {
     return "Google could not complete this calendar request. Refresh the event and try again"
   if (kind === "caldav")
     return "CalDAV calendar request failed. Check its server address and password in Settings"
-  // An iCloud calendar signs in with the mailbox's app-specific password, so
-  // that is what a refusal points at; there is no separate calendar password.
+  // Invariant: iCloud calendar access uses the mailbox app-specific password.
   if (kind === "icloud")
     return "iCloud calendar request failed. Check the mailbox's app-specific password in Settings"
   return "The calendar request failed"
@@ -583,9 +547,7 @@ function icsUtc(ms) {
   return new Date(Number(ms)).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z")
 }
 
-// A date-only stamp is the local calendar day: the ms of an all-day boundary
-// is local midnight, so the fields are read back off the local clock and no
-// timezone can move the written date.
+// Invariant: date-only ICS stamps use local calendar dates, including daylight-saving transitions.
 function icsDate(ms) {
   var date = new Date(Number(ms))
   return date.getFullYear() + two(date.getMonth() + 1) + two(date.getDate())
@@ -648,7 +610,7 @@ function veventLines(uid, sequence, stampMs, fields, rule, allDay) {
   var lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Omamail//Calendar//EN",
     "BEGIN:VEVENT", "UID:" + uid, "DTSTAMP:" + icsUtc(stampMs)]
   if (sequence > 0) lines.push("SEQUENCE:" + sequence)
-  // An all-day event is dates with an exclusive end, never midnight times.
+  // Invariant: all-day events use dates with an exclusive end, never midnight timestamps.
   if (allDay === true)
     lines.push("DTSTART;VALUE=DATE:" + icsDate(fields.start),
       "DTEND;VALUE=DATE:" + icsDate(fields.end))
@@ -679,8 +641,7 @@ function googleEventBody(fields, allDay) {
   var body = {
     summary: fields.title, description: fields.description, location: fields.location
   }
-  // Google keeps the same distinction: an all-day event is start.date to the
-  // exclusive end date, a timed one is dateTime.
+  // Invariant: Google all-day endpoints use date fields and an exclusive end.
   if (allDay === true) {
     body.start = { date: isoDate(new Date(fields.start)) }
     body.end = { date: isoDate(new Date(fields.end)) }
@@ -694,8 +655,7 @@ function googleEventBody(fields, allDay) {
 function googleEventPatch(fields, allDay, existingAllDay) {
   var body = googleEventBody(fields, allDay)
   if (existingAllDay === allDay) return body
-  // PATCH preserves omitted nested fields. Explicitly remove the other time
-  // representation so a conversion cannot leave both date and dateTime set.
+  // Invariant: Google PATCH retains omitted nested fields; clear the alternate date/dateTime representation.
   if (allDay) {
     body.start.dateTime = null
     body.end.dateTime = null
@@ -793,7 +753,7 @@ function gestureRange(event, dayOffset, minuteOffset, edge) {
     var duration = end - start
     start = date.getTime()
     if (event.start.allDay) {
-      // All-day duration counts local dates, including 23/25-hour DST days.
+      // Invariant: all-day duration counts local dates, including 23/25-hour daylight-saving days.
       var endDate = new Date(end)
       endDate.setDate(endDate.getDate() + Number(dayOffset))
       end = endDate.getTime()
@@ -802,9 +762,7 @@ function gestureRange(event, dayOffset, minuteOffset, edge) {
   return isFinite(start) && isFinite(end) && end > start ? { start: start, end: end } : null
 }
 
-// Interval partitioning: every connected overlap group shares its lane count.
-// Equal end/start boundaries do not overlap. Long meetings retain their lane
-// while shorter neighbours come and go, so cards never cover each other.
+// Algorithm: interval partitioning gives each connected overlap group a shared lane count.
 function timedLayout(events, day) {
   var rows = (events || []).filter(function(event) { return event && event.start && !displayInAllDayLane(event) }).map(function(event) {
     return { event: event, start: Math.max(Number(event.start.ms), day.startMs),
@@ -886,28 +844,13 @@ function createEvent(fields, nowMs) {
     ics: veventLines(uid, 0, Number(nowMs) || Date.now(), checked, recurrence.rule, fields.allDay === true).join("\r\n"),
     google: googleEventBody(checked, fields.allDay === true),
     graph: graphEventBody(checked, fields.allDay === true),
-    // Graph spells a series as a structured rule of its own rather than an
-    // RRULE; one is refused there rather than sent wrong.
+    // Invariant: Graph recurrence is structured data; a display string must not be written back as an ICS rule.
     recurring: recurrence.rule !== ""
   }
   if (recurrence.rule !== "") result.google.recurrence = ["RRULE:" + recurrence.rule]
   return result
 }
 
-// Whether a write can run against this source at all. A read-only calendar
-// refuses every write. A recurring CalDAV event is one ICS holding a rule,
-// its exceptions and its exclusions; rewriting that file from the fields the
-// composer edits would drop the parts it keeps no model of, so the operation
-// is refused before anything is written — the same judgement the button rule
-// makes upstream. A modified occurrence carries no RRULE of its own, only a
-// RECURRENCE-ID, but its href is still the series' shared file, so it answers
-// the same way. Creation asks with no event: only the source's own rules
-// apply.
-// The confirmation a delete asks for: which event, what goes with it, and
-// the answers that differ in consequence. Each choice is one button in the
-// dialog, so a guest notification or a whole series is chosen there rather
-// than on a row of destructive buttons beside the event. The last choice is
-// the default. `value` is the event's `deleteSendUpdates`, or "series".
 function deleteRequest(event, source, canReadSeries) {
   var value = event || {}
   var google = !!source && source.kind === "google"
@@ -950,9 +893,7 @@ function writeRefusal(source, event, operation) {
       && event.guestsCanModify !== true && operation !== "delete")
     return "Only the organizer can change this event"
   if (source.kind !== "caldav" && source.kind !== "icloud") return ""
-  // A RECURRENCE-ID too malformed to parse leaves recurrenceIdMs at 0, but
-  // the event's href still names the series' shared file — the raw line the
-  // parser kept answers for it.
+  // Invariant: malformed RECURRENCE-ID still denotes an occurrence; it must never authorize rewriting the series.
   var rawRecurrenceId = event && event.source
     ? String(event.source.recurrenceId || "") : ""
   if (String(event && event.recurrenceRule || "") !== ""
@@ -961,12 +902,7 @@ function writeRefusal(source, event, operation) {
   return ""
 }
 
-// An edit rewrites the event on its own identity: the UID names it, and the
-// bumped SEQUENCE tells every copy of it which write is newer. Recurrence is
-// not editable here — the Google patch omits the key so the server keeps the
-// rule, and a recurring CalDAV event is refused by writeRefusal before this
-// runs. An explicit allDay field can change its shape; otherwise preserve the
-// original shape so a title-only change cannot turn one into the other.
+// Invariant: CalDAV updates retain UID and unrelated components in the original resource.
 function updateEvent(fields, existing, nowMs) {
   var event = existing || {}
   var uid = String(event.uid || "")
@@ -995,9 +931,6 @@ function googleEventUrl(eventId) {
     + encodeURIComponent(String(eventId || ""))
 }
 
-// The scheme and authority of an HTTPS URL. Anything else — http, a bare
-// path, junk — has no authority here, because a write address is HTTPS or
-// nothing.
 function httpsAuthority(url) {
   var text = String(url || "")
   if (text === "" || /\s/.test(text)) return null
@@ -1038,20 +971,12 @@ function urlAuthority(url) {
     : "https://" + parts.host + ":" + parts.port
 }
 
-// scheme://host:port with the port made explicit and the case-insensitive
-// parts folded, so two spellings of the same origin compare equal.
 function urlOrigin(url) {
   var parts = httpsAuthority(url)
   return parts ? "https://" + parts.host + ":" + parts.port : ""
 }
 
-// A REPORT answers with the event's own href, which the server may write as a
-// full URL or as a path against the host the collection lives on. An absolute
-// href is accepted only on the collection's own origin: anything else would
-// send this calendar's credentials to a server that merely named an address
-// in an answer. Raw whitespace is refused outright — a URL's spaces arrive
-// percent-encoded, and the resolved address becomes one quoted line of the
-// transport's curl config, where a line break would write more options.
+// Invariant: an event href must stay on the configured HTTPS origin before credentials are used.
 function caldavEventUrl(sourceUrl, event) {
   var base = String(sourceUrl || "")
   var origin = urlOrigin(base)
@@ -1076,9 +1001,7 @@ function caldavEventUrl(sourceUrl, event) {
   return urlOrigin(resolved) === origin ? resolved : ""
 }
 
-// Whether two event lists would draw the same. A refresh that brings back what
-// is already shown must not hand the views a new array: every Repeater and
-// ListView bound to one rebuilds its delegates and loses its scroll position.
+// Performance: preserve event-list identity when a refresh would render the same values.
 function sameEvents(left, right) {
   if (left === right) return true
   if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
@@ -1132,8 +1055,7 @@ function spansMultipleDays(event) {
     && isoDate(new Date(start)) !== isoDate(new Date(end - 1))
 }
 
-// Each original event gets one segment per intersected week. Endpoints are
-// exclusive, including midnight and all-day ends; titles never identify events.
+// Invariant: month segments use exclusive ends, so midnight does not occupy the following day.
 function monthSpanLayout(events, days) {
   return spanLayout((events || []).filter(spansMultipleDays), days)
 }
@@ -1199,8 +1121,7 @@ function weekTitle(days) {
     + last.day + " " + months[last.month] + " " + last.year
 }
 
-// Minutes on the labeled local-time grid. Subtracting from midnight measures
-// elapsed time instead, which is an hour short or long after a DST transition.
+// Invariant: grid minutes follow local clock labels, not elapsed time across daylight-saving transitions.
 function dayMinutes(timeMs, day) {
   var value = Number(timeMs)
   if (value <= Number(day.startMs)) return 0
@@ -1225,11 +1146,7 @@ function eventHeight(event, day, hourHeight) {
     (dayMinutes(end, day) - dayMinutes(start, day)) / 60 * Number(hourHeight))
 }
 
-// Where "now" sits in a day column, or -1 when it does not belong on the grid:
-// another day, or an hour outside the range the week view drew. The caller
-// draws nothing on -1 rather than clamping to an edge, because a line pinned to
-// the top of the grid states a time that is not the time — and the range here
-// is elastic, since weekHourRange widens it to whatever the week's events need.
+// Docs: return the day-column offset, or -1 when the current time is outside the visible grid.
 function nowOffset(day, firstHour, lastHour, hourHeight, nowMs) {
   if (!day) return -1
   var now = Number(nowMs)
@@ -1242,9 +1159,7 @@ function nowOffset(day, firstHour, lastHour, hourHeight, nowMs) {
   return (minutes - first) / 60 * Number(hourHeight)
 }
 
-// QML supplies Qt.locale().timeFormat(Locale.ShortFormat); keep the complete
-// pattern so Qt also owns localized separators and AM/PM text. Node tests
-// supply the Qt formatting boundary without needing the QML engine.
+// Invariant: Qt supplies the locale time pattern, including locale-specific literals.
 function timeLabel(timeMs, localeFormat) {
   var time = new Date(Number(timeMs))
   if (!isFinite(time.getTime())) return ""
@@ -1261,9 +1176,6 @@ function dateTimeLabel(timeMs, dateFormat, localeFormat, separator) {
     + (separator === undefined ? " " : separator) + timeLabel(timeMs, localeFormat)
 }
 
-// The same offset for the week as a whole, so the time rail can label the line
-// without the view having to work out which of the seven columns is today.
-// Returns -1 when today is not in view at all, which is every week but this one.
 function weekNowOffset(days, firstHour, lastHour, hourHeight, nowMs) {
   var values = Array.isArray(days) ? days : []
   for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
@@ -1306,8 +1218,7 @@ function indexDays(events, days) {
   return result
 }
 
-// Presentation only: retain timed endpoints for details, editing and writes.
-// Compare local calendar days rather than 24 hours across daylight-saving changes.
+// Invariant: all-day-lane presentation must retain timed endpoints for details and writes.
 function displayInAllDayLane(event) {
   if (!event || !event.start) return false
   if (event.start.allDay) return true

@@ -2,45 +2,23 @@ import QtQuick
 import "Agent.js" as Agent
 import "../account/Unified.js" as Unified
 
-// The events the agent finds in the message being read, and the one thing
-// that starts a look: the body arriving in the reader. With the setting on,
-// a message whose text mentions a date is handed over once, in the
-// background; the answer is the card the reader draws, and "Add" hands the
-// event to the calendar's composer to be looked at before it is written
-// anywhere.
-//
-// Rust reads the message for the look the way it does for an ask —
-// `agent.context`, account-bound — and the runner starts the job with the
-// `events` flag; the worker's own rules and answer parsing do the rest.
-// Beside the service rather than in it, which is near its size ceiling.
 Item {
   id: root
 
   required property var service
   required property var runner
 
-  // The keys of the suggestions waved away this session. Not persisted: a
-  // restart shows them again, which is the honest answer for a guess.
+  // Invariant: dismissed suggestions last only for this session.
   property var dismissed: []
-  // The suggestion handed to the composer, waved away once the event is
-  // written — and not before, in case the composer is closed instead, which
-  // forgets it: a later event written from anywhere is not this one.
+  // Invariant: dismiss only after this suggestion is saved; closing its composer clears the pending link.
   property var pending: null
-  // Looks asked for that could not start yet — a read or a start already in
-  // flight, or two looks running — kept by key and tried again when one
-  // lands or a look finishes; and the keys of looks started but not yet
-  // listed, so a body that arrives twice (from the cache, then live) asks
-  // once.
+  // Invariant: cached and live body arrivals must not start the same account/message twice.
   property var waiting: []
   property var started: []
-  // A read of the message for the look is in flight. One at a time: the
-  // runner refuses a second start until the first lands, and a read that
-  // finished with nowhere to go would be a message read for nothing.
+  // Invariant: only one context read prepares a job while the runner serializes starts.
   property bool preparing: false
   property int serial: 0
-  // The selected AI is not one the native worker runs. Rust refuses the first look; the rest
-  // of the session asks nothing more, silently, and turning the setting
-  // off and on asks again. The panel says why when the owner opens it.
+  // Invariant: an unsupported agent suppresses background checks until the setting or provider changes.
   property bool unavailable: false
 
   readonly property bool canSuggest: !!service && service.suggestEvents === true
@@ -63,7 +41,7 @@ Item {
   Connections {
     target: root.service
     function onSuggestEventsChanged() { root.unavailable = false; root.consider() }
-    // Retry when the connected backend meets this feature's fixed API requirement.
+    // Invariant: feature availability follows its fixed minimum API revision after future releases.
     function onBackendCanSuggestEventsChanged() { root.consider() }
     function onAgentAvailableChanged() { root.unavailable = false; root.consider() }
   }
@@ -84,19 +62,13 @@ Item {
     return Agent.lookFor(runner ? runner.eventLooks : null, accountId, messageId) !== null
   }
 
-  // Whether the open message is worth a look, and the look if so. Every
-  // gate is cheap and local: the setting, text with a date in it, a message
-  // from the last two months, no look at it yet, and no more than a couple
-  // of looks already running.
   function consider() {
     var account = reading
     if (!account || !canSuggest) return false
     var id = String(account.selectedId || "")
     var summary = account.selectedMessage
     if (id === "" || !summary || String(summary.id || "") !== id) return false
-    // The subject counts: "Dinner Thursday at 7pm" over a body that says
-    // only "see you there" is a message about a date. Mail from a machine
-    // or a list is not asked about, however many dates it carries.
+    // Invariant: the subject can supply the date when the body only says "see you there".
     var text = String(summary.subject || "") + "\n"
       + (account.selectedBody ? String(account.selectedBody.text || "") : "")
     if (!Agent.worthALook(summary, text, !!account.selectedUnsubscribe)) return false
@@ -107,8 +79,6 @@ Item {
       summary: summary, folder: String(account.mailboxKey || "") })
   }
 
-  // A look started if nothing else is starting and fewer than the ceiling
-  // are running; otherwise kept, once, for the next chance.
   function tryStart(look) {
     if (!canSuggest || !service.findAccount(look.accountId)) return false
     var free = !preparing && runner && !runner.starting
@@ -122,9 +92,6 @@ Item {
     return false
   }
 
-  // The message, read by Rust inside its account and handed to the runner
-  // with the flag. A read that fails is a look not taken, said on the
-  // status line; the message may be looked at again later.
   function start(look) {
     if (!canSuggest || !service.backend || !service.backend.ready) return false
     var owner = service.findAccount(look.accountId)
@@ -152,9 +119,6 @@ Item {
     return true
   }
 
-  // The looks kept waiting, tried in order until one cannot start. A look
-  // whose message was looked at meanwhile, or whose account is gone, is
-  // dropped rather than asked; keys the listing now carries leave `started`.
   function drain() {
     if (!canSuggest) { waiting = []; return }
     started = started.filter(function(key) {
@@ -176,9 +140,6 @@ Item {
     if (value !== "" && dismissed.indexOf(value) < 0) dismissed = dismissed.concat([value])
   }
 
-  // Add: the composer opens on the suggestion, unless the owner is in the
-  // middle of another event there, or there is no calendar to write to —
-  // either is said on the status line rather than swallowed.
   function compose(suggestion) {
     var controller = service ? service.calendarController : null
     if (!suggestion || !controller) return false

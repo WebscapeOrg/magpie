@@ -279,6 +279,13 @@ Item {
       else compare(JSON.stringify(controller.sourceList), before)
     }
 
+    function test_native_request_preserves_the_callers_fields() {
+      var fields = {start: "a", end: "b"}
+      controller.nativeRequest({kind: "google", accountId: "one@gmail.com"}, "list", fields, function() {})
+      compare(JSON.stringify(fields), '{"start":"a","end":"b"}')
+      compare(mailService.requests[0].params.operation, "list")
+    }
+
     function test_network_requests_are_owned_by_backend() {
       var source = {kind: "google", accountId: "one@gmail.com", id: "google:one@gmail.com"}
       var called = false

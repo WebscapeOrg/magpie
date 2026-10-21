@@ -527,7 +527,7 @@ Item {
         return
       }
     }
-    var params = fields || {}
+    var params = Object.assign({}, fields || {})
     params.source = source
     params.operation = operation
     var notifyConsent = microsoftConsentHandler(source && source.kind === "microsoft" ? source.accountId : "")

@@ -88,12 +88,8 @@ Item {
     function test_two_mailboxes_become_one_list() {
       compare(service.unified, true)
       compare(service.messages.length, 3)
-      deepCompare(service.messages.map(function(m) { return m.subject }),
+      compare(service.messages.map(function(m) { return m.subject }),
         ["ada newest", "bob middle", "ada oldest"])
-    }
-
-    function deepCompare(actual, expected) {
-      compare(actual.join(" | "), expected.join(" | "))
     }
 
     // Two mailboxes numbering their own messages from 1 is the collision the
@@ -416,7 +412,7 @@ Item {
       })
       service.select(Unified.unifiedId(bobId, "1"))
 
-      deepCompare(service.selectedThread.memberIds,
+      compare(service.selectedThread.memberIds,
         [Unified.unifiedId(bobId, "1"), Unified.unifiedId(bobId, "2")])
       compare(service.selectedThread.id, "t1",
         "the thread's own handle is not a message id and is left alone")

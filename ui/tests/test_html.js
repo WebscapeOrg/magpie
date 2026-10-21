@@ -2,6 +2,21 @@ const assert = require("assert")
 const { load, deepEqual } = require("./load")
 
 const html = load("message/Html.js")
+const tinyPng = "data:image/png;base64,iVBORw0KGgo="
+
+function sanitize(source, options) {
+  if (!options || options.allowRemoteImages !== true
+    || Object.prototype.hasOwnProperty.call(options, "remoteImageData"))
+    return html.sanitize(source, options)
+  const prepared = {}
+  for (const token of html.tokenize(source)) {
+    if (token.type !== "start" || token.name !== "img") continue
+    for (const attribute of token.attrs) {
+      if (attribute.name === "src") prepared[attribute.value] = tinyPng
+    }
+  }
+  return html.sanitize(source, Object.assign({}, options, { remoteImageData: prepared }))
+}
 
 // =============================================================== the parser
 //
@@ -58,12 +73,12 @@ const html = load("message/Html.js")
   // fast path when it saw no capital while scanning a name, so the shouted form
   // is its own path and has to be checked.
   assert.strictEqual(
-    html.sanitize("<DIV STYLE=\"COLOR:red;padding:4px\"><IMG SRC=\"https://cdn.example.com/a.png\" WIDTH=\"90\">x</DIV>",
+    sanitize("<DIV STYLE=\"COLOR:red;padding:4px\"><IMG SRC=\"https://cdn.example.com/a.png\" WIDTH=\"90\">x</DIV>",
       { allowRemoteImages: true }).html,
-    "<div style=\"padding:4px\"><img src=\"https://cdn.example.com/a.png\" width=\"90\">x</div>")
-  assert.strictEqual(html.sanitize("<SCRIPT>bad()</SCRIPT>ok").html, "ok")
-  assert.strictEqual(html.sanitize("<P STYLE=\"DISPLAY:NONE\">secret</P><p>real</p>").html, "<p>real</p>")
-  assert.strictEqual(html.sanitize("<A HREF=\"JAVASCRIPT:x()\">t</A>").html, "<a>t</a>")
+    '<div style="padding:4px"><img src="' + tinyPng + '" width="90">x</div>')
+  assert.strictEqual(sanitize("<SCRIPT>bad()</SCRIPT>ok").html, "ok")
+  assert.strictEqual(sanitize("<P STYLE=\"DISPLAY:NONE\">secret</P><p>real</p>").html, "<p>real</p>")
+  assert.strictEqual(sanitize("<A HREF=\"JAVASCRIPT:x()\">t</A>").html, "<a>t</a>")
 
   // A "<" that starts no tag is a "<" the sender typed, and it goes back out
   // escaped rather than raw. It draws the same either way, and leaving it raw
@@ -73,21 +88,21 @@ const html = load("message/Html.js")
 
   // A raw-text element ends at its own closing tag and at nothing else, so a
   // stylesheet cannot hide markup from the walk that follows it.
-  assert.strictEqual(html.sanitize("<style>p::after{content:\"<img src=x>\"}</style>ok").html, "ok")
-  assert.strictEqual(html.sanitize("<script>var a = 1 < 2;</script>ok").html, "ok")
+  assert.strictEqual(sanitize("<style>p::after{content:\"<img src=x>\"}</style>ok").html, "ok")
+  assert.strictEqual(sanitize("<script>var a = 1 < 2;</script>ok").html, "ok")
   // ...and per the spec the first "</style" ends it, whatever it is inside.
-  assert.ok(html.sanitize("<style>a{}</style><p>after</p>").html.indexOf("<p>after</p>") >= 0)
+  assert.ok(sanitize("<style>a{}</style><p>after</p>").html.indexOf("<p>after</p>") >= 0)
 
   // A tag that never closes takes the rest of the document with it, which is
   // what Qt does with it too — and is the reading that cannot leave a fetch
   // behind.
-  assert.strictEqual(html.sanitize("<p>kept</p><div class=\"never").html, "<p>kept</p>")
+  assert.strictEqual(sanitize("<p>kept</p><div class=\"never").html, "<p>kept</p>")
 
   // A doctype is not text: Qt would lay it out as a line above the message.
-  assert.strictEqual(html.sanitize("<!DOCTYPE html><p>hi</p>").html, "<p>hi</p>")
+  assert.strictEqual(sanitize("<!DOCTYPE html><p>hi</p>").html, "<p>hi</p>")
 
   // A title is not body text either, and nearly every marketing mail ships one.
-  assert.strictEqual(html.sanitize("<head><title>Newsletter</title></head><p>real</p>").html,
+  assert.strictEqual(sanitize("<head><title>Newsletter</title></head><p>real</p>").html,
     "<head></head><p>real</p>")
 }
 
@@ -110,11 +125,11 @@ const html = load("message/Html.js")
 // just stops adding a level to hold it.
 {
   const deepest = "<div>".repeat(20000) + "<img src=\"http://127.0.0.1/x.png\">text"
-  const out = html.sanitize(deepest, { allowRemoteImages: true })
+  const out = sanitize(deepest, { allowRemoteImages: true })
   assert.ok(out.html.indexOf("127.0.0.1") < 0, "the ceiling is not a way past the image policy")
   assert.ok(out.html.indexOf("text") > 0, "the content is still there")
   const tables = "<table><tr><td>".repeat(4000) + "cell"
-  assert.ok(html.sanitize(tables).html.indexOf("cell") > 0)
+  assert.ok(sanitize(tables).html.indexOf("cell") > 0)
   assert.ok(html.tooHeavyForRichText(tables), "and it is still refused as too heavy")
 }
 
@@ -122,10 +137,10 @@ const html = load("message/Html.js")
 // asking separately would mean parsing the whole body again to count what was
 // just counted.
 {
-  const light = html.sanitize("<p>hi</p>")
+  const light = sanitize("<p>hi</p>")
   assert.strictEqual(light.tooHeavy, false)
   assert.strictEqual(light.complexity.tags, 1)
-  const heavy = html.sanitize("<div></div>".repeat(html.MAX_ELEMENTS + 1))
+  const heavy = sanitize("<div></div>".repeat(html.MAX_ELEMENTS + 1))
   assert.strictEqual(heavy.tooHeavy, true)
   assert.strictEqual(heavy.tooHeavy, html.tooHeavyForRichText(heavy.html),
     "and it agrees with asking the long way round")
@@ -137,7 +152,7 @@ const html = load("message/Html.js")
   const body = "<img src=\"https://track.example.com/p.gif\" width=\"1\">"
     + "<p>copy</p><img src=\"http://127.0.0.1/x.png\" width=\"90\">"
     + "<img src=\"https://cdn.example.com/real.png\" width=\"90\">"
-  const asked = html.sanitize(body, { withPlainText: true })
+  const asked = sanitize(body, { withPlainText: true })
   // Numbered off the sender's own tree, before the image policy is applied: a
   // message's second picture is its second picture whether or not the first was
   // a request to the machine itself. A beacon is the one thing not counted —
@@ -151,7 +166,7 @@ const html = load("message/Html.js")
   // The same answer the long way round, so the shortcut cannot drift from it.
   deepEqual(asked.plainText, html.readPlainText(body))
   // And nothing is paid for it unless it is asked for.
-  assert.strictEqual(html.sanitize(body).plainText, null)
+  assert.strictEqual(sanitize(body).plainText, null)
 }
 
 // ------------------------------------------------------------ scaffolding
@@ -162,44 +177,44 @@ const html = load("message/Html.js")
 // the two shapes that provably render the same.
 {
   // A stack of empty wrappers is the innermost thing in it.
-  assert.strictEqual(html.sanitize("<div><div><div><p>hi</p></div></div></div>").html, "<p>hi</p>")
+  assert.strictEqual(sanitize("<div><div><div><p>hi</p></div></div></div>").html, "<p>hi</p>")
   const table = "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>"
-  assert.strictEqual(html.sanitize("<div>" + table + "</div>").html, table)
+  assert.strictEqual(sanitize("<div>" + table + "</div>").html, table)
   // An inline element carrying nothing is nothing.
-  assert.strictEqual(html.sanitize("<p><span>a</span>b<font>c</font></p>").html, "<p>abc</p>")
+  assert.strictEqual(sanitize("<p><span>a</span>b<font>c</font></p>").html, "<p>abc</p>")
 
   // Anything the wrapper carries is a reason it is there.
-  assert.strictEqual(html.sanitize("<div style=\"padding:8px\"><p>hi</p></div>").html,
+  assert.strictEqual(sanitize("<div style=\"padding:8px\"><p>hi</p></div>").html,
     "<div style=\"padding:8px\"><p>hi</p></div>")
   // Centring is not one of those reasons. The sender centres a 600px card in
   // the middle of a wide window; the reader is a panel of left-aligned text
   // beside a left-aligned list, and a newsletter kept centred there comes out
   // as a column of short lines adrift in it.
-  assert.strictEqual(html.sanitize("<div align=\"center\"><p>hi</p></div>").html, "<p>hi</p>")
-  assert.strictEqual(html.sanitize("<center><p>hi</p></center>").html, "<p>hi</p>")
-  assert.strictEqual(html.sanitize("<p style=\"text-align:center;font-size:9px\">hi</p>").html,
+  assert.strictEqual(sanitize("<div align=\"center\"><p>hi</p></div>").html, "<p>hi</p>")
+  assert.strictEqual(sanitize("<center><p>hi</p></center>").html, "<p>hi</p>")
+  assert.strictEqual(sanitize("<p style=\"text-align:center;font-size:9px\">hi</p>").html,
     "<p style=\"font-size:9px\">hi</p>")
   // Every other alignment is the sender saying something the panel can honour:
   // a column of numbers reads right, and Arabic reads from the other end.
-  assert.ok(html.sanitize("<p style=\"text-align:right\">9.00</p>").html
+  assert.ok(sanitize("<p style=\"text-align:right\">9.00</p>").html
     .indexOf("text-align:right") > 0)
   // And a cell keeps even centring: a column lining up is the one thing a grid
   // is kept for.
-  assert.ok(html.sanitize("<table><tr><th align=\"center\">a</th><th>b</th></tr>"
+  assert.ok(sanitize("<table><tr><th align=\"center\">a</th><th>b</th></tr>"
     + "<tr><td style=\"text-align:center\">c</td><td>d</td></tr></table>").html
     .indexOf("text-align:center") > 0)
   // <b> is not <span>: it says something with no attributes at all.
-  assert.strictEqual(html.sanitize("<p><b>bold</b></p>").html, "<p><b>bold</b></p>")
+  assert.strictEqual(sanitize("<p><b>bold</b></p>").html, "<p><b>bold</b></p>")
 
   // Two boxes are two boxes, and a box holding text as well as a box is not
   // holding only that box.
-  assert.strictEqual(html.sanitize("<div><p>a</p><p>b</p></div>").html, "<div><p>a</p><p>b</p></div>")
-  assert.strictEqual(html.sanitize("<div>text<p>b</p></div>").html, "<div>text<p>b</p></div>")
+  assert.strictEqual(sanitize("<div><p>a</p><p>b</p></div>").html, "<div><p>a</p><p>b</p></div>")
+  assert.strictEqual(sanitize("<div>text<p>b</p></div>").html, "<div>text<p>b</p></div>")
   // Whitespace between blocks is not text: a template's newlines do not pin a
   // wrapper in place.
-  assert.strictEqual(html.sanitize("<div>\n  <p>a</p>\n</div>").html, "<p>a</p>")
+  assert.strictEqual(sanitize("<div>\n  <p>a</p>\n</div>").html, "<p>a</p>")
   // An inline child means the wrapper is what puts it on its own line.
-  assert.strictEqual(html.sanitize("<div><span style=\"font-size:9px\">a</span></div>").html,
+  assert.strictEqual(sanitize("<div><span style=\"font-size:9px\">a</span></div>").html,
     "<div><span style=\"font-size:9px\">a</span></div>")
 
   // On mail shaped like the real thing this is most of the document. Nine
@@ -210,10 +225,10 @@ const html = load("message/Html.js")
     close = "</td></tr></table>" + close
   }
   card += "<img src=\"https://cdn.example.com/h.png\" width=\"540\"><p>copy</p>" + close
-  const carded = html.sanitize(card, { allowRemoteImages: true })
+  const carded = sanitize(card, { allowRemoteImages: true })
   assert.ok(carded.complexity.tags < 12,
     "nine levels of scaffolding come out as a handful of elements, not thirty")
-  assert.ok(carded.html.indexOf("copy") > 0 && carded.html.indexOf("h.png") > 0,
+  assert.ok(carded.html.indexOf("copy") > 0 && carded.html.indexOf(tinyPng) > 0,
     "and everything that was in them is still there")
 }
 
@@ -270,13 +285,13 @@ const html = load("message/Html.js")
 // of a <style> block, so a message with a stylesheet shows its CSS as a wall
 // of text unless the block is removed outright.
 
-assert.strictEqual(html.sanitize("<style>p{color:red}</style><p>hi</p>").html, "<p>hi</p>")
-assert.strictEqual(html.sanitize("<script>alert(1)</script>text").html, "text")
-assert.strictEqual(html.sanitize("<iframe src='x'></iframe>text").html, "text")
-assert.strictEqual(html.sanitize("<p onclick='x()'>hi</p>").html, "<p>hi</p>")
-assert.strictEqual(html.sanitize("<a href='javascript:x()'>hi</a>").html, "<a>hi</a>")
-assert.strictEqual(html.sanitize("<!-- c -->kept").html, "kept")
-assert.strictEqual(html.sanitize("<meta charset='utf-8'>body").html, "body")
+assert.strictEqual(sanitize("<style>p{color:red}</style><p>hi</p>").html, "<p>hi</p>")
+assert.strictEqual(sanitize("<script>alert(1)</script>text").html, "text")
+assert.strictEqual(sanitize("<iframe src='x'></iframe>text").html, "text")
+assert.strictEqual(sanitize("<p onclick='x()'>hi</p>").html, "<p>hi</p>")
+assert.strictEqual(sanitize("<a href='javascript:x()'>hi</a>").html, "<a>hi</a>")
+assert.strictEqual(sanitize("<!-- c -->kept").html, "kept")
+assert.strictEqual(sanitize("<meta charset='utf-8'>body").html, "body")
 
 // The tags that carry an email's actual layout must survive untouched. Real
 // mail is still table-and-inline-style HTML written for Outlook, which is
@@ -284,10 +299,10 @@ assert.strictEqual(html.sanitize("<meta charset='utf-8'>body").html, "body")
 // Layout survives; the sender's palette does not (see the theming block).
 const table = "<table><tr><td>Item</td><td style=\"padding:6px\"><b>Total</b></td></tr>"
   + "<tr><td>Tea</td><td>2.00</td></tr></table>"
-assert.strictEqual(html.sanitize(table).html, table)
-assert.strictEqual(html.sanitize("<a href=\"https://example.com\">link</a>").html,
+assert.strictEqual(sanitize(table).html, table)
+assert.strictEqual(sanitize("<a href=\"https://example.com\">link</a>").html,
   "<a href=\"https://example.com\">link</a>")
-assert.strictEqual(html.sanitize("<a href=\"mailto:a@b.com\">mail</a>").html,
+assert.strictEqual(sanitize("<a href=\"mailto:a@b.com\">mail</a>").html,
   "<a href=\"mailto:a@b.com\">mail</a>")
 
 // -------------------------------------------------------- remote images
@@ -296,51 +311,51 @@ assert.strictEqual(html.sanitize("<a href=\"mailto:a@b.com\">mail</a>").html,
 // pixel in the message fires the moment the reader opens it.
 
 const tracked = "<p>Hi</p><img src=\"https://track.example/pixel.gif\" width=\"1\">"
-const blocked = html.sanitize(tracked)
+const blocked = sanitize(tracked)
 assert.strictEqual(blocked.blockedImages, 1)
 assert.ok(blocked.html.indexOf("track.example") < 0, "the URL must not reach the renderer")
 assert.ok(blocked.html.indexOf("<p>Hi</p>") === 0, "the rest of the message is untouched")
 
 // A 1x1 image is a beacon, never something to look at, so it goes even when
 // images are welcome. Every real message in a live mailbox carries one.
-const allowedPixel = html.sanitize(tracked, { allowRemoteImages: true })
+const allowedPixel = sanitize(tracked, { allowRemoteImages: true })
 assert.strictEqual(allowedPixel.images, 0)
 assert.strictEqual(allowedPixel.blockedImages, 1)
-assert.strictEqual(html.sanitize("<img src='https://a.example.com/b.gif' height=\"1\">",
+assert.strictEqual(sanitize("<img src='https://a.example.com/b.gif' height=\"1\">",
   { allowRemoteImages: true }).images, 0)
-assert.strictEqual(html.sanitize("<img src='https://a.example.com/b.gif' style='width:1px;height:1px'>",
+assert.strictEqual(sanitize("<img src='https://a.example.com/b.gif' style='width:1px;height:1px'>",
   { allowRemoteImages: true }).images, 0)
 
 // A real picture is kept.
 const real = "<img src=\"https://cdn.example/photo.png\" width=\"600\" height=\"400\">"
-assert.strictEqual(html.sanitize(real, { allowRemoteImages: true }).images, 1)
-assert.ok(html.sanitize(real, { allowRemoteImages: true }).html.indexOf("photo.png") > 0)
-assert.strictEqual(html.sanitize(real).images, 0, "still off unless asked for")
+assert.strictEqual(sanitize(real, { allowRemoteImages: true }).images, 1)
+assert.ok(sanitize(real, { allowRemoteImages: true }).html.indexOf(tinyPng) > 0)
+assert.strictEqual(sanitize(real).images, 0, "still off unless asked for")
 
 // Every image is a fetch Qt performs during layout, and every completed fetch
 // triggers another layout pass, so the count is capped.
 let many = ""
 for (let i = 0; i < html.MAX_IMAGES + 8; i++) many += "<img src=\"https://cdn.example.com/" + i + ".png\" width=\"90\">"
-const capped = html.sanitize(many, { allowRemoteImages: true })
+const capped = sanitize(many, { allowRemoteImages: true })
 assert.strictEqual(capped.images, html.MAX_IMAGES)
 assert.strictEqual(capped.blockedImages, 8)
-assert.strictEqual(html.sanitize(many, { allowRemoteImages: true, maxImages: 3 }).images, 3)
+assert.strictEqual(sanitize(many, { allowRemoteImages: true, maxImages: 3 }).images, 3)
 
 // A caller may defer remote resources until it has fetched and validated the
 // bytes itself. Qt then sees no loading URL (and draws no broken placeholder),
 // only a data URI once that exact source is ready.
 {
   const source = "<p><img src=\"https://cdn.example.com/photo.png\" width=\"120\"></p>"
-  const waiting = html.sanitize(source, {
+  const waiting = sanitize(source, {
     allowRemoteImages: true, remoteImageData: ({}), withReader: true
   })
   assert.strictEqual(waiting.html.indexOf("cdn.example.com"), -1)
   assert.strictEqual(waiting.reader.html.indexOf("cdn.example.com"), -1)
   deepEqual(waiting.remoteImageSources, ["https://cdn.example.com/photo.png"])
-  deepEqual(html.sanitize("<div style=\"display:none\"><img src=\"https://track.example.com/hidden.png\" width=\"40\"></div>")
+  deepEqual(sanitize("<div style=\"display:none\"><img src=\"https://track.example.com/hidden.png\" width=\"40\"></div>")
     .remoteImageSources, [], "a hidden picture is not prefetched")
 
-  const ready = html.sanitize(source, {
+  const ready = sanitize(source, {
     allowRemoteImages: true,
     remoteImageData: ({ "https://cdn.example.com/photo.png": "data:image/png;base64,iVBORw0KGgo=" }),
     withReader: true
@@ -370,13 +385,13 @@ assert.strictEqual(html.complexity(null).length, 0)
 
 // cid: images point at attachments this plugin does not fetch, and data: URIs
 // are already local. Neither is a network request, and neither is counted.
-assert.strictEqual(html.sanitize("<img src=\"cid:logo\">").blockedImages, 0)
-assert.strictEqual(html.sanitize("<img src=\"data:image/png;base64,AAA\">").blockedImages, 0)
-assert.strictEqual(html.sanitize("<img src='http://a.example.com/b.png'><img src='https://c.example.com/d.png'>").blockedImages, 2)
-assert.strictEqual(html.sanitize("<img src='http://a.example.com/b.png'><img src='https://c.example.com/d.png'>",
+assert.strictEqual(sanitize("<img src=\"cid:logo\">").blockedImages, 0)
+assert.strictEqual(sanitize("<img src=\"data:image/png;base64,AAA\">").blockedImages, 0)
+assert.strictEqual(sanitize("<img src='http://a.example.com/b.png'><img src='https://c.example.com/d.png'>").blockedImages, 2)
+assert.strictEqual(sanitize("<img src='http://a.example.com/b.png'><img src='https://c.example.com/d.png'>",
   { allowRemoteImages: true }).images, 2, "images with no stated size are real pictures")
 // Protocol-relative sources are still network fetches.
-assert.strictEqual(html.sanitize("<img src=\"//cdn.example/x.png\">").blockedImages, 1)
+assert.strictEqual(sanitize("<img src=\"//cdn.example/x.png\">").blockedImages, 1)
 
 // ------------------------------------------------- where an image may point
 //
@@ -402,7 +417,7 @@ const localSources = [
   "http://cdn.example.com@127.0.0.1/x.png"
 ]
 for (const source of localSources) {
-  const asked = html.sanitize("<img src=\"" + source + "\" width=\"90\">",
+  const asked = sanitize("<img src=\"" + source + "\" width=\"90\">",
     { allowRemoteImages: true })
   assert.strictEqual(asked.images, 0, source + " must never be fetched")
   assert.ok(asked.html.indexOf("img") < 0, source + " must not reach the renderer")
@@ -416,33 +431,33 @@ assert.strictEqual(html.externallyOpenableHttpUrl("javascript:alert(1)"), "")
 assert.strictEqual(html.externallyOpenableHttpUrl("file:///etc/passwd"), "")
 
 // A public address in a URL is fine, however it is written.
-assert.strictEqual(html.sanitize("<img src=\"https://93.184.216.34/x.png\" width=\"90\">",
+assert.strictEqual(sanitize("<img src=\"https://93.184.216.34/x.png\" width=\"90\">",
   { allowRemoteImages: true }).images, 1)
 
 // Qt resolves the character references in an attribute before it fetches, so a
 // source that does not look like a URL to a reader can still be one to it.
 assert.strictEqual(
-  html.sanitize("<img src=\"&#104;ttps://track.example.com/p.gif\" width=\"90\">").blockedImages, 1)
+  sanitize("<img src=\"&#104;ttps://track.example.com/p.gif\" width=\"90\">").blockedImages, 1)
 assert.strictEqual(
-  html.sanitize("<img src=\"&#104;ttps://127.0.0.1/p.gif\" width=\"90\">",
+  sanitize("<img src=\"&#104;ttps://127.0.0.1/p.gif\" width=\"90\">",
     { allowRemoteImages: true }).images, 0)
 
 // A relative source has no base but the plugin's own directory, so Qt would
 // read whatever sits next to the QML.
-assert.ok(html.sanitize("<img src=\"../../../etc/hostname\">").html.indexOf("img") < 0)
-assert.ok(html.sanitize("<img src=\"file:///etc/hostname\">").html.indexOf("img") < 0)
+assert.ok(sanitize("<img src=\"../../../etc/hostname\">").html.indexOf("img") < 0)
+assert.ok(sanitize("<img src=\"file:///etc/hostname\">").html.indexOf("img") < 0)
 
 // The count the reader offers to load is the count it can actually load.
 const mixed = "<img src=\"https://cdn.example.com/a.png\" width=\"90\">"
   + "<img src=\"http://127.0.0.1/b.png\" width=\"90\">"
   + "<img src=\"https://cdn.example.com/pixel.gif\" width=\"1\">"
-assert.strictEqual(html.sanitize(mixed).remoteImages, 1)
-assert.strictEqual(html.sanitize(mixed, { allowRemoteImages: true }).images, 1)
+assert.strictEqual(sanitize(mixed).remoteImages, 1)
+assert.strictEqual(sanitize(mixed, { allowRemoteImages: true }).images, 1)
 
 // A url() in an inline style is a fetch too, wherever the engine honours one.
-assert.ok(html.sanitize("<div style=\"background-image:url(https://track.example.com/p.gif);padding:4px\">x</div>")
+assert.ok(sanitize("<div style=\"background-image:url(https://track.example.com/p.gif);padding:4px\">x</div>")
   .html.indexOf("track.example.com") < 0)
-assert.ok(html.sanitize("<div style=\"background-image:url(https://track.example.com/p.gif);padding:4px\">x</div>")
+assert.ok(sanitize("<div style=\"background-image:url(https://track.example.com/p.gif);padding:4px\">x</div>")
   .html.indexOf("padding:4px") > 0, "the rest of the style survives")
 
 // ---------------------------------------------------------- tag boundaries
@@ -453,22 +468,22 @@ assert.ok(html.sanitize("<div style=\"background-image:url(https://track.example
 // Putting a ">" in an alt text was enough to walk an image past the block.
 {
   const hidden = "<img alt=\"a>b\" src=\"https://tracker.example.com/p.gif\" width=\"90\">"
-  assert.strictEqual(html.sanitize(hidden).blockedImages, 1)
-  assert.ok(html.sanitize(hidden).html.indexOf("tracker.example.com") < 0)
-  assert.strictEqual(html.sanitize(hidden, { allowRemoteImages: true }).images, 1)
+  assert.strictEqual(sanitize(hidden).blockedImages, 1)
+  assert.ok(sanitize(hidden).html.indexOf("tracker.example.com") < 0)
+  assert.strictEqual(sanitize(hidden, { allowRemoteImages: true }).images, 1)
 
   const hiddenLocal = "<img alt='a>b' src=\"http://127.0.0.1/p.gif\" width=\"90\">"
-  assert.ok(html.sanitize(hiddenLocal, { allowRemoteImages: true }).html.indexOf("127.0.0.1") < 0)
+  assert.ok(sanitize(hiddenLocal, { allowRemoteImages: true }).html.indexOf("127.0.0.1") < 0)
 
   // A quote that never closes takes the rest of the document with it: Qt would
   // swallow the remainder into the tag anyway, and dropping it is the reading
   // that cannot leave a fetch behind.
-  assert.ok(html.sanitize("<p>hi</p><img src=\"https://tracker.example.com/p.gif\" alt=\"oops")
+  assert.ok(sanitize("<p>hi</p><img src=\"https://tracker.example.com/p.gif\" alt=\"oops")
     .html.indexOf("tracker.example.com") < 0)
 
   // Ordinary markup around an image is untouched.
   assert.strictEqual(
-    html.sanitize("<p>hi</p><img alt=\"x\" src=\"https://cdn.example.com/a.png\" width=\"90\"><p>bye</p>").html,
+    sanitize("<p>hi</p><img alt=\"x\" src=\"https://cdn.example.com/a.png\" width=\"90\"><p>bye</p>").html,
     "<p>hi</p><p>bye</p>")
 }
 
@@ -486,7 +501,6 @@ assert.ok(html.sanitize("<div style=\"background-image:url(https://track.example
 assert.strictEqual(html.isDisplayableImageUrl("https://cdn.example.com/a.png"), false)
 assert.strictEqual(html.isDisplayableImageUrl("http://127.0.0.1/a.png"), false)
 assert.strictEqual(html.isDisplayableImageUrl("file:///etc/hostname"), false)
-const tinyPng = "data:image/png;base64,iVBORw0KGgo="
 assert.strictEqual(html.isDisplayableImageUrl(tinyPng), true)
 assert.strictEqual(html.isDisplayableImageUrl("data:image/svg+xml;base64,AAA"), false)
 assert.strictEqual(html.isDisplayableImageUrl("cid:logo"), false)
@@ -511,9 +525,9 @@ for (const invalid of [
 assert.strictEqual(html.hasRemoteImages(tracked), true)
 assert.strictEqual(html.hasRemoteImages("<p>none</p>"), false)
 
-assert.strictEqual(html.sanitize("").html, "")
-assert.strictEqual(html.sanitize(null).html, "")
-assert.strictEqual(html.sanitize(null).blockedImages, 0)
+assert.strictEqual(sanitize("").html, "")
+assert.strictEqual(sanitize(null).html, "")
+assert.strictEqual(sanitize(null).blockedImages, 0)
 
 // ----------------------------------------------------------- theming
 //
@@ -541,8 +555,8 @@ assert.strictEqual(html.stripColors(null), "")
 
 // sanitize does it by default, so nothing renders in the sender's palette
 // unless a caller explicitly asks to keep it.
-assert.ok(html.sanitize("<td bgcolor=\"#fff\" style=\"color:#000\">x</td>").html.indexOf("#") < 0)
-assert.ok(html.sanitize("<td bgcolor=\"#fff\">x</td>", { keepColors: true }).html.indexOf("#fff") > 0)
+assert.ok(sanitize("<td bgcolor=\"#fff\" style=\"color:#000\">x</td>").html.indexOf("#") < 0)
+assert.ok(sanitize("<td bgcolor=\"#fff\">x</td>", { keepColors: true }).html.indexOf("#fff") > 0)
 
 // An HTML `background` is not one of them. It is an image URL, Qt fetches it,
 // and it rode in the colour list because senders write it beside `bgcolor` —
@@ -553,28 +567,28 @@ const painted = "<table background=\"https://static.example.net/tile.png\" bgcol
   + "<tr><td background=\"https://static.example.net/cell.png\" bgcolor=\"#eeeeee\">a</td>"
   + "<td>b</td></tr><tr><td>c</td><td>d</td></tr></table>"
 for (const options of [{}, { keepColors: true }, { keepColors: true, allowRemoteImages: true }]) {
-  const formatted = html.sanitize(painted, options).html
+  const formatted = sanitize(painted, options).html
   assert.ok(formatted.indexOf("background=") < 0,
     "background survived " + JSON.stringify(options))
   assert.ok(formatted.indexOf("static.example.net") < 0)
 }
 // The colours themselves are still an appearance question, still answered by
 // the option rather than by the resource rule.
-assert.ok(html.sanitize(painted, { keepColors: true }).html.indexOf("#ffffff") > 0)
+assert.ok(sanitize(painted, { keepColors: true }).html.indexOf("#ffffff") > 0)
 assert.strictEqual(html.stripColors("<body background=\"https://x.example.com/a.png\">t</body>"),
   "<body>t</body>")
 
 // The rest of the attributes whose value is an address rather than a value.
 for (const attribute of ["srcset", "lowsrc", "dynsrc", "poster", "usemap",
     "ping", "formaction", "longdesc"]) {
-  assert.ok(html.sanitize("<p " + attribute + "=\"https://x.example.com/a\">t</p>",
+  assert.ok(sanitize("<p " + attribute + "=\"https://x.example.com/a\">t</p>",
     { keepColors: true }).html.indexOf("x.example.com") < 0,
     attribute + " kept an address")
 }
 // And a url() in a style is a fetch wherever the engine honours one, whatever
 // the appearance setting says.
 for (const options of [{}, { keepColors: true }]) {
-  assert.ok(html.sanitize("<div style=\"background-image:url(https://x.example.com/a.png)\">t</div>",
+  assert.ok(sanitize("<div style=\"background-image:url(https://x.example.com/a.png)\">t</div>",
     options).html.indexOf("url(") < 0)
 }
 
@@ -585,7 +599,7 @@ for (const options of [{}, { keepColors: true }]) {
 // So the references come out before anything is split.
 for (const hidden of ["&#117;rl", "&#x75;rl", "&amp;#117;rl", "u&#114;l"]) {
   for (const options of [{}, { keepColors: true }]) {
-    const out = html.sanitize("<div style=\"background-image:" + hidden
+    const out = sanitize("<div style=\"background-image:" + hidden
       + "(https://x.example.com/a.png)\">t</div>", options).html
     assert.ok(out.indexOf("x.example.com") < 0,
       hidden + " reached the renderer " + JSON.stringify(options) + ": " + out)
@@ -593,24 +607,24 @@ for (const hidden of ["&#117;rl", "&#x75;rl", "&amp;#117;rl", "u&#114;l"]) {
 }
 // The same reference used to smuggle a whole second declaration past the split.
 assert.strictEqual(
-  html.sanitize("<div style=\"padding:2px&#59;background-image:url(https://x.example.com/a.png)\">t</div>",
+  sanitize("<div style=\"padding:2px&#59;background-image:url(https://x.example.com/a.png)\">t</div>",
     { keepColors: true }).html,
   "<div style=\"padding:2px\">t</div>")
 // ...and to hide the thing that says it is hidden.
-assert.strictEqual(html.sanitize("<p style=\"display:&#110;one\">secret</p><p>real</p>").html,
+assert.strictEqual(sanitize("<p style=\"display:&#110;one\">secret</p><p>real</p>").html,
   "<p>real</p>")
 // CSS escapes and comments are the same smuggle after entities are gone.
 // A hex escape is at most six digits; the space form is the other spelling.
 for (const hidden of ["\\000075rl", "\\75 rl", "url/**/", "\\\\75rl", "url/\\*\\*/", "url/\\2a\\2a/"]) {
   for (const options of [{}, { keepColors: true }]) {
-    const out = html.sanitize("<div style=\"background-image:" + hidden
+    const out = sanitize("<div style=\"background-image:" + hidden
       + "(https://x.example.com/a.png)\">t</div>", options).html
     assert.ok(out.indexOf("x.example.com") < 0,
       hidden + " reached the renderer " + JSON.stringify(options) + ": " + out)
   }
 }
 // Duplicate src: only the first is judged, so the second must not survive.
-assert.ok(html.sanitize(
+assert.ok(sanitize(
   "<img src=\"data:image/png;base64,AAA\" src=\"https://x.example.com/a.png\" width=\"90\">"
 ).html.indexOf("x.example.com") < 0)
 
@@ -618,24 +632,24 @@ assert.ok(html.sanitize(
 // the same address with none of that checking behind it.
 for (const source of ["<input type=\"image\" src=\"https://x.example.com/a.png\">",
     "<image src=\"https://x.example.com/a.png\">"]) {
-  assert.ok(html.sanitize(source, { allowRemoteImages: true }).html.indexOf("x.example.com") < 0,
+  assert.ok(sanitize(source, { allowRemoteImages: true }).html.indexOf("x.example.com") < 0,
     "a src survived on " + source)
 }
 
 // A data: URL is the message's own bytes only when it is a raster picture.
 // SVG is a document with references of its own; the fetch worker refuses it
 // and so does the sanitiser, even with remote images off.
-assert.ok(html.sanitize("<img src=\"" + tinyPng + "\">").html.indexOf("data:image/png") > 0)
-assert.strictEqual(html.sanitize("<img src=\"" + disguisedSvg + "\">").html, "",
+assert.ok(sanitize("<img src=\"" + tinyPng + "\">").html.indexOf("data:image/png") > 0)
+assert.strictEqual(sanitize("<img src=\"" + disguisedSvg + "\">").html, "",
   "a disguised document must be removed before rendering")
-assert.strictEqual(html.sanitize("<img src=\"data:text/html,<b>x\">").html, "")
-assert.strictEqual(html.sanitize("<img src=\"data:image/svg+xml;base64,AAA\">").html, "")
+assert.strictEqual(sanitize("<img src=\"data:text/html,<b>x\">").html, "")
+assert.strictEqual(sanitize("<img src=\"data:image/svg+xml;base64,AAA\">").html, "")
 assert.strictEqual(html.imageSourceKind("data:image/svg+xml;base64,AAA"), "unsafe")
 
 // The host is the one question where reading an address twice is not the safe
 // direction: a second decoding can turn up a "@" and hand the authority to a
 // later label. So it has to be public to both readings.
-assert.ok(html.sanitize("<img src=\"https://127.0.0.1&amp;#64;good.example.com/x.png\">",
+assert.ok(sanitize("<img src=\"https://127.0.0.1&amp;#64;good.example.com/x.png\">",
   { allowRemoteImages: true }).html.indexOf("127.0.0.1") < 0)
 assert.strictEqual(
   reading("<p><a href=\"https://127.0.0.1&amp;#64;good.example.com/x\">t</a></p>").html, "<p>t</p>")
@@ -664,7 +678,7 @@ const smuggled = [
   "<p><\u200bstyle>body{background-image:url(https://x.example.com/x.png)}</p>"
 ]
 for (const source of smuggled) {
-  const ready = html.sanitize(source, { withReader: true })
+  const ready = sanitize(source, { withReader: true })
   for (const [view, out] of [["formatted", ready.html], ["reading", ready.reader.html]]) {
     assert.ok(!/<(img|a|style)\b/i.test(out.replace(/<\/?(p|span|pre|b|strong|em|br)\b[^>]*>/gi, "")),
       view + " parsed a tag out of text: " + out)
@@ -725,8 +739,8 @@ assert.strictEqual(html.tableDepth(grids), 3)
 assert.strictEqual(html.tableDepth(html.flattenTables(grids, 2)), 2, "nothing survives past the limit")
 
 // sanitize flattens by default; a caller can ask for the original.
-assert.strictEqual(html.complexity(html.sanitize(deep).html).tableDepth, 0)
-assert.strictEqual(html.complexity(html.sanitize(deep, { keepTables: true }).html).tableDepth, 3)
+assert.strictEqual(html.complexity(sanitize(deep).html).tableDepth, 0)
+assert.strictEqual(html.complexity(sanitize(deep, { keepTables: true }).html).tableDepth, 3)
 
 // The backstop still catches anything flattening cannot tame.
 let wide = ""
@@ -756,7 +770,7 @@ assert.ok(bare.indexOf("x</body>") > 0)
 // the sender's outer content width instead, so a 600px message does not stretch
 // across a wide monitor.
 {
-  const card = html.sanitize("<html><body><div style=\"max-width:600px\">"
+  const card = sanitize("<html><body><div style=\"max-width:600px\">"
     + "<div style=\"max-width:520px\"><p>copy</p></div></div></body></html>")
   assert.strictEqual(html.preferredContentWidth(card.document, 1800), 600)
   assert.strictEqual(html.preferredContentWidth(card.document, 480), 480,
@@ -820,14 +834,14 @@ assert.ok(bare.indexOf("x</body>") > 0)
 // honoured in pixels but a percentage collapses the image, and an explicit
 // height survives the clamp and smears the picture.
 {
-  var cssSizedLogo = html.sanitize(
+  var cssSizedLogo = sanitize(
     '<img src="https://cdn.example.com/logo.png" style="height:34px;padding:3px">',
     { allowRemoteImages: true })
   var logoDoc = html.documentFor(cssSizedLogo.document, { maxImageWidth: 1200 })
   assert.ok(logoDoc.indexOf('height="34"') > 0,
     "a CSS-only logo height becomes the HTML attribute Qt supports")
 
-  var logoRow = html.sanitize('<div style="line-height:0;font-size:0">'
+  var logoRow = sanitize('<div style="line-height:0;font-size:0">'
     + '<img src="https://cdn.example.com/logo.png" style="height:34px"></div>'
     + '<p>Title below</p>', { allowRemoteImages: true }).html
   assert.ok(logoRow.indexOf("line-height:0") < 0,
@@ -884,7 +898,7 @@ assert.ok(bare.indexOf("x</body>") > 0)
 
   // The document itself is accepted in place of the string written from it, and
   // has to fit to exactly the same thing.
-  var built = html.sanitize(fitted, { allowRemoteImages: true })
+  var built = sanitize(fitted, { allowRemoteImages: true })
   assert.strictEqual(html.documentFor(built.document, { maxImageWidth: 380, compact: true }),
     html.documentFor(built.html, { maxImageWidth: 380, compact: true }))
   assert.strictEqual(html.documentFor(built.document, { maxImageWidth: 800, compact: true })
@@ -946,7 +960,7 @@ assert.ok(bare.indexOf("x</body>") > 0)
   // A void element has no subtree to eat, so it must not swallow what follows.
   assert.ok(html.dropHidden('<img src=a.png style="display:none"><p>real</p>').indexOf("<p>real</p>") >= 0)
 
-  assert.ok(html.sanitize('<div style="display:none">SECRET</div><p>real</p>').html.indexOf("SECRET") < 0,
+  assert.ok(sanitize('<div style="display:none">SECRET</div><p>real</p>').html.indexOf("SECRET") < 0,
     "and the sanitizer applies it")
 }
 
@@ -979,7 +993,7 @@ function attributesOf(node, out) {
 
 function reading(source, options) {
   const settings = Object.assign({ withReader: true }, options || {})
-  const ready = html.sanitize(source, settings)
+  const ready = sanitize(source, settings)
   const kinds = {}
   for (const pair of attributesOf(ready.reader.document, [])) kinds[pair] = true
   for (const pair of Object.keys(kinds)) {
@@ -1126,7 +1140,7 @@ function activityMail() {
 
   // Reading mode is lighter than the formatted view of the same message, which
   // is what lets it draw messages the formatted view refuses.
-  const formatted = html.sanitize(newsletter)
+  const formatted = sanitize(newsletter)
   assert.ok(read.complexity.tags < formatted.complexity.tags)
   assert.strictEqual(read.tooHeavy, false)
 }
@@ -1316,8 +1330,8 @@ function activityMail() {
     + "<img src=\"data:image/png;base64,iVBORw0KGgo=\">"
     + "<img src=\"cid:part1\"></p>", { allowRemoteImages: true })
   assert.strictEqual(shown.html,
-    "<p><img src=\"https://cdn.example.com/hero.png\">"
-    + "<img src=\"//cdn.example.com/protocol.png\">"
+    "<p><img src=\"data:image/png;base64,iVBORw0KGgo=\">"
+    + "<img src=\"data:image/png;base64,iVBORw0KGgo=\">"
     + "<img src=\"data:image/png;base64,iVBORw0KGgo=\">"
     + "<img src=\"cid:part1\"></p>")
   assert.strictEqual(shown.images, 2)
@@ -1415,7 +1429,7 @@ function activityMail() {
     return out + "</body></html>"
   }
 
-  const heavy = html.sanitize(outlookMail(240), { withReader: true })
+  const heavy = sanitize(outlookMail(240), { withReader: true })
   assert.strictEqual(heavy.tooHeavy, true, "the formatted view refuses this one")
   assert.strictEqual(heavy.reader.tooHeavy, false, "and reading mode still draws it")
   assert.ok(heavy.reader.complexity.tags < heavy.complexity.tags / 2)
@@ -1428,7 +1442,7 @@ function activityMail() {
   // message that ended there.
   let long = "<html><body>"
   for (let i = 0; i < 3000; i++) long += "<p>Paragraph number " + i + " of a long message.</p>"
-  const enormous = html.sanitize(long + "</body></html>", { withReader: true }).reader
+  const enormous = sanitize(long + "</body></html>", { withReader: true }).reader
   assert.strictEqual(enormous.tooHeavy, true)
   assert.ok(enormous.html.indexOf("number 2999") > 0, "and the whole message is in what was refused")
 
@@ -1440,7 +1454,7 @@ function activityMail() {
   // is still there.
   let held = "<b>".repeat(126)
   for (let i = 0; i < 400; i++) held += "<div>x</div>"
-  const stacked = html.sanitize(held, { withReader: true }).reader
+  const stacked = sanitize(held, { withReader: true }).reader
   assert.ok(stacked.complexity.tags < 400 * (html.MAX_READER_CHAIN + 2),
     "a held-open chain multiplied the message: " + stacked.complexity.tags)
   assert.ok(stacked.html.indexOf("x") > 0, "and the message is still in it")
@@ -1496,22 +1510,22 @@ function activityMail() {
     + "<tr><td><a href=\"https://social.example.com/b\"><img src=\"https://cdn.example.com/b.png\" style=\"width:32px;height:32px\"></a></td></tr>"
     + "</table>", { allowRemoteImages: true }).html
   assert.strictEqual(icons,
-    "<p><a href=\"https://social.example.com/a\"><img src=\"https://cdn.example.com/a.png\" width=\"32\" height=\"32\"></a> "
-      + "<a href=\"https://social.example.com/b\"><img src=\"https://cdn.example.com/b.png\" width=\"32\" height=\"32\"></a></p>")
+    "<p><a href=\"https://social.example.com/a\"><img src=\"data:image/png;base64,iVBORw0KGgo=\" width=\"32\" height=\"32\"></a> "
+      + "<a href=\"https://social.example.com/b\"><img src=\"data:image/png;base64,iVBORw0KGgo=\" width=\"32\" height=\"32\"></a></p>")
 
   // A standalone logo is not inline artwork, but its declared size still
   // prevents Qt from expanding the source bitmap to its natural pixel width.
   // It keeps the bounded dimension without becoming an avatar or icon strip.
   assert.strictEqual(reading("<p><img src=\"https://cdn.example.com/logo.png\" width=\"120\"></p>",
     { allowRemoteImages: true }).html,
-  "<p><img src=\"https://cdn.example.com/logo.png\" width=\"120\"></p>")
+  "<p><img src=\"data:image/png;base64,iVBORw0KGgo=\" width=\"120\"></p>")
 
   // The reading column may clamp a large picture's width. Its explicit height
   // must not survive that clamp or Qt stretches the image instead of deriving
   // the matching height from its intrinsic aspect ratio.
   assert.strictEqual(reading("<p><img src=\"https://cdn.example.com/hero.jpg\" width=\"600\" height=\"375\"></p>",
     { allowRemoteImages: true }).html,
-  "<p><img src=\"https://cdn.example.com/hero.jpg\" width=\"600\"></p>")
+  "<p><img src=\"data:image/png;base64,iVBORw0KGgo=\" width=\"600\"></p>")
 
   // An avatar at the start of a line is interface-like identity content, not
   // a picture sitting on the text baseline. Qt ignores image alignment in the
@@ -1522,17 +1536,17 @@ function activityMail() {
   assert.strictEqual(avatar,
     "<table cellspacing=\"0\" cellpadding=\"0\"><tr>"
       + "<td valign=\"middle\" style=\"padding:0px;padding-right:6px\"><a href=\"https://example.com/alice\">"
-      + "<img src=\"https://cdn.example.com/alice.png\" width=\"20\" height=\"20\"></a></td>"
+      + "<img src=\"data:image/png;base64,iVBORw0KGgo=\" width=\"20\" height=\"20\"></a></td>"
       + "<td valign=\"middle\" style=\"padding:0px\"><strong>Alice</strong> left a comment</td>"
       + "</tr></table>")
 
   // One parse answers for all three readings, which is what makes changing mode
   // free: the reader is built from the tree the sanitiser is about to clean,
   // and reading that tree does not change it.
-  const both = html.sanitize(activityMail(), { withReader: true, withPlainText: true })
-  assert.strictEqual(both.html, html.sanitize(activityMail()).html)
+  const both = sanitize(activityMail(), { withReader: true, withPlainText: true })
+  assert.strictEqual(both.html, sanitize(activityMail()).html)
   deepEqual(both.plainText, html.readPlainText(activityMail()))
-  assert.strictEqual(html.sanitize(activityMail()).reader, null,
+  assert.strictEqual(sanitize(activityMail()).reader, null,
     "and nobody pays for a reading no caller asked for")
 }
 
@@ -1663,23 +1677,23 @@ function activityMail() {
 // `direction` property, so a template written for a browser states its
 // direction in the one spelling that will be thrown away.
 {
-  const rtl = html.sanitize('<div style="direction:rtl">مرحبا</div>', {})
+  const rtl = sanitize('<div style="direction:rtl">مرحبا</div>', {})
   assert.ok(/dir="rtl"/.test(rtl.html),
     "a CSS direction is promoted to the attribute Qt reads")
   assert.ok(/direction:\s*rtl/.test(rtl.html),
     "and the sender's own declaration is left where it was")
 
-  const ltr = html.sanitize('<div style="direction:ltr">hello</div>', {})
+  const ltr = sanitize('<div style="direction:ltr">hello</div>', {})
   assert.ok(/dir="ltr"/.test(ltr.html))
 
   // The sender's own attribute is the more specific statement of the two.
-  const both = html.sanitize('<div dir="ltr" style="direction:rtl">x</div>', {})
+  const both = sanitize('<div dir="ltr" style="direction:rtl">x</div>', {})
   assert.ok(/dir="ltr"/.test(both.html), "an existing attribute is not overwritten")
   assert.ok(!/dir="rtl"/.test(both.html))
 
   // Only the two values mean anything. `inherit` and friends are not directions
   // a renderer can be handed.
-  const junk = html.sanitize('<div style="direction:inherit">x</div>', {})
+  const junk = sanitize('<div style="direction:inherit">x</div>', {})
   assert.ok(!/ dir=/.test(junk.html), "an unusable value promotes nothing")
 }
 
@@ -1717,9 +1731,85 @@ function activityMail() {
 
   // A base direction is a default. A sender who states one of their own keeps
   // it, which is why supplying one is safe.
-  const sender = html.sanitize('<div dir="ltr">hello</div>', {})
+  const sender = sanitize('<div dir="ltr">hello</div>', {})
   assert.ok(/dir="ltr"/.test(sender.html),
     "the sender's own direction survives into the document it is wrapped in")
+}
+
+
+{
+  const source = '<img src="https://cdn.example.com/unprepared.png" width="90">'
+  for (const remoteImageData of [undefined, null, {}]) {
+    const ready = html.sanitize(source, { allowRemoteImages: true, remoteImageData, withReader: true })
+    for (const result of [ready, ready.reader]) {
+      assert.ok(!/src=["']https?:/i.test(result.html), "an unprepared source must never reach Qt")
+      assert.strictEqual(result.images, 0)
+    }
+  }
+}
+
+{
+  const source = '<img src="' + tinyPng + '"><img src="cid:part">'
+    + '<img src="' + tinyPng + '"><img src="https://cdn.example.com/ready">'
+  const ready = html.sanitize(source, { maxImages: 2, allowRemoteImages: true,
+    remoteImageData: { 'https://cdn.example.com/ready': tinyPng }, withReader: true })
+  for (const result of [ready, ready.reader]) {
+    assert.strictEqual(result.complexity.images, 2, "inline, CID and remote images share a document budget")
+    assert.strictEqual(result.blockedImages, 2)
+    assert.ok(!result.html.includes('https://cdn.example.com/ready'))
+  }
+  const empty = html.sanitize(source, { maxImages: 0, withReader: true })
+  assert.ok(!empty.html.includes('<img') && !empty.reader.html.includes('<img'))
+}
+
+{
+  const data = 'data:image/png;base64,' + Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.alloc(3 * 1024 * 1024 - 8)
+  ]).toString('base64')
+  const ready = html.sanitize('<p>Body</p>' + '<img src="https://cdn.example.com/large">'.repeat(4),
+    { allowRemoteImages: true, remoteImageData: { 'https://cdn.example.com/large': data }, withReader: true })
+  for (const result of [ready, ready.reader]) {
+    assert.strictEqual(result.complexity.images, 3, "data URI bytes have a separate 16 MiB document budget")
+    assert.strictEqual(result.blockedImages, 1)
+    assert.strictEqual(result.tooHeavy, false, "embedded picture bytes are not layout markup")
+    assert.ok(result.html.length < 16 * 1024 * 1024)
+  }
+  const encoded = data.replace(/^data/, "&#100;ata")
+  const embedded = html.sanitize('<p>Body</p>' + ('<img src="' + encoded + '">').repeat(4), { withReader: true })
+  for (const result of [embedded, embedded.reader]) {
+    assert.strictEqual(result.complexity.images, 3, "encoded data schemes cannot bypass the byte budget")
+    assert.strictEqual(result.blockedImages, 1)
+    assert.strictEqual(result.tooHeavy, false)
+  }
+}
+
+{
+  for (const attributes of ['style="display:none"', 'style="visibility:hidden"', 'hidden']) {
+    const ready = html.sanitize('<img src="https://cdn.example.com/hidden" width="90" ' + attributes + '>',
+      { allowRemoteImages: true, remoteImageData: { 'https://cdn.example.com/hidden': tinyPng }, withReader: true })
+    deepEqual(ready.remoteImageSources, [], "hidden images must not become fetch candidates")
+    assert.ok(!ready.html.includes('<img') && !ready.reader.html.includes('<img'))
+  }
+  const inlineTracker = html.sanitize('<img src="' + tinyPng + '" width="1">', { withReader: true })
+  assert.ok(!inlineTracker.html.includes('<img') && !inlineTracker.reader.html.includes('<img'))
+}
+
+{
+  assert.strictEqual(reading('<constructor>Visible</constructor>').html, '<p>Visible</p>',
+    "an inherited Object member is not an allowed reader element")
+  assert.strictEqual(html.readPlainText('<p>&constructor; &#128512; &#x1F642;</p>').text,
+    '&constructor; 😀 🙂', "references preserve unknown names and supplementary Unicode characters")
+  assert.strictEqual(reading('<img src="https://cdn.example.com/blocked" alt="&#x1F642;">').html,
+    '<p>🙂</p>')
+}
+
+{
+  const source = '<div a"src="https://cdn.example.com/attribute" href="https://cdn.example.com/nonlink">Body</div>'
+    + '<svg><image xlink:href="https://cdn.example.com/svg"></image></svg>'
+  const ready = html.sanitize(source, { keepColors: true, withReader: true })
+  assert.ok(!ready.html.includes('https://cdn.example.com/'),
+    "malformed attribute names and non-anchor references must not reach Qt")
+  assert.ok(ready.html.includes('Body'))
 }
 
 console.log("test_html.js ok")

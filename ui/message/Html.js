@@ -534,13 +534,15 @@ function decodeReferences(text) {
     function(match, body) {
       if (body.charAt(0) !== "#") {
         var named = NAMED_REFERENCES[body.toLowerCase()]
-        return named === undefined ? match : named
+        return typeof named === "string" ? named : match
       }
       var code = body.charAt(1) === "x" || body.charAt(1) === "X"
         ? parseInt(body.substring(2), 16)
         : parseInt(body.substring(1), 10)
       if (!isFinite(code) || code < 0 || code > 0x10ffff) return match
-      return String.fromCharCode(code)
+      if (code <= 0xffff) return String.fromCharCode(code)
+      var supplementary = code - 0x10000
+      return String.fromCharCode(0xd800 + (supplementary >> 10), 0xdc00 + (supplementary & 1023))
     })
 }
 
@@ -1141,7 +1143,9 @@ function cleanAttributes(node, keepColors, declarations) {
     // Unconditionally, and before the colour question is asked: `keepColors`
     // is an appearance setting, and no appearance setting may hand the
     // renderer an address to fetch.
-    if (RESOURCE_ATTRIBUTES[name] === true) drop = true
+    if (!/^[a-z_:][a-z0-9_.:-]*$/i.test(name)) drop = true
+    else if (/:href$/.test(name) || (name === "href" && node.name !== "a")) drop = true
+    else if (RESOURCE_ATTRIBUTES[name] === true) drop = true
     // A `src` belongs to an image and is checked as one. Anywhere else — an
     // <input type="image">, an SVG <image> — it is the same address with none
     // of that checking behind it, and which of those Qt honours today is not
@@ -1323,15 +1327,55 @@ function collapse(node) {
   node.children = kept
 }
 
+var MAX_EMBEDDED_DATA_BYTES = 16 * 1024 * 1024
+var MAX_ALLOWED_IMAGES = 256
+
+function imagePolicy(options) {
+  var settings = options || {}
+  var requested = settings.maxImages === undefined ? MAX_IMAGES : Number(settings.maxImages)
+  return {
+    allowImages: settings.allowRemoteImages === true,
+    imageData: settings.remoteImageData && typeof settings.remoteImageData === "object"
+      ? settings.remoteImageData : null,
+    limit: Math.max(0, Math.min(MAX_ALLOWED_IMAGES, Math.floor(isNaN(requested) ? 0 : requested))),
+    admitted: 0,
+    embeddedBytes: 0,
+    embeddedLayoutLength: 0,
+    kept: 0,
+    blocked: 0
+  }
+}
+
+function preparedImage(policy, source) {
+  if (policy.imageData === null || !Object.prototype.hasOwnProperty.call(policy.imageData, source)) return ""
+  var value = String(policy.imageData[source] || "")
+  return isRasterDataImage(value) ? value : ""
+}
+
+function admitImage(policy, source) {
+  var embedded = /^data:/i.test(source) || /^data:/i.test(normalizedUrl(source))
+  var bytes = embedded ? source.length : 0
+  if (policy.admitted >= policy.limit || bytes > MAX_EMBEDDED_DATA_BYTES - policy.embeddedBytes) {
+    policy.blocked++
+    return false
+  }
+  policy.admitted++
+  policy.embeddedBytes += bytes
+  policy.embeddedLayoutLength += bytes
+  return true
+}
+
+function tooHeavyWithoutImageData(size, policy) {
+  return isTooHeavy({ length: Math.max(0, size.length - policy.embeddedLayoutLength),
+    tags: size.tags, tables: size.tables, tableDepth: size.tableDepth })
+}
+
 function sanitize(html, options) {
   var settings = options || {}
   var source = String(html === undefined || html === null ? "" : html)
   var keepColors = settings.keepColors === true
-  var allowImages = settings.allowRemoteImages === true
-  var imageData = settings.remoteImageData && typeof settings.remoteImageData === "object"
-    ? settings.remoteImageData : null
-  var limit = Math.max(0, Math.floor(
-    settings.maxImages === undefined ? MAX_IMAGES : settings.maxImages))
+  var images = imagePolicy(settings)
+  var limit = images.limit
 
   // Every remote image is a network fetch Qt performs while laying the document
   // out, and every completed fetch triggers another layout pass. Tracking
@@ -1341,46 +1385,30 @@ function sanitize(html, options) {
   // is not asking: the fetch alone tells the sender the mail was read, from
   // which address and at what time, and a source pointed at the machine itself
   // turns reading mail into a request to whatever is listening on it.
-  var blocked = 0
-  var kept = 0
   var loadable = 0
   var remoteSources = []
   var seenRemoteSources = {}
-
-  function preparedImage(source) {
-    if (imageData === null || !Object.prototype.hasOwnProperty.call(imageData, source)) return ""
-    var value = String(imageData[source] || "")
-    return isRasterDataImage(value) ? value : ""
-  }
 
   function keepImage(node) {
     var source = attributeValue(node, "src")
     if (attributeOf(node, "src") === null) return true
     var kind = imageSourceKind(source)
-    // cid: and data: are the message's own bytes and never touch the network.
-    if (kind === "inline" || kind === "none") return true
-    // Neither a local read nor a private-network request is something the
-    // reader can ever be offered, so these go without being counted as
-    // something "show images" would bring back.
-    if (kind !== "remote") return false
+    if (kind === "none") return true
+    if (kind !== "inline" && kind !== "remote") return false
     if (isTrackingPixel(node)) {
-      blocked++
+      images.blocked++
       return false
     }
+    if (kind === "inline") return admitImage(images, source)
     if (loadable < limit) loadable++
-    if (!allowImages || kept >= limit) {
-      blocked++
+    var prepared = images.allowImages ? preparedImage(images, source) : ""
+    if (prepared === "") {
+      images.blocked++
       return false
     }
-    if (imageData !== null) {
-      var prepared = preparedImage(source)
-      if (prepared === "") {
-        blocked++
-        return false
-      }
-      attributeOf(node, "src").value = prepared
-    }
-    kept++
+    if (!admitImage(images, prepared)) return false
+    attributeOf(node, "src").value = prepared
+    images.kept++
     return true
   }
 
@@ -1403,7 +1431,8 @@ function sanitize(html, options) {
       // Most elements in real mail carry one, so asking twice was most of a
       // second pass over the document.
       var declarations = sourceDeclarations(child)
-      if (declarations !== null && VOID_ELEMENTS[child.name] !== true
+      if (child.name === "img" && attributeOf(child, "hidden") !== null) continue
+      if (declarations !== null && (VOID_ELEMENTS[child.name] !== true || child.name === "img")
         && isHiddenBy(declarations)) continue
 
       // Collect fetch candidates while this walk already has the sender's
@@ -1452,8 +1481,7 @@ function sanitize(html, options) {
   // touch it, which is what lets one parse answer for all three ways of reading
   // a message — switching between them costs no parse and no fetch.
   var reader = settings.withReader === true
-    ? readerTree(root, ({ allowRemoteImages: allowImages, maxImages: limit,
-        remoteImageData: imageData }))
+    ? readerTree(root, settings)
     : null
 
   clean(root)
@@ -1474,12 +1502,12 @@ function sanitize(html, options) {
 
   return {
     html: text,
-    blockedImages: blocked,
-    images: kept,
+    blockedImages: images.blocked,
+    images: images.kept,
     remoteImages: loadable,
     remoteImageSources: remoteSources,
     complexity: size,
-    tooHeavy: isTooHeavy(size),
+    tooHeavy: tooHeavyWithoutImageData(size, images),
     plainText: plain,
     // The reading-mode document, its own complexity and its own verdict: it is
     // a different document from the one below and is not heavy for the same
@@ -2183,16 +2211,9 @@ function readerAppendImage(state, node, ctx) {
   var source = attr && attr.value !== null && attr.value !== undefined ? String(attr.value) : ""
   var kind = attr === null ? "none" : imageSourceKind(source)
 
-  var renderedSource = source
-  if (kind === "remote" && ctx.imageData !== null) {
-    renderedSource = Object.prototype.hasOwnProperty.call(ctx.imageData, source)
-      ? String(ctx.imageData[source] || "") : ""
-    if (!isRasterDataImage(renderedSource))
-      renderedSource = ""
-  }
-
-  if (kind === "inline" || (kind === "remote" && ctx.allowImages
-    && ctx.kept < ctx.limit && renderedSource !== "")) {
+  var renderedSource = kind === "remote" ? preparedImage(ctx, source) : source
+  var eligible = kind === "inline" || (kind === "remote" && ctx.allowImages && renderedSource !== "")
+  if (eligible && admitImage(ctx, renderedSource)) {
     if (kind === "remote") ctx.kept++
     readerSpace(state)
     var image = readerElement("img")
@@ -2212,7 +2233,7 @@ function readerAppendImage(state, node, ctx) {
     state.pending = false
     return
   }
-  if (kind === "remote") ctx.blocked++
+  if (!eligible && kind === "remote") ctx.blocked++
 
   var alt = readerAltText(node)
   if (alt !== "") {
@@ -2536,7 +2557,7 @@ function readerNode(child, state, ctx) {
   }
 
   var inline = READER_INLINE[name]
-  if (inline !== undefined) {
+  if (typeof inline === "string") {
     var opened = readerOpen(state, readerElement(inline))
     readerWalk(child, state, ctx)
     if (opened) state.chain.pop()
@@ -2750,16 +2771,8 @@ function readerSmallImageCount(nodes) {
 // over the same parse it is about to clean for the formatted view.
 function readerTree(root, options) {
   var settings = options || {}
-  var ctx = {
-    allowImages: settings.allowRemoteImages === true,
-    limit: Math.max(0, Math.floor(settings.maxImages === undefined
-      ? MAX_IMAGES : settings.maxImages)),
-    tables: true,
-    kept: 0,
-    blocked: 0
-  }
-  ctx.imageData = settings.remoteImageData && typeof settings.remoteImageData === "object"
-    ? settings.remoteImageData : null
+  var ctx = imagePolicy(settings)
+  ctx.tables = true
   var document = { type: "root", children: readerTidy(readerBuild(root, ctx)) }
   var text = serialize(document)
   var size = { length: text.length, tags: 0, images: 0, tables: 0, tableDepth: 0 }
@@ -2770,7 +2783,7 @@ function readerTree(root, options) {
     images: ctx.kept,
     blockedImages: ctx.blocked,
     complexity: size,
-    tooHeavy: isTooHeavy(size),
+    tooHeavy: tooHeavyWithoutImageData(size, ctx),
     // A message whose every word was in a picture has a reader document with
     // nothing in it, and the formatted view is the honest answer for it.
     empty: document.children.length === 0

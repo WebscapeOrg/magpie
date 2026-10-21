@@ -149,6 +149,7 @@ Column {
     })
   }
   property bool importing: false
+  property string importingAccountId: ""
   property string importNote: ""
   property bool importFailed: false
   property string importStage: ""
@@ -163,7 +164,8 @@ Column {
   }
 
   function importSignature() {
-    if (importing || !service) return
+    if (importing || !service || selectedSignatureAccountId === "") return
+    importingAccountId = selectedSignatureAccountId
     importing = true
     importNote = ""
     importFailed = false
@@ -213,7 +215,7 @@ Column {
       importFailed = true
       return
     }
-    var accountId = selectedSignatureAccountId
+    var accountId = importingAccountId
     service.backend.call("message.signatureImport", { kind: kind,
       data: kind === "html" ? Qt.atob(String(result.data || "")) : String(result.data || "")
     }, function(imported, error) {

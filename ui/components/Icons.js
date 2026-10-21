@@ -1,6 +1,6 @@
 .pragma library
 
-// Lucide geometry and license provenance: ../assets/lucide/README.md.
+// Docs: Lucide geometry and license provenance: ../assets/lucide/README.md.
 var LUCIDE = {
   home: "house",
   tree: "tree-pine",

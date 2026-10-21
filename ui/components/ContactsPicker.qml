@@ -58,10 +58,8 @@ Item {
     menu.close()
   }
 
-  // The popup closes on a press outside itself, and the control that opens it
-  // is outside it — so the press that looks like "close this" has already done
-  // so, and a plain `opened ? close() : openAt()` would reopen it on the
-  // release every time. The moment it closed is what separates the two.
+  // Invariant: outside-press closes the popup before the trigger’s release; retain close time to
+  // avoid immediately reopening it.
   property double closedAt: 0
 
   function toggleAt(sceneX, sceneY) {

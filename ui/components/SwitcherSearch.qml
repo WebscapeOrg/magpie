@@ -3,20 +3,12 @@ import "../controls" as Widgets
 import qs.Commons
 import qs.Ui
 
-// The line at the top of a switcher that typing goes into. Letters narrow
-// the rows to the ones they name; the arrows, or Ctrl with J, K, N or P,
-// walk what is left; Enter opens the row the cursor is on. Where the rows
-// carry numbers, a bare digit with nothing typed opens the row that
-// carries it — and only when a row does carry it, so a name of numbers can
-// still be typed. The account switcher's rows carry none.
 Widgets.TextField {
   id: root
 
   signal moved(int delta)
   signal chosen()
   signal numbered(int number)
-  // The numbers the rows on show carry, or none: a digit is a key only
-  // for one of these, and a letter otherwise.
   property var numbers: []
 
   objectName: "switcher-search"

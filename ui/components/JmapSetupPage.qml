@@ -6,19 +6,6 @@ import qs.Ui
 import "../providers/JmapProtocol.js" as Jmap
 import "../account/Accounts.js" as Accounts
 
-// Connecting a mailbox on a server that speaks JMAP: an address, a secret, and
-// — only if the address does not lead anywhere — the server.
-//
-// The page names no service. A JMAP server is one thing today and something
-// else next year, and a form that told the user where to find their app
-// password on two named providers would be wrong about the third. What it can
-// say honestly is what kind of credential to bring.
-//
-// Two fields is the whole of it in the good case: the server is found from the
-// address's domain, and which of Basic and Bearer the secret is happens to be
-// is detected rather than asked. The disclosure holds the server for the case
-// where discovery finds nothing, which on a self-hosted server is the ordinary
-// case rather than the exception.
 Column {
   id: root
 
@@ -39,13 +26,9 @@ Column {
   readonly property bool busy: !!auth && auth.loginBusy === true
   readonly property bool toolsMissing: !!auth && auth.toolsChecked === true
     && auth.missingTools !== undefined && auth.missingTools.length > 0
-  // The client's own flag, forwarded through the account. A 401 raises it and
-  // a successful check clears it, so the card below is the state of the
-  // credential rather than a memory of one failed press.
   readonly property bool rejected: !!service && service.credentialsRejected === true
   readonly property int step: auth && auth.progressStep !== undefined ? auth.progressStep : 0
 
-  // What sign-in found out about the server, for the two lines that report it.
   readonly property var settings: auth && auth.settings ? auth.settings : null
   readonly property string host: settings ? Jmap.sessionHost(settings.sessionUrl) : ""
   readonly property string schemeLabel: settings ? Jmap.schemeLabel(settings.authScheme) : ""
@@ -62,12 +45,7 @@ Column {
     if (String(values.sessionUrl || "") !== "") serverField.text = String(values.sessionUrl)
   }
 
-  // Neither of these places the keyboard. The page is a component in the
-  // setup context and the context owns the focus — it parks the keyboard here,
-  // because a form is typed into by the field that was clicked — so a field
-  // that took focus on a state change would be the second mechanism that
-  // design replaces. The field is emptied, or revealed, and left for the
-  // person to pick up.
+  // Invariant: the window’s setup context owns focus; account state changes must not steal it.
   function clearSecret() {
     secretField.text = ""
   }
@@ -76,11 +54,8 @@ Column {
     serversVisible = true
   }
 
-  // The address is this mailbox's identity rather than a label on it:
-  // `Accounts.accountId` derives the account id from it, and anything that is
-  // not an address derives the empty id a pending row carries. Checked here,
-  // against the same predicate that derives the id, while it is still a typo
-  // the user can see.
+  // Invariant: validate the address before accountId can turn an invalid address into a pending
+  // mailbox.
   function validatedAddress() {
     var address = addressField.text.trim()
     if (Accounts.isValidEmail(address)) return address
@@ -90,11 +65,8 @@ Column {
     return ""
   }
 
-  // Written down before the secret is tried, so a mailbox the server refuses
-  // still has its address and its server to correct rather than an empty form.
-  // The session URL kept here is the typed server until sign-in replaces it
-  // with whatever actually answered — which is the same value `discoveryPlan`
-  // reads as its typed server, so a saved one is not discovered again.
+  // Invariant: persist editable server configuration before trying credentials so refusal does not
+  // erase it.
   function settingsFrom(typedServer) {
     var values = root.settings || {}
     return {
@@ -112,8 +84,6 @@ Column {
       openServerField()
       return null
     }
-    // A typed server is the one step there is; anything else is discovery,
-    // which has no URL to write down yet.
     var first = plan.steps.length > 0 ? plan.steps[0] : null
     return first && first.kind === Jmap.STEP_TYPED ? first.url : ""
   }
@@ -133,9 +103,8 @@ Column {
     }, secretField.text)
   }
 
-  // Save changes re-verifies: everything on this page is something the server
-  // has to agree with, so writing it down without asking would leave a mailbox
-  // that says it is signed in and answers nothing.
+  // Invariant: saving server settings re-verifies the connection; persisted values alone do not
+  // prove sign-in.
   function save() {
     signIn()
   }
@@ -153,13 +122,12 @@ Column {
     function onLastErrorChanged() {
       if (root.auth && root.auth.lastError !== "") errorText.text = root.auth.lastError
     }
-    // Nothing answered for the domain. The server field is the way forward, so
-    // it is opened rather than described.
+    // Invariant: failed automatic discovery must expose the server field needed to continue.
     function onServerNeededChanged() {
       if (root.auth && root.auth.serverNeeded) root.openServerField()
     }
-    // The check has written the session URL down; the field should show what
-    // the account is actually using rather than what was typed at it.
+    // Invariant: successful discovery replaces the typed server with the session URL actually in
+    // use.
     function onSessionVerified(result) {
       errorText.text = ""
       var url = result ? String(result.sessionUrl || "") : ""
@@ -167,7 +135,6 @@ Column {
     }
   }
 
-  // ------------------------------------------------------------------ hero
 
   ProviderHero {
     width: parent.width
@@ -205,7 +172,6 @@ Column {
     }
   }
 
-  // -------------------------------------------------------------- the form
 
   Column {
     width: parent.width
@@ -232,10 +198,6 @@ Column {
       onAccepted: secretField.forceActiveFocus()
     }
 
-    // Always shown, and naming nobody. Somebody about to paste the password
-    // they sign in to a website with is about to be refused, and this is the
-    // sentence that stops it — in body text rather than a caption, because it
-    // is the one thing on the page that is worth reading before typing.
     Rectangle {
       width: parent.width
       implicitHeight: noteText.implicitHeight + MailStyle.space(20)
@@ -267,8 +229,6 @@ Column {
         objectName: "jmap-secret-field"
         anchors.left: parent.left
         anchors.right: parent.right
-        // Masked by default: this window is shoulder-surfable. Readable on
-        // demand, because a pasted token is a string nobody can check by eye.
         password: !root.secretVisible
         rightPadding: horizontalPadding + MailStyle.space(26)
         foreground: root.textColor
@@ -308,11 +268,6 @@ Column {
     }
   }
 
-  // --------------------------------------------------------- what it is doing
-  //
-  // Three waits that look identical from outside. Naming which one is running
-  // is the difference between "it is working" and "it is stuck", and a check
-  // beside the ones already past is what says the next one is not the first.
 
   Column {
     id: progress
@@ -347,9 +302,6 @@ Column {
         Text {
           anchors.verticalCenter: parent.verticalCenter
           visible: !line.done
-          // A bullet rather than a spinner: nothing here animates, and a row
-          // that reserved the icon's width would leave the three lines
-          // ragged.
           text: "·"
           color: line.running ? root.accentColor : root.dimColor
           font.family: root.panelFontFamily
@@ -369,7 +321,6 @@ Column {
     }
   }
 
-  // ------------------------------------------------------------- signed in
 
   Column {
     width: parent.width
@@ -389,10 +340,7 @@ Column {
       elide: Text.ElideRight
     }
 
-    // A missing submission capability does not fail sign-in — the mailbox
-    // reads perfectly well — so the account signs in and this says what it
-    // cannot do, rather than a Send button that fails after the message is
-    // written.
+    // Invariant: lack of submission support does not invalidate a mailbox’s read capability.
     Text {
       width: parent.width
       visible: root.sendingRefused
@@ -404,20 +352,12 @@ Column {
     }
   }
 
-  // -------------------------------------------------------------- rejected
-  //
-  // The server refused the credential. Nothing here is signed out: the account,
-  // its server and its cache are all still right, and the one wrong thing is a
-  // string that has to be typed again.
 
   Rectangle {
     width: parent.width
     visible: root.rejected
     implicitHeight: rejectedText.implicitHeight + MailStyle.space(20)
     radius: Style.cornerRadius
-    // The same surface every other note on this page draws on, with the
-    // sentence in the danger colour rather than the box: colour alone never
-    // carries state here, and the words are what says what happened.
     color: Style.normalFillFor(root.textColor, root.accentColor)
     border.width: 1
     border.color: Style.hoverBorderFor(root.textColor, root.accentColor)
@@ -436,11 +376,6 @@ Column {
     }
   }
 
-  // ------------------------------------------------------- server settings
-  //
-  // Behind a disclosure, because the address is enough wherever the domain
-  // publishes a record or serves the well-known URL. Opened by the page when
-  // it is not, which is the only time most people will see these fields.
 
   Column {
     width: parent.width
@@ -473,9 +408,6 @@ Column {
         placeholderText: "Server — mail.example.org, or the full session URL"
       }
 
-      // Only for the servers where the login name is not the address, which is
-      // common enough on self-hosted mail to be worth a field and rare enough
-      // to keep out of the way.
       Widgets.TextField {
         id: usernameField
         objectName: "jmap-username-field"
@@ -530,8 +462,7 @@ Column {
       onClicked: root.save()
     }
 
-    // No sign-out while the credential is being re-entered: signing out would
-    // throw away the keyring entry and the cache to fix a string in a field.
+    // Invariant: sign-out must not race a credential write in progress.
     Widgets.Button {
       visible: root.signedIn && !root.rejected
       text: "Sign out"

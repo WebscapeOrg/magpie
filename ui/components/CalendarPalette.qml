@@ -12,8 +12,7 @@ QtObject {
 
   property var values: ({})
   readonly property var slots: Palette.keys()
-  // The shell decides whether an Omarchy palette exists. Standalone hosts
-  // leave this empty and use the semantic colours supplied by App.qml.
+  // Invariant: the shell owns the optional palette path; other hosts use App’s semantic colors.
   property string palettePath: ""
 
   function colorFor(key) {

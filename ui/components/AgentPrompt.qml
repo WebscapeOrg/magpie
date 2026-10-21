@@ -8,8 +8,6 @@ import "../agent/Agent.js" as Agent
 import "../agent" as AI
 import "../agent/ChatText.js" as ChatText
 
-// A contextual conversation. The system AI streams public output in the
-// background; applying a suggestion remains an explicit owner action.
 FocusScope {
   id: root
   required property color textColor
@@ -251,7 +249,6 @@ FocusScope {
   function chooseCommand(index) {
     if (!commandsOpen) return false
     var command = commandMatches[typeof index === "number" ? index : commandIndex]
-    // History takes no argument, so choosing it opens the list at once.
     if (field.text.trim() === command || command === "/history") {
       field.text = command
       return submitCurrent()
@@ -383,8 +380,8 @@ FocusScope {
   }
   function applyAnswer(replace) {
     if (!composer || !job || answer === "") return false
-    // Re-resolve ownership immediately before editing, even if a From menu
-    // or a restored draft changed under the response.
+    // Invariant: re-resolve draft ownership before applying a suggestion; a restored draft or From
+    // change may have replaced it.
     var matches = service.agentJobsForDraft(composer.currentFields())
     if (!matches.some(function(candidate) { return String(candidate.id) === String(root.job.id) })) return false
     if (replace) composer.replaceBody(answer)

@@ -4,11 +4,8 @@ import qs.Commons
 import qs.Ui
 import "../agent/Agent.js" as Agent
 
-// What the agent found in the message: one row per event — what, when,
-// where — with Add and Dismiss. Add opens the calendar's composer with the
-// fields filled in; nothing is written from here. Every string on the card
-// came out of the agent's answer, which came out of the message, so it is
-// drawn as text and only text.
+// Invariant: suggestions only prefill a human-submitted event; all model-supplied strings remain
+// plain text.
 Rectangle {
   id: root
 
@@ -24,9 +21,6 @@ Rectangle {
   signal dismissRequested(string key)
 
   readonly property var rows: Array.isArray(suggestions) ? suggestions : []
-  // Folded until asked: a guess about somebody else's mail is a line above
-  // the message, not a panel over it. The heading says how many were found
-  // and opens on a click; a new look's findings fold again.
   property bool expanded: false
   readonly property string lookId: rows.length > 0 ? String(rows[0].jobId || "") : ""
   onLookIdChanged: expanded = false
@@ -143,7 +137,6 @@ Rectangle {
           IconTextButton {
             objectName: "suggestionAdd"
             iconName: "plus"
-            // The composer opens, so the label says so before it is pressed.
             text: "Add to calendar..."
             foreground: root.textColor
             accent: root.accentColor

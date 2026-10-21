@@ -23,8 +23,8 @@ Item {
   signal saveRequested(string draftKey)
   signal discardRequested(string draftKey)
 
-  // A failed send can replace the composer while this modal owns the focus.
-  // Its choice belongs to the draft that opened it, not the next visible one.
+  // Invariant: a send failure can replace the composer while this modal is open; its decision
+  // belongs to the draft that opened it.
   onCurrentDraftKeyChanged: {
     if (requestedDraftKey !== "" && requestedDraftKey !== currentDraftKey) close()
   }
@@ -88,8 +88,8 @@ Item {
     }
     contentItem: Column {
       spacing: MailStyle.space(14)
-      // A popup consumes keys before the window shortcuts. Keep its button
-      // activation here, with the focus cycle contained by KeyNavigation.
+      // Invariant: popups consume window shortcuts; local key handling and KeyNavigation contain
+      // the focus cycle.
       Keys.onPressed: function(event) {
         if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return
         event.accepted = true

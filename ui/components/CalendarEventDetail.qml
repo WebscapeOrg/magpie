@@ -41,13 +41,8 @@ Rectangle {
     }
     return null
   }
-  // The button rule: an operation that cannot really run is not drawn. A
-  // read-only calendar draws neither button. Google writes against the item
-  // id; CalDAV against the event's href, a recurring one is one ICS with
-  // state this panel does not re-serialize — and a modified occurrence
-  // carries only a RECURRENCE-ID, but its href is the series' shared file —
-  // and an href that resolves outside the source's own origin is refused by
-  // the same rule the controller applies before any credential is read.
+  // Invariant: CalDAV recurring occurrences share a series href that this panel cannot safely
+  // rewrite; refuse recurring deletes and cross-origin hrefs before credentials are read.
   readonly property bool canDelete: !!root.source && !!event
     && root.source.readOnly !== true
     && (root.source.kind === "google" ? String(event.googleId || "") !== ""
@@ -64,8 +59,6 @@ Rectangle {
     && event.conferenceData.createRequest && event.conferenceData.createRequest.status
     ? event.conferenceData.createRequest.status.statusCode || "" : "")
   readonly property string locationLink: httpLink(event ? event.location : "")
-  // The location as written. One that is not a link is a place, and a place
-  // is something to copy into a message or to look up on a map.
   readonly property string locationText: String(event && event.location || "").trim()
   readonly property bool locationIsPlace: locationText !== "" && locationLink === ""
   readonly property string mapLink: locationIsPlace
@@ -454,9 +447,6 @@ Rectangle {
           onClicked: if (root.controller) root.controller.openExternal(root.providerLink)
         }
 
-        // One quiet trigger; which delete — telling guests or not, one
-        // occurrence or the series — is chosen in the confirmation, where the
-        // event is named.
         IconTextButton {
           visible: root.canDelete
           objectName: "event-delete"

@@ -5,12 +5,6 @@ import qs.Commons
 import qs.Ui
 import "../message/Html.js" as Html
 
-// One image, floated over the reader.
-//
-// Plain text has nowhere to put a picture, so the body carries a marker where
-// each image was and this is what the marker opens. It deliberately does not
-// scale the image up: an image smaller than the window is shown at its own size
-// rather than blown up to fill a frame it was never meant to fill.
 Item {
   id: root
 
@@ -21,12 +15,9 @@ Item {
   required property string panelFontFamily
 
   property string source: ""
-  // What the marker pointed at, shown whether or not it was fetched, so a
-  // refusal names the thing it refused.
   property string requested: ""
-  // A sender's src is not a picture until it has been prepared as raster
-  // bytes. Qt fetches a remote Image source itself, so an http(s) address
-  // is refused here even if a caller forgets to go through the worker.
+  // Invariant: Qt fetches Image sources directly; accept only prepared raster data, never a sender
+  // URL.
   property bool refused: false
 
   anchors.fill: parent
@@ -77,9 +68,7 @@ Item {
       id: frame
       spacing: MailStyle.space(6)
 
-      // Sized from the image's own dimensions, bounded by the window. Bounding
-      // it against the popup instead would be a loop: the popup is sized from
-      // this.
+      // Invariant: bound the image against the window, not the popup sized from that image.
       Image {
         id: picture
         source: root.source
@@ -113,8 +102,8 @@ Item {
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.caption
-        // The sender wrote this. Left as AutoText, a src with a tag in it is
-        // markup Qt would lay out — and an <img> in it a fetch it would make.
+        // Invariant: sender-controlled source labels must remain plain text to prevent Qt resource
+        // loading.
         textFormat: Text.PlainText
         elide: Text.ElideMiddle
       }

@@ -3,20 +3,9 @@ import "../settings"
 import qs.Commons
 import qs.Ui
 
-// The rail beside the settings page: its section names, one highlighted.
-//
-// It is for getting about a page that is long, not for splitting it into
-// pages that are short. A click scrolls the page to the section; the
-// highlight follows wherever the page is scrolled to, by whatever means. The
-// page owns the scroll and the rules (`Model.activeSettingsSection`) decide
-// the highlight, so this draws what it is given: the names, and which one.
-//
-// The rows look like the mailbox rail's, on purpose. A second kind of
-// sidebar in the same window would be a second thing to learn.
 Column {
   id: root
 
-  // [{ key, title, y }], in the order the page shows them.
   property var sections: []
   property string activeKey: ""
   required property color textColor
@@ -57,8 +46,7 @@ Column {
         color: entry.selected ? root.textColor : root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.bodySmall
-        // Weight as well as fill, so a theme whose selected fill is close to
-        // the rail's ground still shows which row is current.
+        // Invariant: selected sections use font weight as well as theme-dependent fill.
         font.bold: entry.selected
         elide: Text.ElideRight
       }

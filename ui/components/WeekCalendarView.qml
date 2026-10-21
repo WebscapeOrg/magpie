@@ -341,9 +341,6 @@ Item {
         }
       }
 
-      // Read off the rail rather than off the line: the hour labels stop at the
-      // hour, so a line between two of them otherwise says only "somewhere in
-      // here". Hidden when today is not the week on screen.
       Rectangle {
         readonly property real offset: Calendar.weekNowOffset(
           root.days, root.firstHour, root.lastHour, timeline.hourHeight, root.nowMs)
@@ -586,8 +583,8 @@ Item {
               }
             }
 
-            // Keep the line behind event text; the gutter time and dot remain
-            // visible without striking through a meeting's title.
+            // Invariant: keep the current-time line behind event text so it cannot strike through a
+            // meeting title.
             Item {
               readonly property real offset: Calendar.nowOffset(
                 dayColumn.modelData, root.firstHour, root.lastHour,

@@ -8,8 +8,6 @@ Rectangle {
   id: root
 
   required property int secondsRemaining
-  // How many sends are parked. Past one, the countdown is the newest's and
-  // Undo says so.
   property int queuedCount: 1
   property bool awaitingConnection: false
   required property color textColor

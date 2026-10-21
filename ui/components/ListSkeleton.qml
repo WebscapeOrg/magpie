@@ -2,8 +2,7 @@ import QtQuick
 import "../settings"
 import qs.Commons
 
-// Rows shaped like the message summaries that will replace them. One shared
-// pulse keeps initial mailbox loading calm and cheap on the shell's GUI thread.
+// Performance: one shared pulse drives all loading rows.
 Column {
   id: root
 

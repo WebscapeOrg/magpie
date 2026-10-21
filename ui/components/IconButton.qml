@@ -5,9 +5,6 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 
-// A drawn icon on the kit's shared hover/cursor surface. qs.Ui's
-// PanelActionButton takes a font glyph, and this app's icons are vector images,
-// so this is that button with the glyph swapped for an ActionIcon.
 Item {
   id: root
 
@@ -18,17 +15,8 @@ Item {
   property color accent: Commons.Color.accent
   property bool filled: false
   property bool hasCursor: false
-  // Held down for as long as a menu this button opened is on screen. A trigger
-  // that looks untouched while its own popup is up leaves the popup looking
-  // unattached to anything.
   property bool selected: false
-  // Working on the thing the button asks for — checking for mail, say. The
-  // glyph turns while it is, and stays at full strength: a button that only
-  // went dim said "you cannot" when the truth was "already doing it".
   property bool busy: false
-  // Something behind this button wants the owner — an agent's question, a
-  // job that finished unseen. A slow pulse of the accent around the glyph,
-  // and nothing else changes: the button still says what it always said.
   property bool attention: false
   property real iconSize: Style.font.icon
   property real size: Math.max(MailStyle.space(24), iconSize + Style.spacing.sm * 2)
@@ -62,8 +50,6 @@ Item {
   height: size
   opacity: enabled || busy ? 1.0 : 0.4
 
-  // The pulse: a ring of the accent that breathes while attention is asked
-  // for, drawn under the fill so a hover still reads as a hover.
   Rectangle {
     id: halo
     anchors.fill: parent
@@ -101,8 +87,6 @@ Item {
     color: root.hot || root.selected ? root.hoverColor : root.foreground
     filled: root.filled
 
-    // A full turn a second, and back to upright the moment the work ends so
-    // the glyph never rests at a tilt.
     RotationAnimation on rotation {
       running: root.busy
       loops: Animation.Infinite

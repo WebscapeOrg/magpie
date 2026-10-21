@@ -231,7 +231,7 @@ async fn invalidation_during_refresh_cannot_publish_token_or_send_get() {
 
 #[tokio::test]
 async fn slow_account_refresh_does_not_stall_another_account() {
-    // A single-thread runtime proves the wait yields, rather than being hidden by workers.
+    // Invariant: A single-thread runtime proves the wait yields, rather than being hidden by workers.
     let session = &Session::default();
     let started = tokio::sync::Notify::new();
     let release = tokio::sync::Notify::new();
@@ -351,8 +351,3 @@ async fn credentials_failure_prevents_refresh_and_mail_network_requests() {
     })
     .await;
 }
-
-// Gmail meters each user at 250 quota units per second and answers a burst
-// past that with 403 rateLimitExceeded. Trashing a screen of conversations
-// fires one 5-unit call per message, so the session paces every account
-// below that line instead of letting the burst reach Google.

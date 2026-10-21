@@ -13,29 +13,35 @@ const MAX_FILE: u64 = 16 * 1024 * 1024;
 const MAX_CONTACTS: usize = 10000;
 type Book = BTreeMap<String, Value>;
 
-fn address(s: &str) -> bool {
-    let Some((local, domain)) = s.split_once('@') else {
+fn address(email: &str) -> bool {
+    let Some((local, domain)) = email.split_once('@') else {
         return false;
     };
     !local.is_empty()
-        && !local
-            .chars()
-            .any(|c| c.is_control() || c.is_whitespace() || "@<>,;\"\\".contains(c))
+        && !local.chars().any(|character| {
+            character.is_control() || character.is_whitespace() || "@<>,;\"\\".contains(character)
+        })
         && domain.split('.').count() >= 2
-        && domain
-            .split('.')
-            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
-        && domain
-            .rsplit('.')
-            .next()
-            .is_some_and(|p| p.len() >= 2 && p.bytes().all(|b| b.is_ascii_alphabetic()))
+        && domain.split('.').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+        && domain.rsplit('.').next().is_some_and(|part| {
+            part.len() >= 2 && part.bytes().all(|byte| byte.is_ascii_alphabetic())
+        })
 }
 fn collect(book: &mut Book, name: &str, email: &str) {
     let email = email.trim();
     if !address(email) || book.len() >= MAX_CONTACTS {
         return;
     }
-    let name: String = name.trim().chars().filter(|c| !c.is_control()).collect();
+    let name: String = name
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect();
     let key = email.to_lowercase();
     if !book.contains_key(&key) || (book[&key]["name"] == "" && !name.is_empty()) {
         book.insert(key, json!({"name":name,"email":email}));
@@ -108,64 +114,71 @@ fn paths(dir: &Path) -> Vec<PathBuf> {
         .flatten()
         .filter_map(Result::ok)
         .take(2000)
-        .map(|e| e.path())
+        .map(|entry| entry.path())
         .collect();
     result.sort();
     result
 }
+fn message_contacts(row: &Value) -> Vec<&Value> {
+    let mut people = vec![&row["from"], &row["replyTo"]];
+    for field in ["to", "cc"] {
+        if let Some(items) = row[field].as_array().filter(|items| items.len() <= 5) {
+            people.extend(items);
+        }
+    }
+    people
+}
+fn cache_contacts(query: &Value) -> impl Iterator<Item = &Value> {
+    query["summaries"]
+        .as_array()
+        .filter(|rows| !rows.is_empty())
+        .or_else(|| query["messages"].as_array())
+        .into_iter()
+        .flatten()
+        .flat_map(message_contacts)
+}
 fn cache(book: &mut Book, dir: &Path) {
     let mut harvested = 0;
-    for file in paths(dir).into_iter().filter(|p| {
-        p.file_name().is_some_and(|n| {
-            n.to_string_lossy().starts_with("account-") && n.to_string_lossy().ends_with(".json")
+    for file in paths(dir).into_iter().filter(|path| {
+        path.file_name().is_some_and(|name| {
+            let name = name.to_string_lossy();
+            name.starts_with("account-") && name.ends_with(".json")
         })
     }) {
-        let Some(raw) = read(&file).and_then(|s| serde_json::from_str::<Value>(&s).ok()) else {
+        let Some(raw) = read(&file).and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        else {
             continue;
         };
         let Some(queries) = raw["queries"].as_object() else {
             continue;
         };
-        for entry in queries.values() {
-            let rows = entry["summaries"]
-                .as_array()
-                .filter(|r| !r.is_empty())
-                .or_else(|| entry["messages"].as_array());
-            for row in rows.into_iter().flatten() {
-                let mut people = vec![&row["from"], &row["replyTo"]];
-                for field in ["to", "cc"] {
-                    if let Some(items) = row[field].as_array().filter(|a| a.len() <= 5) {
-                        people.extend(items)
-                    }
-                }
-                for person in people {
-                    let email = person["email"].as_str().unwrap_or("");
-                    let name = person["name"]
-                        .as_str()
-                        .filter(|s| !s.is_empty())
-                        .or_else(|| person["display"].as_str())
-                        .unwrap_or("");
-                    if address(email) {
-                        if harvested >= 2000 {
-                            return;
-                        }
-                        harvested += 1;
-                        collect(
-                            book,
-                            if email.split('@').next() == Some(name) {
-                                ""
-                            } else {
-                                name
-                            },
-                            email,
-                        )
-                    }
-                }
+        for person in queries.values().flat_map(cache_contacts) {
+            let email = person["email"].as_str().unwrap_or("");
+            if !address(email) {
+                continue;
             }
+            if harvested >= 2000 {
+                return;
+            }
+            harvested += 1;
+            let name = person["name"]
+                .as_str()
+                .filter(|name| !name.is_empty())
+                .or_else(|| person["display"].as_str())
+                .unwrap_or("");
+            collect(
+                book,
+                if email.split('@').next() == Some(name) {
+                    ""
+                } else {
+                    name
+                },
+                email,
+            );
         }
     }
 }
-fn thunderbird(book: &mut Book, root: &Path) {
+fn thunderbird_profiles(root: &Path) -> Vec<PathBuf> {
     let mut profiles = paths(root);
     profiles.extend(paths(&root.join("Profiles")));
     if let Some(ini) = read(&root.join("profiles.ini")) {
@@ -175,14 +188,18 @@ fn thunderbird(book: &mut Book, root: &Path) {
         for line in ini.lines().chain(std::iter::once("[end]")) {
             let line = line.trim();
             if line.starts_with('[') {
-                if section && let Some(p) = path.take() {
-                    let p = PathBuf::from(p);
-                    profiles.push(if relative { root.join(p) } else { p });
+                if section && let Some(profile) = path.take() {
+                    let profile = PathBuf::from(profile);
+                    profiles.push(if relative {
+                        root.join(profile)
+                    } else {
+                        profile
+                    });
                 }
                 section = line.to_lowercase().starts_with("[profile");
                 relative = true;
-            } else if let Some(v) = line.strip_prefix("Path=") {
-                path = Some(v.to_string())
+            } else if let Some(value) = line.strip_prefix("Path=") {
+                path = Some(value.to_string())
             } else if line == "IsRelative=0" {
                 relative = false
             }
@@ -190,38 +207,53 @@ fn thunderbird(book: &mut Book, root: &Path) {
     }
     profiles.sort();
     profiles.dedup();
-    for profile in profiles {
-        for db in paths(&profile).into_iter().filter(|p| {
-            p.file_name().is_some_and(|n| {
-                let n = n.to_string_lossy();
-                (n.starts_with("abook") || n.starts_with("history")) && n.ends_with(".sqlite")
+    profiles
+}
+
+fn thunderbird(book: &mut Book, root: &Path) {
+    for profile in thunderbird_profiles(root) {
+        for database in paths(&profile).into_iter().filter(|path| {
+            path.file_name().is_some_and(|name| {
+                let name = name.to_string_lossy();
+                (name.starts_with("abook") || name.starts_with("history"))
+                    && name.ends_with(".sqlite")
             })
         }) {
-            let Ok(connection) = rusqlite::Connection::open_with_flags(
-                db,
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-            ) else {
-                continue;
-            };
-            let _ = connection.busy_timeout(std::time::Duration::from_millis(200));
-            let Ok(mut query)=connection.prepare("SELECT MAX(CASE WHEN name='DisplayName' THEN value ELSE '' END), MAX(CASE WHEN name='PrimaryEmail' THEN value ELSE '' END), MAX(CASE WHEN name='SecondEmail' THEN value ELSE '' END) FROM properties GROUP BY card LIMIT 10000") else {continue};
-            let Ok(rows) = query.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            }) else {
-                continue;
-            };
-            for (name, email, second) in rows.flatten() {
-                collect(book, &name, &email);
-                collect(book, &name, &second)
-            }
+            thunderbird_book(book, &database);
         }
     }
 }
+fn thunderbird_book(book: &mut Book, database: &Path) {
+    let Ok(connection) = rusqlite::Connection::open_with_flags(
+        database,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) else {
+        return;
+    };
+    let _ = connection.busy_timeout(std::time::Duration::from_millis(200));
+    let Ok(mut query) = connection.prepare(
+        "SELECT MAX(CASE WHEN name='DisplayName' THEN value ELSE '' END),
+                MAX(CASE WHEN name='PrimaryEmail' THEN value ELSE '' END),
+                MAX(CASE WHEN name='SecondEmail' THEN value ELSE '' END)
+         FROM properties GROUP BY card LIMIT 10000",
+    ) else {
+        return;
+    };
+    let Ok(rows) = query.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    }) else {
+        return;
+    };
+    for (name, email, second) in rows.flatten() {
+        collect(book, &name, &email);
+        collect(book, &name, &second)
+    }
+}
+
 pub fn suggest() -> Result<Value, &'static str> {
     let dirs = crate::platform::dirs::AppDirs::discover()?;
     Ok(discover(
@@ -272,7 +304,7 @@ mod tests {
         let before = fs::read(&database).unwrap();
         fs::create_dir_all(root.join("cache/omamail")).unwrap();
         let bulk: Vec<_> = (0..6)
-            .map(|n| json!({"email":format!("bulk{n}@example.com")}))
+            .map(|index| json!({"email":format!("bulk{index}@example.com")}))
             .collect();
         fs::write(root.join("cache/omamail/account-a.json"),json!({"queries":{"inbox":{"summaries":[{"from":{"email":"bob@example.com","name":"bob"},"bcc":[{"email":"hidden@example.com"}],"to":bulk}]}}}).to_string()).unwrap();
         let result = discover(&root, &root.join("config"), &root.join("cache"));
@@ -284,30 +316,30 @@ mod tests {
     }
     #[test]
     fn validates_addresses_without_coercing_objects() {
-        let mut b = Book::new();
+        let mut book = Book::new();
         json_book(
-            &mut b,
+            &mut book,
             &json!({"contacts":[{"email":"a@example.com"}],"Jane":"jane@example.com","bad":"a@example.com\nInjected"}),
         );
-        assert_eq!(b.len(), 1);
-        assert!(b.contains_key("jane@example.com"));
+        assert_eq!(book.len(), 1);
+        assert!(book.contains_key("jane@example.com"));
     }
     #[test]
     fn unfolds_cards_and_skips_malformed_lines() {
-        let mut b = Book::new();
+        let mut book = Book::new();
         vcard(
-            &mut b,
+            &mut book,
             "BEGIN:VCARD\nFN:Jane\nEMAIL broken\nEMAIL:a@exam\n ple.com\nEND:VCARD\n",
         );
-        assert_eq!(b["a@example.com"]["name"], "Jane");
+        assert_eq!(book["a@example.com"]["name"], "Jane");
     }
     #[test]
     fn named_contact_replaces_inferred_empty_name() {
-        let mut b = Book::new();
-        collect(&mut b, "", "A@example.com");
-        collect(&mut b, "Alice", "a@example.com");
-        assert_eq!(b.len(), 1);
-        assert_eq!(b["a@example.com"]["name"], "Alice");
+        let mut book = Book::new();
+        collect(&mut book, "", "A@example.com");
+        collect(&mut book, "Alice", "a@example.com");
+        assert_eq!(book.len(), 1);
+        assert_eq!(book["a@example.com"]["name"], "Alice");
     }
 }
 

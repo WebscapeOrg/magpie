@@ -64,18 +64,19 @@ fn parse_client(bytes: &[u8], account: &str) -> Result<Client, &'static str> {
     if let Some(entries) = raw["accounts"].as_array() {
         let mut shared = None;
         for entry in entries {
-            if let Some(value) = client(entry) {
-                if entry["id"]
-                    .as_str()
-                    .unwrap_or("")
-                    .trim()
-                    .eq_ignore_ascii_case(account.trim())
-                {
-                    return Ok(value);
-                }
-                if shared.is_none() {
-                    shared = Some(value);
-                }
+            let Some(value) = client(entry) else {
+                continue;
+            };
+            if entry["id"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .eq_ignore_ascii_case(account.trim())
+            {
+                return Ok(value);
+            }
+            if shared.is_none() {
+                shared = Some(value);
             }
         }
         shared.ok_or("gmail_client_missing")

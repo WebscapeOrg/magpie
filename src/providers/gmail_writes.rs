@@ -157,7 +157,7 @@ fn plan(method: &str, params: &Value) -> Result<Plan, &'static str> {
         }
         _ => unreachable!(),
     }
-    // Validate path spelling before reading credentials, including dot segments.
+    // Invariant: Validate path spelling before reading credentials, including dot segments.
     for part in &result.path {
         super::super::gmail_http::validate_path_part(part).map_err(|_| "invalid_params")?;
     }
@@ -298,7 +298,7 @@ impl Session {
         if answer == Err("gmail_unauthorized") {
             session.reject(&token).await?;
         }
-        // Delivery suppression after logout does not pretend a dispatched mutation was undone.
+        // Invariant: Delivery suppression after logout does not pretend a dispatched mutation was undone.
         session.check()?;
         answer
     }

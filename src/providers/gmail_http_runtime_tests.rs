@@ -25,7 +25,6 @@ async fn server(response: Vec<u8>, delay: Duration) -> Server {
     server_sequence(vec![response], delay).await
 }
 
-// Answers the n-th request with the n-th response; the last one repeats.
 async fn server_sequence(responses: Vec<Vec<u8>>, delay: Duration) -> Server {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/messages/abc", listener.local_addr().unwrap());
@@ -143,7 +142,7 @@ async fn mail_send_preview_reads_google_identity_without_mutation_or_local_write
         std::fs::write(directory.join("sentinel"), b"unchanged existing state").unwrap();
     }
     std::fs::write(fixture.state.join("omamail/outbox.json"), b"[]\n").unwrap();
-    // Keep the hostile display name separate from a Windows-valid filename.
+    // Invariant: Keep the hostile display name separate from a Windows-valid filename.
     let attachment = fixture.root.join(if cfg!(windows) {
         "attachment-工.txt"
     } else {
@@ -253,7 +252,6 @@ async fn native_concurrency_overlaps_response_waits() {
         let request = local(&server, get_request());
         work.spawn(async move { execute(&client, request, DEADLINE).await });
     }
-    // All four requests arrive before the server releases the first response.
     tokio::time::timeout(Duration::from_secs(2), async {
         while server.requests.lock().unwrap().len() != 4 {
             tokio::task::yield_now().await;
@@ -335,7 +333,7 @@ async fn timeout_and_response_bounds_are_enforced_on_actual_streams() {
 #[tokio::test]
 async fn auth_and_invalid_json_return_only_static_errors() {
     let client = client_builder().https_only(false).build().unwrap();
-    // Gmail reports per-user rate limiting as 403 with a usageLimits reason,
+    // Invariant: Gmail reports per-user rate limiting as 403 with a usageLimits reason,
     // not only as 429. Any other 403 is a permission problem.
     let limited = r#"{"error":{"errors":[{"domain":"usageLimits","reason":"userRateLimitExceeded","message":"User-rate limit exceeded. Retry after 2026-09-16T00:00:00Z"}],"code":403,"message":"User-rate limit exceeded."}}"#;
     let global = r#"{"error":{"errors":[{"domain":"usageLimits","reason":"rateLimitExceeded","message":"Rate Limit Exceeded"}],"code":403,"message":"Rate Limit Exceeded"}}"#;
@@ -362,7 +360,7 @@ async fn auth_and_invalid_json_return_only_static_errors() {
             Duration::ZERO,
         )
         .await;
-        // A deadline shorter than the first backoff leaves no room to retry.
+        // Invariant: A deadline shorter than the first backoff leaves no room to retry.
         let started = std::time::Instant::now();
         assert_eq!(
             execute(
@@ -378,9 +376,6 @@ async fn auth_and_invalid_json_return_only_static_errors() {
     }
 }
 
-// A message mutation answers with a ticket, is sent from the account's queue
-// with the real credential reader, token refresh and serializer, and settles
-// as a notification; the in-process caller holds the line for the answer.
 #[tokio::test]
 async fn queued_mutation_settles_by_notification_and_in_process() {
     use crate::mail::tests::{account_fixture, isolated};
@@ -476,7 +471,7 @@ async fn queued_mutation_settles_by_notification_and_in_process() {
     );
 }
 
-// A rate-limited request was rejected before it ran, so resending it — even
+// Invariant: A rate-limited request was rejected before it ran, so resending it — even
 // a mutation — cannot duplicate anything. Google asks for exponential backoff
 // starting at a second; the retry budget stays inside the request deadline.
 #[tokio::test]
@@ -503,7 +498,6 @@ async fn rate_limited_requests_back_off_and_resend_within_the_deadline() {
         .await,
         Ok(serde_json::json!({"ok":true}))
     );
-    // 20ms, then 40ms: exponential, not a tight loop.
     assert!(started.elapsed() >= Duration::from_millis(60));
     let requests = target.requests.lock().unwrap().clone();
     assert_eq!(requests.len(), 3);
@@ -513,7 +507,6 @@ async fn rate_limited_requests_back_off_and_resend_within_the_deadline() {
             .all(|r| r.starts_with("POST /messages/abc "))
     );
 
-    // Persistent limiting gives up after a bounded number of attempts.
     let target = server(limited, Duration::ZERO).await;
     assert_eq!(
         execute_with_backoff(
@@ -850,7 +843,7 @@ async fn real_tls_rejects_untrusted_certificate_before_sending_credentials() {
         .add_root_certificate(certificate)
         .build()
         .unwrap();
-    // First reject the untrusted issuer; then trust that issuer and independently
+    // Invariant: First reject the untrusted issuer; then trust that issuer and independently
     // reject the mismatched IP hostname (the certificate only names localhost).
     for (client, host) in [(client().unwrap(), "localhost"), (&trusted, "127.0.0.1")] {
         let mut request = get_request();
@@ -863,7 +856,7 @@ async fn real_tls_rejects_untrusted_certificate_before_sending_credentials() {
         output.read_line(&mut report).unwrap();
         assert_eq!(report.trim(), "tls-refused-no-http");
     }
-    // A successful trusted, matching-host control proves that the previous
+    // Invariant: A successful trusted, matching-host control proves that the previous
     // rejection was hostname verification, not a malformed CA/end-entity cert.
     let mut request = get_request();
     request.url = format!("https://localhost:{port}/messages/abc");
@@ -917,14 +910,14 @@ fn pending_dns_obeys_deadline_and_does_not_block_runtime_shutdown() {
                 .dns_resolver(Arc::new(resolver))
                 .build()
                 .unwrap();
-            // Retain the real fixed HTTPS URL: the only injected seam is a DNS
+            // Invariant: Retain the real fixed HTTPS URL: the only injected seam is a DNS
             // future that never yields an address, so no connection is possible.
             execute(&client, get_request(), Duration::from_millis(40)).await
         });
         drop(runtime);
         finished.send(result).unwrap();
     });
-    // Receive only after normal runtime destruction, not shutdown_timeout or a
+    // Invariant: Receive only after normal runtime destruction, not shutdown_timeout or a
     // leaked runtime: lingering blocking DNS work would fail this assertion.
     let result = completion
         .recv_timeout(Duration::from_secs(2))
@@ -1019,7 +1012,7 @@ async fn mutation_timeout_does_not_retry_an_accepted_request() {
     assert_eq!(peer.connections.load(Ordering::SeqCst), 1);
 }
 
-// Model a gateway which rejects unframed POSTs with 411, before any mutation.
+// Algorithm: Model a gateway which rejects unframed POSTs with 411, before any mutation.
 async fn strict_empty_post_server() -> Server {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());

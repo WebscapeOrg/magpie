@@ -32,8 +32,8 @@ pub fn direction_of_code(code: u32) -> &'static str {
 }
 pub fn strong_direction(text: &str) -> &'static str {
     let mut depth = 0usize;
-    for ch in text.chars() {
-        let code = ch as u32;
+    for character in text.chars() {
+        let code = character as u32;
         match code {
             0x2066..=0x2068 => {
                 depth += 1;
@@ -73,8 +73,8 @@ pub fn without_reply_prefixes(mut text: &str) -> &str {
         let Some(prefix) = PREFIX.find(text) else {
             break;
         };
-        let visible = text.trim_start_matches(|c: char| {
-            c.is_whitespace() || matches!(c, '\u{feff}' | '\u{200e}' | '\u{200f}')
+        let visible = text.trim_start_matches(|character: char| {
+            character.is_whitespace() || matches!(character, '\u{feff}' | '\u{200e}' | '\u{200f}')
         });
         if visible.starts_with('[')
             && visible
@@ -100,7 +100,10 @@ pub fn resolve_subject(text: &str, mode: &str) -> &'static str {
 }
 static IMAGES: LazyLock<Regex> = LazyLock::new(|| js_regex(r"^(?:\s*\[image(?:\s+[0-9]+)?\])+"));
 pub fn without_image_markers(text: &str) -> &str {
-    IMAGES.find(text).map(|m| &text[m.end()..]).unwrap_or(text)
+    IMAGES
+        .find(text)
+        .map(|marker| &text[marker.end()..])
+        .unwrap_or(text)
 }
 pub fn resolve_body(text: &str, mode: &str) -> &'static str {
     resolve(without_image_markers(text), mode)

@@ -149,51 +149,62 @@ def parse_vcf(path: Path) -> list[dict[str, str]]:
 # harvesting them buries the addresses the user actually corresponds with under
 # a list they never chose. Bcc is left out entirely: in a received message it
 # is either empty or the reader's own address.
+def cached_messages(account: Path):
+    try:
+        data = json.loads(account.read_text(encoding="utf-8", errors="ignore"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    queries = data.get("queries", {})
+    if not isinstance(queries, dict):
+        return
+    for entry in queries.values():
+        if not isinstance(entry, dict):
+            continue
+        rows = entry.get("summaries", []) or entry.get("messages", [])
+        if not isinstance(rows, list):
+            continue
+        yield from (message for message in rows if isinstance(message, dict))
+
+
+def message_contacts(message):
+    for field in ("from", "replyTo"):
+        yield message.get(field)
+    for field in ("to", "cc"):
+        people = message.get(field)
+        if not isinstance(people, list) or len(people) > MAX_HARVESTED_RECIPIENTS:
+            continue
+        yield from people
+
+
+def harvested_contact(value):
+    if not isinstance(value, dict):
+        return None
+    email = str(value.get("email") or "").strip()
+    if not is_address(email):
+        return None
+    name = str(value.get("name") or value.get("display") or "").strip()
+    return {"name": real_name(name, email), "email": email}
+
+
+def cached_contacts(account: Path):
+    for message in cached_messages(account):
+        for value in message_contacts(message):
+            contact = harvested_contact(value)
+            if contact is not None:
+                yield contact
+
+
 def omamail_cache_records(cache_dir: Path) -> list[dict[str, str]]:
     if not cache_dir.is_dir():
         return []
     contacts: list[dict[str, str]] = []
-
-    def take(value: object) -> None:
-        if len(contacts) >= MAX_CACHE_CONTACTS or not isinstance(value, dict):
-            return
-        email = str(value.get("email") or "").strip()
-        if not is_address(email):
-            return
-        name = str(value.get("name") or value.get("display") or "").strip()
-        contacts.append({"name": real_name(name, email), "email": email})
-
     for account in sorted(cache_dir.glob("account-*.json")):
-        try:
-            data = json.loads(account.read_text(encoding="utf-8", errors="ignore"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(data, dict):
-            continue
-        queries = data.get("queries", {})
-        if not isinstance(queries, dict):
-            continue
-        for entry in queries.values():
-            if not isinstance(entry, dict):
-                continue
-            rows = entry.get("summaries", []) or entry.get("messages", [])
-            if not isinstance(rows, list):
-                continue
-            for message in rows:
-                if not isinstance(message, dict):
-                    continue
-                if len(contacts) >= MAX_CACHE_CONTACTS:
-                    return contacts
-                for field in ("from", "replyTo"):
-                    take(message.get(field))
-                for field in ("to", "cc"):
-                    people = message.get(field)
-                    if not isinstance(people, list):
-                        continue
-                    if len(people) > MAX_HARVESTED_RECIPIENTS:
-                        continue
-                    for person in people:
-                        take(person)
+        for contact in cached_contacts(account):
+            if len(contacts) >= MAX_CACHE_CONTACTS:
+                return contacts
+            contacts.append(contact)
     return contacts
 
 

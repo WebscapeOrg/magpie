@@ -1,6 +1,5 @@
 .pragma library
 
-.import "../../../providers/NativeDomain.js" as NativeDomain
 .import "Gmail.js" as Gmail
 .import "Outlook.js" as Outlook
 .import "Imap.js" as Imap
@@ -97,12 +96,10 @@ function mailbox(raw) {
 // so they cannot drift between four files.
 function define(source) {
   var raw = source || {}
-  var facts = NativeDomain.FACTS[String(raw.ID || "")] || {}
   var boxes = []
   var list = Array.isArray(raw.MAILBOXES) ? raw.MAILBOXES : []
   for (var i = 0; i < list.length; i++) {
     var box = mailbox(list[i])
-    box.query = String((facts.queries || {})[box.key] || "")
     boxes.push(box)
   }
   return {
@@ -110,7 +107,7 @@ function define(source) {
     name: String(raw.NAME || ""),
     summary: String(raw.SUMMARY || ""),
     auth: String(raw.AUTH || "none"),
-    nativeSync: facts.nativeSync === true,
+    nativeSync: raw.NATIVE_SYNC === true,
     // Two file names in `assets/`, or "" for a provider with no artwork of its
     // own. `mark` is the square icon a list row wants; `logo` is the lockup a
     // setup page opens with, which for HEY is a wordmark twice as wide as it is
@@ -118,9 +115,9 @@ function define(source) {
     mark: String(raw.MARK || ""),
     logo: String(raw.LOGO || raw.MARK || ""),
     unavailable: String(raw.UNAVAILABLE || ""),
-    capabilities: capabilities(facts.capabilities),
-    addressSearch: facts.addressSearch === true,
-    inheritedDefault: String(facts.inheritedDefault || ""),
+    capabilities: capabilities(raw.CAPABILITIES),
+    addressSearch: typeof raw.addressQuery === "function",
+    inheritedDefault: "in:inbox",
     mailboxes: boxes,
     searchQuery: typeof raw.searchQuery === "function" ? raw.searchQuery : function() { return "" },
     cachedSummaryInSearch: typeof raw.cachedSummaryInSearch === "function"
@@ -134,7 +131,7 @@ function define(source) {
     webBoxUrl: typeof raw.webBoxUrl === "function" ? raw.webBoxUrl : function() { return "" },
     // The service's front door. A provider with no web UI at all has none, and
     // that empty string is what removes the link from a mailbox's settings row.
-    webHomeUrl: function() { return String(facts.webHomeUrl || "") },
+    webHomeUrl: typeof raw.webHomeUrl === "function" ? raw.webHomeUrl : function() { return "" },
     // Where the program a provider runs on lives, for the providers that run on
     // one. Only HEY does: the other three are spoken to directly.
     clientUrl: String(raw.CLIENT_URL || ""),

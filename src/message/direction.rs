@@ -53,9 +53,9 @@ pub fn strong_direction(text: &str) -> &'static str {
             0x202a | 0x202d => return LTR,
             _ => (),
         }
-        let answer = direction_of_code(code);
-        if !answer.is_empty() {
-            return answer;
+        let direction = direction_of_code(code);
+        if !direction.is_empty() {
+            return direction;
         }
     }
     ""
@@ -70,7 +70,9 @@ static PREFIX: LazyLock<Regex> = LazyLock::new(|| {
 });
 pub fn without_reply_prefixes(mut text: &str) -> &str {
     for _ in 0..12 {
-        let Some(m) = PREFIX.find(text) else { break };
+        let Some(prefix) = PREFIX.find(text) else {
+            break;
+        };
         let visible = text.trim_start_matches(|c: char| {
             c.is_whitespace() || matches!(c, '\u{feff}' | '\u{200e}' | '\u{200f}')
         });
@@ -81,7 +83,7 @@ pub fn without_reply_prefixes(mut text: &str) -> &str {
         {
             break;
         }
-        text = &text[m.end()..];
+        text = &text[prefix.end()..];
     }
     text
 }
@@ -246,9 +248,9 @@ mod tests {
         let output = child.wait_with_output().unwrap();
         assert!(output.status.success());
         let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
-        for (n, c) in cases.iter().enumerate() {
-            let text = c["text"].as_str().unwrap();
-            let mode = c["mode"].as_str().unwrap();
+        for (index, case) in cases.iter().enumerate() {
+            let text = case["text"].as_str().unwrap();
+            let mode = case["mode"].as_str().unwrap();
             assert_eq!(
                 json!([
                     resolve(text, mode),
@@ -256,7 +258,7 @@ mod tests {
                     resolve_body(text, mode),
                     without_reply_prefixes(text)
                 ]),
-                expected[n],
+                expected[index],
                 "{text:?} {mode}"
             )
         }

@@ -1,54 +1,16 @@
 .pragma library
 .import "DirectionData.js" as Bidi
 
-// Which way a piece of a message runs.
-//
-// Qt already resolves a paragraph's direction from its first strong character,
-// and it does it well: an Arabic body, an Arabic line inside a Latin one, and a
-// Hebrew subject in a `Text` all come out right without being told. This module
-// exists for the three places that answer is wrong or unavailable.
-//
-// 1. A reply prefix is Latin. `Re: مرحبا` has a strong `R` in front of it, so
-//    first-strong says left-to-right and the whole subject aligns against the
-//    wrong edge for every message in a thread after the first — which is most
-//    of them. The prefix is not part of what the subject says, so it is not
-//    part of what decides which way the subject runs.
-// 2. Qt's rich text engine honours the `dir` attribute and ignores the CSS
-//    `direction` property. A sender who writes `style="direction:rtl"` — which
-//    is what a mail template built for a browser writes — gets a left-to-right
-//    layout with the text jammed against the wrong margin. Html.js translates
-//    one spelling into the other, and needs this module to know what it is
-//    translating to.
-// 3. A reader may want the answer overridden. First-strong is a guess about a
-//    document, and a mailbox that is mostly one direction is better served by
-//    saying so once than by having the guess re-made per message.
-//
-// The rules here are the ones from the Unicode bidirectional algorithm (UAX #9)
-// that decide a paragraph's direction — P2, "find the first character of type
-// L, AL, or R while skipping over any characters between an isolate initiator
-// and its matching PDI", and P3, "if a character is found in P2 and it is of
-// type AL or R, then set the paragraph level to one; otherwise, set it to
-// zero". Not the whole algorithm: the rest of it is Qt's job and Qt does it.
-
-// ----------------------------------------------------------------- the modes
-//
-// What the setting stores. Spelled as the words the settings schema shows,
-// because the shell hands a plugin the label the user picked rather than a key
-// behind it — the same arrangement `heavyMessageRendering` already uses.
+// Qt handles paragraph layout; this module excludes client-added subject/body
+// prefixes and applies the user's direction preference. Modes match settings labels.
 var AUTO = "Auto"
 var LEFT_TO_RIGHT = "Left to right"
 var RIGHT_TO_LEFT = "Right to left"
 var MODE_DEFAULT = AUTO
 
-// What a resolved answer is. Lowercase because these are also what goes into
-// the `dir` attribute, and a document that carried `dir="Right to left"` would
-// be silently ignored rather than loudly wrong.
 var LTR = "ltr"
 var RTL = "rtl"
-// No strong character at all: a subject that is a number, a body that is a
-// row of dashes. The caller decides what to do with it, because "unknown" and
-// "left-to-right" are the same rendering but not the same fact — a document
-// gets no `dir` at all rather than one asserting a direction nobody chose.
+// An absent answer leaves Qt free to resolve each paragraph.
 var UNKNOWN = ""
 
 function normalizeMode(value) {
@@ -85,8 +47,8 @@ function directionOfCode(code) {
   return LTR
 }
 
-// P2, as far as it goes here: the first strong character wins, an isolate is
-// skipped over as a unit, and an embedding or an override answers on its own.
+// Skip isolates for first-strong selection. Preserve the app's explicit
+// embedding/override policy; Qt handles the remaining bidirectional algorithm.
 function strongDirectionOf(text) {
   var source = String(text === undefined || text === null ? "" : text)
   var depth = 0
@@ -94,8 +56,6 @@ function strongDirectionOf(text) {
   for (var characterIndex = 0; characterIndex < source.length; characterIndex++) {
     var code = source.charCodeAt(characterIndex)
 
-    // A surrogate pair is one character. Reading its halves as two would put
-    // an Adlam or Kharoshthi message on the wrong side of the window.
     if (code >= 0xD800 && code <= 0xDBFF && characterIndex + 1 < source.length) {
       var low = source.charCodeAt(characterIndex + 1)
       if (low >= 0xDC00 && low <= 0xDFFF) {
@@ -104,8 +64,6 @@ function strongDirectionOf(text) {
       }
     }
 
-    // Inside an isolate the text is deliberately sealed off from the paragraph
-    // it sits in, so nothing in it may decide the paragraph's own direction.
     if (code === LEFT_TO_RIGHT_ISOLATE || code === RIGHT_TO_LEFT_ISOLATE
         || code === FIRST_STRONG_ISOLATE) {
       depth++
@@ -117,8 +75,6 @@ function strongDirectionOf(text) {
     }
     if (depth > 0) continue
 
-    // An embedding or an override is the author saying which way this runs
-    // rather than leaving it to be worked out.
     if (code === RIGHT_TO_LEFT_EMBEDDING || code === RIGHT_TO_LEFT_OVERRIDE) return RTL
     if (code === LEFT_TO_RIGHT_EMBEDDING || code === LEFT_TO_RIGHT_OVERRIDE) return LTR
 
@@ -128,38 +84,20 @@ function strongDirectionOf(text) {
   return UNKNOWN
 }
 
-// --------------------------------------------------------------- a subject
-//
-// What a mail client puts in front of a subject is not part of the subject.
-// `Re:` and `Fwd:` are the two that English writes, but a thread crosses
-// clients and locales, so a reply from a German Outlook arrives as `AW:` and
-// one from a French client as `RE:` or `TR:`. A mailing list adds `[list-name]`
-// in front of whatever is already there.
-//
-// Listed rather than generalised to "any short word before a colon": that rule
-// would also eat the `Bug:` off a subject line, and while stripping it happens
-// to give the same answer here, a rule that quietly rewrites what it was asked
-// about is the wrong shape for something this small.
+// Only recognized client prefixes and list tags are skipped; an arbitrary
+// word before a colon is part of the subject.
 var REPLY_PREFIX = new RegExp(
   "^[\\s\\u200E\\u200F]*(?:"
-    // Re, Fw, Fwd and their translations, with the optional `[2]` or `(3)`
-    // count that a client adds when a thread goes round more than once.
     + "(?:re|aw|sv|vs|vl|antw|antwort|fw|fwd|wg|tr|rv|rif|res|enc|encaminhado"
     + "|doorst|odp|ynt|ilt|回复|回覆|转发|轉發)"
     + "\\s*(?:[\\[\\(]\\s*\\d+\\s*[\\]\\)])?\\s*:"
-    // A mailing list tag, which carries no direction of its own worth having.
     + "|\\[[^\\]]{0,64}\\]"
-    // The parenthesised form some clients use instead of a prefix.
     + "|\\((?:fwd|fw)\\)"
   + ")[\\s\\u200E\\u200F]*", "i")
 
-// Strips every prefix, not just the first: a thread that has been replied to
-// and then forwarded arrives as `Fwd: Re: ...`, and one off a list as
-// `[team] Re: ...`.
 function withoutReplyPrefixes(subject) {
   var text = String(subject === undefined || subject === null ? "" : subject)
-  // Bounded rather than `while (true)`: the expression can match empty on a
-  // pathological subject, and a body of mail is not the place to find out.
+  // Limit cleanup work for untrusted stacks of client-added prefixes.
   for (var index = 0; index < 12; index++) {
     var stripped = text.replace(REPLY_PREFIX, "")
     if (stripped === text) break
@@ -168,22 +106,10 @@ function withoutReplyPrefixes(subject) {
   return text
 }
 
-// The direction of what a subject actually says.
-//
-// A subject that is nothing but prefixes — `Re:`, or `Re: 2024` — answers
-// UNKNOWN rather than reading the prefix back as the answer. The prefix is
-// strong left-to-right and would give `ltr`, which is also what Qt does with
-// the unaltered string, so the two render the same; UNKNOWN is the one that
-// does not claim the choice was made on the subject's own account.
 function subjectDirectionOf(subject) {
   return strongDirectionOf(withoutReplyPrefixes(subject))
 }
 
-// ------------------------------------------------------------ the decision
-//
-// One entry point for the views: hand it the text and the mode, get back what
-// to draw. An explicit mode never looks at the text, which is the point of
-// having one.
 function resolve(text, mode) {
   var chosen = normalizeMode(mode)
   if (chosen === RIGHT_TO_LEFT) return RTL
@@ -191,14 +117,7 @@ function resolve(text, mode) {
   return strongDirectionOf(text)
 }
 
-// The direction the mode names on its own, without reading any text: RTL or
-// LTR for a chosen one, UNKNOWN for Auto.
-//
-// This is what the fields Qt already gets right should be given. A sender's
-// name, a recipient list and a one-line snippet all resolve correctly from
-// their own first strong character, so on Auto there is nothing to add and the
-// view leaves them alone; a chosen direction still has to reach them, because
-// choosing one and having half the message ignore it is not a choice.
+// Auto leaves native Qt fields to resolve their own content direction.
 function forced(mode) {
   var chosen = normalizeMode(mode)
   if (chosen === RIGHT_TO_LEFT) return RTL
@@ -213,18 +132,7 @@ function resolveSubject(subject, mode) {
   return subjectDirectionOf(subject)
 }
 
-// ------------------------------------------------------------------ a body
-
-// The plain reading of a message is not only the sender's words. `Html.js`
-// flattens a document by writing `[image 1]` where a picture stood, and a
-// remote image is blocked until the reader asks for it — so an HTML newsletter
-// that opens with a logo, which is most of them, hands this a string beginning
-// with a Latin `i` that omamail wrote itself.
-//
-// That is the same mistake as reading `Re:` as part of a subject, on the body
-// side: a marker this client put there is not the message saying which way it
-// runs. It is removed before the question is asked, and only from the front,
-// because a marker further in sits after whatever already answered.
+// Generated image markers are client text and must not choose body direction.
 var IMAGE_MARKERS = /^(?:\s*\[image(?:\s+\d+)?\])+/
 
 function withoutImageMarkers(text) {
@@ -238,12 +146,6 @@ function resolveBody(text, mode) {
   return strongDirectionOf(withoutImageMarkers(text))
 }
 
-// ---------------------------------------------------------- what QML needs
-//
-// A `Text` whose `horizontalAlignment` is never set follows the direction of
-// its own text, which is the behaviour to keep wherever the answer is UNKNOWN.
-// These say which edge to use only when there is an answer; the view leaves the
-// property alone otherwise rather than asserting Qt's own default back at it.
 function alignsRight(direction) {
   return String(direction) === RTL
 }
@@ -252,20 +154,12 @@ function hasAnswer(direction) {
   return String(direction) === RTL || String(direction) === LTR
 }
 
-// ---------------------------------------------------------- what HTML needs
-//
-// The attribute, ready to be concatenated into a tag. Empty for UNKNOWN, so a
-// document with nothing strong in it keeps Qt's per-paragraph resolution rather
-// than being pinned to a direction by a wrapper.
 function attributeFor(direction) {
   if (!hasAnswer(direction)) return ""
   return " dir=\"" + String(direction) + "\""
 }
 
-// Which physical edge a direction starts and ends on. The document stylesheets
-// are written in physical properties because that is all Qt's rich text engine
-// reads — it has no `margin-inline-start` — so the side has to be chosen when
-// the sheet is built rather than left to the renderer.
+// Qt rich text uses physical margin properties, not margin-inline-start/end.
 function startEdge(direction) {
   return alignsRight(direction) ? "right" : "left"
 }

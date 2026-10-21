@@ -12,15 +12,18 @@ VERSION = "17.0.0"
 SOURCE = ROOT / "data/unicode" / f"DerivedBidiClass-{VERSION}.txt.gz"
 SHA256 = "4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4"
 CODE_POINTS = 0x110000
+NEUTRAL = 0
+LEFT_TO_RIGHT = 1
+RIGHT_TO_LEFT = 2
 ENTRY = r"([0-9A-F]+)(?:\.\.([0-9A-F]+))?\s*;\s*([A-Za-z_]+)"
 
 
-def direction(name):
+def strong_class(name):
     if name in ("L", "Left_To_Right"):
-        return 1
+        return LEFT_TO_RIGHT
     if name in ("R", "AL", "Right_To_Left", "Arabic_Letter"):
-        return 2
-    return 0
+        return RIGHT_TO_LEFT
+    return NEUTRAL
 
 
 def classes():
@@ -28,13 +31,13 @@ def classes():
     if hashlib.sha256(source).hexdigest() != SHA256:
         raise ValueError("Pinned Unicode source hash mismatch")
     text = source.decode("utf-8")
-    result = bytearray([1]) * CODE_POINTS
+    result = bytearray([LEFT_TO_RIGHT]) * CODE_POINTS
     # Unicode's missing defaults apply before any explicit class assignment.
     for pattern in (r"^# @missing:\s*" + ENTRY, r"^" + ENTRY):
         for match in re.finditer(pattern, text, re.MULTILINE):
             start = int(match[1], 16)
             end = int(match[2] or match[1], 16)
-            result[start:end + 1] = bytes([direction(match[3])]) * (end - start + 1)
+            result[start:end + 1] = bytes([strong_class(match[3])]) * (end - start + 1)
     return result
 
 
@@ -44,8 +47,8 @@ def ranges(values):
     for end in range(1, len(values) + 1):
         if end < len(values) and values[start] == values[end]:
             continue
-        if values[start] != 1:
-            result.append((start, end - 1, "rtl" if values[start] == 2 else ""))
+        if values[start] != LEFT_TO_RIGHT:
+            result.append((start, end - 1, "rtl" if values[start] == RIGHT_TO_LEFT else ""))
         start = end
     return result
 
@@ -69,7 +72,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="verify checked-in tables without writing")
-    mode.add_argument("--classes", action="store_true", help="emit one class byte per code point for exhaustive tests")
+    mode.add_argument("--classes", action="store_true", help="emit one byte per code point:0=non-strong,1=L,2=R/AL")
     args = parser.parse_args()
     values = classes()
     if args.classes:

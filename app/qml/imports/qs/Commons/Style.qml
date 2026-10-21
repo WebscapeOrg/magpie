@@ -16,7 +16,7 @@ QtObject {
   }
 
   readonly property FontMetrics metrics: FontMetrics { font: Qt.application.font }
-  // Text follows the platform UI font in the standalone app. Only the private
+  // Invariant: Text follows the platform UI font in the standalone app. Only the private
   // use icon range is bundled; regular labels retain native platform metrics.
   readonly property real baseFontSize: shellTheme.font.baseSize
   readonly property real fontScale: Math.max(1 / 12, baseFontSize / 12)
@@ -27,7 +27,7 @@ QtObject {
   readonly property real hoverBorderWidth: controlNumber("hover-cursor-border-width", normalBorderWidth)
   readonly property real selectedBorderWidth: controlNumber("selected-border-width", 0)
   readonly property real focusBorderWidth: controlNumber("focus-border-width", hoverBorderWidth)
-  // Match the shell's hover intent threshold. Keeping this here gives every
+  // Invariant: Match the shell's hover intent threshold. Keeping this here gives every
   // standalone tooltip the same pause, including controls that use the
   // platform style directly.
   readonly property int tooltipDelay: 400
@@ -104,16 +104,16 @@ QtObject {
   }
 
   function space(value) {
-    var n = Number(value) * spacingScale
-    return n <= 0 ? 0 : Math.max(1, Math.round(n))
+    var scaled = Number(value) * spacingScale
+    return scaled <= 0 ? 0 : Math.max(1, Math.round(scaled))
   }
   function withAlpha(color, alpha) { return Qt.rgba(color.r, color.g, color.b, alpha) }
   function mix(first, second, amount) {
-    var n = Math.max(0, Math.min(1, Number(amount)))
-    return Qt.rgba(first.r * (1 - n) + second.r * n,
-      first.g * (1 - n) + second.g * n,
-      first.b * (1 - n) + second.b * n,
-      first.a * (1 - n) + second.a * n)
+    var proportion = Math.max(0, Math.min(1, Number(amount)))
+    return Qt.rgba(first.r * (1 - proportion) + second.r * proportion,
+      first.g * (1 - proportion) + second.g * proportion,
+      first.b * (1 - proportion) + second.b * proportion,
+      first.a * (1 - proportion) + second.a * proportion)
   }
   function mutedColorFor(foreground, background) { return mix(foreground, background, 0.46) }
   function stateColor(key, foreground, accent, fallback) {

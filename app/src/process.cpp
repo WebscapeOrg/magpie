@@ -101,13 +101,12 @@ void NativeProcess::setRunningValue(bool running)
 void NativeProcess::setRunning(bool running)
 {
     if (running == m_running) return;
-    if (running) {
-        setRunningValue(true);
-        start();
-    } else {
-        setRunningValue(false);
+    setRunningValue(running);
+    if (!running) {
         stopTree();
+        return;
     }
+    start();
 }
 
 void NativeProcess::start()
@@ -135,8 +134,8 @@ void NativeProcess::start()
     }
     QStringList arguments;
     arguments.reserve(m_command.size() - 1);
-    for (qsizetype i = 1; i < m_command.size(); ++i)
-        arguments.append(m_command.at(i).toString());
+    for (qsizetype argumentIndex = 1; argumentIndex < m_command.size(); ++argumentIndex)
+        arguments.append(m_command.at(argumentIndex).toString());
 
     m_processGroupId = 0;
     m_stdoutPending.clear();

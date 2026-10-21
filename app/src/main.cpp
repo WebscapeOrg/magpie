@@ -30,11 +30,11 @@ int main(int argc, char *argv[])
 {
     bool checkOnly = false;
     QString readyFile;
-    for (int i = 1; i < argc; ++i) {
-        const QString argument = QString::fromLocal8Bit(argv[i]);
+    for (int argumentIndex = 1; argumentIndex < argc; ++argumentIndex) {
+        const QString argument = QString::fromLocal8Bit(argv[argumentIndex]);
         if (argument == QStringLiteral("--check-resources")) checkOnly = true;
-        else if (argument == QStringLiteral("--smoke-test") && i + 1 < argc)
-            readyFile = QString::fromLocal8Bit(argv[++i]);
+        else if (argument == QStringLiteral("--smoke-test") && argumentIndex + 1 < argc)
+            readyFile = QString::fromLocal8Bit(argv[++argumentIndex]);
     }
 
     QCoreApplication::setOrganizationName(QStringLiteral("Omamail"));
@@ -50,11 +50,11 @@ int main(int argc, char *argv[])
         qputenv("QT_QPA_PLATFORM", "offscreen");
     QQuickWindow::setDefaultAlphaBuffer(false);
     QGuiApplication application(argc, argv);
-    // The host decides when the process ends: the app menu's Quit, or the
+    // Invariant: The host decides when the process ends: the app menu's Quit, or the
     // shell hiding a window it has no way to bring back. Qt's own reflex of
     // quitting once the last window is hidden would turn Cmd+W into Cmd+Q.
     application.setQuitOnLastWindowClosed(false);
-    // macOS shows the bundle's CFBundleIconFile — the plated omamail.icns —
+    // Invariant: macOS shows the bundle's CFBundleIconFile — the plated omamail.icns —
     // in Finder, and a window icon set here replaces that Dock image with the
     // bare logo. Leave the bundle icon alone there. A development run has no
     // bundle and would sit in the Dock as a generic executable, so it takes
@@ -78,7 +78,7 @@ int main(int argc, char *argv[])
     if (const int status = reportResourceCheck(paths); status != 0) return status;
     initializeNotificationActivation();
 
-    // Native platform styles can draw a light system scrollbar over a dark
+    // Invariant: Native platform styles can draw a light system scrollbar over a dark
     // Omarchy palette. Keep controls in the standalone process on our small
     // semantic style; the shell plugin continues to use the shell's style.
     QQuickStyle::setStyle(QStringLiteral("Omamail"));

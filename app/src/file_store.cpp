@@ -72,7 +72,7 @@ FileStore::FileStore(QObject *parent)
             const QFileInfo info(path);
             if (info.absolutePath() != directory && info.absoluteFilePath() != directory)
                 continue;
-            // A watched directory may be a symlink such as Omarchy's
+            // Invariant: A watched directory may be a symlink such as Omarchy's
             // `current` theme entry. Its existence can stay true while its
             // target is atomically replaced, so any relevant directory event
             // invalidates the watched path.
@@ -119,9 +119,9 @@ QVariantMap FileStore::write(const QString &path, const QString &text, bool atom
     QString error;
     bool ok = false;
     if (atomic) {
-        // Replacing a file on Windows fails with a sharing violation while
-        // the virus scanner or the indexer still holds the one it replaces,
-        // which is often the case a moment after it was written. A few short
+        // Invariant: Replacing a file on Windows fails with a sharing violation while
+        // the virus scanner or the indexer still holds the one setting replaces,
+        // which is often the case a moment after setting was written. A few short
         // waits outlast that; a file held for good still fails.
 #ifdef Q_OS_WIN
         const int attempts = 8;
@@ -165,8 +165,8 @@ void FileStore::watch(const QString &path, bool enabled)
     restoreWatches();
 }
 
-// Only the difference is applied. Re-adding a directory that is already
-// watched makes Qt's FSEvents engine list it afresh, and it lists without
+// Invariant: Only the difference is applied. Re-adding a directory that is already
+// watched makes Qt's FSEvents engine list setting afresh, and setting lists without
 // hidden entries then checks with them, so a directory holding a dotfile
 // (the backend's lock files) reported itself changed after every re-arm.
 // With every directory event re-arming the watches, that never ended.
@@ -178,8 +178,10 @@ void FileStore::restoreWatches()
         if (exists) wanted.insert(file);
         wanted.insert(QFileInfo(file).absolutePath());
     }
-    const QSet<QString> current = QSet<QString>(m_watcher.files().cbegin(), m_watcher.files().cend())
-        | QSet<QString>(m_watcher.directories().cbegin(), m_watcher.directories().cend());
+    const QStringList files = m_watcher.files();
+    const QStringList directories = m_watcher.directories();
+    const QSet<QString> current = QSet<QString>(files.cbegin(), files.cend())
+        | QSet<QString>(directories.cbegin(), directories.cend());
     const QStringList stale = (current - wanted).values();
     if (!stale.isEmpty()) m_watcher.removePaths(stale);
     const QStringList missing = (wanted - current).values();
@@ -204,11 +206,10 @@ QVariantMap SettingsStore::load(QString *error) const
 
 bool SettingsStore::accepts(const QVariantMap &settings, QString *error)
 {
-    for (auto it = settings.cbegin(); it != settings.cend(); ++it) {
-        if (!allowedSettings().contains(it.key())) {
-            if (error) *error = QStringLiteral("Setting is not allowed: %1").arg(it.key());
-            return false;
-        }
+    for (auto setting = settings.cbegin(); setting != settings.cend(); ++setting) {
+        if (allowedSettings().contains(setting.key())) continue;
+        if (error) *error = QStringLiteral("Setting is not allowed: %1").arg(setting.key());
+        return false;
     }
     if (error) error->clear();
     return true;

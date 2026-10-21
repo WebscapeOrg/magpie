@@ -24,7 +24,7 @@ QtObject {
     notifications: !!host && !!host.capabilities
       && host.capabilities.notifications === true,
     reopen: !!host && !!host.capabilities && host.capabilities.reopen === true,
-    // An installed Omarchy theme is the palette; the appearance setting only
+    // Invariant: An installed Omarchy theme is the palette; the appearance setting only
     // has something to decide where the fallback palettes are in use.
     appearance: !Commons.Color.hasOmarchyTheme
   })
@@ -48,7 +48,7 @@ QtObject {
   function hide(pluginId) {
     if (String(pluginId || "") !== String(manifest.id || "omamail")) return false
     if (app && typeof app.close === "function") app.close()
-    // With no tray, no actionable notification and no Dock to click there is
+    // Invariant: With no tray, no actionable notification and no Dock to click there is
     // no route back to a hidden window. End the process so a launcher
     // invocation starts a reachable application again.
     if (!capabilities.tray && !capabilities.notifications && !capabilities.reopen
@@ -118,19 +118,19 @@ QtObject {
     fileMode: FileDialog.OpenFiles
     onAccepted: {
       var paths = []
-      for (var i = 0; i < selectedFiles.length; i++) {
+      for (var fileIndex = 0; fileIndex < selectedFiles.length; fileIndex++) {
         var path = root.host && typeof root.host.localFilePath === "function"
-          ? String(root.host.localFilePath(selectedFiles[i]) || "") : ""
+          ? String(root.host.localFilePath(selectedFiles[fileIndex]) || "") : ""
         if (path !== "") paths.push(path)
       }
-      var done = root.fileCallback
+      var completed = root.fileCallback
       root.fileCallback = null
-      if (typeof done === "function") done(({ok:true,paths:paths}))
+      if (typeof completed === "function") completed(({ok:true,paths:paths}))
     }
     onRejected: {
-      var done = root.fileCallback
+      var completed = root.fileCallback
       root.fileCallback = null
-      if (typeof done === "function") done(({ok:false,error:"cancelled"}))
+      if (typeof completed === "function") completed(({ok:false,error:"cancelled"}))
     }
   }
 }

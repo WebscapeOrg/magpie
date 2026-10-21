@@ -195,7 +195,7 @@ QString notificationMarkupText(const QString &text)
     return result;
 }
 
-NotificationService::NotificationService(
+Notifications::Notifications(
     std::unique_ptr<NotificationPlatform> platform, QString routingPath,
     QObject *parent)
     : QObject(parent),
@@ -210,7 +210,7 @@ NotificationService::NotificationService(
     QString routeError;
     if (!loadRoutes(&routeError)) setError(routeError);
     connect(m_platform.get(), &NotificationPlatform::activated, this,
-            &NotificationService::routeActivation);
+            &Notifications::routeActivation);
     connect(m_platform.get(), &NotificationPlatform::activationAliasAssigned, this,
             [this](const QString &token, quint64 revision, const QString &alias,
                    const QString &activationNamespace) {
@@ -231,15 +231,15 @@ NotificationService::NotificationService(
                 if (!saveRoutes(&error)) {
                     m_targets = oldTargets;
                     m_targetOrder = oldOrder;
-                    setDeliveryError(token, revision, error);
+                    setDeliveryError(revision, error);
                 }
             });
     connect(m_platform.get(), &NotificationPlatform::activationNamespaceChanged,
-            this, &NotificationService::invalidateActivationNamespace);
+            this, &Notifications::invalidateActivationNamespace);
     connect(m_platform.get(), &NotificationPlatform::delivered, this,
-            &NotificationService::deliverySucceeded);
+            &Notifications::deliverySucceeded);
     connect(m_platform.get(), &NotificationPlatform::failed, this,
-            &NotificationService::deliveryFailed);
+            &Notifications::deliveryFailed);
     invalidateActivationNamespace(m_platform->activationNamespace());
     const QStringList pending = m_platform->takePendingActivations();
     if (!pending.isEmpty()) {
@@ -249,9 +249,9 @@ NotificationService::NotificationService(
     }
 }
 
-NotificationService::~NotificationService() = default;
+Notifications::~Notifications() = default;
 
-void NotificationService::touchTarget(const QString &token)
+void Notifications::touchTarget(const QString &token)
 {
     m_targetOrder.removeAll(token);
     m_targetOrder.append(token);
@@ -259,7 +259,7 @@ void NotificationService::touchTarget(const QString &token)
         m_targets.remove(m_targetOrder.takeFirst());
 }
 
-void NotificationService::touchRevision(const QString &token, quint64 revision)
+void Notifications::touchRevision(const QString &token, quint64 revision)
 {
     m_revisionOrder.removeAll(token);
     m_revisionOrder.append(token);
@@ -268,7 +268,7 @@ void NotificationService::touchRevision(const QString &token, quint64 revision)
         m_revisions.remove(m_revisionOrder.takeFirst());
 }
 
-void NotificationService::removeRouteFamily(const QString &rootToken)
+void Notifications::removeRouteFamily(const QString &rootToken)
 {
     for (auto iterator = m_targets.begin(); iterator != m_targets.end();) {
         if (iterator->rootToken == rootToken) {
@@ -280,24 +280,22 @@ void NotificationService::removeRouteFamily(const QString &rootToken)
     }
 }
 
-void NotificationService::setDeliveryError(const QString &token, quint64 revision,
+void Notifications::setDeliveryError(quint64 revision,
                                            const QString &error)
 {
     if (revision < m_errorRevision) return;
-    m_errorToken = token;
     m_errorRevision = revision;
     setError(error);
 }
 
-void NotificationService::deliverySucceeded(const QString &token, quint64 revision)
+void Notifications::deliverySucceeded(const QString &token, quint64 revision)
 {
     if (m_revisions.value(token) != revision || revision < m_errorRevision) return;
-    m_errorToken.clear();
     m_errorRevision = revision;
     setError({});
 }
 
-void NotificationService::deliveryFailed(const QString &token, quint64 revision,
+void Notifications::deliveryFailed(const QString &token, quint64 revision,
                                          const QString &error)
 {
     if (m_revisions.value(token) != revision) return;
@@ -306,16 +304,16 @@ void NotificationService::deliveryFailed(const QString &token, quint64 revision,
     m_revisionOrder.removeAll(token);
     QString persistenceError;
     if (!persistRouteRemoval(&persistenceError)) {
-        setDeliveryError(token, revision,
+        setDeliveryError(revision,
             QStringLiteral("%1; notification route cleanup failed: %2")
                 .arg(error, persistenceError));
         return;
     }
-    setDeliveryError(token, revision,
+    setDeliveryError(revision,
         error.isEmpty() ? QStringLiteral("Desktop notification failed") : error);
 }
 
-void NotificationService::invalidateActivationNamespace(
+void Notifications::invalidateActivationNamespace(
     const QString &activationNamespace)
 {
     bool changed = false;
@@ -334,7 +332,7 @@ void NotificationService::invalidateActivationNamespace(
     if (!persistRouteRemoval(&error)) setError(error);
 }
 
-void NotificationService::routeActivation(const QString &token)
+void Notifications::routeActivation(const QString &token)
 {
     const auto target = m_targets.constFind(token);
     if (target == m_targets.cend()) return;
@@ -345,30 +343,30 @@ void NotificationService::routeActivation(const QString &token)
     emit activated(target->accountId, target->messageId);
 }
 
-bool NotificationService::available() const
+bool Notifications::available() const
 {
     return m_platform && m_platform->available();
 }
 
-bool NotificationService::show(const QString &id, const QString &title,
+bool Notifications::show(const QString &id, const QString &title,
                                const QString &body, const QString &accountId,
                                const QString &messageId)
 {
     const quint64 revision = ++m_nextRevision;
     const QString token = notificationToken(id);
     if (!available()) {
-        setDeliveryError(token, revision,
+        setDeliveryError(revision,
                          QStringLiteral("Desktop notifications are unavailable"));
         return false;
     }
     if (title.contains(QChar::Null) || body.contains(QChar::Null)) {
-        setDeliveryError(token, revision,
+        setDeliveryError(revision,
                          QStringLiteral("Desktop notification text contains NUL"));
         return false;
     }
     if (!validRouteValue(id) || !validRouteValue(accountId)
         || !validRouteValue(messageId)) {
-        setDeliveryError(token, revision,
+        setDeliveryError(revision,
                          QStringLiteral("Desktop notification route is invalid"));
         return false;
     }
@@ -391,7 +389,7 @@ bool NotificationService::show(const QString &id, const QString &title,
         m_targetOrder = oldOrder;
         m_revisions = oldRevisions;
         m_revisionOrder = oldRevisionOrder;
-        setDeliveryError(token, revision, error);
+        setDeliveryError(revision, error);
         return false;
     }
     if (!m_platform->show(notification, &error)) {
@@ -401,14 +399,14 @@ bool NotificationService::show(const QString &id, const QString &title,
         m_revisionOrder = oldRevisionOrder;
         QString rollbackError;
         if (!saveRoutes(&rollbackError) && error.isEmpty()) error = rollbackError;
-        setDeliveryError(token, revision,
+        setDeliveryError(revision,
             error.isEmpty() ? QStringLiteral("Desktop notification failed") : error);
         return false;
     }
     return true;
 }
 
-bool NotificationService::loadRoutes(QString *error)
+bool Notifications::loadRoutes(QString *error)
 {
     m_targets.clear();
     m_targetOrder.clear();
@@ -466,7 +464,7 @@ bool NotificationService::loadRoutes(QString *error)
     return true;
 }
 
-bool NotificationService::saveRoutes(QString *error) const
+bool Notifications::saveRoutes(QString *error) const
 {
     const QFileInfo routeInfo(m_routingPath);
     if (!ensurePrivateDirectory(routeInfo.absolutePath(), error)
@@ -506,7 +504,7 @@ bool NotificationService::saveRoutes(QString *error) const
     return true;
 }
 
-bool NotificationService::persistRouteRemoval(QString *error) const
+bool Notifications::persistRouteRemoval(QString *error) const
 {
     QString saveError;
     if (saveRoutes(&saveError)) {
@@ -526,7 +524,7 @@ bool NotificationService::persistRouteRemoval(QString *error) const
     return false;
 }
 
-void NotificationService::setError(const QString &error)
+void Notifications::setError(const QString &error)
 {
     if (m_error == error) return;
     m_error = error;

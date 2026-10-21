@@ -1,6 +1,6 @@
 .pragma library
 
-// The standalone host cannot import Quickshell's FileView-backed theme
+// Invariant: The standalone host cannot import Quickshell's FileView-backed theme
 // singletons. Keep the shell.toml grammar and validation here so Color and
 // Style can consume one normalized, atomically replaceable value.
 
@@ -45,8 +45,8 @@ function parse(raw) {
   var parsed = {}
   var lines = String(raw || "").split(/\r?\n/)
   var section = ""
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i].replace(/^\s+|\s+$/g, "")
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    var line = lines[lineIndex].replace(/^\s+|\s+$/g, "")
     if (line === "" || line.charAt(0) === "#") continue
     var sectionMatch = line.match(/^\[([A-Za-z0-9_-]+)\]\s*(?:#.*)?$/)
     if (sectionMatch) {

@@ -229,16 +229,57 @@ mod unix_tests {
 pub(super) fn configure(command: &mut Command) {
     command.process_group(0);
 }
-pub(super) struct Tree(u32);
+pub(super) struct Tree {
+    pid: u32,
+    active: std::cell::Cell<bool>,
+}
 impl Tree {
     pub(super) fn for_child(child: &std::process::Child) -> Result<Self, super::Error> {
-        Ok(Self(child.id()))
+        Ok(Self {
+            pid: child.id(),
+            active: std::cell::Cell::new(true),
+        })
     }
-    pub(super) fn for_async_child(child: &tokio::process::Child) -> Result<Self, super::Error> {
-        Ok(Self(child.id().ok_or("process_unavailable")?))
+    pub(super) fn try_wait(
+        &self,
+        child: &mut std::process::Child,
+    ) -> std::io::Result<Option<std::process::ExitStatus>> {
+        use std::os::unix::process::ExitStatusExt;
+        if !self.active.get() {
+            return child.try_wait();
+        }
+        // Reaping would let this PID identify an unrelated process group before cleanup.
+        let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+        if unsafe {
+            libc::waitid(
+                libc::P_PID,
+                self.pid,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        } != 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        #[cfg(target_os = "linux")]
+        let (pid, status) = unsafe { (info.si_pid(), info.si_status()) };
+        #[cfg(target_os = "macos")]
+        let (pid, status) = (info.si_pid, info.si_status);
+        if pid == 0 {
+            return Ok(None);
+        }
+        let status = match info.si_code {
+            libc::CLD_EXITED => status << 8,
+            libc::CLD_DUMPED => status | 0x80,
+            _ => status,
+        };
+        Ok(Some(std::process::ExitStatus::from_raw(status)))
     }
     pub(super) fn terminate(&self) -> Result<(), super::Error> {
-        if unsafe { libc::kill(-(self.0 as i32), libc::SIGKILL) } == 0
+        if !self.active.replace(false) {
+            return Ok(());
+        }
+        if unsafe { libc::kill(-(self.pid as i32), libc::SIGKILL) } == 0
             || std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
         {
             Ok(())

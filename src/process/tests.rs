@@ -158,6 +158,73 @@ fn invalid_input_is_refused_before_process_creation() {
         Err("process_input_too_large")
     );
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn review_observing_exit_reserves_group_identity_until_cleanup() {
+    let mut child = spawn_managed(python(), &args("pass")).unwrap();
+    let pid = child.id();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while child.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+    let result = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid,
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    };
+    assert_eq!(
+        result, 0,
+        "exit observation released the PID before group cleanup"
+    );
+    assert_eq!(unsafe { info.si_pid() }, pid as i32);
+    child.terminate_tree(Duration::from_secs(1)).unwrap();
+    drop(child);
+    assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn review_async_transport_reserves_exited_leader_until_pipe_cleanup() {
+    let root = std::env::temp_dir().join(format!("omamail-process-leader-{}", std::process::id()));
+    std::fs::create_dir(&root).unwrap();
+    let ready = root.join("ready");
+    let mut argv = args(
+        "import os,sys,time,pathlib\npid=os.fork()\nif pid:\n pathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\n os._exit(0)\ntime.sleep(30)",
+    );
+    argv.push(ready.to_str().unwrap().into());
+    let task = tokio::spawn(async move {
+        async_run::run(python(), &argv, b"", Duration::from_secs(15), 1024).await
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let pid = loop {
+        if let Some(pid) = std::fs::read_to_string(&ready)
+            .ok()
+            .and_then(|value| value.parse::<i32>().ok())
+        {
+            break pid;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let reserved = std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+        stat.split_once(") ")
+            .is_some_and(|(_, fields)| fields.starts_with('Z'))
+    });
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    std::fs::remove_dir_all(root).unwrap();
+    assert!(
+        reserved,
+        "the async process driver reaped the group leader before cleanup"
+    );
+}
 #[tokio::test]
 async fn blocked_stdin_cannot_defeat_the_deadline() {
     let input = vec![42; 1024 * 1024];

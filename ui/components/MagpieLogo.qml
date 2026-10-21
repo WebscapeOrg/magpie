@@ -9,11 +9,29 @@ Item {
   implicitHeight: implicitWidth
   Accessible.role: Accessible.Graphic
   Accessible.name: "Magpie"
-  Image {
+  Canvas {
+    id: ink
     anchors.fill: parent
-    source: "../assets/magpie.svg"
-    sourceSize.width: width * 2
-    sourceSize.height: height * 2
-    fillMode: Image.PreserveAspectFit
+    antialiasing: true
+    readonly property url source: "../assets/magpie.svg"
+    onImageLoaded: requestPaint()
+    onWidthChanged: requestPaint()
+    onHeightChanged: requestPaint()
+    Component.onCompleted: loadImage(source)
+    Connections {
+      target: root
+      function onForegroundChanged() { ink.requestPaint() }
+    }
+    onPaint: {
+      if (!isImageLoaded(source)) return
+      var context = getContext("2d")
+      context.reset()
+      context.clearRect(0, 0, width, height)
+      var size = Math.min(width, height)
+      context.drawImage(source, (width - size) / 2, (height - size) / 2, size, size)
+      context.globalCompositeOperation = "source-in"
+      context.fillStyle = root.foreground
+      context.fillRect(0, 0, width, height)
+    }
   }
 }

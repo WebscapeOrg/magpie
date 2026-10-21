@@ -15,11 +15,11 @@ function messageTime(item) {
 function latestMessages(accounts, limit) {
   var values = Array.isArray(accounts) ? accounts : []
   var out = []
-  for (var i = 0; i < values.length; i++) {
-    var account = values[i] || {}
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    var account = values[valueIndex] || {}
     var messages = Array.isArray(account.messages) ? account.messages : []
-    for (var j = 0; j < messages.length; j++) {
-      var item = messages[j] || {}
+    for (var messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+      var item = messages[messageIndex] || {}
       if (item.unread !== true) continue
       var copy = ({})
       for (var key in item) copy[key] = item[key]
@@ -50,8 +50,8 @@ function upcomingEvents(events, nowMs, limit) {
   var values = Array.isArray(events) ? events : []
   var now = Number(nowMs) || Date.now()
   var out = []
-  for (var i = 0; i < values.length; i++) {
-    var item = values[i] || {}
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+    var item = values[valueIndex] || {}
     if (!item.start || Number(item.start.ms) < now) continue
     var copy = ({})
     for (var key in item) copy[key] = item[key]

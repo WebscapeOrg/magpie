@@ -27,7 +27,7 @@ Item {
 
   function selectedSummary(owner, id) {
     var rows = owner.messages || []
-    for (var i = 0; i < rows.length; i++) if (rows[i].id === id) return rows[i]
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) if (rows[rowIndex].id === id) return rows[rowIndex]
     if (owner.memberSummaries && owner.memberSummaries[id]) return owner.memberSummaries[id]
     return owner.selectedId === id ? owner.selectedMessage : null
   }
@@ -43,11 +43,11 @@ Item {
       error = "Mail backend unavailable"; return false
     }
     var summaries = []
-    for (var i = 0; i < ids.length; i++) {
-      var summary = selectedSummary(owner, ids[i])
+    for (var idIndex = 0; idIndex < ids.length; idIndex++) {
+      var summary = selectedSummary(owner, ids[idIndex])
       // The native read resolves IDs within this account, independently of the
       // visible folder. A recovered reply need not have a loaded list row.
-      summaries.push(summary || {id: String(ids[i])})
+      summaries.push(summary || {id: String(ids[idIndex])})
     }
     var token = ++serial
     var selected = typeof runner.selection === "function" ? runner.selection() : null

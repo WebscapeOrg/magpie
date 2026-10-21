@@ -117,7 +117,7 @@ Item {
       started = started.concat([look.key])
       return true
     }
-    var kept = waiting.filter(function(w) { return w.key !== look.key })
+    var kept = waiting.filter(function(waitingLook) { return waitingLook.key !== look.key })
     waiting = kept.concat([look])
     return false
   }
@@ -163,11 +163,11 @@ Item {
     })
     var queue = waiting
     waiting = []
-    for (var i = 0; i < queue.length; i++) {
-      var look = queue[i]
+    for (var queueIndex = 0; queueIndex < queue.length; queueIndex++) {
+      var look = queue[queueIndex]
       if (!service || !service.findAccount(look.accountId)) continue
       if (started.indexOf(look.key) >= 0 || lookedAt(look.accountId, look.id)) continue
-      if (!tryStart(look)) { waiting = waiting.concat(queue.slice(i + 1)); return }
+      if (!tryStart(look)) { waiting = waiting.concat(queue.slice(queueIndex + 1)); return }
     }
   }
 

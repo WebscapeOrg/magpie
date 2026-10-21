@@ -98,8 +98,8 @@ QtObject {
       root.composeReceiptChecking = false
       root.composeDeliveryStates = states
       var restored = [], waiting = [], receipts = []
-      for (var i = 0; i < drafts.length; i++) {
-        var draft = drafts[i]
+      for (var draftIndex = 0; draftIndex < drafts.length; draftIndex++) {
+        var draft = drafts[draftIndex]
         var id = String(draft.pendingSendId || "")
         if (id === "") { restored.push(draft); continue }
         var state = states[String(draft.accountId) + "\n" + id]
@@ -112,9 +112,9 @@ QtObject {
         restored.push(recovered)
       }
       var parked = compose.parkedDrafts.slice()
-      for (var w = 0; w < waiting.length; w++) {
-        var id = String(waiting[w].pendingSendId)
-        if (!parked.some(function(entry) { return entry.sendId === id && entry.draft && String(entry.draft.accountId || "") === String(waiting[w].accountId || "") })) parked.push({sendId:id,draft:waiting[w]})
+      for (var waitingIndex = 0; waitingIndex < waiting.length; waitingIndex++) {
+        var id = String(waiting[waitingIndex].pendingSendId)
+        if (!parked.some(function(entry) { return entry.sendId === id && entry.draft && String(entry.draft.accountId || "") === String(waiting[waitingIndex].accountId || "") })) parked.push({sendId:id,draft:waiting[waitingIndex]})
       }
       compose.parkedDrafts = parked
       var all = restored.concat(waiting)
@@ -124,7 +124,7 @@ QtObject {
       root.lastComposeRecoveryText = updated.active ? JSON.stringify(updated) : ""
       // Recovery.empty() is presentation state; Rust only stores versioned records.
       root.writeComposeRecovery(all.length ? JSON.stringify(updated) : '{"version":1,"active":false}')
-      for (var a = 0; a < receipts.length; a++) root.queueComposeReceiptAck(receipts[a].accountId, receipts[a].sendId, root.composeRecoveryRevision)
+      for (var receiptIndex = 0; receiptIndex < receipts.length; receiptIndex++) root.queueComposeReceiptAck(receipts[receiptIndex].accountId, receipts[receiptIndex].sendId, root.composeRecoveryRevision)
       Qt.callLater(root.restoreComposeRecovery)
     }
     next()
@@ -141,7 +141,7 @@ QtObject {
   }
   function acknowledgeComposeReceipts() {
     if (!root.service || !root.service.backend || !root.service.backend.ready) return
-    for (var i = 0; i < root.composeReceiptAcks.length; i++) {
+    for (var index = 0; index < root.composeReceiptAcks.length; index++) {
       (function(entry) {
         var key = entry.accountId + "\n" + entry.sendId
         if (entry.revision > root.composeCommittedRevision || root.composeReceiptAckBusy[key]) return
@@ -159,7 +159,7 @@ QtObject {
             if (!error) root.composeReceiptAcks = root.composeReceiptAcks.filter(function(value) { return value.accountId !== entry.accountId || value.sendId !== entry.sendId })
           })
         })
-      })(root.composeReceiptAcks[i])
+      })(root.composeReceiptAcks[index])
     }
   }
 
@@ -206,12 +206,12 @@ QtObject {
   function parkedBesides(draft) {
     var out = []
     var parked = compose.parkedDrafts || []
-    for (var i = 0; i < parked.length; i++) {
-      if (parked[i].draft !== draft) out.push(Object.assign({}, parked[i].draft, {pendingSendId: String(parked[i].sendId || "")}))
+    for (var parkedIndex = 0; parkedIndex < parked.length; parkedIndex++) {
+      if (parked[parkedIndex].draft !== draft) out.push(Object.assign({}, parked[parkedIndex].draft, {pendingSendId: String(parked[parkedIndex].sendId || "")}))
     }
     var recovered = compose.recoveryDrafts || []
-    for (var j = 0; j < recovered.length; j++) {
-      if (recovered[j] !== draft) out.push(recovered[j])
+    for (var recoveredIndex = 0; recoveredIndex < recovered.length; recoveredIndex++) {
+      if (recovered[recoveredIndex] !== draft) out.push(recovered[recoveredIndex])
     }
     return out
   }
@@ -226,7 +226,7 @@ QtObject {
     }
     var recordDraft = draft
     var sends = compose.parkedDrafts || []
-    for (var p = 0; p < sends.length; p++) if (sends[p].draft === draft) recordDraft = Object.assign({}, draft, {pendingSendId: String(sends[p].sendId || "")})
+    for (var sendIndex = 0; sendIndex < sends.length; sendIndex++) if (sends[sendIndex].draft === draft) recordDraft = Object.assign({}, draft, {pendingSendId: String(sends[sendIndex].sendId || "")})
     var record = { version: 1, active: true, returnView: root.composeReturnView(), draft: recordDraft, parked: root.parkedBesides(draft) }
     var raw = JSON.stringify(record)
     root.composeRecovery = record

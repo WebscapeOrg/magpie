@@ -18,7 +18,7 @@ var MODE_DEFAULT = SYSTEM
 // anything else is the default rather than a fourth state.
 function normalizeMode(value) {
   var text = String(value === undefined || value === null ? "" : value).trim().toLowerCase()
-  for (var i = 0; i < MODES.length; i++) if (MODES[i].toLowerCase() === text) return MODES[i]
+  for (var modeIndex = 0; modeIndex < MODES.length; modeIndex++) if (MODES[modeIndex].toLowerCase() === text) return MODES[modeIndex]
   return MODE_DEFAULT
 }
 

@@ -168,7 +168,7 @@ Item {
       root.pendingJobs = null
       root.jobs = next
       var news = result.newlyFinished || []
-      for (var i = 0; i < news.length; i++) root.jobFinished(news[i])
+      for (var finishedIndex = 0; finishedIndex < news.length; finishedIndex++) root.jobFinished(news[finishedIndex])
     })
   }
   onAccountIdChanged: {
@@ -211,7 +211,7 @@ Item {
       return false
     }
     var parsed = payload
-    if (typeof parsed === "string") { try { parsed = JSON.parse(parsed) } catch (e) {} }
+    if (typeof parsed === "string") { try { parsed = JSON.parse(parsed) } catch (parseError) {} }
     if (parsed && parsed.parent && !canContinueSelection(jobById(parsed.parent))) {
       lastError = "This chat belongs to a previous AI selection. Start a new chat."
       return false
@@ -379,7 +379,7 @@ Item {
     function onApiVersionChanged() { root.refreshAvailability() }
   }
   function jobById(jobId) {
-    for (var i = 0; i < jobs.length; i++) if (String(jobs[i].id) === String(jobId)) return jobs[i]
+    for (var jobIndex = 0; jobIndex < jobs.length; jobIndex++) if (String(jobs[jobIndex].id) === String(jobId)) return jobs[jobIndex]
     return null
   }
   Component.onCompleted: Qt.callLater(root.refresh)

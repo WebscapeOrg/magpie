@@ -37,7 +37,7 @@ Item {
       var values = result.overviews || ({})
       for (var message in values) next[root.key(account,message)] = values[message]
       root.overviews = next
-      var kept = root.snoozes.filter(function(v) { return v.accountId !== account })
+      var kept = root.snoozes.filter(function(snooze) { return snooze.accountId !== account })
       root.snoozes = kept.concat(result.snoozes || [])
       root.drain()
     })
@@ -45,7 +45,7 @@ Item {
   function refresh() {
     if (!available) return
     var rows = service.accountSummaries || []
-    for (var i=0;i<rows.length;i++) snapshot(rows[i].id)
+    for (var rowIndex=0;rowIndex<rows.length;rowIndex++) snapshot(rows[rowIndex].id)
     drain()
   }
   onBrowsingChanged: if (browsing) refresh()
@@ -56,8 +56,8 @@ Item {
     var rows = visibleRows
     var chosen = []; var account = ""
     if (!requesting && !paused && service.windowPrefsLoaded !== false) {
-    for (var i=0;i<rows.length;i++) {
-      var row = rows[i]; var host = owner(row)
+    for (var rowIndex=0;rowIndex<rows.length;rowIndex++) {
+      var row = rows[rowIndex]; var host = owner(row)
       if (!host || host.providerId !== "gmail") continue
       var old = overviewFor(row)
       if (old.text || (old.state === "failed" && !retryFailed && Date.now()-Number(old.updated || 0)<900000)) continue
@@ -72,14 +72,14 @@ Item {
         if (failure) {
           root.error = "AI overviews could not start. Check the Claude login, then choose Menu → Retry AI overviews."
           var next = Object.assign({},root.overviews)
-          for (var i=0;i<chosen.length;i++) next[root.key(account,chosen[i])] = {state:"failed",reason:"AI request could not start; retry from Menu",updated:Date.now()}
+          for (var chosenIndex=0;chosenIndex<chosen.length;chosenIndex++) next[root.key(account,chosen[chosenIndex])] = {state:"failed",reason:"AI request could not start; retry from Menu",updated:Date.now()}
           root.overviews = next
         }
         root.retryFailed = false
       })
     }
     }
-    for (var j=0;j<Math.min(rows.length,100);j++) avatar(rows[j])
+    for (var avatarIndex=0;avatarIndex<Math.min(rows.length,100);avatarIndex++) avatar(rows[avatarIndex])
   }
   function avatar(row) {
     var host = owner(row)

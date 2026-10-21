@@ -18,7 +18,7 @@ function isObject(value) {
 
 function load(text) {
   var raw = null
-  try { raw = JSON.parse(String(text || "")) } catch (e) {}
+  try { raw = JSON.parse(String(text || "")) } catch (parseError) {}
   if (!isObject(raw) || Number(raw.version) !== VERSION || !isObject(raw.ranges))
     return emptyStore()
   return { version: VERSION, ranges: raw.ranges }
@@ -42,24 +42,24 @@ function eventsFor(store, scope, startMs, endMs, enabledSourceIds) {
   }).map(function(key) { return ranges[key] })
   var ids = Array.isArray(enabledSourceIds) ? enabledSourceIds : []
   var out = []
-  for (var i = 0; i < ids.length; i++) {
-    var id = String(ids[i])
+  for (var idIndex = 0; idIndex < ids.length; idIndex++) {
+    var id = String(ids[idIndex])
     var sources = candidates.filter(function(range) {
       return (range.sources || []).indexOf(id) >= 0 || (range.events || []).some(function(event) {
         return event && String(event.sourceId || "") === id
       })
     })
-    sources.sort(function(a,b) {
-      return Number(b.sourceTimes && b.sourceTimes[id] || b.at)
-        - Number(a.sourceTimes && a.sourceTimes[id] || a.at)
+    sources.sort(function(left,right) {
+      return Number(right.sourceTimes && right.sourceTimes[id] || right.at)
+        - Number(left.sourceTimes && left.sourceTimes[id] || left.at)
     })
     var covered = []
     var seen = {}
-    for (var j = 0; j < sources.length; j++) {
-      var source = sources[j]
+    for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
+      var source = sources[sourceIndex]
       var values = source.events || []
-      for (var k = 0; k < values.length; k++) {
-        var event = values[k]
+      for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+        var event = values[valueIndex]
         if (!event || String(event.sourceId || "") !== id) continue
         var begins = event.start ? Number(event.start.ms) : Number(source.startMs)
         var ends = event.end ? Number(event.end.ms) : Number(source.endMs)
@@ -96,7 +96,7 @@ function putRange(store, scope, startMs, endMs, events, nowMs, refreshedSourceId
     var accepted = refreshedSourceIds.filter(function(id) {return Number(times[id] || 0) <= stamp})
     kept = kept.filter(function(event) {return accepted.indexOf(String(event.sourceId || ""))>=0})
     refreshedSourceIds = accepted
-    for (var s=0;s<accepted.length;s++) times[accepted[s]]=stamp
+    for (var acceptedIndex=0;acceptedIndex<accepted.length;acceptedIndex++) times[accepted[acceptedIndex]]=stamp
   }
   if (Array.isArray(refreshedSourceIds) && old && Array.isArray(old.events)) {
     kept = kept.concat(old.events.filter(function(event) {
@@ -115,7 +115,7 @@ function putRange(store, scope, startMs, endMs, events, nowMs, refreshedSourceId
       })
   }
   var keys = Object.keys(ranges)
-  keys.sort(function(a, b) { return Number(ranges[b].at) - Number(ranges[a].at) })
-  for (var i = MAX_RANGES; i < keys.length; i++) delete ranges[keys[i]]
+  keys.sort(function(left, right) { return Number(ranges[right].at) - Number(ranges[left].at) })
+  for (var keyIndex = MAX_RANGES; keyIndex < keys.length; keyIndex++) delete ranges[keys[keyIndex]]
   return { version: VERSION, ranges: ranges }
 }

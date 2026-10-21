@@ -32,8 +32,8 @@ function snapshot(value) {
   var events = Array.isArray(source.barEvents) ? source.barEvents : []
   var mail = []
   var calendar = []
-  for (var i = 0; i < Math.min(messages.length, 3); i++) {
-    var message = messages[i] || {}
+  for (var messageIndex = 0; messageIndex < Math.min(messages.length, 3); messageIndex++) {
+    var message = messages[messageIndex] || {}
     mail.push({
       id: identifier(message.id), accountId: identifier(message.accountId),
       subject: text(message.subject), unread: message.unread === true,
@@ -43,8 +43,8 @@ function snapshot(value) {
       sourceLabel: text(message.sourceLabel), receivedLabel: text(message.receivedLabel)
     })
   }
-  for (var j = 0; j < Math.min(events.length, 2); j++) {
-    var event = events[j] || {}
+  for (var eventIndex = 0; eventIndex < Math.min(events.length, 2); eventIndex++) {
+    var event = events[eventIndex] || {}
     var start = event.start && event.start.ms
     if (typeof start !== "number" || !isFinite(start)) continue
     calendar.push({

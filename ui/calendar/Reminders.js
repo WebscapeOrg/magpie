@@ -7,11 +7,11 @@
 function candidates(events, sources) {
   var byId = {}
   var values = sources && Array.isArray(sources.sources) ? sources.sources : []
-  for (var i = 0; i < values.length; i++) byId[values[i].id] = values[i]
+  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) byId[values[valueIndex].id] = values[valueIndex]
   var out = [], seen = {}
   var items = Array.isArray(events) ? events : []
-  for (var e = 0; e < items.length; e++) {
-    var event = items[e], source = event && byId[event.sourceId]
+  for (var itemIndex = 0; itemIndex < items.length; itemIndex++) {
+    var event = items[itemIndex], source = event && byId[event.sourceId]
     if (!Sources.nativeCalendarFeatures(source) || source.remindersEnabled !== true || !event.start || !event.end
         || event.status === "CANCELLED") continue
     var accountAddress = String(source.accountId || source.username || "").replace(/^[^:@]+:/, "").toLowerCase()
@@ -30,8 +30,8 @@ function candidates(events, sources) {
     var occurrence = String(event.uid || event.googleId || "") + "\n"
       + String(event.organizer && event.organizer.email || "").toLowerCase() + "\n"
       + String(isFinite(originalTime) ? originalTime : original.date || event.start.ms)
-    for (var r = 0; r < reminders.length; r++) {
-      var reminder = reminders[r], minutes = Number(reminder.minutes)
+    for (var reminderIndex = 0; reminderIndex < reminders.length; reminderIndex++) {
+      var reminder = reminders[reminderIndex], minutes = Number(reminder.minutes)
       if (reminder.method !== "popup" || !isFinite(minutes) || minutes < 0 || minutes > 40320) continue
       var key = occurrence + "\n" + minutes
       if (seen[key]) continue

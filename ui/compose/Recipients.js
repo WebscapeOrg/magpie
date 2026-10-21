@@ -10,14 +10,14 @@ function replyFields(summary, mode, ownAddresses) {
   var seen = ({})
   var to = []
   var cc = []
-  var i
-  for (i = 0; i < own.length; i++) self[own[i].email.toLowerCase()] = true
+  var ownIndex
+  for (ownIndex = 0; ownIndex < own.length; ownIndex++) self[own[ownIndex].email.toLowerCase()] = true
   var sender = cleanContact(source.from)
   var outgoing = !!(sender && self[sender.email.toLowerCase()])
   function keep(values, target) {
     var contacts = normalize(values)
-    for (var j = 0; j < contacts.length; j++) {
-      var email = contacts[j].email
+    for (var contactIndex = 0; contactIndex < contacts.length; contactIndex++) {
+      var email = contacts[contactIndex].email
       var key = email.toLowerCase()
       if (self[key] || seen[key]) continue
       seen[key] = true
@@ -49,8 +49,8 @@ function normalize(values) {
   var contacts = Array.isArray(values) ? values : []
   var seen = ({})
   var out = []
-  for (var i = 0; i < contacts.length; i++) {
-    var contact = cleanContact(contacts[i])
+  for (var contactIndex = 0; contactIndex < contacts.length; contactIndex++) {
+    var contact = cleanContact(contacts[contactIndex])
     if (!contact) continue
     var key = contact.email.toLowerCase()
     if (seen[key]) continue
@@ -70,9 +70,9 @@ function currentToken(text) {
 function usedAddresses(text) {
   var parts = String(text || "").split(/[,;]/)
   var used = ({})
-  for (var i = 0; i < parts.length - 1; i++) {
-    var angle = parts[i].match(/<([^>]+)>/)
-    var email = angle ? angle[1] : parts[i]
+  for (var partIndex = 0; partIndex < parts.length - 1; partIndex++) {
+    var angle = parts[partIndex].match(/<([^>]+)>/)
+    var email = angle ? angle[1] : parts[partIndex]
     used[String(email || "").trim().toLowerCase()] = true
   }
   return used
@@ -99,8 +99,8 @@ function suggestIndexed(contacts, text, limit) {
   var count = Math.max(1, Math.floor(Number(limit) || 5))
   var prefix = []
   var matches = []
-  for (var i = 0; i < contacts.length; i++) {
-    var contact = contacts[i]
+  for (var contactIndex = 0; contactIndex < contacts.length; contactIndex++) {
+    var contact = contacts[contactIndex]
     var email = contact.email
     var name = contact.name
     if (used[email] || query === email) continue
@@ -146,12 +146,12 @@ function append(text, contact) {
 
 function filter(values, query, limit) {
   var contacts = normalize(values)
-  var q = String(query || "").trim().toLowerCase()
+  var normalizedQuery = String(query || "").trim().toLowerCase()
   var out = []
-  for (var i = 0; i < contacts.length; i++) {
-    var c = contacts[i]
-    if (q === "" || c.email.toLowerCase().indexOf(q) >= 0 || c.name.toLowerCase().indexOf(q) >= 0) {
-      out.push(c)
+  for (var contactIndex = 0; contactIndex < contacts.length; contactIndex++) {
+    var contact = contacts[contactIndex]
+    if (normalizedQuery === "" || contact.email.toLowerCase().indexOf(normalizedQuery) >= 0 || contact.name.toLowerCase().indexOf(normalizedQuery) >= 0) {
+      out.push(contact)
     }
   }
   out.sort(function(left, right) {

@@ -43,7 +43,7 @@ Item {
       root.lastError = ""
       root.lastCheck = now
       var notifications = result && Array.isArray(result.notifications) ? result.notifications : []
-      for (var i = 0; i < notifications.length; i++) root.deliver(notifications[i])
+      for (var notificationIndex = 0; notificationIndex < notifications.length; notificationIndex++) root.deliver(notifications[notificationIndex])
     })
   }
 

@@ -41,7 +41,7 @@ function loadModule(file, libraries) {
     .replace(/^\.pragma library\s*$/m, "")
     .replace(new RegExp(IMPORT_SOURCE, "gm"), "")
 
-  vm.runInContext(source, context)
+  vm.runInContext(source, context, { filename: file })
   if (/^\.pragma library\s*$/m.test(raw)) libraries.set(file, context)
   return context
 }
@@ -53,7 +53,7 @@ module.exports = { load, ROOT }
 // Round-tripping through JSON compares the values, which is what the tests
 // are actually about.
 function plain(value) {
-  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+  return structuredClone(value)
 }
 
 function deepEqual(actual, expected, message) {

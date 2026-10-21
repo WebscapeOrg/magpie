@@ -149,7 +149,7 @@ function parse(text) {
     var open = stack.length > 0 ? stack[stack.length - 1] : null
 
     if (property.name === "BEGIN") {
-      if (stack.length >= MAX_COMPONENT_DEPTH) continue
+      if (stack.length >= MAX_COMPONENT_DEPTH) return null
       var child = {
         name: String(property.value || "").toUpperCase().trim(),
         properties: [],
@@ -169,6 +169,7 @@ function parse(text) {
 
     if (property.name === "END") {
       if (stack.length === 0) continue
+      if (open.name !== String(property.value || "").toUpperCase().trim()) return null
       var closing = stack.pop()
       var parent = stack.length > 0 ? stack[stack.length - 1] : null
       // The whole of the child, not the line that closed it. A component's
@@ -315,7 +316,7 @@ function parseDateValue(value) {
     utc: match[7] === "Z",
     dateOnly: match[4] === undefined
   }
-  if (fields.month < 1 || fields.month > 12 || fields.day < 1 || fields.day > 31) return null
+  if (fields.month < 1 || fields.month > 12 || fields.day < 1 || fields.day > daysInMonth(fields.year, fields.month)) return null
   if (fields.hour > 23 || fields.minute > 59 || fields.second > 60) return null
   return fields
 }
@@ -323,8 +324,12 @@ function parseDateValue(value) {
 function parseOffsetMinutes(value) {
   var match = String(value || "").trim().match(/^([+-])(\d{2})(\d{2})(\d{2})?$/)
   if (!match) return null
-  var minutes = Number(match[2]) * 60 + Number(match[3])
-  return match[1] === "-" ? -minutes : minutes
+  var hours = Number(match[2])
+  var minutes = Number(match[3])
+  var seconds = Number(match[4] || 0)
+  if (hours > 23 || minutes > 59 || seconds > 59) return null
+  var total = hours * 60 + minutes + seconds / 60
+  return match[1] === "-" ? -total : total
 }
 
 // The naive local time as a number that sorts: comparing two of these compares
@@ -336,7 +341,8 @@ function naiveKey(fields) {
 }
 
 function daysInMonth(year, month) {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate()
+  if (month === 2) return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28
+  return [4, 6, 9, 11].indexOf(month) >= 0 ? 30 : 31
 }
 
 // "the second Sunday in March", "the last Sunday in October". Ordinal 0 means
@@ -1173,19 +1179,29 @@ function normalizedResponse(value) {
   return PARTSTATS[text] ? text : ""
 }
 
-// RFC 5545 folds at 75 octets. Folded on characters here, at 72, which is
-// short enough that the multi-byte ones this counts as single cannot push a
-// line past the limit.
 function foldIcsLine(line) {
   var text = String(line || "")
-  if (text.length <= 72) return text
-  var out = text.substring(0, 72)
-  var rest = text.substring(72)
-  while (rest.length > 71) {
-    out += "\r\n " + rest.substring(0, 71)
-    rest = rest.substring(71)
+  var result = ""
+  var octets = 0
+  for (var i = 0; i < text.length; i++) {
+    var code = text.charCodeAt(i)
+    var character = text.charAt(i)
+    var size = code < 0x80 ? 1 : (code < 0x800 ? 2 : 3)
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+      var low = text.charCodeAt(i + 1)
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        character += text.charAt(++i)
+        size = 4
+      }
+    }
+    if (octets + size > 75) {
+      result += "\r\n "
+      octets = 1
+    }
+    result += character
+    octets += size
   }
-  return rest === "" ? out : out + "\r\n " + rest
+  return result
 }
 
 function icsTimestamp(ms) {

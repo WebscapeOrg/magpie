@@ -28,7 +28,7 @@ deepEqual(mailto.parse("mailto:?bcc=hidden@example.com"),
   "a bcc-only link still opens a draft")
 
 assert.strictEqual(mailto.parse("mailto:jane@example.com?subject=Stop+these").subject,
-  "Stop these", "+ in a query string is a space")
+  "Stop+these", "RFC 6068 keeps literal plus signs in mailto queries")
 assert.strictEqual(mailto.parse("mailto:jane@example.com?subject=%E4%B8%AD%E6%96%87").subject,
   "中文")
 assert.strictEqual(mailto.parse("mailto:jane@example.com?body=line%0Abreak").body,
@@ -66,5 +66,14 @@ assert.strictEqual(mailto.draftFromPayload({}), null)
 assert.strictEqual(mailto.draftFromPayload({ mailbox: "inbox" }), null)
 assert.strictEqual(mailto.draftFromPayload({ mailto: "https://example.com" }), null)
 assert.strictEqual(mailto.draftFromPayload(null), null)
+
+
+
+{
+    const value=mailto.parse('mailto:one+tag@example.test?to=two+tag@example.test&subject=A+B%20C%2BD&body=100%+done')
+    assert.strictEqual(value.to,'one+tag@example.test, two+tag@example.test')
+    assert.strictEqual(value.subject,'A+B C+D')
+    assert.strictEqual(value.body,'100%+done')
+}
 
 console.log("test_mailto.js ok")

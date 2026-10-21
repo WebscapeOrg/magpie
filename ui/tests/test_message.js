@@ -1306,6 +1306,39 @@ assert.strictEqual(message.composeBody("\n  Maarten\nmadra.nl  \n", "> quoted"),
 assert.strictEqual(message.composeBody("   \n  ", "> quoted"), "\n\n> quoted")
 assert.strictEqual(message.composeBody("\n\n", ""), "")
 
+
+
+{
+    const recipients = load('compose/Recipients.js')
+    const encoded = value => '=?UTF-8?B?' + Buffer.from(value).toString('base64') + '?='
+    const forged=encoded('Alias <forged@example.test>')
+    const summary=message.summarize({id:'x',payload:{headers:[
+      {name:'From',value:'Actual <actual@example.test>'},{name:'Reply-To',value:forged},{name:'To',value:forged}]}})
+    assert.strictEqual(summary.replyTo.email,'')
+    assert.strictEqual(summary.to.length,0)
+    assert.strictEqual(recipients.replyFields(summary,'replyAll',[]).to,'actual@example.test')
+    assert.strictEqual(recipients.replyFields(summary,'replyAll',[]).cc,'')
+    const named=message.parseAddress(encoded('Alias <forged@example.test>, Team')+' <actual@example.test>')
+    assert.strictEqual(named.email,'actual@example.test')
+    assert.strictEqual(named.name,'Alias <forged@example.test>, Team')
+}
+
+{
+    deepEqual(message.parseAddressList('Team: one@example.test, "Two, Example" <two@example.test>;').map(x=>x.email),['one@example.test','two@example.test'])
+    deepEqual(message.parseAddressList('"A \\"B, C" <one@example.test>, two@example.test').map(x=>x.email),['one@example.test','two@example.test'])
+}
+
+{
+    const part='Content-Type: text/plain\r\n\r\nKeep prefix --B and the rest\r\nLast line'
+    deepEqual(message.splitMultipart('--B\r\n'+part+'\r\n--B--\r\nEpilogue','B'),[part])
+}
+
+{
+    assert.strictEqual(message.contentTypeParam('multipart/mixed; notboundary=wrong; boundary=right','boundary'),'right')
+    assert.strictEqual(message.contentTypeParam('multipart/mixed; note=";boundary=wrong"; boundary="right;still"','boundary'),'right;still')
+    assert.strictEqual(message.contentTypeParam('attachment; filename="a\\\"b.txt"','filename'),'a"b.txt')
+}
+
 console.log("test_message.js ok")
 // A draft reopened from the server keeps the Reply-To it was saved with.
 assert.strictEqual(message.draftFields({ replyTo: { email: "team@example.com" }, to: [] }, "x").replyTo, "team@example.com")

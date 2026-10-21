@@ -32,9 +32,9 @@ deepEqual(unsub.parseMailto("mailto:bye@example.com"),
   { to: "bye@example.com", subject: "Unsubscribe", body: "Unsubscribe" })
 deepEqual(unsub.parseMailto("mailto:bye@example.com?subject=Stop%20these&body=please"),
   { to: "bye@example.com", subject: "Stop these", body: "please" })
-// "+" is a space in a query string, which is where these live.
+// RFC 6068 keeps literal plus signs in mailto queries.
 assert.strictEqual(unsub.parseMailto("mailto:bye@example.com?subject=Stop+these").subject,
-  "Stop these")
+  "Stop+these")
 // Several recipients: the first is the one that unambiguously belongs here.
 assert.strictEqual(unsub.parseMailto("mailto:a@example.com,b@example.com").to, "a@example.com")
 assert.strictEqual(unsub.parseMailto("mailto:not-an-address"), null)
@@ -176,5 +176,14 @@ assert.strictEqual(unsub.fromMessage(null).available, false)
 
 assert.strictEqual(unsub.postBody(), "List-Unsubscribe=One-Click")
 assert.strictEqual(unsub.postContentType(), "application/x-www-form-urlencoded")
+
+
+
+{
+    const value=unsub.parseMailto('mailto:list+remove@example.test?subject=A+B%20C%2BD')
+    assert.ok(value)
+    assert.strictEqual(value.to,'list+remove@example.test')
+    assert.strictEqual(value.subject,'A+B C+D')
+}
 
 console.log("test_unsubscribe.js ok")

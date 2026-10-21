@@ -743,4 +743,36 @@ assert.strictEqual(feedEvents[0].summary, "Morning review")
 assert.strictEqual(feedEvents[1].uid, "second")
 assert.strictEqual(feedEvents[1].start.allDay, true)
 
+
+
+{
+    for(const value of ['20260231T120000Z','20260229','19000229','20260431']) assert.strictEqual(calendar.parseDateValue(value),null,value)
+    assert.strictEqual(calendar.parseDateValue('20000229').day,29)
+    assert.strictEqual(calendar.parseDateValue('20240229').day,29)
+}
+
+{
+    const lines=['BEGIN:VCALENDAR','BEGIN:VEVENT','UID:outer']
+    for(let i=0;i<8;i++)lines.push('BEGIN:X-NEST')
+    lines.push('END:X-NEST','ORGANIZER:mailto:promoted@example.test')
+    assert.strictEqual(calendar.invitationFrom(lines.join('\r\n')),null)
+    assert.strictEqual(calendar.parse('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nEND:VTIMEZONE\r\nEND:VCALENDAR'),null)
+}
+
+{
+    for(const line of ['SUMMARY:'+ '界'.repeat(80),'SUMMARY:'+ 'a'.repeat(61)+'😀'.repeat(30),'SUMMARY:'+ 'é'.repeat(80)]) {
+      const folded=calendar.foldIcsLine(line)
+      assert.strictEqual(folded.replace(/\r\n /g,''),line)
+      for(const part of folded.split('\r\n')) {
+        assert.ok(Buffer.byteLength(part)<=75,Buffer.byteLength(part)+' octets')
+        assert.ok(!/[\uD800-\uDBFF]$/.test(part),'surrogate split')
+      }
+    }
+}
+
+{
+    for(const offset of ['+2460','-0060','+126199']) assert.strictEqual(calendar.parseOffsetMinutes(offset),null,offset)
+    assert.strictEqual(calendar.parseOffsetMinutes('+010521'),65.35)
+}
+
 console.log("test_calendar.js ok")

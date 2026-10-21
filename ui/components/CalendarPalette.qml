@@ -27,8 +27,6 @@ QtObject {
 
   function reload() { paletteFile.reload() }
 
-  onAccentColorChanged: reload()
-
   property FileView paletteFile: FileView {
     path: root.palettePath
     watchChanges: true

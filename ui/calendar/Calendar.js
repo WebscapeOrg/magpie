@@ -1065,9 +1065,9 @@ function spanLayout(events, days) {
   var segments = [], laneCounts = []
   var values = (events || []).filter(function(event) {
     return event && event.start && event.end && Number(event.end.ms) > Number(event.start.ms)
-  }).slice().sort(function(left2, right2) {
-    return Number(left2.start.ms) - Number(right2.start.ms)
-      || Number(right2.end.ms) - Number(left2.end.ms) || compareEvents(left2, right2)
+  }).slice().sort(function(leftEvent, rightEvent) {
+    return Number(leftEvent.start.ms) - Number(rightEvent.start.ms)
+      || Number(rightEvent.end.ms) - Number(leftEvent.end.ms) || compareEvents(leftEvent, rightEvent)
   })
   for (var week = 0; week < Math.ceil(days.length / 7); week++) {
     var first = week * 7, last = Math.min(first + 6, days.length - 1), laneEnds = []

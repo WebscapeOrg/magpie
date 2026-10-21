@@ -57,6 +57,20 @@ Item {
       compare(auth.accessToken, "")
       compare(auth.loggedIn, false)
     }
+    function test_unidentified_graph_grant_cannot_replace_the_mailbox_grant() {
+      var auth = createTemporaryObject(outlookFactory, root)
+      wait(0)
+      auth.loggedIn = true
+      auth.accessToken = "mail-token"
+      auth.backend = fakeBackend
+      auth.acceptGraphSignIn({ accessToken: "unbound-graph-token", refreshToken: "unbound-refresh-token",
+        expiresIn: 3600, scope: "Mail.Send Calendars.ReadWrite", idToken: "" })
+      compare(auth.graphAccessToken, "", "a grant without a matching identity must not be accepted")
+      compare(auth.graphGrants, 0)
+      compare(fakeBackend.requests.filter(function(request) { return request.method === "auth.store" }).length, 0)
+      compare(auth.accessToken, "mail-token")
+      compare(auth.loggedIn, true)
+    }
     function hey() {
       var auth = createTemporaryObject(heyFactory, root)
       auth.backend = fakeBackend

@@ -301,12 +301,12 @@ function accountKey(idToken) {
 
 // Whether the id token names the mailbox's own account: the one the mail
 // session is, by id, where that is known; else by name against the
-// address — or names none, which cannot be told and is let through.
+// address. A grant without either identity cannot be assigned to this mailbox.
 function sameAccount(idToken, email, mailKey) {
   var key = trimmed(mailKey)
   if (key !== "") return accountKey(idToken) === key
   var who = signedInAs(idToken)
-  return who === "" || who === trimmed(email).toLowerCase()
+  return who !== "" && who === trimmed(email).toLowerCase()
 }
 
 function otherAccountMessage(who, email) {

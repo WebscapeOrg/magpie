@@ -2,8 +2,8 @@
 """Run the existing synthetic bridge contract against the real Rust executable.
 
 Only the backend changes. The fake Claude streams and policy/ownership assertions
-are shared with test_agent_bridge.py. Fake CLI observations are outside the private
-job directory, whose production allowlist permits only its three JSON records.
+are shared with test_agent_bridge.py. Fake CLI observations stay outside the private
+job directory so its production record allowlist remains enforced.
 """
 import json
 import os
@@ -70,14 +70,18 @@ if sys.argv[1] == 'run' and '--session' in sys.argv:
 ''' + body
         super().tool(name, body)
 
-    def agent(self, body, session=True):
+    def observation_prelude(self, session=True):
         prelude = legacy.PRELUDE.replace(
             "Path(ident,'cwd.txt').write_text(str(Path.cwd()))\nos.chdir(ident)",
             "observed=Path(os.environ['OMAMAIL_TEST_ARTIFACTS'])/ident\nobserved.mkdir(exist_ok=True)\nobserved.joinpath('cwd.txt').write_text(str(Path.cwd()))\nos.chdir(observed)"
         )
         if not session:
             prelude = prelude.replace("emit({'type':'system','subtype':'init','session_id':'11111111-2222-3333-4444-555555555555'})", '')
-        self.tool('claude', prelude + body)
+        return prelude
+
+
+    def agent(self, body, session=True):
+        self.tool('claude', self.observation_prelude(session) + body)
 
     def call(self, *args, value=None, ok=True, options=None):
         if args[0] == 'run':
@@ -388,7 +392,6 @@ emit({'type':'result','subtype':'success','result':'','session_id':'11111111-222
         self.assertEqual(len([p for p in self.store.iterdir() if p.is_dir()]),33)
 
     def test_long_native_conversation_has_paged_ui_history_not_a_turn_limit(self):
-        import shutil
         first=self.new();self.wait(first)
         original=json.loads((self.store/first/'job.json').read_text())
         context=json.loads((self.store/first/'context.json').read_text())
@@ -543,10 +546,7 @@ else:
                 self.assertNotIn('HIDDEN',json.dumps(shown))
 
     def provider_agent(self, provider, suffix=''):
-        prelude = legacy.PRELUDE.replace(
-            "Path(ident,'cwd.txt').write_text(str(Path.cwd()))\nos.chdir(ident)",
-            "observed=Path(os.environ['OMAMAIL_TEST_ARTIFACTS'])/ident\nobserved.mkdir(exist_ok=True)\nobserved.joinpath('cwd.txt').write_text(str(Path.cwd()))\nos.chdir(observed)"
-        ).replace("emit({'type':'system','subtype':'init','session_id':'11111111-2222-3333-4444-555555555555'})", '')
+        prelude = self.observation_prelude(session=False)
         answer = 'Hello مرحبا'
         if provider == 'opencode':
             events = [

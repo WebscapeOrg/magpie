@@ -8,6 +8,21 @@ This is a comparison of actual old and new QML components, not a comparison of t
 
 `make verify-performance VERIFY_PROFILE=benchmarks` collects this comparison and the database cases below into a fresh result directory. The GitHub Actions `Performance verification` workflow runs the same profile and saves its logs and JSON as artifacts.
 
+## Native desktop acceptance
+
+Build the optimized backend and optional native test driver before measuring:
+
+```sh
+cargo build --release --locked --bin omamail
+cmake -S app -B /tmp/magpie-desktop-build -DCMAKE_BUILD_TYPE=Release -DOMAMAIL_DESKTOP_ACCEPTANCE=ON -DBUILD_TESTING=OFF
+cmake --build /tmp/magpie-desktop-build --target desktop_acceptance -j4
+python3 benchmarks/mail/desktop_acceptance.py --binary target/release/omamail --driver /tmp/magpie-desktop-build/desktop_acceptance --messages 100000 --samples 31 --display-mode xvfb --output /tmp/magpie-desktop-result
+```
+
+The output directory must be new. Linux dependencies include Pillow, Xvfb and DBus; `--accessibility` also requires GI Atspi and the accessibility bus. `--scale 1.5 --accessibility` checks enlarged controls and AT-SPI Pause/Resume, field editing and Send. The default `--display-mode physical` requires an unlocked Hyprland session and Grim. It never unlocks the session. All account state and messages are synthetic; sends have no provider credentials and remain queued. The driver preserves the active theme palette but uses the application's default text settings.
+
+The driver captures a changing marker only after the application state for each sample is ready. Measurements include key handling, RPC, model/layout work and capture overhead; Xvfb results describe the virtual display, not physical compositor presentation. Search is invoked through the production service. Startup means fresh app/backend processes with warm OS caches; one invocation has one startup sample and three distinct 256 KiB HTML samples. Navigation, input and search use `--samples` observations each. Do not describe one startup observation or three HTML observations as a statistically established p95. The report records raw values, source/binary hashes, hardware, Qt, theme, scale and display mode. Functional success does not imply that latency targets passed. Build activity must stop before measurement.
+
 ## Local replica and completed Qt frames
 
 `cargo test --release --lib local_mail::tests::benchmark_local_queries -- --ignored --nocapture` creates a synthetic 100,000-message database and measures five searches returning 50 summaries. Set `MAGPIE_BENCH_MESSAGES=1000000` for the separate scale case or `MAGPIE_BENCH_BACKGROUND=1` to run concurrent durable body writes at a 25 ms minimum interval. Results include median/p95 and the actual background write count. Fixture import is a bulk transaction, not a Gmail download simulation. These measurements exclude UI, RPC and network latency.

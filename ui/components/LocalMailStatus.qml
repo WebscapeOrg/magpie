@@ -16,6 +16,8 @@ Column {
   spacing: MailStyle.space(4)
 
   Text {
+    Accessible.role: Accessible.StaticText
+    Accessible.name: text
     width: parent.width
     textFormat: Text.PlainText
     color: root.textColor
@@ -47,6 +49,8 @@ Column {
     }
   }
   Text {
+    Accessible.role: Accessible.StaticText
+    Accessible.name: text
     width: parent.width
     visible: !!root.mailbox && !root.status.complete
     textFormat: Text.PlainText

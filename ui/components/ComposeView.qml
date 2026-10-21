@@ -1354,6 +1354,7 @@ DropArea {
       Widgets.TextField {
         id: toField
         objectName: "compose-to-field"
+        Accessible.name: "To"
         TextMenuTrigger {}
         onTextEdited: root.noteUserModified()
         anchors.left: toLabel.right
@@ -1440,6 +1441,7 @@ DropArea {
       Widgets.TextField {
         id: ccField
         objectName: "compose-cc-field"
+        Accessible.name: "Cc"
         TextMenuTrigger {}
         onTextEdited: root.noteUserModified()
         anchors.left: ccLabel.right
@@ -1520,6 +1522,7 @@ DropArea {
       Widgets.TextField {
         id: bccField
         objectName: "compose-bcc-field"
+        Accessible.name: "Bcc"
         TextMenuTrigger {}
         onTextEdited: root.noteUserModified()
         anchors.left: bccLabel.right
@@ -1600,6 +1603,7 @@ DropArea {
       Widgets.TextField {
         id: replyToField
         objectName: "compose-reply-to-field"
+        Accessible.name: "Reply-To"
         TextMenuTrigger {}
         onTextEdited: root.noteUserModified()
         anchors.left: replyToLabel.right
@@ -1645,6 +1649,7 @@ DropArea {
       Widgets.TextField {
         id: subjectField
         objectName: "compose-subject-field"
+        Accessible.name: "Subject"
         TextMenuTrigger {}
         onTextEdited: root.noteUserModified()
         anchors.left: subjectLabel.right
@@ -1894,6 +1899,7 @@ DropArea {
     TextEdit {
       id: bodyEdit
       objectName: "compose-body-editor"
+      Accessible.name: "Message body"
       TextMenuTrigger {}
       activeFocusOnTab: true
       width: bodyFlick.width
@@ -2054,6 +2060,7 @@ DropArea {
 
       IconTextButton {
         iconName: "send"
+        objectName: "compose-send-button"
         tooltipText: "Send · ctrl+enter"
         // A send in flight or parked is no reason to hold the next: each is
         // parked in its account's line and goes in turn.

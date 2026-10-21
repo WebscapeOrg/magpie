@@ -43,19 +43,13 @@ jobs:
         run: |
           set -euo pipefail
           marker='<!-- omamail-ci-report -->'
-          pr=''
-          for file in notes/*/pr.txt; do
-            [ -f "$file" ] || continue
-            pr="$(sed -n 1p "$file")"
-            break
-          done
-          if [ -z "$pr" ]; then
-            # No gate left a note: find the PR by head, and only update a
-            # comment this workflow wrote before — never open a new one for a pass.
-            pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "${HEAD_REPO%%/*}:$HEAD_BRANCH" --json number,headRefOid \
-              --jq "[.[] | select(.headRefOid == \"$HEAD_SHA\")][0].number // empty")"
-            [ -n "$pr" ] || { echo 'No open PR for this run'; exit 0; }
-          fi
+          # Invariant: fork artifacts contain display text, never routing authority.
+          pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "${HEAD_REPO%%/*}:$HEAD_BRANCH" --json number,headRefOid \
+            --jq "[.[] | select(.headRefOid == \"$HEAD_SHA\")][0].number // empty")"
+          [ -n "$pr" ] || { echo 'No open PR for this run'; exit 0; }
+          case "$pr" in
+            *[!0-9]*|0) echo 'Invalid pull request number' >&2; exit 1 ;;
+          esac
           existing="$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --paginate --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n1)"
           body="$(mktemp)"
           printf '%s\n' "$marker" > "$body"

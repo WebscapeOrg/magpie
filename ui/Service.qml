@@ -2476,7 +2476,12 @@ Item {
   // out of the add flow on the next click.
   function configureCurrentAccountAndSignIn(values, secret) {
     if (!configureCurrentAccount(values)) return false
-    Qt.callLater(function() { root.signInWithPassword(secret) })
+    var accountId = String(editingEntry().id || "")
+    Qt.callLater(function() {
+      var host = root.findAccount(accountId)
+      if (host) host.signInWithPassword(secret)
+      secret = ""
+    })
     return true
   }
 
@@ -2484,7 +2489,11 @@ Item {
   // account host that owns the browser flow is built.
   function configureCurrentAccountAndSignInOAuth(values) {
     if (!configureCurrentAccount(values)) return false
-    Qt.callLater(function() { root.signIn() })
+    var accountId = String(editingEntry().id || "")
+    Qt.callLater(function() {
+      var host = root.findAccount(accountId)
+      if (host) host.signIn()
+    })
     return true
   }
 

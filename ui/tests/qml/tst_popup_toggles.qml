@@ -44,24 +44,13 @@ Item {
     name: "PopupToggles"
     when: windowShown
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
     // A popup that closes on a press outside itself is already closed by the
     // press that reaches the control which opened it, so a plain
     // `opened ? close() : open()` reopens it on the release and the control can
     // never put its own popup away. Both of these read as a flicker.
     function test_the_from_menu_toggles_shut() {
       compose.begin("new", null, "", [])
-      var button = named(compose, "compose-from-button")
+      var button = findChild(compose, "compose-from-button")
       verify(button)
       mouseClick(button)
       wait(50)
@@ -73,7 +62,7 @@ Item {
 
     function test_the_contacts_button_toggles_shut() {
       compose.begin("new", null, "", [])
-      var button = named(compose, "compose-contacts-button")
+      var button = findChild(compose, "compose-contacts-button")
       verify(button)
       mouseClick(button)
       wait(50)

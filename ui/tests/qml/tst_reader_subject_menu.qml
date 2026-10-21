@@ -80,25 +80,14 @@ Item {
     name: "ReaderSubjectMenu"
     when: windowShown
 
-    function named(item, name) {
-      if (!item) return null
-      if (item.objectName === name) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var hit = named(values[i], name)
-        if (hit) return hit
-      }
-      return null
-    }
-
     function subjectLine() {
-      var line = named(reader, "reader-subject")
+      var line = findChild(reader, "reader-subject")
       verify(line, "the reader draws its subject in a Text")
       return line
     }
 
     function menu() {
-      var found = named(reader, "reader-subject-menu")
+      var found = findChild(reader, "reader-subject-menu")
       verify(found, "the reader owns a subject menu")
       return found
     }
@@ -160,7 +149,7 @@ Item {
       mouseClick(subjectLine(), 30, subjectLine().height / 2, Qt.RightButton)
       tryVerify(function() { return menu().opened })
       compare(subjectLine().selected, true)
-      var selection = named(reader, "reader-subject-selection")
+      var selection = findChild(reader, "reader-subject-selection")
       verify(selection.visible)
       verify(selection.color.a > 0)
       compare(selection.height, subjectLine().height)

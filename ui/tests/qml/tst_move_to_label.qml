@@ -85,13 +85,6 @@ Item {
         snippet: "", time: "", date: "", unread: false, starred: false, inInbox: true, labelIds: ["INBOX"] })
     }
     function folder(id) { return ({ id: id, name: id, rawName: id, delimiter: "/", unread: 0, system: false }) }
-    function named(item, name) {
-      if (item.objectName === name) return item
-      var kids = item.children || []
-      for (var i = 0; i < kids.length; i++) { var f = named(kids[i], name); if (f) return f }
-      return null
-    }
-
     function seed() {
       var list = Accounts.emptyList()
       list = Accounts.add(list, entry("ada@example.com"))
@@ -119,7 +112,7 @@ Item {
 
     function test_v_opens_the_tree_and_typing_narrows_it() {
       seed()
-      var picker = named(app, "label-picker")
+      var picker = findChild(app, "label-picker")
       verify(picker !== null)
       app.cursorId = "1:INBOX"
       app.runShortcut("moveToLabel", "v")
@@ -140,8 +133,8 @@ Item {
     // the ticks win.
     function test_a_menu_on_an_unticked_row_moves_that_row_alone() {
       seed()
-      var picker = named(app, "label-picker")
-      var menu = named(app, "rowMenu")
+      var picker = findChild(app, "label-picker")
+      var menu = findChild(app, "rowMenu")
       app.cursorId = "1:INBOX"
       verify(app.toggleCheck("1:INBOX"))
       menu.actionRequested("moveToLabel", "2:INBOX")
@@ -167,8 +160,8 @@ Item {
 
     function test_the_row_menu_opens_the_picker_for_its_row() {
       seed()
-      var picker = named(app, "label-picker")
-      var menu = named(app, "rowMenu")
+      var picker = findChild(app, "label-picker")
+      var menu = findChild(app, "rowMenu")
       verify(menu !== null)
       menu.actionRequested("moveToLabel", "2:INBOX")
       tryCompare(picker, "opened", true)
@@ -181,8 +174,8 @@ Item {
       var account = seed()
       account.selectedId = "2:INBOX"
       account.selectedMessage = row("2:INBOX")
-      var picker = named(app, "label-picker")
-      var button = named(app, "reader-move-button")
+      var picker = findChild(app, "label-picker")
+      var button = findChild(app, "reader-move-button")
       verify(button !== null, "the reader has a move button")
       button.clicked()
       tryCompare(picker, "opened", true)

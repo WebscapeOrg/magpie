@@ -54,7 +54,7 @@ Both hosts keep one persistent `omamail serve` process and communicate with newl
 
 The Cargo `agent` feature is on by default for the Omarchy build. The standalone Make and release builds use `--no-default-features --features standalone`, which also enables `agent`. Agent worker commands and RPC methods require a Unix target, so Linux and macOS include them and Windows omits them at compilation as well as in its UI capabilities.
 
-Credentials cross the UI/backend boundary through typed `credential.get`, `credential.put`, and `credential.delete` RPC methods. Rust validates the provider-specific key and secret bytes before calling Keychain, Secret Service, or Credential Manager. Secrets travel in the RPC body or subprocess stdin and must never be placed in argv, logs, settings, or notification routes.
+Credentials cross the UI/backend boundary through typed `credentials.get`, `credentials.put`, and `credentials.delete` RPC methods. Rust validates the provider-specific key and secret bytes before calling Keychain, Secret Service, or Credential Manager. Secrets travel in the RPC body or subprocess stdin and must never be placed in argv, logs, settings, or notification routes.
 
 Cross-platform storage is owned by `src/platform/`: `dirs` selects platform application directories, `private_fs` supplies handle-anchored private files, and `ipc` supplies Unix sockets or Windows named pipes for the outbox. Platform implementations must preserve the same refusal and deadline semantics even though their operating-system primitives differ.
 

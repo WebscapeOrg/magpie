@@ -8,25 +8,19 @@ QtObject {
     family: "monospace", title: 22, heading: 18, body: 14, bodySmall: 13, caption: 11,
     icon: 16, iconSmall: 14, iconLarge: 18
   })
-  // `popupRowHeight` is the shell's 28. A stub without it gave every plain
-  // menu row a height of zero, so a click on "Manage accounts..." fell through
-  // the popup to whatever the window had underneath.
+  // Invariant: popup rows need the shell's nonzero height so pointer events
+  // reach the menu instead of the controls underneath it.
   readonly property var spacing: ({
     controlPaddingX: 8, controlPaddingY: 5, inputPaddingY: 5, tooltipPaddingX:8, tooltipPaddingY:5, huge:24, labelGap:6, dropdownWidth:240, lg:8, numberFieldWidth:96,
     controlHeight: 30, controlGap: 6, sm: 3, md: 6, popupRowHeight: 28
   })
 
-  // The shell's own `space` is `round(px * scale)`, and the rounding is the
-  // point rather than an implementation detail: a theme whose spacing follows
-  // the font — `base-size 14` gives 7/6 — makes `space(4)` 5 while `space(8)`
-  // is 9, so a box that pads by one and measures itself by the other comes out
-  // a pixel short. A stub that multiplied nothing could not see that, and did
-  // not. Tests that care set `spacingScale`; the rest run at 1, where this
-  // rounds integers to themselves.
+  // Invariant: match the shell's rounded scaling. At scale 7/6, space(4) is 5
+  // and space(8) is 9; unrounded fixtures hide one-pixel layout errors.
   property real spacingScale: 1
   function space(value) {
-    var n = Number(value) * spacingScale
-    return n <= 0 ? 0 : Math.max(1, Math.round(n))
+    var scaledPixels = Number(value) * spacingScale
+    return scaledPixels <= 0 ? 0 : Math.max(1, Math.round(scaledPixels))
   }
   function controlFill(_focused, _hot, _foreground, _accent) { return "transparent" }
   function focusFillFor(_foreground, accent) { return accent }

@@ -15,7 +15,7 @@ Column {
   readonly property var families: {
     var result = ["System UI font"]
     var installed = Qt.fontFamilies()
-    for (var i = 0; i < installed.length; i++) result.push(installed[i])
+    for (var entryIndex = 0; entryIndex < installed.length; entryIndex++) result.push(installed[entryIndex])
     return result
   }
 

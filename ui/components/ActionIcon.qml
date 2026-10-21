@@ -52,23 +52,23 @@ Item {
     }
 
     onPaint: {
-      var ctx = getContext("2d")
-      ctx.reset()
-      var s = width / 16
-      if (s <= 0) return
-      ctx.lineWidth = Math.max(1, root.strokeScale * s)
-      ctx.lineCap = "round"
-      ctx.lineJoin = "round"
+      var context = getContext("2d")
+      context.reset()
+      var scale = width / 16
+      if (scale <= 0) return
+      context.lineWidth = Math.max(1, root.strokeScale * scale)
+      context.lineCap = "round"
+      context.lineJoin = "round"
 
-      ctx.strokeStyle = root.color
-      ctx.beginPath()
-      ctx.rect(1 * s, 3 * s, 14 * s, 10 * s)
-      ctx.stroke()
-      ctx.strokeStyle = root.markColor
-      ctx.beginPath()
-      ctx.moveTo(3.6 * s, 13 * s); ctx.lineTo(3.6 * s, 5.6 * s); ctx.lineTo(8 * s, 9.3 * s)
-      ctx.lineTo(12.4 * s, 5.6 * s); ctx.lineTo(12.4 * s, 13 * s)
-      ctx.stroke()
+      context.strokeStyle = root.color
+      context.beginPath()
+      context.rect(1 * scale, 3 * scale, 14 * scale, 10 * scale)
+      context.stroke()
+      context.strokeStyle = root.markColor
+      context.beginPath()
+      context.moveTo(3.6 * scale, 13 * scale); context.lineTo(3.6 * scale, 5.6 * scale); context.lineTo(8 * scale, 9.3 * scale)
+      context.lineTo(12.4 * scale, 5.6 * scale); context.lineTo(12.4 * scale, 13 * scale)
+      context.stroke()
     }
   }
 }

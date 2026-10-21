@@ -100,8 +100,8 @@ Item {
     // filtered rows directly.
     var accounts = Model.filterRows(root.accounts, root.query)
     var offset = (root.accounts ? root.accounts.length : 0) > 1 && root.query.trim() === "" ? 1 : 0
-    for (var i = 0; i < accounts.length; i++) {
-      if (accounts[i].active) { cursorIndex = i + offset; return }
+    for (var entryIndex = 0; entryIndex < accounts.length; entryIndex++) {
+      if (accounts[entryIndex].active) { cursorIndex = entryIndex + offset; return }
     }
     cursorIndex = 0
   }

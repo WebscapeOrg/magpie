@@ -31,7 +31,7 @@ FocusScope {
     ? (service.agentShownProposals || []) : []
   onProposalsChanged: syncConversation()
   function proposalFor(id) {
-    for (var i = 0; i < proposals.length; i++) if (String(proposals[i].id) === id) return proposals[i]
+    for (var entryIndex = 0; entryIndex < proposals.length; entryIndex++) if (String(proposals[entryIndex].id) === id) return proposals[entryIndex]
     return ({subject:"",body:"",applicable:false})
   }
   signal applyProposalRequested(var envelope, string parentId)
@@ -82,7 +82,7 @@ FocusScope {
       if (drafts.length > 0) return drafts[0]
       if (composer.agentParentJobId) {
         var all = service.agentAllJobs || []
-        for (var i = 0; i < all.length; i++) if (String(all[i].id) === composer.agentParentJobId && Agent.canUseDraftChat(all[i], fields)) return all[i]
+        for (var entryIndex = 0; entryIndex < all.length; entryIndex++) if (String(all[entryIndex].id) === composer.agentParentJobId && Agent.canUseDraftChat(all[entryIndex], fields)) return all[entryIndex]
       }
       var reader = fields.replyMessageId ? service.agentJobFor(fields.replyMessageId, fields.accountId) : null
       return Agent.canUseDraftChat(reader, fields) ? reader : null
@@ -103,7 +103,7 @@ FocusScope {
     : (defaultJob ? [defaultJob] : [])
   readonly property var job: {
     if (viewedJobId !== "") {
-      for (var i=0; i<historyJobs.length; i++) if (String(historyJobs[i].id) === viewedJobId || (viewedConversationId !== "" && String(historyJobs[i].conversationId || historyJobs[i].id) === viewedConversationId)) return historyJobs[i]
+      for (var entryIndex=0; entryIndex<historyJobs.length; entryIndex++) if (String(historyJobs[entryIndex].id) === viewedJobId || (viewedConversationId !== "" && String(historyJobs[entryIndex].conversationId || historyJobs[entryIndex].id) === viewedConversationId)) return historyJobs[entryIndex]
     }
     return defaultJob && selectionOwns(defaultJob) && String(defaultJob.id) !== ignoredJobId ? defaultJob : null
   }
@@ -112,8 +112,8 @@ FocusScope {
   function selectHistory(id) {
     viewedJobId = String(id)
     viewedConversationId = ""
-    for (var i = 0; i < historyJobs.length; i++) {
-      if (String(historyJobs[i].id) === viewedJobId) viewedConversationId = String(historyJobs[i].conversationId || historyJobs[i].id)
+    for (var entryIndex = 0; entryIndex < historyJobs.length; entryIndex++) {
+      if (String(historyJobs[entryIndex].id) === viewedJobId) viewedConversationId = String(historyJobs[entryIndex].conversationId || historyJobs[entryIndex].id)
     }
     ignoredJobId = ""
     historyMode = false
@@ -168,11 +168,11 @@ FocusScope {
     if (!chatModel) return
     var rows = Agent.conversationWithProposals(conversation, proposals)
     if (chatModel.count > rows.length) chatModel.remove(rows.length, chatModel.count - rows.length)
-    for (var i = 0; i < rows.length; i++) {
-      if (i >= chatModel.count) chatModel.append({entryRole: rows[i].role, entryText: rows[i].text})
+    for (var entryIndex = 0; entryIndex < rows.length; entryIndex++) {
+      if (entryIndex >= chatModel.count) chatModel.append({entryRole: rows[entryIndex].role, entryText: rows[entryIndex].text})
       else {
-        if (chatModel.get(i).entryRole !== rows[i].role) chatModel.setProperty(i, "entryRole", rows[i].role)
-        if (chatModel.get(i).entryText !== rows[i].text) chatModel.setProperty(i, "entryText", rows[i].text)
+        if (chatModel.get(entryIndex).entryRole !== rows[entryIndex].role) chatModel.setProperty(entryIndex, "entryRole", rows[entryIndex].role)
+        if (chatModel.get(entryIndex).entryText !== rows[entryIndex].text) chatModel.setProperty(entryIndex, "entryText", rows[entryIndex].text)
       }
     }
   }

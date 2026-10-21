@@ -33,16 +33,16 @@ Item {
 
   readonly property bool hasSkeleton: {
     var list = root.stops || []
-    for (var i = 0; i < list.length; i++) {
-      if (!list[i].known) return true
+    for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
+      if (!list[entryIndex].known) return true
     }
     return false
   }
 
   function boundsFor(id) {
     var wanted = String(id || "")
-    for (var i = 0; i < stopColumn.children.length; i++) {
-      var stop = stopColumn.children[i]
+    for (var entryIndex = 0; entryIndex < stopColumn.children.length; entryIndex++) {
+      var stop = stopColumn.children[entryIndex]
       if (!stop || stop.memberId !== wanted) continue
       return {
         y: stop.y, height: stop.height,

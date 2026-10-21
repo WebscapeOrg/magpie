@@ -52,9 +52,9 @@ Column {
   readonly property var auth: service ? service.auth : null
 
   function signatureAccount(id) {
-    for (var i = 0; i < signatureAccounts.length; i++)
-      if (String(signatureAccounts[i].id || "") === String(id || ""))
-        return signatureAccounts[i]
+    for (var entryIndex = 0; entryIndex < signatureAccounts.length; entryIndex++)
+      if (String(signatureAccounts[entryIndex].id || "") === String(id || ""))
+        return signatureAccounts[entryIndex]
     return null
   }
 
@@ -154,7 +154,7 @@ Column {
 
   function finishImport(text) {
     var result = null
-    try { result = JSON.parse(String(text || "")) } catch (e) { result = null }
+    try { result = JSON.parse(String(text || "")) } catch (parseError) { result = null }
     if (!result || result.ok !== true) {
       var reason = result && result.error ? String(result.error) : ""
       importing = false

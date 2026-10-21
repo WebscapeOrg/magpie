@@ -126,7 +126,7 @@ Rectangle {
     textRole: "label"
     valueRole: "value"
     currentIndex: {
-      for (var i = 0; i < model.length; i++) if (model[i].value === value) return i
+      for (var entryIndex = 0; entryIndex < model.length; entryIndex++) if (model[entryIndex].value === value) return entryIndex
       return -1
     }
     onActivated: function(index) { chosen(String(model[index].value)) }
@@ -391,7 +391,7 @@ Rectangle {
       root.loadingSeries = false
       if (error) { resultText.text = error; return }
       var payload
-      try { payload = JSON.parse(result.body) } catch (e) { resultText.text = "Could not read the series"; return }
+      try { payload = JSON.parse(result.body) } catch (parseError) { resultText.text = "Could not read the series"; return }
       var events = Calendar.eventsFromGoogle({ items: [payload] }, source.id)
       if (events.length !== 1) { resultText.text = "The series is no longer available"; return }
       root.beginEdit(source.id, events[0])
@@ -537,8 +537,8 @@ Rectangle {
           root.editing && root.controller && typeof root.controller.findSource === "function"
             ? root.controller.findSource(root.editingSourceId) : null, root.editingEvent)
         currentIndex: {
-          for (var i = 0; i < model.length; i++)
-            if (String(model[i].source.id) === root.selectedSourceId) return i
+          for (var entryIndex = 0; entryIndex < model.length; entryIndex++)
+            if (String(model[entryIndex].source.id) === root.selectedSourceId) return entryIndex
           return -1
         }
         onActivated: function(index) { root.chooseCalendar(String(model[index].source.id)) }

@@ -35,11 +35,11 @@ Item {
     var rows = []
     var seen = {}
     var given = Array.isArray(list) ? list : []
-    for (var i = 0; i < given.length; i++) {
-      var email = String(given[i] && given[i].email ? given[i].email : "").trim()
+    for (var entryIndex = 0; entryIndex < given.length; entryIndex++) {
+      var email = String(given[entryIndex] && given[entryIndex].email ? given[entryIndex].email : "").trim()
       if (email === "" || seen[email]) continue
       seen[email] = true
-      rows.push({ name: String(given[i].name || given[i].display || ""), email: email })
+      rows.push({ name: String(given[entryIndex].name || given[entryIndex].display || ""), email: email })
     }
     if (rows.length === 0) return
     addresses = rows
@@ -133,7 +133,7 @@ Item {
           onItemRemoved: function(index, item) { pickRows.rows = collect() }
           function collect() {
             var out = []
-            for (var i = 0; i < pickRepeater.count; i++) out.push(pickRepeater.itemAt(i))
+            for (var entryIndex = 0; entryIndex < pickRepeater.count; entryIndex++) out.push(pickRepeater.itemAt(entryIndex))
             return out
           }
 

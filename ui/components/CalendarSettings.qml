@@ -29,7 +29,7 @@ Column {
     var groups = Sources.groupByAccount(controller ? controller.availableSources : null,
       service ? service.accountSummaries : [])
     var values = []
-    for (var i = 0; i < groups.length; i++) values = values.concat(groups[i].calendars)
+    for (var entryIndex = 0; entryIndex < groups.length; entryIndex++) values = values.concat(groups[entryIndex].calendars)
     return values
   }
   readonly property var writableSources: settingsSources.filter(function(source) {
@@ -38,7 +38,7 @@ Column {
 
   function accountIndex(id) {
     var accounts = root.service ? root.service.accountSummaries : []
-    for (var i = 0; i < accounts.length; i++) if (accounts[i].id === id) return i
+    for (var entryIndex = 0; entryIndex < accounts.length; entryIndex++) if (accounts[entryIndex].id === id) return entryIndex
     return -1
   }
 
@@ -62,9 +62,9 @@ Column {
     var wanted = String(source && source.accountId || "")
     var accounts = root.service && Array.isArray(root.service.accountSummaries)
       ? root.service.accountSummaries : []
-    for (var i = 0; i < accounts.length; i++) {
-      if (String(accounts[i] && accounts[i].id || "") === wanted)
-        return String(accounts[i].email || accounts[i].label || "")
+    for (var entryIndex = 0; entryIndex < accounts.length; entryIndex++) {
+      if (String(accounts[entryIndex] && accounts[entryIndex].id || "") === wanted)
+        return String(accounts[entryIndex].email || accounts[entryIndex].label || "")
     }
     return ""
   }
@@ -781,7 +781,7 @@ Column {
           })
           value: {
             var values = defaultGroup.modelData.calendars
-            for (var i = 0; i < values.length; i++) if (values[i].preferred) return values[i].id
+            for (var entryIndex = 0; entryIndex < values.length; entryIndex++) if (values[entryIndex].preferred) return values[entryIndex].id
             return values.length ? values[0].id : ""
           }
           foreground: root.textColor

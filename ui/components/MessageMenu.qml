@@ -49,8 +49,8 @@ Item {
   readonly property var summary: {
     if (!service || messageId === "") return null
     var list = service.messages
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].id === messageId) return list[i]
+    for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
+      if (list[entryIndex].id === messageId) return list[entryIndex]
     }
     var members = service.memberSummaries
     if (members && typeof members === "object" && members[messageId]) return members[messageId]

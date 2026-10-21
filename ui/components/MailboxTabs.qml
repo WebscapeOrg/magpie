@@ -46,9 +46,9 @@ Flickable {
   }
 
   function revealCurrent() {
-    for (var i = 0; i < mailboxes.length; i++) {
-      if (mailboxes[i].key !== current) continue
-      var chip = segments.itemAt(i)
+    for (var entryIndex = 0; entryIndex < mailboxes.length; entryIndex++) {
+      if (mailboxes[entryIndex].key !== current) continue
+      var chip = segments.itemAt(entryIndex)
       if (!chip) return
       var left = track.x + chip.x
       var right = left + chip.width

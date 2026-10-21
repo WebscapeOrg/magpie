@@ -66,7 +66,7 @@ Column {
     Widgets.Button {
       readonly property string ticket: {
         var entries = root.mailbox ? root.mailbox.edits : []
-        for (var i=0;i<entries.length;i++) if (entries[i].state === "conflict") return String(entries[i].ticket)
+        for (var entryIndex=0;entryIndex<entries.length;entryIndex++) if (entries[entryIndex].state === "conflict") return String(entries[entryIndex].ticket)
         return ""
       }
       visible: ticket !== ""
@@ -95,8 +95,8 @@ Column {
     Widgets.Button {
       readonly property string ticket: {
         var entries = root.mailbox ? root.mailbox.edits : []
-        for (var i=entries.length-1;i>=0;i--)
-          if (entries[i].state === "queued") return String(entries[i].ticket)
+        for (var entryIndex=entries.length-1;entryIndex>=0;entryIndex--)
+          if (entries[entryIndex].state === "queued") return String(entries[entryIndex].ticket)
         return ""
       }
       visible: ticket !== ""

@@ -214,17 +214,6 @@ Item {
     name: "ConversationRail"
     when: windowShown
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
     function init() {
       app.opened = true
       app.backToList()
@@ -238,8 +227,8 @@ Item {
 
     // The stop drawn for one member, found the way the rail itself finds it.
     function stopFor(id) {
-      var rail = named(app, "conversationRail")
-      var column = rail ? named(rail, "conversationRailFlick") : null
+      var rail = findChild(app, "conversationRail")
+      var column = rail ? findChild(rail, "conversationRailFlick") : null
       if (!column) return null
       var stack = [column]
       while (stack.length > 0) {
@@ -266,7 +255,7 @@ Item {
       seedSummaries()
       app.openMessage("maaaaaf")
       waitForRendering(app)
-      var menu = named(app, "rowMenu")
+      var menu = findChild(app, "rowMenu")
       verify(!!menu, "the App holds the row menu")
       compare(menu.opened, false)
 
@@ -300,7 +289,7 @@ Item {
       keyClick(Qt.Key_N)
       compare(mailService.selectedId, "maaaaae", "the middle member is open")
       waitForRendering(app)
-      var menu = named(app, "rowMenu")
+      var menu = findChild(app, "rowMenu")
 
       var stop = stopFor("maaaaae")
       mailService.acted = []
@@ -336,7 +325,7 @@ Item {
       seedSummaries()
       app.openMessage("maaaaaf")
       waitForRendering(app)
-      var menu = named(app, "rowMenu")
+      var menu = findChild(app, "rowMenu")
       var stop = stopFor("maaaaaf")
       verify(!!stop)
       mouseClick(stop, stop.width / 2, stop.height / 2, Qt.RightButton)
@@ -360,7 +349,7 @@ Item {
       app.openMessage("maaaaaf")
       waitForRendering(app)
 
-      var rail = named(app, "conversationRail")
+      var rail = findChild(app, "conversationRail")
       verify(rail, "the reader draws a rail for a conversation of three")
       compare(rail.stops.length, 3, "one stop per member id, summaries or not")
       compare(rail.stops[0].id, "maaaaaf", "newest first, the other way up from Thread/get")
@@ -403,7 +392,7 @@ Item {
     function test_the_timeline_runs_from_the_first_circle_to_the_last() {
       app.openMessage("maaaaaf")
       waitForRendering(app)
-      var rail = named(app, "conversationRail")
+      var rail = findChild(app, "conversationRail")
       var top = rail.boundsFor(rail.stops[0].id)
       var middle = rail.boundsFor(rail.stops[1].id)
       var bottom = rail.boundsFor(rail.stops[2].id)
@@ -457,7 +446,7 @@ Item {
       compare(mailService.selectedId, "maaaaaf", "and stops at the newest, at the top")
       compare(app.cursorId, "maaaaaf", "the cursor never moved at all")
 
-      var body = named(app, "messageBodyScroller")
+      var body = findChild(app, "messageBodyScroller")
       verify(body, "the reader exposes its body scroller")
       var before = body.contentY
       keyClick(Qt.Key_J, Qt.ShiftModifier)
@@ -516,7 +505,7 @@ Item {
       app.openMessage("yaaaaag")
       waitForRendering(app)
 
-      var rail = named(app, "conversationRail")
+      var rail = findChild(app, "conversationRail")
       verify(!rail || !rail.visible, "nothing is drawn beside a single message")
       keyClick(Qt.Key_N)
       compare(mailService.selectedId, "yaaaaag", "and n has nowhere to go")

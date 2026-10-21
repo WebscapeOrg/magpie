@@ -56,19 +56,8 @@ Item {
     name: "ComposeTextMenu"
     when: windowShown
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
     function menu() {
-      var found = named(compose, "compose-text-menu")
+      var found = findChild(compose, "compose-text-menu")
       verify(found, "the form owns a text menu")
       return found
     }
@@ -83,7 +72,7 @@ Item {
     function cleanup() { menu().close() }
 
     function test_a_right_click_in_the_body_opens_an_editing_menu() {
-      var body = named(compose, "compose-body-editor")
+      var body = findChild(compose, "compose-body-editor")
       verify(body)
       mouseClick(body, 20, 10, Qt.RightButton)
       wait(20)
@@ -93,7 +82,7 @@ Item {
     }
 
     function test_copy_in_the_body_goes_through_the_host() {
-      var body = named(compose, "compose-body-editor")
+      var body = findChild(compose, "compose-body-editor")
       body.text = "draft words"
       body.select(0, 5)
       mouseClick(body, 20, 10, Qt.RightButton)
@@ -103,7 +92,7 @@ Item {
     }
 
     function test_paste_in_the_body_goes_the_way_ctrl_v_goes() {
-      var body = named(compose, "compose-body-editor")
+      var body = findChild(compose, "compose-body-editor")
       mouseClick(body, 20, 10, Qt.RightButton)
       wait(20)
       menu().pasteRow.activated()
@@ -112,7 +101,7 @@ Item {
     }
 
     function test_a_right_click_on_a_field_opens_the_menu_for_that_field() {
-      var subject = named(compose, "compose-subject-field")
+      var subject = findChild(compose, "compose-subject-field")
       verify(subject)
       subject.text = "a subject"
       mouseClick(subject, 20, subject.height / 2, Qt.RightButton)
@@ -124,7 +113,7 @@ Item {
     }
 
     function test_paste_lands_in_the_field_that_was_clicked() {
-      var to = named(compose, "compose-to-field")
+      var to = findChild(compose, "compose-to-field")
       verify(to)
       mouseClick(to, 20, to.height / 2, Qt.RightButton)
       wait(20)

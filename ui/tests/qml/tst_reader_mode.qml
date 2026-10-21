@@ -105,17 +105,6 @@ Item {
       return null
     }
 
-    function named(item, name) {
-      if (!item) return null
-      if (item.objectName === name) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var hit = named(values[i], name)
-        if (hit) return hit
-      }
-      return null
-    }
-
     function body() {
       var edit = found(reader, "QQuickTextEdit")
       verify(edit, "the reader draws its message in a TextEdit")
@@ -214,11 +203,11 @@ Item {
 
     function test_view_modes_are_one_segmented_toolbar_control() {
       mailService.canOpenOnWeb = true
-      var toolbar = named(reader, "readerToolbar")
-      var viewTools = named(reader, "readerViewTools")
-      var track = named(reader, "bodyModeTrack")
-      var segments = named(reader, "bodyModeSegments")
-      var web = named(reader, "openWebButton")
+      var toolbar = findChild(reader, "readerToolbar")
+      var viewTools = findChild(reader, "readerViewTools")
+      var track = findChild(reader, "bodyModeTrack")
+      var segments = findChild(reader, "bodyModeSegments")
+      var web = findChild(reader, "openWebButton")
       verify(toolbar && viewTools && track && segments && web)
       compare(segments.spacing, 0, "segments share edges instead of reading as loose buttons")
       compare(track.border.width, 1, "the modes share one enclosing border")
@@ -241,7 +230,7 @@ Item {
 
     function test_event_card_keeps_the_interface_width_in_reader_mode() {
       mailService.selectedInvite = ({ summary: "Planning", attendees: [] })
-      var card = named(reader, "eventCard")
+      var card = findChild(reader, "eventCard")
       verify(card && card.visible)
       compare(card.x, reader.bodyInset)
       compare(card.width, reader.bodyWidth,

@@ -201,19 +201,8 @@ Item {
     name: "SettingsSidebar"
     when: windowShown
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
     function flick() {
-      var page = named(app, "settings-page")
+      var page = findChild(app, "settings-page")
       var item = page
       while (item && String(item.toString()).indexOf("QQuickFlickable") < 0) item = item.parent
       return item
@@ -276,22 +265,22 @@ Item {
     }
 
     function test_the_rail_lists_the_pages_sections_in_order() {
-      var rail = named(app, "settings-sidebar")
+      var rail = findChild(app, "settings-sidebar")
       verify(rail && rail.visible, "a wide window has a rail")
-      var page = named(app, "settings-page")
+      var page = findChild(app, "settings-page")
       var keys = page.sections.map(function(s) { return s.key })
       compare(keys.join(","), "display,backend,bar,reading,notifications,writing,mailboxes,calendars,oauth")
       for (var i = 1; i < page.sections.length; i++)
         verify(page.sections[i].y > page.sections[i - 1].y, "sections are laid out top to bottom")
       for (var j = 0; j < keys.length; j++)
-        verify(named(rail, "settings-section-" + keys[j]), "the rail has a row for " + keys[j])
+        verify(findChild(rail, "settings-section-" + keys[j]), "the rail has a row for " + keys[j])
     }
 
     // A click scrolls the page to the section rather than opening another
     // page: Settings stays one place in history, and the highlight follows.
     function test_a_click_scrolls_the_page_and_the_highlight_follows() {
-      var rail = named(app, "settings-sidebar")
-      var page = named(app, "settings-page")
+      var rail = findChild(app, "settings-sidebar")
+      var page = findChild(app, "settings-page")
       var view = flick()
       verify(view, "the page scrolls inside a Flickable")
       compare(view.contentY, 0)
@@ -304,12 +293,12 @@ Item {
       verify(Math.abs((rail.x + rail.width + MailStyle.space(18)) - page.x) < 1, "the rail is against the page's left edge")
       verify(Math.abs(rail.x - (area.width - page.x - page.width)) < 1, "and the block is centred")
       // Back belongs to the block too: on its left edge, above the rail.
-      var back = named(app, "page-back")
+      var back = findChild(app, "page-back")
       verify(back.visible)
       var railLeft = rail.mapToItem(back.parent, 0, 0).x
       verify(Math.abs(back.x - railLeft) < 1, "Back is aligned with the rail's left edge")
 
-      var writing = named(rail, "settings-section-writing")
+      var writing = findChild(rail, "settings-section-writing")
       mouseClick(writing)
       tryVerify(function() { return Math.abs(view.contentY - sectionY(page, "writing")) < 1 }, 1000,
         "the page slid until the Writing heading was at the top")
@@ -318,7 +307,7 @@ Item {
 
       // Every section can be put at the top, the last included: the content
       // is padded under the page for exactly that.
-      mouseClick(named(rail, "settings-section-oauth"))
+      mouseClick(findChild(rail, "settings-section-oauth"))
       tryVerify(function() { return Math.abs(view.contentY - sectionY(page, "oauth")) < 1 }, 1000,
         "the last heading reaches the top too")
       tryCompare(rail, "activeKey", "oauth")
@@ -339,7 +328,7 @@ Item {
     function test_back_button_is_clickable(data) {
       window().width=data.width
       waitForRendering(app)
-      var back=named(app,"page-back")
+      var back=findChild(app,"page-back")
       verify(back.visible)
       compare(back.parent.childAt(back.x+back.width/2,back.y+back.height/2),back,"Back is above the scroll viewport")
       mouseClick(back,back.width/2,back.height/2)
@@ -348,8 +337,8 @@ Item {
 
     function test_settings_viewport_reaches_header_and_content_inset_scrolls() {
       var view=flick()
-      var page=named(app,"settings-page")
-      var rail=named(app,"settings-sidebar")
+      var page=findChild(app,"settings-page")
+      var rail=findChild(app,"settings-sidebar")
       compare(view.mapToItem(rail.parent.parent,0,0).y,0)
       verify(page.y>0,"initial spacing belongs to scrollable content")
       view.contentY=page.y
@@ -359,11 +348,11 @@ Item {
     function test_a_narrow_window_has_no_rail() {
       window().width = 600
       waitForRendering(app)
-      var rail = named(app, "settings-sidebar")
+      var rail = findChild(app, "settings-sidebar")
       verify(rail && !rail.visible)
-      var page = named(app, "settings-page")
+      var page = findChild(app, "settings-page")
       verify(page.visible, "the page itself is still drawn")
-      var back=named(app,"page-back")
+      var back=findChild(app,"page-back")
       var view=flick()
       var before=back.mapToItem(view,0,0).y
       view.contentY=40

@@ -30,17 +30,6 @@ Item {
     name: "UndoSendToast"
     when: windowShown
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
     function init() {
       scene.width = 500
       toast.awaitingConnection = false
@@ -50,7 +39,7 @@ Item {
     }
 
     function test_countdown_is_visible_and_updates() {
-      var message = named(toast, "undo-send-message")
+      var message = findChild(toast, "undo-send-message")
       verify(message)
       compare(message.text, "Sending in 7s")
       toast.secondsRemaining = 3
@@ -59,14 +48,14 @@ Item {
 
     function test_more_than_one_parked_send_is_said_and_undo_names_the_last() {
       toast.queuedCount = 3
-      compare(named(toast, "undo-send-message").text, "3 queued \u00b7 newest in 7s")
-      compare(named(toast, "undo-send-button").text, "Undo last  alt+z")
+      compare(findChild(toast, "undo-send-message").text, "3 queued \u00b7 newest in 7s")
+      compare(findChild(toast, "undo-send-button").text, "Undo last  alt+z")
       toast.queuedCount = 1
-      compare(named(toast, "undo-send-message").text, "Sending in 7s")
+      compare(findChild(toast, "undo-send-message").text, "Sending in 7s")
     }
 
     function test_button_requests_undo() {
-      var button = named(toast, "undo-send-button")
+      var button = findChild(toast, "undo-send-button")
       verify(button)
       compare(button.text, "Undo  alt+z")
       mouseClick(button, button.width / 2, button.height / 2)
@@ -77,8 +66,8 @@ Item {
       scene.width = 360
       toast.awaitingConnection = true
       wait(20)
-      var message = named(toast, "undo-send-message")
-      var button = named(toast, "undo-send-button")
+      var message = findChild(toast, "undo-send-message")
+      var button = findChild(toast, "undo-send-button")
       compare(message.text, "Saved. Will send when connected.")
       compare(button.text, "Undo  alt+z")
       verify(toast.width <= scene.width)

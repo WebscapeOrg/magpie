@@ -93,17 +93,6 @@ Item {
       return null
     }
 
-    function named(item, name) {
-      if (!item) return null
-      if (item.objectName === name) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var hit = named(values[i], name)
-        if (hit) return hit
-      }
-      return null
-    }
-
     function body() {
       var edit = found(reader, "QQuickTextEdit")
       verify(edit, "the reader draws its message in a TextEdit")
@@ -111,7 +100,7 @@ Item {
     }
 
     function menu() {
-      var found = named(reader, "reader-text-menu")
+      var found = findChild(reader, "reader-text-menu")
       verify(found, "the reader owns a text menu")
       return found
     }

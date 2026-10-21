@@ -7,6 +7,7 @@ mail server, or external agent is configured. This is a compatibility gate, not
 an exhaustive provider/network integration suite.
 """
 import argparse
+from contextlib import contextmanager, nullcontext
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,64 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS_CREATE_NEW_PROCESS_GROUP = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x00000200)
+
+
+@contextmanager
+def redirected_folders(changes, get_path, set_path):
+    originals = []
+    try:
+        for key, path in changes:
+            original = get_path(key)
+            set_path(key, str(path))
+            originals.append((key, original))
+        yield
+    finally:
+        errors = []
+        for key, original in reversed(originals):
+            try:
+                set_path(key, original)
+            except OSError as error:
+                errors.append(error)
+        if errors:
+            raise RuntimeError('Could not restore isolated runner Known Folders') from errors[0]
+
+
+def windows_fixture_folders(home, config, local):
+    import ctypes
+    import uuid
+    shell = ctypes.WinDLL('shell32')
+    memory = ctypes.WinDLL('ole32')
+    shell.SHGetKnownFolderPath.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p,
+                                         ctypes.POINTER(ctypes.c_void_p)]
+    shell.SHGetKnownFolderPath.restype = ctypes.c_long
+    shell.SHSetKnownFolderPath.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_wchar_p]
+    shell.SHSetKnownFolderPath.restype = ctypes.c_long
+    memory.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    memory.CoTaskMemFree.restype = None
+
+    def guid(key):
+        return ctypes.create_string_buffer(uuid.UUID(key).bytes_le)
+
+    def get_path(key):
+        pointer = ctypes.c_void_p()
+        result = shell.SHGetKnownFolderPath(guid(key), 0x4000, None, ctypes.byref(pointer))
+        if result < 0:
+            raise OSError(f'SHGetKnownFolderPath failed: {result:#x}')
+        try:
+            return ctypes.wstring_at(pointer)
+        finally:
+            memory.CoTaskMemFree(pointer)
+
+    def set_path(key, path):
+        result = shell.SHSetKnownFolderPath(guid(key), 0x2000, None, path)
+        if result < 0:
+            raise OSError(f'SHSetKnownFolderPath failed: {result:#x}')
+
+    return redirected_folders([
+        ('3eb685db-65f9-4cf6-a03a-e3ef65729f3d', config),
+        ('f1b32785-6fba-4fcf-9d55-7b8e7f157091', local),
+        ('374de290-123f-4565-9164-39c4925e467b', home / 'Downloads'),
+    ], get_path, set_path)
 
 
 def process_group_options(platform=None):
@@ -268,7 +327,13 @@ def main():
                         help='check only the released API, as the pinned published binary speaks it')
     parser.add_argument('--standalone', action='store_true',
                         help='check standalone capabilities, including native agents on Linux/macOS')
+    parser.add_argument('--isolated-windows-runner', action='store_true',
+                        help='temporarily redirect Known Folders on a disposable GitHub-hosted Windows runner')
     args = parser.parse_args()
+    if os.name == 'nt' and not (args.isolated_windows_runner
+            and os.environ.get('GITHUB_ACTIONS') == 'true'
+            and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'):
+        parser.error('Windows contract tests require --isolated-windows-runner on a disposable GitHub-hosted runner')
     binary = args.binary.resolve(strict=True)
     contract = json.loads((ROOT / 'backend-api.json').read_text())
     if (type(contract.get('apiVersion')) is not int or contract['apiVersion'] < 1
@@ -316,6 +381,8 @@ def main():
                    CONTRACT_RELEASED='1' if args.released else '',
                    CONTRACT_STANDALONE='1' if args.standalone else '')
         runtime_root.mkdir(parents=True, mode=0o700)
+        if os.name == 'nt':
+            (home / 'Downloads').mkdir(mode=0o700)
         registry.parent.mkdir(parents=True)
         if os.name != 'nt':
             registry.parent.chmod(0o700)
@@ -371,17 +438,19 @@ def main():
                 grant = user + (':(OI)(CI)F' if path.is_dir() else ':F')
                 subprocess.run(['icacls', str(path), '/inheritance:r', '/grant:r', grant, '/Q'],
                                check=True, capture_output=True)
-        process = subprocess.Popen(['node', '-e', HARNESS], env=env, cwd=home,
-                                   **process_group_options())
-        try:
-            status = process.wait(timeout=60)
-        finally:
-            # A failed/expired harness must not leave its backend running.
+        folders = windows_fixture_folders(home, config_root, local_root) if os.name == 'nt' else nullcontext()
+        with folders:
+            process = subprocess.Popen(['node', '-e', HARNESS], env=env, cwd=home,
+                                       **process_group_options())
             try:
-                terminate_process_group(process)
-            except (OSError, ProcessLookupError):
-                pass
-            process.wait(timeout=10)
+                status = process.wait(timeout=60)
+            finally:
+                # A failed/expired harness must not leave its backend running.
+                try:
+                    terminate_process_group(process)
+                except (OSError, ProcessLookupError):
+                    pass
+                process.wait(timeout=10)
         if status:
             raise SystemExit(status)
 

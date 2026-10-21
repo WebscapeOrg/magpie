@@ -187,7 +187,7 @@ jobs:
           $qmlStatus = $LASTEXITCODE
           Get-Content qml-host-contract.txt
           if ($qmlStatus -ne 0) { throw "QML tests failed ($qmlStatus)" }
-          python tests/test_backend_api.py --binary target/release/omamail.exe --expected-version $version --standalone
+          python tests/test_backend_api.py --binary target/release/omamail.exe --expected-version $version --standalone --isolated-windows-runner
           if ($LASTEXITCODE -ne 0) { throw "backend API contract failed" }
       - name: Build and exercise the production archive
         shell: pwsh
@@ -208,7 +208,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "resource check failed" }
           & $appExecutable --smoke-test (Join-Path $env:RUNNER_TEMP "omamail-ready.json")
           if ($LASTEXITCODE -ne 0) { throw "live smoke failed" }
-          python tests/test_backend_api.py --binary $backend --expected-version $version --standalone
+          python tests/test_backend_api.py --binary $backend --expected-version $version --standalone --isolated-windows-runner
           if ($LASTEXITCODE -ne 0) { throw "packaged backend API contract failed" }
 
   portable-tests:

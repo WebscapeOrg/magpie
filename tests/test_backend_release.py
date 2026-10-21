@@ -67,6 +67,23 @@ class ReleaseTests(unittest.TestCase):
         killpg.assert_called_once_with(42, backend_api.signal.SIGKILL)
         self.assertFalse(posix.killed)
 
+    def test_windows_fixture_restores_folders_after_setup_and_test_failures(self):
+        spec = importlib.util.spec_from_file_location('backend_api_folders', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        for fail_at in ('setup', 'test'):
+            current = {'config': 'original-config', 'local': 'original-local'}
+            original = dict(current)
+            def set_path(key, value):
+                if fail_at == 'setup' and key == 'local' and value == 'fixture-local':
+                    raise OSError('synthetic setup failure')
+                current[key] = value
+            with self.assertRaises(OSError):
+                with backend_api.redirected_folders(
+                        [('config', 'fixture-config'), ('local', 'fixture-local')], current.get, set_path):
+                    raise OSError('synthetic test failure')
+            self.assertEqual(current, original, 'no redirected folder may survive a failed fixture')
+
     def test_preparation_allows_old_pin_but_merge_requires_equality(self):
         self.metadata()
         self.assertEqual(self.run_helper('check', '--root', self.root, '--tag', 'v0.8.2').returncode, 0)

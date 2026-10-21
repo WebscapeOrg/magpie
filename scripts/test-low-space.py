@@ -16,6 +16,9 @@ def main():
     if len(sys.argv) == 3 and sys.argv[1] == "--worker":
         shutil.copytree("/tmp/fixture-seed", "/tmp/mail-check/store")
         os.execv(sys.argv[2], [sys.argv[2], "--exact", TEST, "--ignored", "--nocapture"])
+    options = subprocess.run(["/usr/bin/bwrap", "--help"], capture_output=True, text=True, check=True)
+    if "--size BYTES" not in options.stdout:
+        raise SystemExit("Low-space verification requires Bubblewrap 0.7 or newer with bounded tmpfs support")
     build = subprocess.run(
         ["cargo", "test", "--locked", "--lib", "--no-run", "--message-format=json"],
         cwd=ROOT, stdout=subprocess.PIPE, text=True, check=True)

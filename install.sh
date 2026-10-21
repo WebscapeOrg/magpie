@@ -482,16 +482,19 @@ install_transaction() {
       "$install_dir/bin/omamail-app" "$install_dir/share/icons/hicolor/scalable/apps/omamail.svg" <<'PY' || return 1
 import pathlib, sys
 source, destination, executable, icon = sys.argv[1:]
+def entry_value(value):
+    return value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
 def quoted(value):
-    return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('`', '\\`').replace('$', '\\$') + '"'
+    escaped = ''.join('\\' + character if character in '\\"`$' else character for character in value)
+    return entry_value('"' + escaped.replace('%', '%%') + '"')
 lines = pathlib.Path(source).read_text(encoding="utf-8").splitlines()
 output = []
 seen_exec = seen_icon = False
 for line in lines:
     if line.startswith("Exec="):
-        output.append("Exec=" + quoted(executable)); seen_exec = True
+        output.append("Exec=/usr/bin/env -- " + quoted(executable)); seen_exec = True
     elif line.startswith("Icon="):
-        output.append("Icon=" + icon.replace('\\', '\\\\')); seen_icon = True
+        output.append("Icon=" + entry_value(icon)); seen_icon = True
     else:
         output.append(line)
 if not seen_exec or not seen_icon:

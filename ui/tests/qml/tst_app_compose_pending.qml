@@ -1087,6 +1087,8 @@ Item {
     }
 
     function test_reply_starts_while_another_send_is_pending() {
+      mailService.sendPending = true
+      compare(mailService.sendPending, true, "the prior send must still be pending")
       compare(app.composing, false)
       app.startCompose("reply")
       compare(app.composing, true,

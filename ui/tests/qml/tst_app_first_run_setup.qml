@@ -112,10 +112,11 @@ Item {
       next.push(text)
       log = next
     }
-    function editingIndex() { return 0 }
+    function editingIndex() { return accountSummaries.length - 1 }
     function addAccount(provider) {
       lastAddedProvider = String(provider || "")
       record("add:" + lastAddedProvider)
+      accountSummaries = accountSummaries.concat([{provider: lastAddedProvider, email: ""}])
       accountCount += 1
       accountAdded()
     }
@@ -126,7 +127,10 @@ Item {
     }
     function discardCurrentDraft() {
       record("discard")
-      if (accountCount > 1) accountCount -= 1
+      if (accountCount <= 1) return false
+      accountSummaries = accountSummaries.slice(0, -1)
+      accountCount -= 1
+      return true
     }
     function preferredSendAs(_recipients) { return null }
     function refreshRecipientContacts() {}
@@ -159,13 +163,12 @@ Item {
       return null
     }
 
-    // The Back control a page draws, wherever it sits in the page.
-    function backBar(item) {
+    function removeAccountButton(item) {
       if (!item) return null
-      if (item.label === "Back" && typeof item.activated === "function") return item
+      if (item.text === "Remove account" && typeof item.clicked === "function") return item
       var values = item.children || []
       for (var i = 0; i < values.length; i++) {
-        var found = backBar(values[i])
+        var found = removeAccountButton(values[i])
         if (found) return found
       }
       return null
@@ -197,6 +200,7 @@ Item {
       mailService.log = []
       mailService.lastAddedProvider = ""
       mailService.lastConfigured = null
+      mailService.accountSummaries = [{provider: "imap", email: "someone@gmail.com"}]
       mailService.accountCount = 1
       mailService.providerId = "imap"
       mailService.hasSavedAccounts = true
@@ -318,10 +322,15 @@ Item {
       compare(mailService.accountCount, 2)
       compare(page().accountCount, 2, "so the page draws its Remove button")
 
-      var removed = 0
-      page().removeRequested.connect(function() { removed += 1 })
-      page().removeRequested()
-      compare(removed, 1, "and pressing it reaches the window")
+      compare(mailService.editingIndex(), 1, "the page edits the newly added draft")
+      var removeButton = removeAccountButton(page())
+      verify(removeButton, "the form has a Remove account button")
+      verify(removeButton.visible, "the Remove account button is visible")
+      mouseClick(removeButton)
+      compare(mailService.accountCount, 1, "the selected draft must actually be removed")
+      compare(mailService.accountSummaries, [{provider: "imap", email: "someone@gmail.com"}],
+        "the existing mailbox is retained")
+      compare(mailService.log[mailService.log.length - 1], "discard")
     }
 
     function test_first_run_draft_switches_kind_in_place() {

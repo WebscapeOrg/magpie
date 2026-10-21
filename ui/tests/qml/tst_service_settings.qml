@@ -117,8 +117,16 @@ Item {
     function test_one_mailbox_is_never_combined_whatever_the_setting_says() {
       mailService.applySettings({ unifiedMailboxes: true })
       compare(mailService.unifiedMailboxes, true)
-      compare(mailService.accountCount, 0)
-      compare(mailService.unified, false)
+      var previousAccounts = mailService.accountList
+      try {
+        mailService.accountList = {version: 1, activeId: "one@example.test", accounts: [
+          {id: "one@example.test", provider: "gmail", email: "one@example.test"}
+        ]}
+        compare(mailService.accountCount, 1)
+        compare(mailService.unified, false)
+      } finally {
+        mailService.accountList = previousAccounts
+      }
     }
 
     // With nothing to merge the façade still answers, and answers as the

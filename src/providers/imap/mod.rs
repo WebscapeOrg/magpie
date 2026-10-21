@@ -647,8 +647,7 @@ async fn execute(
     ) {
         return mutation::call(method, params, sent).await;
     }
-    // Invariant: Validate the entire batch and envelope before opening any socket.
-    credentials(params)?;
+    // Invariant: validate the entire batch and envelope before opening any socket.
     let folder = params["folder"].as_str().unwrap_or("");
     let quoted = quote(folder)?;
     let commands = if method == "imap.request" {

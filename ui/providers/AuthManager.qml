@@ -86,7 +86,7 @@ Item {
   property bool exchangingCode: false
   property var tokenRequest: null
   property int tokenRequestSerial: 0
-  property bool logoutPendingClear: false
+  property var pendingTokenWrite: null
   property string loginHint: ""
 
   signal loginSucceeded()
@@ -304,21 +304,22 @@ Item {
     var boundClient = clientId
     var token = String(refreshToken)
     credentialWriteBusy = true
+    var write = {accountId: boundAccount, clientId: boundClient, cancelled: false}
+    pendingTokenWrite = write
     platform.credentialPut("google-refresh-token", boundAccount, boundClient, token, function(ok, error) {
       token = ""
       root.credentialWriteBusy = false
+      root.pendingTokenWrite = null
       if (!ok && boundAccount === root.accountId && boundClient === root.clientId)
         root.lastError = "Signed in, but the session could not be saved. You may need to sign in again after a restart"
-      if (root.logoutPendingClear) {
-        root.logoutPendingClear = false
-        root.clearStoredToken()
-      }
+      if (write.cancelled) root.clearStoredToken(write)
     })
   }
 
-  function clearStoredToken(attributes) {
-    if (!clientId || !accountId || !platform || typeof platform.credentialDelete !== "function") return
-    platform.credentialDelete("google-refresh-token", accountId, clientId, function() {})
+  function clearStoredToken(identity) {
+    var owner = identity || {accountId: accountId, clientId: clientId}
+    if (!owner.clientId || !owner.accountId || !platform || typeof platform.credentialDelete !== "function") return
+    platform.credentialDelete("google-refresh-token", owner.accountId, owner.clientId, function() {})
   }
 
   // ---------------------------------------------------------------- tokens
@@ -420,7 +421,7 @@ Item {
         return
       }
       if (error) {
-        root.failLogin(error === "auth_port_unavailable"
+        root.failLogin(error.message === "auth_port_unavailable"
           ? "Could not listen on port " + OAuth.normalizedPort(root.oauthPort) + ". Close the other listener or change the port in settings"
           : "Could not start secure Google sign-in")
         return
@@ -520,8 +521,9 @@ Item {
     grantedScope = ""
     lastError = ""
     finishWaiters("", "Signed out")
-    if (credentialWriteBusy) logoutPendingClear = true
-    else clearStoredToken()
+    if (pendingTokenWrite && pendingTokenWrite.accountId === accountId
+        && pendingTokenWrite.clientId === clientId) pendingTokenWrite.cancelled = true
+    clearStoredToken()
     loggedOut()
   }
 

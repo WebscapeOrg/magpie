@@ -208,6 +208,26 @@ for (const [kind, source] of Object.entries(snippets)) {
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_desktop_capture_acknowledges_only_the_presented_frame(self):
+        with patch.dict(sys.modules, {"PIL": SimpleNamespace(Image=None, ImageGrab=None)}):
+            module = load("desktop_acceptance")
+        display = module.DisplayCapture({"DISPLAY": ":synthetic"}, 12345, "xvfb", 1.5)
+        cyan = SimpleNamespace(getpixel=lambda point: (0, 255, 255))
+        magenta = SimpleNamespace(getpixel=lambda point: (255, 0, 255))
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            event = {"kind": "compose", "serial": 1, "started": 1750}
+            with patch.object(display, "marker", side_effect=[cyan, magenta]) as marker, \
+                    patch.object(display, "save") as save, \
+                    patch.object(module.time, "time", return_value=2):
+                frame = display.capture(event, 1500, output)
+                self.assertEqual(marker.call_count, 2, "A previous frame must not complete the capture")
+                self.assertEqual(frame.result["presentedMs"], 250)
+                self.assertFalse((output / "capture-1").exists())
+                display.acknowledge(frame, output)
+                save.assert_called_once_with({"at": [0, 0], "size": [1536, 1152]}, output / "compose.png")
+                self.assertTrue((output / "capture-1").exists())
+
     def stalled_desktop_bus(self, prefix):
         with patch.dict(sys.modules, {"PIL": SimpleNamespace(Image=None, ImageGrab=None)}):
             module = load("desktop_acceptance")

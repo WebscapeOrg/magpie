@@ -6,8 +6,8 @@ ROOT=Path(__file__).resolve().parents[2]
 HERE=Path(__file__).resolve().parent
 
 def stats(values):
-    s=sorted(values)
-    return {'medianMs':statistics.median(s),'p95Ms':s[min(len(s)-1, int(len(s)*.95))],'samplesMs':values}
+    ordered=sorted(values)
+    return {'medianMs':statistics.median(ordered),'p95Ms':ordered[min(len(ordered)-1, int(len(ordered)*.95))],'samplesMs':values}
 
 def main():
     protocol=(ROOT/'src/backend/protocol.rs').read_text()

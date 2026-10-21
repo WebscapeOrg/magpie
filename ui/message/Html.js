@@ -388,13 +388,13 @@ function parse(html) {
 // turn "&amp;" into "&amp;amp;" on every round trip — so only the quote that
 // delimits them has to go.
 
-function serializeAttributes(attrs) {
+function serializeAttributes(attributes) {
   var out = ""
-  for (var i = 0; i < attrs.length; i++) {
-    var attr = attrs[i]
-    out += " " + attr.name
-    if (attr.value === null || attr.value === undefined) continue
-    out += "=\"" + String(attr.value).replace(/"/g, "&quot;") + "\""
+  for (var attributeIndex = 0; attributeIndex < attributes.length; attributeIndex++) {
+    var attribute = attributes[attributeIndex]
+    out += " " + attribute.name
+    if (attribute.value === null || attribute.value === undefined) continue
+    out += "=\"" + String(attribute.value).replace(/"/g, "&quot;") + "\""
   }
   return out
 }
@@ -436,7 +436,7 @@ function serializeInto(node, out, fit) {
     }
     out.push(">")
   }
-  for (var i = 0; i < node.children.length; i++) serializeInto(node.children[i], out, fit)
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) serializeInto(node.children[childIndex], out, fit)
   if (node.type !== "root") out.push("</" + node.name + ">")
 }
 
@@ -453,8 +453,8 @@ function serialize(node, fit) {
 // children and drops the element around them.
 function transform(node, visit) {
   var kept = []
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") {
       kept.push(child)
       continue
@@ -463,7 +463,7 @@ function transform(node, visit) {
     if (verdict === null) continue
     transform(child, visit)
     if (verdict === "unwrap") {
-      for (var j = 0; j < child.children.length; j++) kept.push(child.children[j])
+      for (var grandchildIndex = 0; grandchildIndex < child.children.length; grandchildIndex++) kept.push(child.children[grandchildIndex])
       continue
     }
     kept.push(child)
@@ -473,39 +473,39 @@ function transform(node, visit) {
 }
 
 function attributeOf(node, name) {
-  for (var i = 0; i < node.attrs.length; i++) {
-    if (node.attrs[i].name === name) return node.attrs[i]
+  for (var attributeIndex = 0; attributeIndex < node.attrs.length; attributeIndex++) {
+    if (node.attrs[attributeIndex].name === name) return node.attrs[attributeIndex]
   }
   return null
 }
 
 function attributeValue(node, name) {
-  var attr = attributeOf(node, name)
-  return attr && attr.value !== null && attr.value !== undefined ? String(attr.value) : ""
+  var attribute = attributeOf(node, name)
+  return attribute && attribute.value !== null && attribute.value !== undefined ? String(attribute.value) : ""
 }
 
 function removeAttribute(node, name) {
   var kept = []
-  for (var i = 0; i < node.attrs.length; i++) {
-    if (node.attrs[i].name !== name) kept.push(node.attrs[i])
+  for (var attributeIndex = 0; attributeIndex < node.attrs.length; attributeIndex++) {
+    if (node.attrs[attributeIndex].name !== name) kept.push(node.attrs[attributeIndex])
   }
   node.attrs = kept
 }
 
 function setAttribute(node, name, value) {
-  var attr = attributeOf(node, name)
-  if (attr) attr.value = String(value)
+  var attribute = attributeOf(node, name)
+  if (attribute) attribute.value = String(value)
   else node.attrs.push({ name: name, value: String(value) })
 }
 
 function setStyle(node, declarations) {
-  var attr = attributeOf(node, "style")
+  var attribute = attributeOf(node, "style")
   var style = joinDeclarations(declarations)
   if (style === "") {
-    if (attr) removeAttribute(node, "style")
+    if (attribute) removeAttribute(node, "style")
     return
   }
-  if (attr) attr.value = style
+  if (attribute) attribute.value = style
   else node.attrs.push({ name: "style", value: style })
 }
 
@@ -570,8 +570,8 @@ function hostsOf(value) {
 
 function isPublicUrl(value) {
   var hosts = hostsOf(value)
-  for (var i = 0; i < hosts.length; i++) {
-    if (!isPublicHost(hosts[i])) return false
+  for (var hostIndex = 0; hostIndex < hosts.length; hostIndex++) {
+    if (!isPublicHost(hosts[hostIndex])) return false
   }
   return true
 }
@@ -612,24 +612,24 @@ function isPublicIpv4(host) {
   var parts = String(host).match(DOTTED_QUAD)
   if (!parts) return false
   var octets = []
-  for (var i = 1; i <= 4; i++) {
+  for (var octetIndex = 1; octetIndex <= 4; octetIndex++) {
     // A leading zero reads as octal to some resolvers and as decimal to
     // others, so "0177.0.0.1" is 127.0.0.1 to one of them. Neither reading is
     // worth the risk of picking the wrong one.
-    if (parts[i].length > 1 && parts[i].charAt(0) === "0") return false
-    var value = Number(parts[i])
+    if (parts[octetIndex].length > 1 && parts[octetIndex].charAt(0) === "0") return false
+    var value = Number(parts[octetIndex])
     if (value > 255) return false
     octets.push(value)
   }
-  var a = octets[0]
-  var b = octets[1]
-  if (a === 0 || a === 10 || a === 127) return false
-  if (a === 169 && b === 254) return false
-  if (a === 172 && b >= 16 && b <= 31) return false
-  if (a === 192 && (b === 168 || b === 0)) return false
-  if (a === 198 && (b === 18 || b === 19)) return false
-  if (a === 100 && b >= 64 && b <= 127) return false
-  if (a >= 224) return false
+  var firstOctet = octets[0]
+  var secondOctet = octets[1]
+  if (firstOctet === 0 || firstOctet === 10 || firstOctet === 127) return false
+  if (firstOctet === 169 && secondOctet === 254) return false
+  if (firstOctet === 172 && secondOctet >= 16 && secondOctet <= 31) return false
+  if (firstOctet === 192 && (secondOctet === 168 || secondOctet === 0)) return false
+  if (firstOctet === 198 && (secondOctet === 18 || secondOctet === 19)) return false
+  if (firstOctet === 100 && secondOctet >= 64 && secondOctet <= 127) return false
+  if (firstOctet >= 224) return false
   return true
 }
 
@@ -696,25 +696,25 @@ function base64Prefix(payload, byteLimit) {
   if (padding === 1 && BASE64_ALPHABET.indexOf(text.charAt(text.length - 2)) % 4 !== 0)
     return []
   var out = []
-  for (var i = 0; i < text.length && out.length < byteLimit; i += 4) {
-    var a = BASE64_ALPHABET.indexOf(text.charAt(i))
-    var b = BASE64_ALPHABET.indexOf(text.charAt(i + 1))
-    var c = text.charAt(i + 2) === "=" ? 0 : BASE64_ALPHABET.indexOf(text.charAt(i + 2))
-    var d = text.charAt(i + 3) === "=" ? 0 : BASE64_ALPHABET.indexOf(text.charAt(i + 3))
-    if (a < 0 || b < 0 || c < 0 || d < 0) return []
-    out.push((a << 2) | (b >> 4))
-    if (text.charAt(i + 2) !== "=" && out.length < byteLimit)
-      out.push(((b & 15) << 4) | (c >> 2))
-    if (text.charAt(i + 3) !== "=" && out.length < byteLimit)
-      out.push(((c & 3) << 6) | d)
+  for (var offset = 0; offset < text.length && out.length < byteLimit; offset += 4) {
+    var firstDigit = BASE64_ALPHABET.indexOf(text.charAt(offset))
+    var secondDigit = BASE64_ALPHABET.indexOf(text.charAt(offset + 1))
+    var thirdDigit = text.charAt(offset + 2) === "=" ? 0 : BASE64_ALPHABET.indexOf(text.charAt(offset + 2))
+    var fourthDigit = text.charAt(offset + 3) === "=" ? 0 : BASE64_ALPHABET.indexOf(text.charAt(offset + 3))
+    if (firstDigit < 0 || secondDigit < 0 || thirdDigit < 0 || fourthDigit < 0) return []
+    out.push((firstDigit << 2) | (secondDigit >> 4))
+    if (text.charAt(offset + 2) !== "=" && out.length < byteLimit)
+      out.push(((secondDigit & 15) << 4) | (thirdDigit >> 2))
+    if (text.charAt(offset + 3) !== "=" && out.length < byteLimit)
+      out.push(((thirdDigit & 3) << 6) | fourthDigit)
   }
   return out
 }
 
 function bytesStartWith(bytes, expected) {
   if (bytes.length < expected.length) return false
-  for (var i = 0; i < expected.length; i++) {
-    if (bytes[i] !== expected[i]) return false
+  for (var byteIndex = 0; byteIndex < expected.length; byteIndex++) {
+    if (bytes[byteIndex] !== expected[byteIndex]) return false
   }
   return true
 }
@@ -776,16 +776,16 @@ function safeHref(value) {
 function stripCssComments(text) {
   var input = String(text || "")
   var out = ""
-  var i = 0
-  while (i < input.length) {
-    if (input.charAt(i) === "/" && input.charAt(i + 1) === "*") {
-      var end = input.indexOf("*/", i + 2)
+  var position = 0
+  while (position < input.length) {
+    if (input.charAt(position) === "/" && input.charAt(position + 1) === "*") {
+      var end = input.indexOf("*/", position + 2)
       if (end < 0) break
-      i = end + 2
+      position = end + 2
       continue
     }
-    out += input.charAt(i)
-    i++
+    out += input.charAt(position)
+    position++
   }
   return out
 }
@@ -793,26 +793,26 @@ function stripCssComments(text) {
 function cssUnescape(text) {
   var input = String(text || "")
   var out = ""
-  for (var i = 0; i < input.length; i++) {
-    if (input.charAt(i) !== "\\") {
-      out += input.charAt(i)
+  for (var position = 0; position < input.length; position++) {
+    if (input.charAt(position) !== "\\") {
+      out += input.charAt(position)
       continue
     }
-    if (i + 1 >= input.length) break
+    if (position + 1 >= input.length) break
     var hex = ""
-    var j = i + 1
-    while (j < input.length && hex.length < 6 && /[0-9a-fA-F]/.test(input.charAt(j))) {
-      hex += input.charAt(j)
-      j++
+    var escapeEnd = position + 1
+    while (escapeEnd < input.length && hex.length < 6 && /[0-9a-fA-F]/.test(input.charAt(escapeEnd))) {
+      hex += input.charAt(escapeEnd)
+      escapeEnd++
     }
     if (hex !== "") {
       out += String.fromCharCode(parseInt(hex, 16))
-      if (/[\t\n\r\f ]/.test(input.charAt(j))) j++
-      i = j - 1
+      if (/[\t\n\r\f ]/.test(input.charAt(escapeEnd))) escapeEnd++
+      position = escapeEnd - 1
       continue
     }
-    out += input.charAt(i + 1)
-    i++
+    out += input.charAt(position + 1)
+    position++
   }
   return out
 }
@@ -820,11 +820,11 @@ function cssUnescape(text) {
 function resolvedStyle(style) {
   var current = String(style === undefined || style === null ? "" : style)
   var previous = ""
-  var n = 0
-  while (current !== previous && n < 8) {
+  var iteration = 0
+  while (current !== previous && iteration < 8) {
     previous = current
     current = cssUnescape(stripCssComments(current))
-    n++
+    iteration++
   }
   return current
 }
@@ -837,8 +837,8 @@ function splitDeclarations(style) {
   var current = ""
   var quote = ""
   var depth = 0
-  for (var i = 0; i < text.length; i++) {
-    var character = text.charAt(i)
+  for (var characterIndex = 0; characterIndex < text.length; characterIndex++) {
+    var character = text.charAt(characterIndex)
     if (quote !== "") {
       current += character
       if (character === quote) quote = ""
@@ -861,8 +861,8 @@ function splitDeclarations(style) {
   out.push(current)
 
   var declarations = []
-  for (var j = 0; j < out.length; j++) {
-    var piece = out[j]
+  for (var declarationIndex = 0; declarationIndex < out.length; declarationIndex++) {
+    var piece = out[declarationIndex]
     if (piece.replace(/\s+/g, "") === "") continue
     var colon = piece.indexOf(":")
     if (colon < 0) continue
@@ -890,9 +890,9 @@ function sourceDeclarations(node) {
 
 function joinDeclarations(declarations) {
   var parts = []
-  for (var i = 0; i < declarations.length; i++) {
-    if (declarations[i].value === "") continue
-    parts.push(declarations[i].name + ":" + declarations[i].value)
+  for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    if (declarations[declarationIndex].value === "") continue
+    parts.push(declarations[declarationIndex].name + ":" + declarations[declarationIndex].value)
   }
   return parts.join(";")
 }
@@ -900,12 +900,12 @@ function joinDeclarations(declarations) {
 // Rewrites an element's style attribute through `decide`, which is handed each
 // declaration and returns it, a replacement, or null to drop it.
 function rewriteStyle(node, decide) {
-  var attr = attributeOf(node, "style")
-  if (!attr || attr.value === null || attr.value === undefined) return
-  var declarations = splitDeclarations(attr.value)
+  var attribute = attributeOf(node, "style")
+  if (!attribute || attribute.value === null || attribute.value === undefined) return
+  var declarations = splitDeclarations(attribute.value)
   var kept = []
-  for (var i = 0; i < declarations.length; i++) {
-    var verdict = decide(declarations[i])
+  for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    var verdict = decide(declarations[declarationIndex])
     if (verdict) kept.push(verdict)
   }
   setStyle(node, kept)
@@ -983,8 +983,8 @@ function stripStyleUrlsFrom(node) {
 // two-pixel smudge of unreadable characters above the message. Elements the
 // sender marked hidden are therefore removed rather than styled away.
 function isHiddenBy(declarations) {
-  for (var i = 0; i < declarations.length; i++) {
-    var declaration = declarations[i]
+  for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    var declaration = declarations[declarationIndex]
     if (declaration.name === "display" && /^none\b/i.test(declaration.value)) return true
     if (declaration.name === "visibility" && /^hidden\b/i.test(declaration.value)) return true
   }
@@ -1006,9 +1006,9 @@ function isTrackingPixel(node) {
   if (isFinite(width) && attributeValue(node, "width") !== "" && width <= 2) return true
   if (isFinite(height) && attributeValue(node, "height") !== "" && height <= 2) return true
   var declarations = sourceDeclarations(node) || []
-  for (var i = 0; i < declarations.length; i++) {
-    if (declarations[i].name !== "width" && declarations[i].name !== "height") continue
-    if (/^[012](\.\d+)?px/i.test(declarations[i].value)) return true
+  for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    if (declarations[declarationIndex].name !== "width" && declarations[declarationIndex].name !== "height") continue
+    if (/^[012](\.\d+)?px/i.test(declarations[declarationIndex].value)) return true
   }
   return false
 }
@@ -1035,8 +1035,8 @@ var TABLE_PARTS = {
 // is a logo beside a nav, one cell is a box, and neither loses anything by
 // becoming what it already was.
 function rowsOf(node, out) {
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") continue
     // A nested table's rows are its own. They answer this question for it.
     if (child.name === "table") continue
@@ -1049,10 +1049,10 @@ function rowsOf(node, out) {
 function isGrid(node) {
   var rows = rowsOf(node, [])
   var lines = 0
-  for (var i = 0; i < rows.length; i++) {
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     var cells = 0
-    for (var j = 0; j < rows[i].children.length; j++) {
-      var cell = rows[i].children[j]
+    for (var childIndex = 0; childIndex < rows[rowIndex].children.length; childIndex++) {
+      var cell = rows[rowIndex].children[childIndex]
       if (cell.type === "text") continue
       if (cell.name === "td" || cell.name === "th") cells++
     }
@@ -1072,8 +1072,8 @@ function asBlock(node) {
 // The parts belonging to this table, which stops at a nested one: that table
 // has been asked its own question already, and those rows and cells are its.
 function flattenPartsOf(node) {
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text" || child.name === "table") continue
     flattenPartsOf(child)
     if (TABLE_PARTS[child.name] === true) asBlock(child)
@@ -1085,8 +1085,8 @@ function flattenPartsOf(node) {
 // budget meant for competing column widths is what put the budget on the
 // wrong two levels in the first place.
 function flattenTablesIn(node, limit, depth) {
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") continue
     if (child.name !== "table") {
       flattenTablesIn(child, limit, depth)
@@ -1132,13 +1132,13 @@ var ALIGNED_BY_COLUMN = { td: true, th: true }
 
 function cleanAttributes(node, keepColors, declarations) {
   var uncentre = ALIGNED_BY_COLUMN[node.name] !== true
-  var attrs = node.attrs
-  var kept = attrs
+  var attributes = node.attrs
+  var kept = attributes
   var dropped = false
 
-  for (var i = 0; i < attrs.length; i++) {
-    var attr = attrs[i]
-    var name = attr.name
+  for (var attributeIndex = 0; attributeIndex < attributes.length; attributeIndex++) {
+    var attribute = attributes[attributeIndex]
+    var name = attribute.name
     var drop = false
     // Unconditionally, and before the colour question is asked: `keepColors`
     // is an appearance setting, and no appearance setting may hand the
@@ -1155,14 +1155,14 @@ function cleanAttributes(node, keepColors, declarations) {
     // Event handlers, which Qt ignores but which have no business surviving a
     // trip through a mail client.
     else if (name.charCodeAt(0) === 111 && HANDLER_ATTRIBUTE.test(name)) drop = true
-    else if (name === "href" && !safeHref(attr.value)) drop = true
-    else if (uncentre && name === "align" && CENTRED.test(String(attr.value))) drop = true
+    else if (name === "href" && !safeHref(attribute.value)) drop = true
+    else if (uncentre && name === "align" && CENTRED.test(String(attribute.value))) drop = true
 
     if (drop && !dropped) {
       dropped = true
-      kept = attrs.slice(0, i)
+      kept = attributes.slice(0, attributeIndex)
     } else if (!drop && dropped) {
-      kept.push(attr)
+      kept.push(attribute)
     }
   }
   if (dropped) node.attrs = kept
@@ -1170,8 +1170,8 @@ function cleanAttributes(node, keepColors, declarations) {
   if (declarations === null) return
 
   var survivors = []
-  for (var j = 0; j < declarations.length; j++) {
-    var declaration = declarations[j]
+  for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    var declaration = declarations[declarationIndex]
     if (!keepColors && COLOUR_DECLARATIONS[declaration.name] === true) continue
     if (uncentre && declaration.name === "text-align" && CENTRED.test(declaration.value)) continue
     // No test for a reference here: `splitDeclarations` has already taken them
@@ -1185,12 +1185,12 @@ function cleanAttributes(node, keepColors, declarations) {
 function collapseAttributes(node) {
   var seen = {}
   var kept = []
-  var attrs = node.attrs
-  for (var i = 0; i < attrs.length; i++) {
-    var name = attrs[i].name
+  var attributes = node.attrs
+  for (var attributeIndex = 0; attributeIndex < attributes.length; attributeIndex++) {
+    var name = attributes[attributeIndex].name
     if (seen[name] === true) continue
     seen[name] = true
-    kept.push(attrs[i])
+    kept.push(attributes[attributeIndex])
   }
   node.attrs = kept
 }
@@ -1201,8 +1201,8 @@ function collapseAttributes(node) {
 // Qt understands while leaving the original declaration for other consumers.
 function promoteImageDimensions(node, declarations) {
   if (node.name !== "img" || declarations === null) return
-  for (var i = 0; i < declarations.length; i++) {
-    var declaration = declarations[i]
+  for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    var declaration = declarations[declarationIndex]
     if (declaration.name !== "width" && declaration.name !== "height") continue
     if (attributeOf(node, declaration.name) !== null) continue
     var pixels = String(declaration.value).match(/^(\d+(?:\.\d+)?)px$/i)
@@ -1230,9 +1230,9 @@ function promoteDirection(node, declarations) {
   // The sender's own attribute wins. It is the more specific statement of the
   // two, and it is the one they wrote for a client that reads it.
   if (attributeOf(node, "dir") !== null) return
-  for (var i = 0; i < declarations.length; i++) {
-    if (declarations[i].name !== "direction") continue
-    var value = String(declarations[i].value).trim().toLowerCase()
+  for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    if (declarations[declarationIndex].name !== "direction") continue
+    var value = String(declarations[declarationIndex].value).trim().toLowerCase()
     if (DIRECTION_VALUES[value] !== true) continue
     setAttribute(node, "dir", value)
     return
@@ -1240,8 +1240,8 @@ function promoteDirection(node, declarations) {
 }
 
 function hasDirectImage(node) {
-  for (var i = 0; i < node.children.length; i++) {
-    if (node.children[i].type !== "text" && node.children[i].name === "img") return true
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    if (node.children[childIndex].type !== "text" && node.children[childIndex].name === "img") return true
   }
   return false
 }
@@ -1286,8 +1286,8 @@ var PLAIN_CONTAINER = {
 // Whitespace between blocks is not content and does not count against it.
 function soleBlockChild(node) {
   var found = null
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") {
       if (child.text.replace(/[\s\u00a0]+/g, "") !== "") return null
       continue
@@ -1302,8 +1302,8 @@ function soleBlockChild(node) {
 // Bottom up, so a stack of seven collapses to one rather than to six.
 function collapse(node) {
   var kept = []
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") {
       kept.push(child)
       continue
@@ -1311,7 +1311,7 @@ function collapse(node) {
     collapse(child)
     if (child.attrs.length === 0) {
       if (TRANSPARENT_INLINE[child.name] === true) {
-        for (var j = 0; j < child.children.length; j++) kept.push(child.children[j])
+        for (var grandchildIndex = 0; grandchildIndex < child.children.length; grandchildIndex++) kept.push(child.children[grandchildIndex])
         continue
       }
       if (PLAIN_CONTAINER[child.name] === true) {
@@ -1414,8 +1414,8 @@ function sanitize(html, options) {
 
   function clean(node) {
     var survivors = []
-    for (var i = 0; i < node.children.length; i++) {
-      var child = node.children[i]
+    for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+      var child = node.children[childIndex]
       if (child.type === "text") {
         survivors.push(child)
         continue
@@ -1562,8 +1562,8 @@ function stripElement(html, name) {
 
 function measure(node, depth, size) {
   var deepest = depth
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") continue
     size.tags++
     if (child.name === "img") size.images++
@@ -1683,46 +1683,46 @@ var FITTABLE_DECLARATION = /width|nowrap/i
 // is the reader fitting a message to the window it happens to be, and the same
 // message is fitted again at the next width.
 function fitAttributes(node, fit) {
-  var attrs = node.attrs
-  if (attrs.length === 0) return attrs
+  var attributes = node.attrs
+  if (attributes.length === 0) return attributes
   var isImage = fit.heights && node.name === "img"
   var isSized = fit.widths && SIZED_ELEMENTS[node.name] === true
   var imageWidth = Number(attributeValue(node, "width"))
   var dropImageHeight = isImage && (!fit.clampedHeightsOnly
     || (isFinite(imageWidth) && imageWidth > fit.limit))
   if (!isImage && !isSized && !fit.sides) {
-    if (!fit.widths) return attrs
+    if (!fit.widths) return attributes
     // Anything can carry white-space:nowrap, so the fast path out of here has
     // to ask every element about it — and asks with a substring test, because
     // splitting the declarations of a document that has none is the whole cost
     // of a relayout for nothing.
     var carried = attributeOf(node, "style")
-    if (carried === null || String(carried.value).indexOf("nowrap") < 0) return attrs
+    if (carried === null || String(carried.value).indexOf("nowrap") < 0) return attributes
   }
 
   var out = null
-  for (var i = 0; i < attrs.length; i++) {
-    var attr = attrs[i]
-    var replacement = attr
+  for (var attributeIndex = 0; attributeIndex < attributes.length; attributeIndex++) {
+    var attribute = attributes[attributeIndex]
+    var replacement = attribute
 
     // An explicit height survives the max-width clamp, so a banner scaled from
     // 1600 to 380 keeps its original height and renders as a smear. Measured
     // against the engine rather than assumed: strip the heights and Qt derives
     // the height from the aspect ratio on its own.
-    if (dropImageHeight && attr.name === "height") replacement = null
-    else if (isSized && attr.name === "width"
-      && intrinsicContentWidth(node, attr.value)) replacement = null
-    else if (isSized && attr.name === "width" && /^\d+$/.test(String(attr.value))
-      && Number(attr.value) > fit.limit) replacement = null
-    else if (attr.name === "style" && attr.value !== null && attr.value !== undefined
-      && (fit.sides || FITTABLE_DECLARATION.test(String(attr.value))
+    if (dropImageHeight && attribute.name === "height") replacement = null
+    else if (isSized && attribute.name === "width"
+      && intrinsicContentWidth(node, attribute.value)) replacement = null
+    else if (isSized && attribute.name === "width" && /^\d+$/.test(String(attribute.value))
+      && Number(attribute.value) > fit.limit) replacement = null
+    else if (attribute.name === "style" && attribute.value !== null && attribute.value !== undefined
+      && (fit.sides || FITTABLE_DECLARATION.test(String(attribute.value))
         || dropImageHeight)) {
-      var declarations = splitDeclarations(attr.value)
+      var declarations = splitDeclarations(attribute.value)
       var kept = []
       var changed = false
-      for (var j = 0; j < declarations.length; j++) {
-        var fitted = fitDeclaration(declarations[j], node, fit, dropImageHeight)
-        if (fitted !== declarations[j]) changed = true
+      for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+        var fitted = fitDeclaration(declarations[declarationIndex], node, fit, dropImageHeight)
+        if (fitted !== declarations[declarationIndex]) changed = true
         if (fitted) kept.push(fitted)
       }
       if (changed) {
@@ -1731,14 +1731,14 @@ function fitAttributes(node, fit) {
       }
     }
 
-    if (replacement === attr) {
-      if (out !== null) out.push(attr)
+    if (replacement === attribute) {
+      if (out !== null) out.push(attribute)
       continue
     }
-    if (out === null) out = attrs.slice(0, i)
+    if (out === null) out = attributes.slice(0, attributeIndex)
     if (replacement !== null) out.push(replacement)
   }
-  return out === null ? attrs : out
+  return out === null ? attributes : out
 }
 
 // The reader rebuilds its document whenever the window width or the zoom
@@ -1764,16 +1764,16 @@ function fixedPixelWidth(value) {
 
 function widestDeclaredContent(node, current) {
   var widest = current
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") continue
     if (CONTENT_WIDTH_ELEMENTS[child.name] === true) {
       var width = fixedPixelWidth(attributeValue(child, "width"))
       var declarations = splitDeclarations(attributeValue(child, "style"))
-      for (var j = 0; j < declarations.length; j++) {
-        if (declarations[j].name !== "max-width"
-          && declarations[j].name !== "width") continue
-        width = Math.max(width, fixedPixelWidth(declarations[j].value))
+      for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+        if (declarations[declarationIndex].name !== "max-width"
+          && declarations[declarationIndex].name !== "width") continue
+        width = Math.max(width, fixedPixelWidth(declarations[declarationIndex].value))
       }
       // Tiny fixed boxes are icons, bullets, and badges, not the message card.
       if (width >= 240) widest = Math.max(widest, width)
@@ -1833,8 +1833,8 @@ function documentFor(bodyHtml, colors) {
   var quote = String(palette.quote || foreground)
   // Margin on body is ignored by Qt's rich text engine, so the padding lives
   // on a wrapper the sender's markup sits inside.
-  var pad = Math.max(0, Math.floor(Number(palette.padding) || 0))
-  var maxImage = Math.floor(Number(palette.maxImageWidth) || 0)
+  var paddingPixels = Math.max(0, Math.floor(Number(palette.padding) || 0))
+  var maxImageWidthPixels = Math.floor(Number(palette.maxImageWidth) || 0)
   // Which way the message runs — see `baseDirectionAttribute` below.
   var direction = String(palette.direction || "")
   var quoteEdge = Direction.startEdge(direction)
@@ -1847,7 +1847,7 @@ function documentFor(bodyHtml, colors) {
   // cannot hold goes at every width: there is no horizontal scroll here, so
   // what overflows is not read at all.
   var fit = fitting(true, palette.compact === true,
-    maxImage >= MIN_IMAGE_WIDTH, maxImage, true)
+    maxImageWidthPixels >= MIN_IMAGE_WIDTH, maxImageWidthPixels, true)
 
   return "<html><head><style type=\"text/css\">"
     + "body{color:" + foreground + ";background-color:" + background + ";}"
@@ -1858,11 +1858,11 @@ function documentFor(bodyHtml, colors) {
     + "blockquote{color:" + quote + ";margin-" + quoteEdge + ":8px;padding-"
       + quoteEdge + ":8px;}"
     + "td,th{padding:2px;}"
-    + (maxImage >= MIN_IMAGE_WIDTH ? "img{max-width:" + maxImage + "px;}" : "")
+    + (maxImageWidthPixels >= MIN_IMAGE_WIDTH ? "img{max-width:" + maxImageWidthPixels + "px;}" : "")
     + "</style></head><body" + baseDirectionAttribute(palette) + ">"
-    + (pad > 0 ? "<div style=\"padding:" + pad + "px\">" : "")
+    + (paddingPixels > 0 ? "<div style=\"padding:" + paddingPixels + "px\">" : "")
     + serialize(root, fit)
-    + (pad > 0 ? "</div>" : "")
+    + (paddingPixels > 0 ? "</div>" : "")
     + "</body></html>"
 }
 
@@ -2041,8 +2041,8 @@ function readerAppendBreak(state) {
 // block the reader does not draw, which is most of what a layout table is made
 // of.
 function readerMeaningful(nodes) {
-  for (var i = 0; i < nodes.length; i++) {
-    var node = nodes[i]
+  for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+    var node = nodes[nodeIndex]
     if (node.type === "text") {
       if (decodeReferences(node.text).replace(/[\s\u00a0]+/g, "") !== "") return true
       continue
@@ -2071,8 +2071,8 @@ function readerTrimmed(nodes) {
 // asked of anything about to become a heading.
 function readerLength(nodes) {
   var total = 0
-  for (var i = 0; i < nodes.length; i++) {
-    var node = nodes[i]
+  for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+    var node = nodes[nodeIndex]
     if (node.type === "text") total += decodeReferences(node.text).length
     // A picture is a word or two of the line it sits on, which is all this has
     // to be right about: the question is only whether a run is short.
@@ -2091,11 +2091,11 @@ function readerFlush(state, name) {
   state.filled = false
 
   var reopened = []
-  for (var i = 0; i < state.chain.length; i++) {
-    var fresh = readerElement(state.chain[i].name)
+  for (var chainIndex = 0; chainIndex < state.chain.length; chainIndex++) {
+    var fresh = readerElement(state.chain[chainIndex].name)
     // Shared rather than copied: nothing mutates a reader element's attributes
     // once it is built, and a link wrapped around forty boxes is forty of these.
-    fresh.attrs = state.chain[i].attrs
+    fresh.attrs = state.chain[chainIndex].attrs
     if (reopened.length > 0) reopened[reopened.length - 1].children.push(fresh)
     else state.inline.push(fresh)
     reopened.push(fresh)
@@ -2122,8 +2122,8 @@ function readerHiddenBy(declarations, leaf) {
   if (isHiddenBy(declarations)) return true
   var clipped = false
   var hidden = false
-  for (var i = 0; i < declarations.length; i++) {
-    var declaration = declarations[i]
+  for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    var declaration = declarations[declarationIndex]
     var name = declaration.name
     // Only where the text is. A container full of boxes writes "font-size:0" to
     // take out the space between them and every box inside sets a size of its
@@ -2147,8 +2147,8 @@ function readerHidden(node) {
   var style = attributeValue(node, "style")
   if (style === "") return false
   var leaf = true
-  for (var i = 0; i < node.children.length; i++) {
-    if (node.children[i].type !== "text") { leaf = false; break }
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    if (node.children[childIndex].type !== "text") { leaf = false; break }
   }
   return readerHiddenBy(sourceDeclarations(node) || [], leaf)
 }
@@ -2175,9 +2175,9 @@ function readerHref(node) {
 // than passed through: an attribute value is not markup, and alt="a<b" would
 // otherwise serialise into a tag.
 function readerAltText(node) {
-  var attr = attributeOf(node, "alt")
-  if (!attr || attr.value === null || attr.value === undefined) return ""
-  return escapeText(decodeReferences(String(attr.value)))
+  var attribute = attributeOf(node, "alt")
+  if (!attribute || attribute.value === null || attribute.value === undefined) return ""
+  return escapeText(decodeReferences(String(attribute.value)))
     .replace(SOURCE_WHITESPACE, " ").replace(/^ +| +$/g, "")
 }
 
@@ -2193,9 +2193,9 @@ function readerImageDimension(node, name) {
   var value = /^\s*\d+(?:\.\d+)?\s*$/.test(raw) ? Number(raw) : 0
   if (!(value > 0)) {
     var declarations = sourceDeclarations(node) || []
-    for (var i = 0; i < declarations.length; i++) {
-      if (declarations[i].name !== name) continue
-      var match = String(declarations[i].value).match(/^\s*(\d+(?:\.\d+)?)px\s*$/i)
+    for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+      if (declarations[declarationIndex].name !== name) continue
+      var match = String(declarations[declarationIndex].value).match(/^\s*(\d+(?:\.\d+)?)px\s*$/i)
       if (match) value = Number(match[1])
     }
   }
@@ -2203,18 +2203,18 @@ function readerImageDimension(node, name) {
   return Math.max(3, Math.round(value))
 }
 
-function readerAppendImage(state, node, ctx) {
+function readerAppendImage(state, node, reading) {
   // A beacon is not a picture, and a reader that left a placeholder where one
   // had been would be announcing the tracker rather than removing it.
   if (isTrackingPixel(node)) return
-  var attr = attributeOf(node, "src")
-  var source = attr && attr.value !== null && attr.value !== undefined ? String(attr.value) : ""
-  var kind = attr === null ? "none" : imageSourceKind(source)
+  var attribute = attributeOf(node, "src")
+  var source = attribute && attribute.value !== null && attribute.value !== undefined ? String(attribute.value) : ""
+  var kind = attribute === null ? "none" : imageSourceKind(source)
 
-  var renderedSource = kind === "remote" ? preparedImage(ctx, source) : source
-  var eligible = kind === "inline" || (kind === "remote" && ctx.allowImages && renderedSource !== "")
-  if (eligible && admitImage(ctx, renderedSource)) {
-    if (kind === "remote") ctx.kept++
+  var renderedSource = kind === "remote" ? preparedImage(reading, source) : source
+  var eligible = kind === "inline" || (kind === "remote" && reading.allowImages && renderedSource !== "")
+  if (eligible && admitImage(reading, renderedSource)) {
+    if (kind === "remote") reading.kept++
     readerSpace(state)
     var image = readerElement("img")
     image.attrs = [{ name: "src", value: renderedSource }]
@@ -2233,7 +2233,7 @@ function readerAppendImage(state, node, ctx) {
     state.pending = false
     return
   }
-  if (!eligible && kind === "remote") ctx.blocked++
+  if (!eligible && kind === "remote") reading.blocked++
 
   var alt = readerAltText(node)
   if (alt !== "") {
@@ -2243,7 +2243,7 @@ function readerAppendImage(state, node, ctx) {
   // An alt the sender wrote and left empty is the sender saying this one is
   // decoration. One they never wrote at all is a picture with something in it,
   // and a reader that drew nothing there would leave unexplained blank space.
-  if (kind === "remote" && attr !== null && attributeOf(node, "alt") === null)
+  if (kind === "remote" && attribute !== null && attributeOf(node, "alt") === null)
     readerAppendText(state, "[image]")
 }
 
@@ -2287,9 +2287,9 @@ function readerHeadingOf(node) {
   if (style.toLowerCase().indexOf("font-size") < 0) return ""
   var declarations = sourceDeclarations(node) || []
   var level = ""
-  for (var i = 0; i < declarations.length; i++) {
-    if (declarations[i].name !== "font-size") continue
-    level = readerHeadingLevel(declarations[i].value)
+  for (var declarationIndex = 0; declarationIndex < declarations.length; declarationIndex++) {
+    if (declarations[declarationIndex].name !== "font-size") continue
+    level = readerHeadingLevel(declarations[declarationIndex].value)
   }
   return level
 }
@@ -2298,24 +2298,24 @@ function readerHeadingOf(node) {
 // <h1> holding two paragraphs is still the sender saying heading, so those are
 // joined into one; a box holding two paragraphs is a card whatever type the
 // sender set on it, and inferring a heading from that would swallow the card.
-function readerHeading(node, state, ctx, tag, single) {
+function readerHeading(node, state, reading, tag, single) {
   readerFlush(state, "p")
-  var blocks = readerBuild(node, ctx)
+  var blocks = readerBuild(node, reading)
   var content = single === true && blocks.length > 1 ? null : []
-  for (var i = 0; i < blocks.length && content !== null; i++) {
-    if (blocks[i].name !== "p") {
+  for (var blockIndex = 0; blockIndex < blocks.length && content !== null; blockIndex++) {
+    if (blocks[blockIndex].name !== "p") {
       content = null
       break
     }
     if (content.length > 0) content.push(readerText(" "))
-    for (var j = 0; j < blocks[i].children.length; j++) content.push(blocks[i].children[j])
+    for (var childIndex = 0; childIndex < blocks[blockIndex].children.length; childIndex++) content.push(blocks[blockIndex].children[childIndex])
   }
   // A sender who wrapped a whole card in an <h1>, or set a font size on the box
   // around one, did not write a heading. What is inside it is what the message
   // says, so it comes through as itself.
   if (content === null || content.length === 0
     || readerLength(content) > MAX_HEADING_CHARS) {
-    for (var k = 0; k < blocks.length; k++) state.blocks.push(blocks[k])
+    for (var remainingIndex = 0; remainingIndex < blocks.length; remainingIndex++) state.blocks.push(blocks[remainingIndex])
     return
   }
   var heading = readerElement(tag)
@@ -2342,8 +2342,8 @@ function readerHeading(node, state, ctx, tag, single) {
 var READER_SEPARATOR = /^[\s\u00a0]*[|\u00b7\u2022\u2013\u2014\/-]?[\s\u00a0]*$/
 
 function readerFurniture(node) {
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") continue
     // A picture is content whatever it weighs in characters.
     if (child.name === "img") return false
@@ -2354,24 +2354,24 @@ function readerFurniture(node) {
 
 function readerTextOf(node) {
   var text = ""
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     text += child.type === "text" ? child.text : readerTextOf(child)
   }
   return text
 }
 
-function readerDataTable(node, ctx) {
+function readerDataTable(node, reading) {
   var rows = rowsOf(node, [])
   if (rows.length === 0 || rows.length > MAX_READER_TABLE_ROWS) return null
 
   // The whole shape is settled before a single cell is built, so refusing the
   // table costs no walk that the blocks it becomes instead would have to repeat.
   var grid = []
-  for (var i = 0; i < rows.length; i++) {
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     var cells = []
-    for (var j = 0; j < rows[i].children.length; j++) {
-      var cell = rows[i].children[j]
+    for (var childIndex = 0; childIndex < rows[rowIndex].children.length; childIndex++) {
+      var cell = rows[rowIndex].children[childIndex]
       if (cell.type === "text") continue
       if (cell.name === "td" || cell.name === "th") cells.push(cell)
     }
@@ -2381,20 +2381,20 @@ function readerDataTable(node, ctx) {
   if (grid.length === 0) return null
 
   var columns = 0
-  for (var g = 0; g < grid.length; g++) {
-    if (grid[g].length > columns) columns = grid[g].length
+  for (var gridIndex = 0; gridIndex < grid.length; gridIndex++) {
+    if (grid[gridIndex].length > columns) columns = grid[gridIndex].length
   }
   for (var column = columns - 1; column >= 0; column--) {
     var furniture = true
-    for (var r = 0; r < grid.length && furniture; r++) {
-      if (column >= grid[r].length || !readerFurniture(grid[r][column])) furniture = false
+    for (var candidateRow = 0; candidateRow < grid.length && furniture; candidateRow++) {
+      if (column >= grid[candidateRow].length || !readerFurniture(grid[candidateRow][column])) furniture = false
     }
     if (!furniture) continue
-    for (var w = 0; w < grid.length; w++) grid[w].splice(column, 1)
+    for (var trimmedRow = 0; trimmedRow < grid.length; trimmedRow++) grid[trimmedRow].splice(column, 1)
   }
   var widest = 0
-  for (var h = 0; h < grid.length; h++) {
-    if (grid[h].length > widest) widest = grid[h].length
+  for (var widthIndex = 0; widthIndex < grid.length; widthIndex++) {
+    if (grid[widthIndex].length > widest) widest = grid[widthIndex].length
   }
   // What is left of a grid once the furniture is out may not be one.
   if (widest < 2) return null
@@ -2402,17 +2402,17 @@ function readerDataTable(node, ctx) {
   var table = readerElement("table")
   // Nested grids inside a kept one are the scaffolding again. One level of
   // table is all the reader draws.
-  ctx.tables = false
+  reading.tables = false
   for (var row = 0; row < grid.length; row++) {
     var line = readerElement("tr")
-    for (var k = 0; k < grid[row].length; k++) {
-      var out = readerElement(grid[row][k].name === "th" ? "th" : "td")
-      out.children = readerInlineOrBlocks(readerBuild(grid[row][k], ctx))
+    for (var columnIndex = 0; columnIndex < grid[row].length; columnIndex++) {
+      var out = readerElement(grid[row][columnIndex].name === "th" ? "th" : "td")
+      out.children = readerInlineOrBlocks(readerBuild(grid[row][columnIndex], reading))
       line.children.push(out)
     }
     table.children.push(line)
   }
-  ctx.tables = true
+  reading.tables = true
   return table
 }
 
@@ -2437,8 +2437,8 @@ var MAX_ROW_CHARS = 160
 // three cells reading "label / value" came out as "Kundennummer", then
 // "1210617221 Rechnung Nr.", then "M26056185488 Rechnungsdatum".
 function readerBroken(children) {
-  for (var i = 0; i < children.length; i++) {
-    var child = children[i]
+  for (var childIndex = 0; childIndex < children.length; childIndex++) {
+    var child = children[childIndex]
     if (child.type === "text") continue
     if (child.name === "br") return true
     if (readerBroken(child.children)) return true
@@ -2446,11 +2446,11 @@ function readerBroken(children) {
   return false
 }
 
-function readerRow(node, state, ctx) {
+function readerRow(node, state, reading) {
   // Everything that can refuse a row is asked before anything is built.
   var cells = []
-  for (var i = 0; i < node.children.length; i++) {
-    var cell = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var cell = node.children[childIndex]
     if (cell.type === "text") continue
     if (cell.name !== "td" && cell.name !== "th") return false
     // A cell the sender set heading type on is a heading, and joining the row
@@ -2463,18 +2463,18 @@ function readerRow(node, state, ctx) {
   }
 
   var built = []
-  for (var j = 0; j < cells.length; j++) built.push(readerBuild(cells[j], ctx))
+  for (var cellIndex = 0; cellIndex < cells.length; cellIndex++) built.push(readerBuild(cells[cellIndex], reading))
 
   var line = []
-  for (var k = 0; k < built.length && line !== null; k++) {
-    var blocks = built[k]
+  for (var lineIndex = 0; lineIndex < built.length && line !== null; lineIndex++) {
+    var blocks = built[lineIndex]
     if (blocks.length === 0) continue
     if (blocks.length > 1 || blocks[0].name !== "p" || readerBroken(blocks[0].children)) {
       line = null
       break
     }
     if (line.length > 0) line.push(readerText(" "))
-    for (var m = 0; m < blocks[0].children.length; m++) line.push(blocks[0].children[m])
+    for (var wordIndex = 0; wordIndex < blocks[0].children.length; wordIndex++) line.push(blocks[0].children[wordIndex])
   }
 
   readerFlush(state, "p")
@@ -2486,8 +2486,8 @@ function readerRow(node, state, ctx) {
     }
     return true
   }
-  for (var n = 0; n < built.length; n++) {
-    for (var b = 0; b < built[n].length; b++) state.blocks.push(built[n][b])
+  for (var cellIndex = 0; cellIndex < built.length; cellIndex++) {
+    for (var blockIndex = 0; blockIndex < built[cellIndex].length; blockIndex++) state.blocks.push(built[cellIndex][blockIndex])
   }
   return true
 }
@@ -2499,17 +2499,17 @@ function readerInlineOrBlocks(blocks) {
   return blocks
 }
 
-function readerListItems(node, list, ctx) {
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+function readerListItems(node, list, reading) {
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") continue
     if (READER_DROPPED[child.name] === true) continue
     if (child.name !== "li") {
-      readerListItems(child, list, ctx)
+      readerListItems(child, list, reading)
       continue
     }
     var item = readerElement("li")
-    item.children = readerInlineOrBlocks(readerBuild(child, ctx))
+    item.children = readerInlineOrBlocks(readerBuild(child, reading))
     if (item.children.length === 0) continue
     list.children.push(item)
   }
@@ -2517,7 +2517,7 @@ function readerListItems(node, list, ctx) {
 
 // ------------------------------------------------------------------ the walk
 
-function readerNode(child, state, ctx) {
+function readerNode(child, state, reading) {
   if (child.type === "text") {
     // Raw text is a stylesheet or a script, whose element is dropped anyway.
     if (!child.raw) readerAppendText(state, child.text)
@@ -2532,7 +2532,7 @@ function readerNode(child, state, ctx) {
     return
   }
   if (name === "img") {
-    readerAppendImage(state, child, ctx)
+    readerAppendImage(state, child, reading)
     return
   }
   if (name === "hr") {
@@ -2545,13 +2545,13 @@ function readerNode(child, state, ctx) {
     var href = readerHref(child)
     // A link the reader will not follow is still a label the reader draws.
     if (href === "") {
-      readerWalk(child, state, ctx)
+      readerWalk(child, state, reading)
       return
     }
     var link = readerElement("a")
     link.attrs = [{ name: "href", value: href }]
     var linked = readerOpen(state, link)
-    readerWalk(child, state, ctx)
+    readerWalk(child, state, reading)
     if (linked) state.chain.pop()
     return
   }
@@ -2559,13 +2559,13 @@ function readerNode(child, state, ctx) {
   var inline = READER_INLINE[name]
   if (typeof inline === "string") {
     var opened = readerOpen(state, readerElement(inline))
-    readerWalk(child, state, ctx)
+    readerWalk(child, state, reading)
     if (opened) state.chain.pop()
     return
   }
 
   if (READER_HEADINGS[name] === true) {
-    readerHeading(child, state, ctx, name)
+    readerHeading(child, state, reading, name)
     return
   }
 
@@ -2583,20 +2583,20 @@ function readerNode(child, state, ctx) {
   if (name === "ul" || name === "ol") {
     readerFlush(state, "p")
     var list = readerElement(name)
-    readerListItems(child, list, ctx)
+    readerListItems(child, list, reading)
     if (list.children.length > 0) {
       state.blocks.push(list)
       return
     }
     // A list with no items is a box somebody spelled <ul>.
-    readerWalk(child, state, ctx)
+    readerWalk(child, state, reading)
     readerFlush(state, "p")
     return
   }
 
   if (name === "blockquote") {
     readerFlush(state, "p")
-    var quoted = readerBuild(child, ctx)
+    var quoted = readerBuild(child, reading)
     if (quoted.length === 0) return
     var quote = readerElement("blockquote")
     quote.children = quoted
@@ -2606,14 +2606,14 @@ function readerNode(child, state, ctx) {
 
   if (name === "table") {
     readerFlush(state, "p")
-    if (ctx.tables) {
-      var grid = isGrid(child) ? readerDataTable(child, ctx) : null
+    if (reading.tables) {
+      var grid = isGrid(child) ? readerDataTable(child, reading) : null
       if (grid !== null) {
         state.blocks.push(grid)
         return
       }
     }
-    readerWalk(child, state, ctx)
+    readerWalk(child, state, reading)
     readerFlush(state, "p")
     return
   }
@@ -2621,7 +2621,7 @@ function readerNode(child, state, ctx) {
   // Only with nothing open around it, for the same reason the heading below
   // says so: joining a row recurses into a document of its own, and a link
   // opened outside it would not survive that.
-  if (name === "tr" && state.chain.length === 0 && readerRow(child, state, ctx)) return
+  if (name === "tr" && state.chain.length === 0 && readerRow(child, state, reading)) return
 
   if (TABLE_PARTS[name] === true || READER_BLOCK[name] === true) {
     // Only with nothing open around it. Inferring a heading recurses into a
@@ -2630,28 +2630,28 @@ function readerNode(child, state, ctx) {
     // mail.
     var inferred = state.chain.length === 0 ? readerHeadingOf(child) : ""
     if (inferred !== "") {
-      readerHeading(child, state, ctx, inferred, true)
+      readerHeading(child, state, reading, inferred, true)
       return
     }
     readerFlush(state, "p")
-    readerWalk(child, state, ctx)
+    readerWalk(child, state, reading)
     readerFlush(state, "p")
     return
   }
 
   // Anything unrecognised is a wrapper, and what it wraps is the message.
-  readerWalk(child, state, ctx)
+  readerWalk(child, state, reading)
 }
 
-function readerWalk(node, state, ctx) {
-  for (var i = 0; i < node.children.length; i++) readerNode(node.children[i], state, ctx)
+function readerWalk(node, state, reading) {
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) readerNode(node.children[childIndex], state, reading)
 }
 
 // Preformatted text is the one place a run of spaces is content rather than the
 // template's indentation.
 function readerPreText(node, out) {
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") {
       if (!child.raw) out += child.text
       continue
@@ -2666,9 +2666,9 @@ function readerPreText(node, out) {
   return out
 }
 
-function readerBuild(node, ctx) {
+function readerBuild(node, reading) {
   var state = readerState()
-  readerWalk(node, state, ctx)
+  readerWalk(node, state, reading)
   readerFlush(state, "p")
   return state.blocks
 }
@@ -2677,8 +2677,8 @@ function readerBuild(node, ctx) {
 // and two in a row separate nothing from nothing.
 function readerTidy(blocks) {
   var out = []
-  for (var i = 0; i < blocks.length; i++) {
-    var block = blocks[i]
+  for (var blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+    var block = blocks[blockIndex]
     if (block.name === "hr") {
       if (out.length === 0) continue
       if (out[out.length - 1].name === "hr") continue
@@ -2736,8 +2736,8 @@ function readerAvatarRow(block) {
 }
 
 function readerContainsImage(nodes) {
-  for (var i = 0; i < nodes.length; i++) {
-    var node = nodes[i]
+  for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+    var node = nodes[nodeIndex]
     if (node.type === "text") continue
     if (node.name === "img" || readerContainsImage(node.children)) return true
   }
@@ -2746,8 +2746,8 @@ function readerContainsImage(nodes) {
 
 function readerSmallImageCount(nodes) {
   var count = 0
-  for (var i = 0; i < nodes.length; i++) {
-    var node = nodes[i]
+  for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+    var node = nodes[nodeIndex]
     if (node.type === "text") {
       if (decodeReferences(node.text).replace(/[\s\u00a0]+/g, "") !== "") return 0
       continue
@@ -2771,19 +2771,19 @@ function readerSmallImageCount(nodes) {
 // over the same parse it is about to clean for the formatted view.
 function readerTree(root, options) {
   var settings = options || {}
-  var ctx = imagePolicy(settings)
-  ctx.tables = true
-  var document = { type: "root", children: readerTidy(readerBuild(root, ctx)) }
+  var reading = imagePolicy(settings)
+  reading.tables = true
+  var document = { type: "root", children: readerTidy(readerBuild(root, reading)) }
   var text = serialize(document)
   var size = { length: text.length, tags: 0, images: 0, tables: 0, tableDepth: 0 }
   size.tableDepth = measure(document, 0, size)
   return {
     document: document,
     html: text,
-    images: ctx.kept,
-    blockedImages: ctx.blocked,
+    images: reading.kept,
+    blockedImages: reading.blocked,
     complexity: size,
-    tooHeavy: tooHeavyWithoutImageData(size, ctx),
+    tooHeavy: tooHeavyWithoutImageData(size, reading),
     // A message whose every word was in a picture has a reader document with
     // nothing in it, and the formatted view is the honest answer for it.
     empty: document.children.length === 0
@@ -2800,7 +2800,7 @@ function readerDocumentFor(source, colors) {
   var link = String(palette.link || foreground)
   var quote = String(palette.quote || foreground)
   var base = Math.max(8, Math.floor(Number(palette.fontSize) || 13))
-  var maxImage = Math.floor(Number(palette.maxImageWidth) || 0)
+  var maxImageWidthPixels = Math.floor(Number(palette.maxImageWidth) || 0)
   // One rhythm for the whole document, derived from the size it is read at, so
   // the spacing follows the zoom rather than standing still while the type
   // grows past it.
@@ -2842,7 +2842,7 @@ function readerDocumentFor(source, colors) {
     + "td,th{padding-top:" + rule + "px;padding-bottom:" + rule
       + "px;padding-" + endEdge + ":" + gap + "px;}"
     + "th{font-weight:bold;text-align:" + startEdge + ";}"
-    + (maxImage >= MIN_IMAGE_WIDTH ? "img{max-width:" + maxImage + "px;}" : "")
+    + (maxImageWidthPixels >= MIN_IMAGE_WIDTH ? "img{max-width:" + maxImageWidthPixels + "px;}" : "")
     + "</style></head><body" + baseDirectionAttribute(palette) + ">"
     + serialize(documentTree(source))
     + "</body></html>"
@@ -2967,8 +2967,8 @@ var SOURCE_WHITESPACE = /[ \t\r\n\f]+/g
 var CELL_ELEMENTS = { td: true, th: true }
 
 function flatten(node, state) {
-  for (var i = 0; i < node.children.length; i++) {
-    var child = node.children[i]
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
     if (child.type === "text") {
       // Collapsed before the references are decoded, not after: the run in the
       // source is the template's formatting, while &nbsp;&nbsp; is the sender
@@ -3000,8 +3000,8 @@ function flatten(node, state) {
 }
 
 function imageSourceOf(node) {
-  var attr = attributeOf(node, "src")
-  return attr && attr.value !== null && attr.value !== undefined ? String(attr.value) : ""
+  var attribute = attributeOf(node, "src")
+  return attribute && attribute.value !== null && attribute.value !== undefined ? String(attribute.value) : ""
 }
 
 function readTree(root) {

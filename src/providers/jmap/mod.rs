@@ -40,6 +40,29 @@ struct Registration<'a> {
     requests: &'a Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
     id: &'a str,
 }
+impl<'a> Registration<'a> {
+    fn new(
+        requests: &'a Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
+        params: &'a Value,
+    ) -> Result<(Self, tokio::sync::watch::Receiver<bool>), &'static str> {
+        let id = params
+            .get("requestId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if id.len() > 256 || id.chars().any(char::is_control) {
+            return Err("invalid_params");
+        }
+        let (cancel, cancelled) = tokio::sync::watch::channel(false);
+        if !id.is_empty() {
+            let mut active = requests.lock().map_err(|_| "session_failed")?;
+            if active.len() >= 64 || active.contains_key(id) {
+                return Err("jmap_request_limit");
+            }
+            active.insert(id.to_owned(), cancel);
+        }
+        Ok((Self { requests, id }, cancelled))
+    }
+}
 impl Drop for Registration<'_> {
     fn drop(&mut self) {
         if !self.id.is_empty()
@@ -110,25 +133,7 @@ impl Session {
         method: &str,
         params: &Value,
     ) -> Result<Value, &'static str> {
-        let id = params
-            .get("requestId")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if id.len() > 256 || id.chars().any(char::is_control) {
-            return Err("invalid_params");
-        }
-        let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
-        if !id.is_empty() {
-            let mut requests = self.requests.lock().map_err(|_| "session_failed")?;
-            if requests.len() >= 64 || requests.contains_key(id) {
-                return Err("jmap_request_limit");
-            }
-            requests.insert(id.to_owned(), cancel);
-        }
-        let _registration = Registration {
-            requests: &self.requests,
-            id,
-        };
+        let (registration, mut cancelled) = Registration::new(&self.requests, params)?;
         let operation = async {
             if method == "jmap.verify" {
                 self.verify(params).await
@@ -138,7 +143,7 @@ impl Session {
         };
         let result = tokio::select! {
             result=tokio::time::timeout(Duration::from_secs(25),operation)=>result.unwrap_or(Err(if method=="jmap.send"{"jmap_submission_unconfirmed"}else{"jmap_timeout"})),
-            _=cancelled.changed(),if !id.is_empty()=>Err("jmap_cancelled")
+            _=cancelled.changed(),if !registration.id.is_empty()=>Err("jmap_cancelled")
         };
         if result == Err("jmap_unauthorized")
             && let Some(account) = params["accountId"].as_str()
@@ -155,25 +160,7 @@ impl Session {
             "jmap.verify" => self.native_cancellable(method, params).await,
             "jmap.request" => {
                 let request = prepare(params)?;
-                let request_id = params
-                    .get("requestId")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                if request_id.len() > 256 || request_id.chars().any(char::is_control) {
-                    return Err("invalid_params");
-                }
-                let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
-                if !request_id.is_empty() {
-                    let mut requests = self.requests.lock().map_err(|_| "session_failed")?;
-                    if requests.len() >= 64 || requests.contains_key(request_id) {
-                        return Err("jmap_request_limit");
-                    }
-                    requests.insert(request_id.to_owned(), cancel);
-                }
-                let _registration = Registration {
-                    requests: &self.requests,
-                    id: request_id,
-                };
+                let (registration, mut cancelled) = Registration::new(&self.requests, params)?;
                 let operation = async {
                     self.authorize(params, &request).await?;
                     let client = self.client.as_ref().map_err(|e| *e)?;
@@ -191,7 +178,7 @@ impl Session {
                 };
                 tokio::select! {
                     result = tokio::time::timeout(REQUEST_TIME, operation) => result.map_err(|_| "jmap_timeout")?,
-                    _ = cancelled.changed(), if !request_id.is_empty() => Err("jmap_cancelled"),
+                    _ = cancelled.changed(), if !registration.id.is_empty() => Err("jmap_cancelled"),
                 }
             }
             "jmap.cancel" => {

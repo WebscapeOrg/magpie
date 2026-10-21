@@ -205,7 +205,11 @@ where
 /// is held outside the runtime rather than inside a task, so a caller waiting
 /// for it is only waiting for another thread to finish negotiating, and no
 /// prompt is ever awaited underneath it: every prompting call is in `execute`.
-fn acquire<Connect, ConnectionFuture>(shared: &Shared, connect: &Connect, until: Instant) -> Result<Arc<Session>, Fault>
+fn acquire<Connect, ConnectionFuture>(
+    shared: &Shared,
+    connect: &Connect,
+    until: Instant,
+) -> Result<Arc<Session>, Fault>
 where
     Connect: Fn() -> ConnectionFuture,
     ConnectionFuture: Future<Output = Result<zbus::Connection, Error>>,

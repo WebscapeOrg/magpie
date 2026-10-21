@@ -37,7 +37,10 @@ fn checked_addresses(addresses: Vec<IpAddr>) -> Result<Vec<SocketAddr>, &'static
     if addresses.is_empty() || addresses.iter().any(|ip| !is_public(*ip)) {
         return Err("public_destination_refused");
     }
-    Ok(addresses.into_iter().map(|ip| SocketAddr::new(ip, 0)).collect())
+    Ok(addresses
+        .into_iter()
+        .map(|ip| SocketAddr::new(ip, 0))
+        .collect())
 }
 
 /// Conservative global-unicast policy, including transition mechanisms that
@@ -54,8 +57,13 @@ pub fn is_public(ip: IpAddr) -> bool {
                 || (first_octet == 169 && second_octet == 254)
                 || (first_octet == 172 && (16..=31).contains(&second_octet))
                 || (first_octet == 192
-                    && ((second_octet == 168) || (second_octet == 0 && (third_octet == 0 || third_octet == 2)) || (second_octet == 88 && third_octet == 99)))
-                || (first_octet == 198 && (second_octet == 18 || second_octet == 19 || (second_octet == 51 && third_octet == 100)))
+                    && ((second_octet == 168)
+                        || (second_octet == 0 && (third_octet == 0 || third_octet == 2))
+                        || (second_octet == 88 && third_octet == 99)))
+                || (first_octet == 198
+                    && (second_octet == 18
+                        || second_octet == 19
+                        || (second_octet == 51 && third_octet == 100)))
                 || (first_octet == 203 && second_octet == 0 && third_octet == 113))
         }
         IpAddr::V6(ip) => {
@@ -75,9 +83,9 @@ fn parse_url(raw: &str, https_only: bool) -> Result<Url, &'static str> {
     // Invariant: URL parsing normalizes controls and backslashes, so reject raw bytes first.
     if raw.is_empty()
         || raw.len() > 128 * 1024
-        || raw
-            .chars()
-            .any(|character| character.is_control() || character.is_whitespace() || character == '\\')
+        || raw.chars().any(|character| {
+            character.is_control() || character.is_whitespace() || character == '\\'
+        })
     {
         return Err("public_url_invalid");
     }

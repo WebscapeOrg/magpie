@@ -144,7 +144,9 @@ fn credentials_native_contract() {
             .unwrap();
     }
     for (index, key) in cleanup.0.iter().enumerate() {
-        assert!(NativeStore.get(key).unwrap().as_slice() == format!("synthetic-{index}").as_bytes());
+        assert!(
+            NativeStore.get(key).unwrap().as_slice() == format!("synthetic-{index}").as_bytes()
+        );
     }
     for (index, sample) in samples.iter().enumerate() {
         NativeStore.put(&cleanup.0[0], sample).unwrap();

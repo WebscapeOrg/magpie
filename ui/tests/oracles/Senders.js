@@ -7,7 +7,7 @@ function asList(value) {
   if (value === undefined || value === null) return []
   if (Array.isArray(value)) return value
   var length = value.length
-  if (typeof length !== "number" || length < 1) return []
+  if (typeof length !== "number" || !isFinite(length) || Math.floor(length) !== length || length < 1) return []
   var output = []
   var itemIndex
   for (itemIndex = 0; itemIndex < length; itemIndex++) {
@@ -27,7 +27,7 @@ function aliasesOf(mailbox) {
 function identities(mailboxes) {
   var rows = asList(mailboxes)
   var output = []
-  var seen = ({})
+  var seen = Object.create(null)
   var itemIndex
   for (itemIndex = 0; itemIndex < rows.length; itemIndex++) {
     var box = rows[itemIndex] || ({})
@@ -40,7 +40,7 @@ function identities(mailboxes) {
       var alias = aliases[aliasIndex] || ({})
       var email = String(alias.email || "").trim()
       if (email === "") continue
-      var key = accountId + "\n" + email.toLowerCase()
+      var key = JSON.stringify([accountId, email.toLowerCase()])
       if (seen[key]) continue
       seen[key] = true
       output.push({

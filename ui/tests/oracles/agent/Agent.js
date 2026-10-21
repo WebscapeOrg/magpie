@@ -61,15 +61,15 @@ function messageIdsOf(job) {
 
 function jobsByMessage(jobs, accountId) {
   var list = Array.isArray(jobs) ? jobs : []
-  var output = {}
+  var output = Object.create(null)
   for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
     if (!ownedBy(list[itemIndex], accountId)) continue
     var ids = messageIdsOf(list[itemIndex])
     for (var memberIndex = 0; memberIndex < ids.length; memberIndex++) {
       var id = ids[memberIndex]
       var current = output[id]
-      if (!current || isActive(list[itemIndex])
-          || (!isActive(current) && createdOrder(list[itemIndex]) > createdOrder(current)))
+      if (!current || (!isActive(current)
+          && (isActive(list[itemIndex]) || createdOrder(list[itemIndex]) > createdOrder(current))))
         output[id] = list[itemIndex]
     }
   }
@@ -138,7 +138,7 @@ function finishedNote(job) {
 
 // Invariant: Completion transitions use job IDs so replacing a job on one message does not hide its completion.
 function newlyFinished(before, after) {
-  var was = {}
+  var was = Object.create(null)
   var earlier = Array.isArray(before) ? before : []
   for (var itemIndex = 0; itemIndex < earlier.length; itemIndex++) was[String(earlier[itemIndex].id)] = isActive(earlier[itemIndex])
   var output = []
@@ -262,7 +262,7 @@ function anyAttention(jobs, seen) {
 
 function attentionByMessage(jobs, seen, accountId) {
   var map = jobsByMessage(jobs, accountId)
-  var output = {}
+  var output = Object.create(null)
   for (var id in map) if (wantsAttention(map[id], seen)) output[id] = true
   return output
 }
@@ -363,16 +363,19 @@ function draftFingerprint(fields) {
   return String(hash)
 }
 
+function selectionKey(ids) {
+  return JSON.stringify((Array.isArray(ids) ? ids.slice() : []).sort())
+}
+
 function selectionJob(jobs, ids, accountId) {
-  var wanted = (Array.isArray(ids) ? ids.slice() : []).sort()
-  if (wanted.length === 0) return null
+  if (!Array.isArray(ids) || ids.length === 0) return null
+  var wanted = selectionKey(ids)
   var newest = null
   var list = Array.isArray(jobs) ? jobs : []
   for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
     var job = list[itemIndex]
     if (!ownedBy(job, accountId)) continue
-    var actual = messageIdsOf(job).sort()
-    if (JSON.stringify(actual) !== JSON.stringify(wanted)) continue
+    if (selectionKey(messageIdsOf(job)) !== wanted) continue
     if (isActive(job)) return job
     if (!newest || createdOrder(job) > createdOrder(newest)) newest = job
   }
@@ -431,14 +434,15 @@ function commandSuggestions(text, choices) {
 
 function matchesHistory(job, wanted, draftKey) {
   if (draftKey) return isDraftJob(job) && job.draftKey === draftKey
-  if (isDraftJob(job) || wanted === "") return false
-  return messageIdsOf(job).sort().join("\u001f") === wanted
+  if (isDraftJob(job)) return false
+  return selectionKey(messageIdsOf(job)) === wanted
 }
 
 function historyFor(jobs, accountId, ids, draftKey) {
+  if (!draftKey && (!Array.isArray(ids) || ids.length === 0)) return []
   var rows = Array.isArray(jobs) ? jobs : []
-  var wanted = (Array.isArray(ids) ? ids.slice() : []).sort().join("\u001f")
-  var groups = {}
+  var wanted = selectionKey(ids)
+  var groups = Object.create(null)
   for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
     var job = rows[itemIndex]
     if (!ownedBy(job, accountId)) continue

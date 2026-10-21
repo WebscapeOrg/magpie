@@ -181,6 +181,7 @@ Item {
     function onSettingsChanged() {
       if (Jmap.serverIdentity(root.auth ? root.auth.settings : null) !== root.serverIdentity) root.forgetServer()
     }
+    function onAccountIdChanged() { root.credentialsRejected = false; root.forgetServer() }
     function onLoggedOut() { root.credentialsRejected = false; root.forgetServer() }
   }
   JmapPush {

@@ -13,6 +13,7 @@ Item {
   required property string email
   property var backend: null
 
+  property int epoch: 0
   property int inFlight: 0
   readonly property bool busy: inFlight > 0
 
@@ -74,8 +75,9 @@ Item {
     var owner = auth
     var account = String(owner.accountId || "")
     var settingsSnapshot = JSON.stringify(owner.settings)
+    var generation = epoch
     function current() {
-      return owner === auth && String(owner.accountId || "") === account
+      return generation === root.epoch && owner === auth && String(owner.accountId || "") === account
         && JSON.stringify(owner.settings) === settingsSnapshot
     }
     function perform(credential, error) {
@@ -99,6 +101,20 @@ Item {
     if (suppliedCredential !== undefined) perform(suppliedCredential, "")
     else perform("", "")
     return handle
+  }
+
+  function forgetFolders() {
+    epoch++
+    foldersGeneration++
+    foldersLoaded = false
+    foldersLoading = false
+    folders = []
+    special = ({})
+    nativeLabels = []
+    serverCapabilities = []
+    var waiting = folderWaiters
+    folderWaiters = []
+    for (var index = 0; index < waiting.length; index++) waiting[index]("The mailbox changed during this request")
   }
 
   function ensureFolders(callback) {
@@ -332,11 +348,9 @@ Item {
       root.abortRequest(root.verificationHandle)
       root.verificationHandle = null
     }
-    function onSettingsChanged() {
-      root.foldersLoaded = false
-      root.folders = []
-      root.special = ({})
-    }
+    function onSettingsChanged() { root.forgetFolders() }
+    function onAccountIdChanged() { root.forgetFolders() }
+    function onLoggedOut() { root.forgetFolders() }
   }
 
 }

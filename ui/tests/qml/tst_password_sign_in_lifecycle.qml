@@ -122,5 +122,34 @@ Item {
       compare(credentials.writes.length, 1)
       compare(credentials.writes[0].secret, "first-secret")
     }
+    function test_old_read_cannot_publish_after_logout_data() { return providers() }
+    function test_old_read_cannot_publish_after_logout(data) {
+      var objects = pair(data.protocol)
+      var delivered = false
+      objects.client.getLabelCounts("INBOX", function() { delivered = true })
+      var read = fakeBackend.requests[fakeBackend.requests.length - 1]
+      objects.auth.logout()
+      read.callback(data.protocol === "imap" ? {} : { data: {}, state: {} }, null)
+      compare(delivered, false)
+    }
+    function test_jmap_read_cannot_publish_after_account_change() {
+      var objects = pair("jmap")
+      var delivered = false
+      objects.client.getLabelCounts("INBOX", function() { delivered = true })
+      var read = fakeBackend.requests[fakeBackend.requests.length - 1]
+      objects.auth.accountId = "jmap:two@example.test"
+      read.callback({ data: {}, state: { session: { marker: "old-account" } } }, null)
+      compare(delivered, false)
+      compare(objects.client.session, null)
+    }
+    function test_imap_settings_change_releases_folder_waiters() {
+      var objects = pair("imap")
+      var firstError = ""
+      objects.client.getLabels(function(labels, error) { firstError = error })
+      objects.auth.settings = { imapHost: "other.example.test", imapPort: 993, username: "one@example.test" }
+      objects.client.getLabels(function() {})
+      compare(fakeBackend.requests.filter(function(request) { return request.method === "imap.folders" }).length, 2)
+      verify(firstError !== "")
+    }
   }
 }

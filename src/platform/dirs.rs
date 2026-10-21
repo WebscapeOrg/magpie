@@ -68,8 +68,11 @@ impl AppDirs {
         #[cfg(all(windows, feature = "integration-test-credentials"))]
         if let Some(root) = integration_root()? {
             return Self::from_roots(
-                root.join("config"), root.join("cache"), root.join("state"),
-                root.join("runtime"), root.join("downloads"),
+                root.join("config"),
+                root.join("cache"),
+                root.join("state"),
+                root.join("runtime"),
+                root.join("downloads"),
             );
         }
         Self::discover_with(|name| std::env::var_os(name), &std::env::temp_dir())

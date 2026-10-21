@@ -1160,8 +1160,15 @@ async fn recorder_confirms_one_resumed_send_and_no_retry_or_cancelled_delivery()
     let executor: Executor = Arc::new(move |request| {
         let origin = origin.clone();
         Box::pin(async move {
-            reqwest::Client::builder().no_proxy().build().unwrap()
-                .post(origin).header("Content-Type", "application/json").body(request.to_string()).send().await
+            reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .post(origin)
+                .header("Content-Type", "application/json")
+                .body(request.to_string())
+                .send()
+                .await
                 .map_err(|_| "network_timed_out")?;
             Ok(json!({}))
         })
@@ -1180,42 +1187,75 @@ async fn recorder_confirms_one_resumed_send_and_no_retry_or_cancelled_delivery()
         })
     });
     let dir = Temp::new();
-    let waiting = Outbox::with_root(executor.clone(), Some(dir.0.clone()))
-        .with_readiness(readiness.clone());
+    let waiting =
+        Outbox::with_root(executor.clone(), Some(dir.0.clone())).with_readiness(readiness.clone());
     let mut request = enqueue("resumed", "a@example.org", 0);
     request["resumeUnsent"] = json!(true);
     waiting.call("outbox.enqueue", &request).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(2), entered.notified()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), entered.notified())
+        .await
+        .unwrap();
     assert!(recorded.lock().unwrap().is_empty());
     waiting.shutdown().await.unwrap();
     drop(waiting);
 
     let connected = Outbox::with_root(executor.clone(), Some(dir.0.clone()));
     wait_state(&connected, "resumed", "a@example.org", "sent").await;
-    assert_eq!(connected.call("outbox.enqueue", &request).await.unwrap()["duplicate"], true);
+    assert_eq!(
+        connected.call("outbox.enqueue", &request).await.unwrap()["duplicate"],
+        true
+    );
     let interrupted = enqueue("interrupted", "a@example.org", 0);
-    connected.call("outbox.enqueue", &interrupted).await.unwrap();
+    connected
+        .call("outbox.enqueue", &interrupted)
+        .await
+        .unwrap();
     tokio::time::timeout(Duration::from_secs(2), async {
         while recorded.lock().unwrap().len() != 2 {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-    }).await.unwrap();
-    assert_eq!(state(&connected, "interrupted", "a@example.org").await, "sending");
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        state(&connected, "interrupted", "a@example.org").await,
+        "sending"
+    );
     connected.shutdown().await.unwrap();
     drop(connected);
 
     let recovered = Outbox::with_root(executor, Some(dir.0.clone())).with_readiness(readiness);
-    assert_eq!(state(&recovered, "interrupted", "a@example.org").await, "unknown");
-    assert_eq!(recovered.call("outbox.enqueue", &interrupted).await.unwrap()["duplicate"], true);
+    assert_eq!(
+        state(&recovered, "interrupted", "a@example.org").await,
+        "unknown"
+    );
+    assert_eq!(
+        recovered
+            .call("outbox.enqueue", &interrupted)
+            .await
+            .unwrap()["duplicate"],
+        true
+    );
     let mut cancelled = enqueue("cancelled", "a@example.org", 0);
     cancelled["resumeUnsent"] = json!(true);
     recovered.call("outbox.enqueue", &cancelled).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(2), entered.notified()).await.unwrap();
-    recovered.call("outbox.undo", &json!({"accountId":"a@example.org","sendId":"cancelled"})).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), entered.notified())
+        .await
+        .unwrap();
+    recovered
+        .call(
+            "outbox.undo",
+            &json!({"accountId":"a@example.org","sendId":"cancelled"}),
+        )
+        .await
+        .unwrap();
     gate.notify_one();
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(*recorded.lock().unwrap(), vec!["resumed", "interrupted"]);
-    assert_eq!(state(&recovered, "cancelled", "a@example.org").await, "cancelled");
+    assert_eq!(
+        state(&recovered, "cancelled", "a@example.org").await,
+        "cancelled"
+    );
     recovered.shutdown().await.unwrap();
     server.abort();
     let _ = server.await;

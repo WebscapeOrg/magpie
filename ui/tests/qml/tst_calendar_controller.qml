@@ -227,8 +227,6 @@ Item {
       controller.loading = false
       controller.rangeStart = 0
       controller.rangeEnd = 0
-      controller.pendingRangeStart = 0
-      controller.pendingRangeEnd = 0
       controller.savingSource = false
       controller.sourceBeingSaved = null
       controller.sourceSecret = ""
@@ -429,15 +427,20 @@ Item {
         { id: "outlook:other@contoso.com", email: "other@contoso.com", provider: "outlook", signedIn: true }
       ]
       controller.refreshScope = controller.calendarScope
-      controller.activeSource = { id: "microsoft:outlook:other@contoso.com", kind: "microsoft",
+      var microsoft = { id: "microsoft:outlook:other@contoso.com", kind: "microsoft",
         name: "Calendar", accountId: "outlook:other@contoso.com", calendarId: "default-id",
         discovered: true }
-      controller.failSource("Something refused", "microsoft")
-      compare(controller.lastError, "Calendar · other@contoso.com: Something refused")
+      mailService.nextResult = null
+      mailService.nextError = {code: -32000, message: "calendar_auth_refused"}
+      controller.activeReads = 1
+      controller.startNativeList(microsoft, controller.refreshSerial, 1000, 2000)
+      compare(controller.lastError, "Calendar · other@contoso.com: Microsoft calendar request failed. Check Graph permissions in Settings, then sign in again")
       controller.refreshScope = controller.calendarScope
-      controller.activeSource = { id: "caldav:team", kind: "caldav", name: "Team" }
-      controller.failSource("Something refused", "caldav")
-      compare(controller.lastError, "Team: Something refused")
+      controller.activeReads = 1
+      controller.startNativeList({ id: "caldav:team", kind: "caldav", name: "Team" }, controller.refreshSerial, 1000, 2000)
+      compare(controller.lastError, "Team: CalDAV calendar request failed. Check its server address and password in Settings")
+      compare(mailService.requests.length, 2)
+      compare(controller.activeReads, 0)
     }
 
     function test_native_request_explains_microsoft_recovery() {
@@ -539,7 +542,7 @@ Item {
 
       compare(controller.rangeStart, 1000)
       compare(controller.rangeEnd, 2000)
-      compare(controller.pendingRangeStart, 0, "the visible range refreshes without waiting for an obsolete request")
+      compare(controller.loading, false, "the obsolete request does not keep the visible range loading")
     }
 
     function test_updating_a_caldav_password_refreshes_the_visible_range() {
@@ -551,7 +554,7 @@ Item {
         accountId:"caldav:team",clientId:"",secret:"new-secret"}])
       compare(controller.rangeStart, 1000)
       compare(controller.rangeEnd, 2000)
-      compare(controller.pendingRangeStart, 0, "the visible range refreshes without waiting for an obsolete request")
+      compare(controller.loading, false, "the obsolete request does not keep the visible range loading")
     }
 
     // Google and Microsoft calendars arrive with their account's sign-in,

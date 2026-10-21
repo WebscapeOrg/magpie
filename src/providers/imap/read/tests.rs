@@ -361,14 +361,78 @@ async fn a_command_that_is_never_answered_ends_the_call() {
 #[test]
 fn bodystructure_distinguishes_real_files_from_inline_logos_without_reading_body_octets() {
     for (raw, expected) in [
-        (r#"("APPLICATION" "PDF" ("NAME" "report.pdf") NIL NIL "BASE64" 100 NIL ("ATTACHMENT" ("FILENAME" "report.pdf")))"#, true),
-        (r#"("IMAGE" "PNG" ("NAME" "logo.png") "<logo>" NIL "BASE64" 100 NIL ("INLINE" NIL))"#, false),
-        (r#"("IMAGE" "PNG" ("NAME" "photo.png") "<photo>" NIL "BASE64" 100 NIL ("ATTACHMENT" NIL))"#, true),
-        (r#"("TEXT" "PLAIN" NIL NIL NIL "7BIT" 100 3 NIL NIL)"#, false),
-        (r#"("TEXT" "PLAIN" NIL NIL NIL "7BIT" 100 3 NIL ("ATTACHMENT" ("FILENAME" "notes.txt")))"#, true),
-        (r#"(("TEXT" "PLAIN" NIL NIL NIL "7BIT" 100 3 NIL NIL)("APPLICATION" "PDF" NIL NIL NIL "BASE64" 100 NIL ("ATTACHMENT" NIL))"MIXED")"#, true),
+        (
+            r#"("APPLICATION" "PDF" ("NAME" "report.pdf") NIL NIL "BASE64" 100 NIL ("ATTACHMENT" ("FILENAME" "report.pdf")))"#,
+            true,
+        ),
+        (
+            r#"("IMAGE" "PNG" ("NAME" "logo.png") "<logo>" NIL "BASE64" 100 NIL ("INLINE" NIL))"#,
+            false,
+        ),
+        (
+            r#"("IMAGE" "PNG" ("NAME" "photo.png") "<photo>" NIL "BASE64" 100 NIL ("ATTACHMENT" NIL))"#,
+            true,
+        ),
+        (
+            r#"("TEXT" "PLAIN" NIL NIL NIL "7BIT" 100 3 NIL NIL)"#,
+            false,
+        ),
+        (
+            r#"("TEXT" "PLAIN" NIL NIL NIL "7BIT" 100 3 NIL ("ATTACHMENT" ("FILENAME" "notes.txt")))"#,
+            true,
+        ),
+        (
+            r#"(("TEXT" "PLAIN" NIL NIL NIL "7BIT" 100 3 NIL NIL)("APPLICATION" "PDF" NIL NIL NIL "BASE64" 100 NIL ("ATTACHMENT" NIL))"MIXED")"#,
+            true,
+        ),
     ] {
         let parsed = nodes(raw.as_bytes()).unwrap();
-        assert_eq!(structure_has_attachments(&parsed[0][0], 0, &mut 4000), expected, "{raw}");
+        assert_eq!(
+            structure_has_attachments(&parsed[0][0], 0, &mut 4000),
+            expected,
+            "{raw}"
+        );
     }
+}
+
+#[tokio::test]
+async fn refreshed_mailboxes_replace_the_cached_roles() {
+    let (client, server) = tokio::io::duplex(4096);
+    let peer = tokio::spawn(async move {
+        let mut wire: Wire = BufReader::new(Box::new(server));
+        for name in ["OldArchive", "NewArchive"] {
+            assert_eq!(line(&mut wire).await.unwrap(), b"O1 CAPABILITY\r\n");
+            write(
+                &mut wire,
+                b"* CAPABILITY IMAP4rev1\r\nO1 OK capabilities\r\n",
+            )
+            .await
+            .unwrap();
+            assert_eq!(line(&mut wire).await.unwrap(), b"O1 LIST \"\" \"*\"\r\n");
+            write(
+                &mut wire,
+                format!("* LIST (\\Archive) \"/\" {name}\r\nO1 OK folders\r\n").as_bytes(),
+            )
+            .await
+            .unwrap();
+        }
+        let mut bytes = [0; 1];
+        assert_eq!(
+            wire.read(&mut bytes).await.unwrap(),
+            0,
+            "cached lookup must not issue another command"
+        );
+    });
+    let mut wire: Wire = BufReader::new(Box::new(client));
+    let mut params = json!({"settings":{"username":"refresh-regression"},"credential":"synthetic:refresh-regression"});
+    let first = mailboxes(&mut wire, &params).await.unwrap();
+    assert_eq!(resolve(&first, "\\Archive").unwrap(), "OldArchive");
+    params["refresh"] = json!(true);
+    let refreshed = mailboxes(&mut wire, &params).await.unwrap();
+    assert_eq!(resolve(&refreshed, "\\Archive").unwrap(), "NewArchive");
+    params["refresh"] = json!(false);
+    let cached = mailboxes(&mut wire, &params).await.unwrap();
+    assert_eq!(resolve(&cached, "\\Archive").unwrap(), "NewArchive");
+    drop(wire);
+    peer.await.unwrap();
 }

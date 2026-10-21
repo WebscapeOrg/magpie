@@ -95,11 +95,11 @@ impl Cache {
             .unwrap_or(CACHE_BYTES)
             .saturating_mul(4)
             .saturating_add(id.len() * 4 + 128);
-        if size > CACHE_BYTES {
-            return;
-        }
         if let Some((_, old)) = self.entries.remove(&id) {
             self.bytes = self.bytes.saturating_sub(old);
+        }
+        if size > CACHE_BYTES {
+            return;
         }
         if self.bytes.saturating_add(size) > CACHE_BYTES || self.entries.len() >= 4096 {
             self.clear();
@@ -660,6 +660,9 @@ impl Session {
         .contains(&method)
         {
             return Err("method_not_found");
+        }
+        if method == "jmap.watch" {
+            stream_id(params)?;
         }
         let id = text(params, "accountId")?;
         if method == "jmap.invalidate" {

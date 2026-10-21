@@ -17,8 +17,8 @@
 <script>
 /* Invariant: restore the stored theme before first paint to avoid a theme flash. */
 try {
-  var t = localStorage.getItem("omamail-theme");
-  if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  var storedTheme = localStorage.getItem("omamail-theme");
+  if (storedTheme === "light" || storedTheme === "dark") document.documentElement.setAttribute("data-theme", storedTheme);
 } catch (e) {}
 /* Invariant: entrance motion follows the preference before first paint; section visibility changes only after its observer has initialized. */
 if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -1020,30 +1020,30 @@ footer p:last-child { margin-bottom: 0; }
 <script>
 (function () {
   var root = document.documentElement;
-  var nodes = document.querySelectorAll("[data-zh]");
-  var buttons = document.querySelectorAll(".lang button");
+  var translations = document.querySelectorAll("[data-zh]");
+  var languageButtons = document.querySelectorAll(".lang button");
   var copyLabels = { en: "Copied", zh: "已复制" };
   var lang = "en";
 
-  Array.prototype.forEach.call(nodes, function (n) {
-    n.setAttribute("data-en", n.innerHTML);
+  Array.prototype.forEach.call(translations, function (node) {
+    node.setAttribute("data-en", node.innerHTML);
   });
 
-  function apply(next) {
+  function applyLanguage(next) {
     lang = next === "zh" ? "zh" : "en";
-    Array.prototype.forEach.call(nodes, function (n) {
-      n.innerHTML = n.getAttribute("data-" + lang);
+    Array.prototype.forEach.call(translations, function (node) {
+      node.innerHTML = node.getAttribute("data-" + lang);
     });
     root.lang = lang === "zh" ? "zh-Hans" : "en";
-    Array.prototype.forEach.call(buttons, function (b) {
-      b.setAttribute("aria-pressed", String(b.getAttribute("data-lang") === lang));
+    Array.prototype.forEach.call(languageButtons, function (button) {
+      button.setAttribute("aria-pressed", String(button.getAttribute("data-lang") === lang));
     });
     try { localStorage.setItem("omamail-lang", lang); } catch (e) {}
     labelTheme();
   }
 
-  Array.prototype.forEach.call(buttons, function (b) {
-    b.addEventListener("click", function () { apply(b.getAttribute("data-lang")); });
+  Array.prototype.forEach.call(languageButtons, function (button) {
+    button.addEventListener("click", function () { applyLanguage(button.getAttribute("data-lang")); });
   });
 
   var themeToggle = document.querySelector(".theme-toggle");
@@ -1053,8 +1053,8 @@ footer p:last-child { margin-bottom: 0; }
   };
 
   function currentTheme() {
-    var set = root.getAttribute("data-theme");
-    if (set === "light" || set === "dark") return set;
+    var selectedTheme = root.getAttribute("data-theme");
+    if (selectedTheme === "light" || selectedTheme === "dark") return selectedTheme;
     return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
       ? "light"
       : "dark";
@@ -1083,31 +1083,31 @@ footer p:last-child { margin-bottom: 0; }
   var stored = null;
   try { stored = localStorage.getItem("omamail-lang"); } catch (e) {}
   if (!stored && /^zh/i.test(navigator.language || "")) stored = "zh";
-  if (stored) apply(stored);
+  if (stored) applyLanguage(stored);
 
   var panels = document.querySelectorAll("section > .wrap, footer > .wrap");
   if (root.classList.contains("js-anim") && "IntersectionObserver" in window) {
-    var seen = new IntersectionObserver(function (entries) {
+    var revealObserver = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         if (!entry.isIntersecting) return;
         entry.target.classList.add("revealed");
-        seen.unobserve(entry.target);
+        revealObserver.unobserve(entry.target);
       });
     }, { rootMargin: "0px 0px -8% 0px", threshold: 0.04 });
     root.classList.add("js-reveal");
-    Array.prototype.forEach.call(panels, function (n) { seen.observe(n); });
+    Array.prototype.forEach.call(panels, function (node) { revealObserver.observe(node); });
   } else {
-    Array.prototype.forEach.call(panels, function (n) { n.classList.add("revealed"); });
+    Array.prototype.forEach.call(panels, function (node) { node.classList.add("revealed"); });
   }
 
   /* Invariant: without script initialization, the default macOS panel remains available. */
   var tabs = document.querySelectorAll(".install-tabs [role=tab]");
   function selectTab(tab) {
-    Array.prototype.forEach.call(tabs, function (t) {
-      var current = t === tab;
-      t.setAttribute("aria-selected", String(current));
-      t.tabIndex = current ? 0 : -1;
-      document.getElementById(t.getAttribute("aria-controls")).hidden = !current;
+    Array.prototype.forEach.call(tabs, function (candidate) {
+      var current = candidate === tab;
+      candidate.setAttribute("aria-selected", String(current));
+      candidate.tabIndex = current ? 0 : -1;
+      document.getElementById(candidate.getAttribute("aria-controls")).hidden = !current;
     });
   }
   Array.prototype.forEach.call(tabs, function (tab, index) {

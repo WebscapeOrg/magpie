@@ -2754,6 +2754,9 @@ Item {
 
   QtObject {
     id: inactiveAgentRunner
+    property bool providerAvailable: false
+    property string availabilityError: ""
+    property int selectionRevision: 0
     property string lastError: ""
     property bool starting: false
     property var byMessage: ({})
@@ -2764,6 +2767,11 @@ Item {
     property string shownId: ""
     property string shownOutput: ""
     property var shownTranscript: []
+    property var shownProposals: []
+    property string previousPage: ""
+    property bool loadingEarlier: false
+    property int listingOffset: 0
+    property bool hasMoreJobs: false
     property bool cancelling: false
     function acknowledge() {}
     function cancel() { return false }
@@ -2774,6 +2782,9 @@ Item {
     function historyFor() { return [] }
     function isActive() { return false }
     function jobById() { return null }
+    function loadEarlier() { return false }
+    function canContinueSelection() { return false }
+    function pageChats() {}
     function refresh() {}
     function selectionJob() { return null }
     function show() {}

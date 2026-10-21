@@ -285,7 +285,7 @@ pub(super) async fn call_planned(
             json!({"sent":true,"warning":if copy.is_ok(){""}else{"Sent, but the copy for the Sent folder could not be saved"}}),
         );
     }
-    // Validate every mutation's identifiers and bytes before connecting.
+    // Invariant: Validate every mutation's identifiers and bytes before connecting.
     let folder_command = match method {
         "imap.createFolder" => Some(format!(
             "CREATE {}",
@@ -372,7 +372,7 @@ pub(super) async fn call_planned(
                         command(&mut wire, &format!("UID EXPUNGE {set}")).await?;
                     }
                 }
-                // Record only a fully acknowledged group. Keep the ledger
+                // Invariant: Record only a fully acknowledged group. Keep the ledger
                 // outside this future so later errors and deadline cancellation
                 // cannot discard earlier successes or invite their retry.
                 if let Some(completed) = completed_folders.as_mut() {

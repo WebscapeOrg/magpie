@@ -176,7 +176,6 @@ fn metadata(uid: u32, day: u8, body: &str) -> Vec<u8> {
     format!("* 1 FETCH (UID {uid} INTERNALDATE \"{day:02}-Sep-2026 12:00:00 +0000\" BODY[] {{{}}}\r\n{body})\r\n", body.len()).into_bytes()
 }
 
-// Generic \All server with no server-issued identity: (folder, uid, day, raw message).
 const GENERIC: [(&str, u32, u8, &str); 10] = [
     (
         "INBOX",
@@ -336,9 +335,6 @@ async fn generic_all_server_lists_each_message_once_and_verifies_exclusions() {
         p["continuation"] = result["continuation"].clone();
         method = "imap.listContinue";
     };
-    // Inbox and Archive copies are not repeated from their folders; the
-    // aggregate-only message survives; a verified Trash/Junk copy does not;
-    // a message that only shares Message-ID and size with Trash survives.
     assert_eq!(
         result["page"]["ids"],
         json!([
@@ -438,7 +434,6 @@ fn matching_headers_only_nominate_candidates_and_different_bodies_survive() {
             .messages
             .extend(fetched(data.as_bytes(), &[uid], Identity::Candidate).unwrap());
     }
-    // An aggregate-only message with no matching Trash header needs no body read.
     let data = b"* 1 FETCH (UID 3 INTERNALDATE \"24-Sep-2026 12:00:00 +0000\" RFC822.SIZE 100 BODY[HEADER] {3}\r\nnew)\r\n";
     scan.folders[0]
         .messages
@@ -451,7 +446,6 @@ fn matching_headers_only_nominate_candidates_and_different_bodies_survive() {
             .iter()
             .all(|f| f.messages.iter().all(|m| m.identity.is_none()))
     );
-    // Same Message-ID, same full headers and same size, but unrelated content.
     for (folder, uid, body) in [
         (0, 1, "legitimate"),
         (0, 2, "junk mail!"),

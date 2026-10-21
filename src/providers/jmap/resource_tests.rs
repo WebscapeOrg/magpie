@@ -156,7 +156,7 @@ fn refuses_duplicate_body_value_amplification_before_building_mime() {
     let leaves = vec![json!({"partId":"same","type":"text/plain"}); 512];
     let email = json!({"bodyStructure":{"type":"multipart/mixed","subParts":leaves},"bodyValues":{"same":{"value":"x".repeat(65536)}}});
     assert!(serde_json::to_vec(&email).unwrap().len() < 100_000);
-    // Were construction allowed, the same small source would emit over44MiB
+    // Invariant: Were construction allowed, the same small source would emit over44MiB
     // of base64 strings. Reject from sizes alone before encoding any of them.
     assert_eq!(
         validate_budget(&email, true),

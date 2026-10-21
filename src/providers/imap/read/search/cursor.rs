@@ -6,7 +6,7 @@ use std::cmp::Reverse;
 
 const MAX_CURSOR: usize = 32768;
 
-// Used both when sorting a scan and comparing it with a cursor. Arrival date
+// Invariant: Used both when sorting a scan and comparing it with a cursor. Arrival date
 // and UID descend; folder names ascend to break cross-folder ties.
 pub(super) fn order(date: i64, folder: &str, uid: u32) -> (Reverse<i64>, &str, Reverse<u32>) {
     (Reverse(date), folder, Reverse(uid))
@@ -81,7 +81,7 @@ impl Cursor {
 }
 
 fn binding(owner: [u8; 32], criteria: &str) -> [u8; 32] {
-    // Version also fixes scope and ordering semantics. No credential digest is
+    // Invariant: Version also fixes scope and ordering semantics. No credential digest is
     // exported in a cursor, and an OAuth refresh does not change its binding.
     Sha256::digest(json!(["imap-account-search-v1", owner, criteria]).to_string()).into()
 }

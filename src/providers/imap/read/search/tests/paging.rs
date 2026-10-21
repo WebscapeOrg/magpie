@@ -7,7 +7,6 @@ struct State {
     inventories: usize,
     searches: usize,
     largest_search: usize,
-    // Expunged between SEARCH and the metadata FETCH.
     missing: Vec<u32>,
 }
 
@@ -202,8 +201,6 @@ async fn cache_loss_and_deletions_resume_from_a_position_not_an_existing_message
     let rescanned = complete(&p).await.unwrap();
     assert_eq!(rescanned["ids"], cached["ids"]);
     assert_eq!(server.state.lock().unwrap().inventories, 2);
-    // Delete a prior row, the cursor's row, and an upcoming row. Add a new row
-    // before the cursor. A metadata-time expunge must be skipped as well.
     server
         .state
         .lock()
@@ -211,7 +208,6 @@ async fn cache_loss_and_deletions_resume_from_a_position_not_an_existing_message
         .folders
         .insert("INBOX".into(), vec![(4, 25), (5, 24), (6, 23), (7, 29)]);
     server.state.lock().unwrap().missing = vec![4];
-    // Evict the new snapshot too; the original hint is already unavailable.
     let page = complete(&p).await.unwrap();
     assert_eq!(page["ids"], json!(["5:INBOX", "6:INBOX"]));
     assert_eq!(page["nextPageToken"], "");
@@ -257,7 +253,7 @@ async fn page_assembly_continues_across_more_than_four_folders_and_binds_its_cur
     p["limit"] = json!(1);
     let first = complete(&p).await.unwrap();
     p["limit"] = json!(5);
-    // Force fallback with a page cursor, then keep that cursor on every work
+    // Invariant: Force fallback with a page cursor, then keep that cursor on every work
     // continuation. The QML client and CLI adapter both use this exact shape.
     p["pageToken"] = first["nextPageToken"].clone();
     evict(&p).await;

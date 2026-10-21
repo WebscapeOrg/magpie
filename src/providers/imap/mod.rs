@@ -59,7 +59,7 @@ async fn acquire(params: &Value) -> Result<(Wire, String)> {
     }
     let mut wire = connect(&params["settings"], false).await?;
     login(&mut wire, params).await?;
-    // Capabilities are negotiated afresh after authentication/TLS, and ID is
+    // Invariant: Capabilities are negotiated afresh after authentication/TLS, and ID is
     // sent once on this connection before any mailbox can be selected.
     let capabilities = command(&mut wire, "CAPABILITY").await?;
     if advertises(&capabilities, "ID") {
@@ -320,7 +320,7 @@ where
         .ok_or("invalid_params")? as u16;
     let loopback = matches!(host, "127.0.0.1" | "::1" | "localhost");
     let allow_self_signed = loopback && settings["insecure"] == true;
-    // Bridge supports custom ports. Its clear greeting still requires STARTTLS;
+    // Invariant: Bridge supports custom ports. Its clear greeting still requires STARTTLS;
     // `insecure` relaxes certificate trust, never the encryption requirement.
     // Remote nonstandard ports retain the existing implicit-TLS convention.
     let transport = if (smtp && matches!(port, 25 | 587))
@@ -331,7 +331,7 @@ where
     } else {
         Transport::Tls
     };
-    // Plain peers are only available in test builds, by explicit fixture opt-in.
+    // Invariant: Plain peers are only available in test builds, by explicit fixture opt-in.
     #[cfg(any(test, feature = "integration-test-credentials"))]
     let transport = if allow_self_signed && settings["testPlaintext"] == true {
         Transport::TestPlaintext
@@ -647,7 +647,7 @@ async fn execute(
     ) {
         return mutation::call(method, params, sent).await;
     }
-    // Validate the entire batch and envelope before opening any socket.
+    // Invariant: Validate the entire batch and envelope before opening any socket.
     credentials(params)?;
     let folder = params["folder"].as_str().unwrap_or("");
     let quoted = quote(folder)?;
@@ -744,7 +744,7 @@ async fn execute(
             format!("O1 APPEND {quoted} ({flag}) {{{}}}\r\n", body.len()).as_bytes(),
         )
         .await?;
-        // APPEND must be granted a continuation before any message bytes are sent.
+        // Invariant: APPEND must be granted a continuation before any message bytes are sent.
         let l = line(&mut wire).await?;
         if !l.starts_with(b"+") {
             return Err("imap_command_failed");
@@ -872,7 +872,7 @@ async fn send(params: &Value) -> Result<Value> {
         smtp_cmd(&mut wire, &format!("RCPT TO:<{recipient}>"), 250).await?;
     }
     smtp_cmd(&mut wire, "DATA", 354).await?;
-    // After DATA starts, a failed final reply cannot prove the message was not delivered.
+    // Invariant: After DATA starts, a failed final reply cannot prove the message was not delivered.
     write(&mut wire, &encoded)
         .await
         .map_err(|_| "smtp_delivery_unknown")?;

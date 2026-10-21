@@ -288,7 +288,7 @@ pub(super) fn validate_budget(email: &Value, full: bool) -> Result<(), &'static 
             .get(..5)
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case("text/"))
         {
-            // Match to_part coercion exactly, including malformed numeric IDs.
+            // Invariant: Match to_part coercion exactly, including malformed numeric IDs.
             let id = trim(&part["partId"]);
             if !id.is_empty()
                 && let Some(body) = values

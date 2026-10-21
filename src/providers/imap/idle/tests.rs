@@ -41,7 +41,7 @@ async fn open(listener: &TcpListener, capabilities: &[u8]) -> Wire {
 /// EXAMINE, then the client's IDLE, read but not yet answered.
 async fn examined(w: &mut Wire) {
     assert_eq!(line(w).await.unwrap(), b"O1 EXAMINE \"INBOX\"\r\n");
-    // An EXISTS in the EXAMINE answer describes the mailbox, not a change.
+    // Invariant: An EXISTS in the EXAMINE answer describes the mailbox, not a change.
     send(w, b"* 4 EXISTS\r\nO1 OK [READ-ONLY] examined\r\n")
         .await
         .unwrap();
@@ -106,7 +106,6 @@ async fn a_burst_of_changes_wakes_the_check_once() {
     });
     let client = spawn_session(port, &changed, FAST);
     woken(&changed).await;
-    // Several coalescing periods later, nothing further is waiting.
     tokio::time::sleep(FAST.coalesce * 4).await;
     assert!(!permit(&changed).await);
     client.abort();
@@ -125,7 +124,7 @@ async fn a_server_that_never_stops_sending_cannot_hold_off_the_wake_or_the_refre
             let burst = b"* 1 EXISTS\r\n".repeat(64);
             while write.write_all(&burst).await.is_ok() {}
         });
-        // Anything the client sends while idling can only be DONE.
+        // Invariant: Anything the client sends while idling can only be DONE.
         let mut first = [0u8; 4];
         read.read_exact(&mut first).await.unwrap();
         assert_eq!(&first, b"DONE");
@@ -155,7 +154,7 @@ async fn idle_is_reissued_each_refresh_and_keepalives_wake_nothing() {
         let mut w = idling(&listener).await;
         send(&mut w, b"* OK Still here\r\n").await.unwrap();
         for _ in 0..2 {
-            // Status atoms are case-insensitive.
+            // Invariant: Status atoms are case-insensitive.
             refreshed(&mut w, b"O1 ok idle done\r\n").await;
             send(&mut w, b"+ idling\r\n").await.unwrap();
         }
@@ -167,7 +166,7 @@ async fn idle_is_reissued_each_refresh_and_keepalives_wake_nothing() {
         &changed,
         Timing {
             refresh: Duration::from_millis(20),
-            // Shorter than a refresh, so a keepalive taken for a change would
+            // Invariant: Shorter than a refresh, so a keepalive taken for a change would
             // have woken the check before the first DONE.
             coalesce: Duration::from_millis(1),
             ..FAST
@@ -194,7 +193,6 @@ async fn a_change_during_done_wakes_the_check_from_the_next_idle() {
         &changed,
         Timing {
             refresh: Duration::from_millis(20),
-            // Due well before the next refresh ends this IDLE too.
             coalesce: Duration::from_millis(1),
             ..FAST
         },
@@ -210,7 +208,7 @@ async fn a_server_ending_idle_unasked_fails_the_session_instead_of_looping() {
     let server = tokio::spawn(async move {
         let mut w = idling(&listener).await;
         send(&mut w, b"O1 OK idle ended\r\n").await.unwrap();
-        // No second IDLE: the connection is closed instead.
+        // Invariant: No second IDLE: the connection is closed instead.
         assert!(line(&mut w).await.is_err());
     });
     let client = spawn_session(port, &Arc::new(Notify::new()), FAST);
@@ -320,7 +318,7 @@ async fn a_server_without_idle_is_asked_once() {
     let (listener, port) = server().await;
     let server = tokio::spawn(async move {
         let mut w = open(&listener, b"IMAP4rev1").await;
-        // Nothing follows CAPABILITY: no EXAMINE, no IDLE, no second login.
+        // Invariant: Nothing follows CAPABILITY: no EXAMINE, no IDLE, no second login.
         assert!(line(&mut w).await.is_err());
         assert!(
             tokio::time::timeout(Duration::from_millis(100), listener.accept())
@@ -345,7 +343,6 @@ async fn only_the_first_session_of_a_watch_skips_the_check() {
     let (end_first, first_ended) = oneshot::channel::<()>();
     let server = tokio::spawn(async move {
         let mut first = open(&listener, b"IMAP4rev1 IDLE").await;
-        // The client has sent IDLE, so any announcement has already happened.
         examined(&mut first).await;
         first_idle.send(()).unwrap();
         first_ended.await.unwrap();
@@ -424,7 +421,7 @@ fn backoff_doubles_to_its_ceiling_resets_after_a_refresh_and_stops_only_for_miss
         backoff.after("mail_connection_closed", true),
         Some(timing.first_retry)
     );
-    // A session that never completed a refresh does not reset it.
+    // Invariant: A session that never completed a refresh does not reset it.
     assert_eq!(
         backoff.after("mail_connection_closed", false),
         Some(Duration::from_secs(10))
@@ -456,7 +453,6 @@ fn a_wall_clock_jump_past_two_checks_means_the_machine_slept() {
         last,
         last + RESUME_CHECK * 2 + Duration::from_secs(1)
     ));
-    // A clock set backwards is not a sleep.
     assert!(!resumed(last, last - Duration::from_secs(3600)));
 }
 

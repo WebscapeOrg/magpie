@@ -238,7 +238,7 @@ fn parse_folders(data: &[u8]) -> Result<Mailboxes> {
             special.insert("\\inbox".into(), folder.name.clone());
         }
     }
-    // Fallbacks select only an existing LIST name, never invent a destination.
+    // Invariant: Fallbacks select only an existing LIST name, never invent a destination.
     for (flag, names) in [
         ("\\sent", &["sent", "sent items", "sent messages"][..]),
         ("\\trash", &["trash", "deleted items", "deleted messages"]),
@@ -450,7 +450,7 @@ fn fetched_dates(data: &[u8]) -> Result<BTreeMap<u32, i64>> {
             if let Some(date) = date {
                 dates.insert(uid, date);
             } else {
-                // Unsolicited UID/FLAGS updates must not erase an arrival date.
+                // Invariant: Unsolicited UID/FLAGS updates must not erase an arrival date.
                 dates.entry(uid).or_insert(0);
             }
         }
@@ -528,10 +528,10 @@ async fn list(wire: &mut Wire, params: &Value, boxes: &Mailboxes) -> Result<Valu
                 .ok_or("invalid_params")? as u32,
         );
     }
-    // UID order is not arrival order (notably during Proton Bridge imports).
+    // Invariant: UID order is not arrival order (notably during Proton Bridge imports).
     // No UID window is a settled newest prefix: collect dates before paging.
     let scan = async {
-        // Keep the compact, response-limited UID snapshot. Explicit UID batches
+        // Invariant: Keep the compact, response-limited UID snapshot. Explicit UID batches
         // bound the larger date responses without walking gaps in sparse UIDs
         // or relying on sequence numbers that move when mail is expunged.
         let mut snapshot: Vec<_> = fetched_dates(&command(wire, "UID FETCH 1:* (UID)").await?)?
@@ -547,7 +547,7 @@ async fn list(wire: &mut Wire, params: &Value, boxes: &Mailboxes) -> Result<Valu
             let fetched = fetched_dates(
                 &command(wire, &format!("UID FETCH {set} (UID INTERNALDATE)")).await?,
             )?;
-            // Ignore unsolicited updates outside this batch (including arrivals
+            // Invariant: Ignore unsolicited updates outside this batch (including arrivals
             // after the snapshot), and drop messages expunged before this fetch.
             dates.extend(
                 fetched
@@ -575,7 +575,7 @@ async fn list(wire: &mut Wire, params: &Value, boxes: &Mailboxes) -> Result<Valu
     .await;
     let (mut matches, dates) = scan?;
     found.append(&mut matches);
-    // Ignore continuation UIDs that were expunged since their snapshot.
+    // Invariant: Ignore continuation UIDs that were expunged since their snapshot.
     found.retain(|uid| dates.contains_key(uid));
     Ok(json!({"page":page(&found,&dates,&folder,offset,limit,false)}))
 }
@@ -929,7 +929,7 @@ pub(super) async fn call(method: &str, params: &Value) -> Result<Value> {
     if method == "imap.messages" {
         return messages(params).await;
     }
-    // Refuse malformed query/folder input before any credential-bearing socket.
+    // Invariant: Refuse malformed query/folder input before any credential-bearing socket.
     if matches!(method, "imap.list" | "imap.listContinue") {
         query(params["query"].as_str().unwrap_or(""))?;
     }

@@ -79,14 +79,14 @@ impl Backoff {
     /// which is what counts as having worked.
     fn after(&mut self, error: &str, refreshed: bool) -> Option<Duration> {
         if error == "imap_idle_unsupported" {
-            // A server property; asking again would only log in to be told so.
+            // Invariant: A server property; asking again would only log in to be told so.
             return None;
         }
         if refreshed {
             self.next = self.timing.first_retry;
         }
         let delay = if error == "mail_auth_failed" || error.starts_with("auth_") {
-            // A refused login or a missing credential is unlikely to be
+            // Invariant: A refused login or a missing credential is unlikely to be
             // different in a few seconds, and each attempt costs the server a
             // LOGIN or Microsoft a token request. Polling reports the error.
             self.timing.last_retry
@@ -119,7 +119,7 @@ where
         let mut refreshed = false;
         let error = match tokio::time::timeout(STEP, resolve()).await {
             Ok(Ok(params)) => {
-                // The watch checked when it started. Any later session may
+                // Invariant: The watch checked when it started. Any later session may
                 // follow a gap in which a change raised nothing, so it asks for
                 // a check of its own.
                 let Err(error) = session(params, changed, !first, timing, &mut refreshed).await;
@@ -161,19 +161,17 @@ async fn session(
         if advertises(&capabilities, "ID") {
             command(&mut wire, "ID (\"name\" \"Omamail\")").await?;
         }
-        // EXAMINE rather than SELECT: watching must not clear \Recent.
+        // Invariant: EXAMINE rather than SELECT: watching must not clear \Recent.
         command(&mut wire, "EXAMINE \"INBOX\"").await?;
         Ok(wire)
     })
     .await?;
-    // Not kept for the life of the connection.
     drop(p);
     if announce {
         changed.notify_one();
     }
     let mut lines = Lines::default();
-    // When to wake the check for changes already seen but not yet reported.
-    let mut due: Option<Instant> = None;
+    let mut change_due: Option<Instant> = None;
     let mut resume_clock = tokio::time::interval(RESUME_CHECK);
     let mut last_wall = SystemTime::now();
     loop {
@@ -188,22 +186,22 @@ async fn session(
                     return Err("imap_command_failed");
                 }
                 if changes_inbox(&line)? {
-                    due.get_or_insert(Instant::now() + timing.coalesce);
+                    change_due.get_or_insert(Instant::now() + timing.coalesce);
                 }
             }
         })
         .await?;
         let refresh_at = Instant::now() + timing.refresh;
         loop {
-            let wake = due.map_or(refresh_at, |due| due.min(refresh_at));
-            // Biased toward the timers, so a server that never stops sending
+            let wake = change_due.map_or(refresh_at, |change_due| change_due.min(refresh_at));
+            // Invariant: Biased toward the timers, so a server that never stops sending
             // cannot hold off either the wake or the refresh.
             tokio::select! {
                 biased;
                 _ = tokio::time::sleep_until(wake) => {
                     let now = Instant::now();
-                    if due.is_some_and(|due| due <= now) {
-                        due = None;
+                    if change_due.is_some_and(|change_due| change_due <= now) {
+                        change_due = None;
                         changed.notify_one();
                     }
                     if refresh_at <= now {
@@ -213,7 +211,7 @@ async fn session(
                 _ = resume_clock.tick() => {
                     let now = SystemTime::now();
                     if resumed(last_wall, now) {
-                        // The connection almost certainly died while the
+                        // Invariant: The connection almost certainly died while the
                         // machine slept; a new session also asks for a check.
                         return Err("mail_connection_closed");
                     }
@@ -221,14 +219,14 @@ async fn session(
                 }
                 line = lines.next(&mut wire) => {
                     let line = line?;
-                    // A server ends IDLE only when told to. One that ends it
+                    // Invariant: A server ends IDLE only when told to. One that ends it
                     // unasked is treated as a failed connection, so it goes
                     // through the backoff rather than straight back into IDLE.
                     if tagged(&line).is_some() {
                         return Err("mail_connection_closed");
                     }
                     if changes_inbox(&line)? {
-                        due.get_or_insert(Instant::now() + timing.coalesce);
+                        change_due.get_or_insert(Instant::now() + timing.coalesce);
                     }
                 }
             }
@@ -243,7 +241,7 @@ async fn session(
                     None => {}
                 }
                 if changes_inbox(&line)? {
-                    due.get_or_insert(Instant::now() + timing.coalesce);
+                    change_due.get_or_insert(Instant::now() + timing.coalesce);
                 }
             }
         })
@@ -310,7 +308,7 @@ struct Lines {
 impl Lines {
     async fn next(&mut self, w: &mut Wire) -> Result<Vec<u8>> {
         loop {
-            // `fill_buf` is cancel-safe, and nothing below awaits between
+            // Invariant: `fill_buf` is cancel-safe, and nothing below awaits between
             // reading bytes and recording them.
             let buf = w.fill_buf().await.map_err(|_| "mail_network_failed")?;
             if buf.is_empty() {

@@ -20,7 +20,7 @@ fn session_policy(
     let mut origins = vec![origin(&url(root)?)];
     for key in ["apiUrl", "downloadUrl", "uploadUrl", "eventSourceUrl"] {
         if let Some(endpoint) = document[key].as_str().filter(|v| !v.is_empty()) {
-            // Placeholders are only legal in the resource path/query, never in
+            // Invariant: Placeholders are only legal in the resource path/query, never in
             // the server authority that authorizes a credential destination.
             let endpoint = url(endpoint)?;
             if endpoint
@@ -144,7 +144,7 @@ impl Session {
             .unwrap_or(address);
         let (mut endpoint, typed) =
             discovery_url(address, settings["sessionUrl"].as_str().unwrap_or(""))?;
-        // Refuse malformed credentials before even the unauthenticated probe.
+        // Invariant: Refuse malformed credentials before even the unauthenticated probe.
         prepare(
             &json!({"verb":"session","url":endpoint,"credential":{"scheme":"basic","username":username,"secret":secret}}),
         )?;
@@ -248,7 +248,7 @@ impl Session {
         request: &Request,
     ) -> Result<(), &'static str> {
         if request.authorization.is_none() {
-            // Unauthenticated discovery is owned by verify(), not the public
+            // Invariant: Unauthenticated discovery is owned by verify(), not the public
             // arbitrary request API. It cannot become a sender-controlled fetch.
             return Err("jmap_destination_refused");
         }

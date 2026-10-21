@@ -14,7 +14,7 @@ const MAX_UIDS: usize = 1_000_000;
 const BATCH: usize = 4096;
 const MAX_SNAPSHOTS: usize = 16;
 const TTL: Duration = Duration::from_secs(300);
-// A full body is read only to verify an All/Trash overlap. Larger candidates stay
+// Invariant: A full body is read only to verify an All/Trash overlap. Larger candidates stay
 // visible rather than risk the 32 MiB response ceiling failing the whole search.
 const CONTENT_LIMIT: u64 = 8 * 1024 * 1024;
 const CONTENT_BATCH: usize = 64;
@@ -117,7 +117,7 @@ fn owner(p: &Value) -> [u8; 32] {
 }
 
 fn authorization(p: &Value) -> [u8; 32] {
-    // A changed credential/transport must authenticate on the wire before it
+    // Invariant: A changed credential/transport must authenticate on the wire before it
     // can reuse results. This digest stays private, never inside a cursor.
     Sha256::digest(json!([p["settings"], p["credential"], p["oauth"]]).to_string()).into()
 }
@@ -176,12 +176,12 @@ fn plan(boxes: &Mailboxes, p: &Value, criteria: String) -> Result<Snapshot> {
             ]
             .iter()
             .any(|name| folder.name.eq_ignore_ascii_case(name));
-        // Excluded folders are read only to subtract their membership from All.
+        // Invariant: Excluded folders are read only to subtract their membership from All.
         if excluded && !aggregate {
             continue;
         }
         let all = has_role(folder, boxes, "\\all");
-        // \All presents every message in the store (RFC 6154). Without a server
+        // Invariant: \All presents every message in the store (RFC 6154). Without a server
         // identity, physical folders would only add unverifiable duplicates of it.
         if identity == Identity::Candidate && !all && !excluded {
             continue;
@@ -262,7 +262,7 @@ async fn step(
         return Err("imap_search_expired");
     }
     if folder.validity.is_none() {
-        // SEARCH returns all matches on one line, whose transport limit is
+        // Invariant: SEARCH returns all matches on one line, whose transport limit is
         // 64 KiB. Inventory UIDs through separate FETCH responses instead,
         // then SEARCH only bounded windows of these existing UIDs. Capturing
         // UIDNEXT excludes later arrivals and avoids walking sparse UID gaps.
@@ -276,7 +276,7 @@ async fn step(
         folder.validity = Some(current);
     } else if folder.fetched < folder.pending.len() {
         let end = if identity == Identity::Content {
-            // Candidates were chosen at or under CONTENT_LIMIT, so one always fits.
+            // Invariant: Candidates were chosen at or under CONTENT_LIMIT, so one always fits.
             let mut end = folder.fetched;
             let mut bytes = 0;
             while end < folder.pending.len() && end - folder.fetched < CONTENT_BATCH {
@@ -378,7 +378,7 @@ async fn inventory(wire: &mut Wire, ceiling: u32) -> Result<Vec<u32>> {
 
 impl Snapshot {
     fn refine(&mut self) {
-        // Message-ID and size nominate candidates; they NEVER suppress a result.
+        // Invariant: Message-ID and size nominate candidates; they NEVER suppress a result.
         // Only compare bodies for candidates shared by All and Trash/Junk.
         let excluded: BTreeSet<_> = self
             .folders
@@ -419,14 +419,14 @@ impl Snapshot {
         let mut ordered = Vec::new();
         for (f, folder) in self.folders.iter().enumerate().filter(|(_, f)| !f.excluded) {
             for (m, msg) in folder.messages.iter().enumerate() {
-                // Only aggregate destinations need subtraction. A real copy in
+                // Invariant: Only aggregate destinations need subtraction. A real copy in
                 // Inbox remains a valid result even if a copy is in Trash.
                 if !folder.aggregate || !msg.identity.is_some_and(|id| excluded.contains(&id)) {
                     ordered.push((f, m));
                 }
             }
         }
-        // A rescan may receive LIST in a different order. Choose the same
+        // Invariant: A rescan may receive LIST in a different order. Choose the same
         // representative for a server-issued identity independently of that.
         ordered.sort_by(|(af, am), (bf, bm)| {
             let a = &self.folders[*af];
@@ -703,7 +703,7 @@ fn fetched(data: &[u8], window: &[u32], identity: Identity) -> Result<Vec<Messag
                 let candidate = if identity == Identity::Candidate {
                     let mut hash = Sha256::new();
                     hash.update(size.ok_or("imap_invalid_response")?.to_be_bytes());
-                    // An absent Message-ID is an empty field, never a wildcard:
+                    // Invariant: An absent Message-ID is an empty field, never a wildcard:
                     // the size still has to match before any body is read.
                     hash.update(header.ok_or("imap_invalid_response")?);
                     Some(hash.finalize().into())

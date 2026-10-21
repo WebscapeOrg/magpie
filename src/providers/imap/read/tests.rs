@@ -153,7 +153,7 @@ async fn multi_window_dates_settle_before_paging_and_ignore_unsolicited_flags() 
                     batches.push(ids.len());
                 }
                 for uid in ids {
-                    // Date order deliberately crosses the 4096-message boundary.
+                    // Invariant: Date order deliberately crosses the 4096-message boundary.
                     let day = match uid {
                         1 => 24,
                         4097 => 23,
@@ -166,7 +166,7 @@ async fn multi_window_dates_settle_before_paging_and_ignore_unsolicited_flags() 
                         format!("* {uid} FETCH (UID {uid})\r\n")
                     });
                 }
-                // Both within and outside the current batch: neither may erase
+                // Invariant: Both within and outside the current batch: neither may erase
                 // UID 1's date or add a post-snapshot arrival to the page.
                 if dated {
                     response.push_str(
@@ -197,7 +197,7 @@ async fn multi_window_dates_settle_before_paging_and_ignore_unsolicited_flags() 
     });
     let mut p = params(port);
     p["limit"] = json!(2);
-    // Also usable as a runtime regression on the old UID-only implementation:
+    // Invariant: Also usable as a runtime regression on the old UID-only implementation:
     // it understands the same snapshot/search commands but chooses the wrong page.
     p["progressive"] = json!(false);
     let first = super::super::call("imap.list", &p).await.unwrap();
@@ -279,7 +279,7 @@ async fn a_slow_server_that_answers_every_command_still_pages() {
         loop {
             let request = String::from_utf8(line(&mut w).await.unwrap()).unwrap();
             replies += 1;
-            // Well inside one command's budget, and well outside the call's
+            // Invariant: Well inside one command's budget, and well outside the call's
             // old one once the conversation has run its length.
             tokio::time::sleep(SLOW).await;
             let mut response = String::new();
@@ -311,7 +311,7 @@ async fn a_slow_server_that_answers_every_command_still_pages() {
                     });
                 }
                 response.push_str("O1 OK fetched\r\n");
-                // The snapshot, then one date window per 4 096 UIDs.
+                // Invariant: The snapshot, then one date window per 4 096 UIDs.
                 dated && ids.last() == Some(&9000)
             } else {
                 panic!("unexpected command: {request}");

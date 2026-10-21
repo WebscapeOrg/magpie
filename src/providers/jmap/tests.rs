@@ -224,7 +224,7 @@ async fn cancelling_a_pending_native_request_closes_the_socket_without_retrying(
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut buffer = [0; 4096];
         assert!(socket.read(&mut buffer).await.unwrap() > 0);
-        // The server never supplies a response. Dropping the request future
+        // Invariant: The server never supplies a response. Dropping the request future
         // must release the connection instead of leaving a blocked curl child.
         assert_eq!(
             tokio::time::timeout(Duration::from_secs(1), socket.read(&mut buffer))

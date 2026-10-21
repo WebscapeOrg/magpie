@@ -103,9 +103,13 @@ Item {
       return found
     }
 
+    function setSubject(subject) {
+      mailService.selectedMessage = Object.assign({}, mailService.selectedMessage, { subject: subject })
+    }
+
     function init() {
       menu().close()
-      mailService.selectedMessage.subject = "Activity on Sprint board"
+      setSubject("Activity on Sprint board")
       mailService.copied = []
     }
 
@@ -136,7 +140,7 @@ Item {
     }
 
     function test_an_empty_subject_does_not_open_the_menu() {
-      mailService.selectedMessage.subject = ""
+      setSubject("")
       mouseClick(subjectLine(), 30, subjectLine().height / 2, Qt.RightButton)
       wait(20)
       compare(menu().opened, false)
@@ -144,7 +148,7 @@ Item {
     }
 
     function test_a_whitespace_only_subject_does_not_open_the_menu() {
-      mailService.selectedMessage.subject = "   "
+      setSubject("   ")
       mouseClick(subjectLine(), 30, subjectLine().height / 2, Qt.RightButton)
       wait(20)
       compare(menu().opened, false)
@@ -168,7 +172,8 @@ Item {
 
     function test_keyboard_activation_copies_the_snapshot_verbatim() {
       var subject = "  --version \\ <工单> \"quoted\"\nline two  "
-      mailService.selectedMessage.subject = subject
+      setSubject(subject)
+      compare(subjectLine().text, subject, "the displayed subject matches the copy target")
       mouseClick(subjectLine(), 30, subjectLine().height / 2, Qt.RightButton)
       tryVerify(function() { return menu().opened })
       keyClick(Qt.Key_Return)

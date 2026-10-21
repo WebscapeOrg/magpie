@@ -41,7 +41,7 @@ def thumbnail_sandbox():
     result = subprocess.run([
         "/usr/bin/bwrap", "--unshare-all", "--die-with-parent", "--new-session",
         "--cap-drop", "ALL", "--clearenv", "--ro-bind", "/usr", "/usr",
-        "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib", "/lib64",
+        "--ro-bind", "/lib", "/lib", "--ro-bind-try", "/lib64", "/lib64",
         "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--chdir", "/tmp",
         "/usr/bin/true"], capture_output=True, text=True, timeout=10)
     if result.returncode:
@@ -120,6 +120,7 @@ def stages(profile, output, baseline):
         gate("offline-recovery", ["cargo", "test", "--locked", "--lib", "local_mail::recovery_tests"], ["cargo"]),
         gate("provider-recovery", ["cargo", "test", "--locked", "--lib", "local_mail::provider_tests"], ["cargo"] + runtime),
         gate("send-recovery", ["cargo", "test", "--locked", "--lib", "outbox::tests::recorder_confirms"], ["cargo"] + runtime),
+        gate("retained-attachments", isolated + [sys.executable, "tests/test_attachment_handles_rpc.py"], runtime),
         gate("low-space", [sys.executable, "scripts/test-low-space.py"], ["cargo", "pdf-sandbox"] + runtime),
         gate("subprocess", ["cargo", "test", "--locked", "--lib", "process::"], ["cargo"]),
         gate("rust", isolated + make + ["test-rust"], ["cargo", "pdf-sandbox"] + runtime),

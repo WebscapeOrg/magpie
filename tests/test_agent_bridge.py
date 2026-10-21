@@ -79,7 +79,10 @@ class Bridge(unittest.TestCase):
     def cleanup(self):
         for ident in self.ids:
             subprocess.run(['python3',str(SCRIPT),'cancel',ident],env=self.env,capture_output=True)
-        time.sleep(.3)
+        for ident in self.ids:
+            path = self.store/ident/'job.json'
+            if path.exists() and json.loads(path.read_text()).get('state') in ('queued', 'running'):
+                self.wait(ident)
         self.assertFalse((self.root/'TERMINAL').exists())
 
     def test_background_stdin_result_and_resume(self):

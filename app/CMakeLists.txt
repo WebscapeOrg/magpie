@@ -145,6 +145,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml")
 endif()
 
 include(CTest)
+option(OMAMAIL_DESKTOP_ACCEPTANCE "Build the synthetic desktop acceptance driver" OFF)
+if(OMAMAIL_DESKTOP_ACCEPTANCE)
+  find_package(Qt6 REQUIRED COMPONENTS QuickTest)
+  qt_add_executable(desktop_acceptance ../benchmarks/mail/desktop_main.cpp)
+  target_link_libraries(desktop_acceptance PRIVATE
+    omamail_native omamail_nativeplugin Qt6::QuickTest Qt6::QuickControls2)
+endif()
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   function(omamail_native_test name source)
@@ -179,6 +186,14 @@ if(BUILD_TESTING)
 
   find_program(QMLTESTRUNNER_EXECUTABLE qmltestrunner HINTS "${QT6_INSTALL_PREFIX}/bin")
   if(QMLTESTRUNNER_EXECUTABLE)
+    add_test(NAME tst_host_contract COMMAND ${QMLTESTRUNNER_EXECUTABLE}
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/imports"
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/styles"
+      -import "${CMAKE_CURRENT_SOURCE_DIR}/../ui"
+      -input "${CMAKE_CURRENT_SOURCE_DIR}/tests/qml/tst_host_contract.qml"
+      -o -,txt)
+    set_tests_properties(tst_host_contract PROPERTIES
+      ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Omamail;QT_QUICK_CONTROLS_FALLBACK_STYLE=Basic")
     add_test(NAME tst_standalone_composition COMMAND ${QMLTESTRUNNER_EXECUTABLE}
       -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/imports"
       -import "${CMAKE_CURRENT_SOURCE_DIR}/qml/styles"

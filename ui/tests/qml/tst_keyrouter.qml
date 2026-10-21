@@ -30,6 +30,7 @@ Item {
   readonly property Item focusItem: host.Window.activeFocusItem
 
   Omamail.IconButton { id: iconButton; tooltipText: "Test action" }
+  Omamail.IconTextButton { id: iconTextButton; text: "Test action" }
   Widgets.Button { id: textButton; text: "Test action"; focusable: true }
   Widgets.PanelActionButton { id: panelButton; tooltipText: "Test action"; focusable: true }
   SignalSpy { id: buttonClicks; signalName: "clicked" }
@@ -78,7 +79,7 @@ Item {
 
     function test_focused_buttons_activate_before_mailbox_shortcuts_data() {
       return [{tag: "icon", button: iconButton}, {tag: "text", button: textButton},
-              {tag: "panel", button: panelButton}]
+              {tag: "panel", button: panelButton}, {tag: "icon-text", button: iconTextButton}]
     }
 
     function test_focused_buttons_activate_before_mailbox_shortcuts(data) {

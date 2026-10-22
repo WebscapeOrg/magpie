@@ -1,6 +1,6 @@
 use super::*;
 use std::io::{BufRead, BufReader};
-struct Peer(std::process::Child);
+pub(in crate::providers::jmap) struct Peer(pub(in crate::providers::jmap) std::process::Child);
 impl Drop for Peer {
     fn drop(&mut self) {
         let _ = self.0.kill();
@@ -9,51 +9,9 @@ impl Drop for Peer {
 }
 #[tokio::test]
 async fn native_mailbox_read_thread_actions_and_submission_preserve_workflow() {
-    let mut peer = Peer(
-        std::process::Command::new("python3")
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/providers/jmap/mailbox_tls_test.py"
-            ))
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .unwrap(),
-    );
-    let mut output = BufReader::new(peer.0.stdout.take().unwrap());
-    let mut port = String::new();
-    output.read_line(&mut port).unwrap();
-    let port: u16 = port.trim().parse().unwrap();
-    let mut cert = String::new();
-    output.read_line(&mut cert).unwrap();
-    let client = client_builder()
-        .add_root_certificate(
-            reqwest::Certificate::from_pem(&std::fs::read(cert.trim()).unwrap()).unwrap(),
-        )
-        .build()
-        .unwrap();
-    let session = Session {
-        client: Ok(client.clone()),
-        ..Default::default()
-    };
+    let (mut peer, session, client, port) =
+        tokio::task::spawn_blocking(mailbox_peer).await.unwrap();
     let context = session.context("jmap:user@example.test").unwrap();
-    let boxes = vec![
-        json!({"id":"I","role":"inbox"}),
-        json!({"id":"S","role":"sent"}),
-        json!({"id":"T","role":"trash"}),
-        json!({"id":"A","role":"archive"}),
-        json!({"id":"D","role":"drafts"}),
-    ];
-    let document = json!({"apiUrl":format!("https://localhost:{port}/api"),"downloadUrl":format!("https://localhost:{port}/blob/{{blobId}}"),"uploadUrl":format!("https://localhost:{port}/upload"),"eventSourceUrl":format!("https://localhost:{port}/events"),"state":"s1","capabilities":{CORE:{"maxObjectsInGet":2,"maxObjectsInSet":2},MAIL:{},SUBMISSION:{}},"accounts":{"account":{"accountCapabilities":{MAIL:{"emailQuerySortOptions":["receivedAt"]},SUBMISSION:{}}}},"primaryAccounts":{MAIL:"account"}});
-    *context.snapshot.lock().await = Some(Snapshot {
-        document,
-        roles: query::roles(&boxes),
-        boxes,
-        credential: json!({"scheme":"basic","username":"user","secret":"synthetic"}),
-        address: "user@example.test".into(),
-        account: "account".into(),
-        slots: Arc::new(Semaphore::new(4)),
-        uploads: Arc::new(Semaphore::new(2)),
-    });
     let call = |method: &'static str, mut params: Value| {
         params["accountId"] = json!("jmap:user@example.test");
         let session = &session;
@@ -303,7 +261,7 @@ async fn native_watch_rejects_unmanageable_stream_ids_before_starting_a_stream()
     );
 }
 
-fn acknowledgement_peer() -> (Peer, Session, reqwest::Client, u16) {
+pub(in crate::providers::jmap) fn mailbox_peer() -> (Peer, Session, reqwest::Client, u16) {
     let mut peer = Peer(
         std::process::Command::new("python3")
             .arg(concat!(
@@ -354,9 +312,8 @@ fn acknowledgement_peer() -> (Peer, Session, reqwest::Client, u16) {
 
 #[tokio::test]
 async fn native_mutations_require_complete_acknowledgements() {
-    let (mut peer, session, client, port) = tokio::task::spawn_blocking(acknowledgement_peer)
-        .await
-        .unwrap();
+    let (mut peer, session, client, port) =
+        tokio::task::spawn_blocking(mailbox_peer).await.unwrap();
     let context = session.context("jmap:user@example.test").unwrap();
     let mut outcomes = Vec::new();
     for case in [
@@ -409,9 +366,8 @@ async fn native_mutations_require_complete_acknowledgements() {
 
 #[tokio::test]
 async fn native_draft_cleanup_requires_complete_acknowledgements() {
-    let (mut peer, session, client, port) = tokio::task::spawn_blocking(acknowledgement_peer)
-        .await
-        .unwrap();
+    let (mut peer, session, client, port) =
+        tokio::task::spawn_blocking(mailbox_peer).await.unwrap();
     let context = session.context("jmap:user@example.test").unwrap();
     let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .encode("From: user@example.test\r\nTo: a@example.test\r\nSubject: draft\r\n\r\nBody");
@@ -464,9 +420,8 @@ async fn native_draft_cleanup_requires_complete_acknowledgements() {
 
 #[tokio::test]
 async fn native_queued_requests_recheck_account_lifetime_before_connecting() {
-    let (mut peer, session, client, port) = tokio::task::spawn_blocking(acknowledgement_peer)
-        .await
-        .unwrap();
+    let (mut peer, session, client, port) =
+        tokio::task::spawn_blocking(mailbox_peer).await.unwrap();
     let context = session.context("jmap:user@example.test").unwrap();
     let mut outcomes = Vec::new();
     for method in ["jmap.labels", "jmap.attachment"] {
@@ -542,9 +497,8 @@ async fn native_queued_requests_recheck_account_lifetime_before_connecting() {
 
 #[tokio::test]
 async fn native_truncated_body_repair_stops_rejected_credentials() {
-    let (mut peer, session, client, port) = tokio::task::spawn_blocking(acknowledgement_peer)
-        .await
-        .unwrap();
+    let (mut peer, session, client, port) =
+        tokio::task::spawn_blocking(mailbox_peer).await.unwrap();
     let context = session.context("jmap:user@example.test").unwrap();
     {
         let mut held = context.snapshot.lock().await;

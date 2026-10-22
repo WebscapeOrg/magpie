@@ -826,7 +826,7 @@ pub(super) fn fill(template: &str, values: &[(&str, &str)]) -> String {
 }
 #[cfg(test)]
 #[path = "mailbox_runtime_tests.rs"]
-mod tests;
+pub(super) mod tests;
 
 pub(super) fn active(context: &Context) -> Result<(), &'static str> {
     if context.retired.load(std::sync::atomic::Ordering::Acquire) {

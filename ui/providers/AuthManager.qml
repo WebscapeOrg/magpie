@@ -501,6 +501,7 @@ Item {
   }
 
   function cancelLogin() {
+    accountRestore.stop()
     authTimeout.stop()
     nativePoll.stop()
     stopNativeLogin()

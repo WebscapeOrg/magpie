@@ -136,6 +136,64 @@ if sys.argv[1] == 'run' and '--session' in sys.argv:
                 self.fail('Cancelled workers did not settle before cleanup: ' + ', '.join(active))
             time.sleep(.04)
 
+    def test_saved_context_mismatch_starts_no_provider(self):
+        ident = self.new()
+        self.assertEqual(self.wait(ident)['job']['state'], 'done')
+        context_path = self.store/ident/'context.json'
+        job_path = self.store/ident/'job.json'
+        context = json.loads(context_path.read_text())
+        original_job = job_path.read_text()
+        marker = self.artifacts/'forbidden-provider'
+        self.tool('claude', f"from pathlib import Path\nimport sys\nPath({str(marker)!r}).write_text(sys.stdin.read())")
+        for key, value in [('accountId', 'foreign'), ('messageId', 'foreign'),
+                           ('draftKey', 'foreign'),
+                           ('messages', [{'messageId':'foreign', 'message':'FORBIDDEN'}])]:
+            with self.subTest(field=key):
+                marker.unlink(missing_ok=True)
+                changed = dict(context, **{key:value})
+                context_path.write_text(json.dumps(changed))
+                queued = dict(json.loads(original_job), state='queued')
+                queued.pop('pid', None)
+                job_path.write_text(json.dumps(queued))
+                try:
+                    result = subprocess.run([str(BINARY), 'agent-worker', ident],
+                                            env=self.env, capture_output=True, text=True, timeout=8)
+                finally:
+                    context_path.write_text(json.dumps(context))
+                    job_path.write_text(original_job)
+                self.assertFalse(marker.exists(), 'Mismatched saved content reached the provider')
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_saved_context_mismatch_creates_no_successor(self):
+        ident = self.new()
+        self.assertEqual(self.wait(ident)['job']['state'], 'done')
+        context_path = self.store/ident/'context.json'
+        context = json.loads(context_path.read_text())
+        before = set(self.store.iterdir())
+        marker = self.artifacts/'forbidden-successor'
+        self.tool('claude', f"from pathlib import Path\nimport sys\nPath({str(marker)!r}).write_text(sys.stdin.read())")
+        for key, value in [('accountId', 'foreign')]:
+            with self.subTest(field=key):
+                context_path.write_text(json.dumps(dict(context, **{key:value})))
+                try:
+                    result = subprocess.run([str(BINARY), '--json', 'call', 'agent.jobStart'],
+                        input=json.dumps({'payload':{'parent':ident, 'prompt':'Continue'}}),
+                        env=self.env, capture_output=True, text=True, timeout=8)
+                finally:
+                    context_path.write_text(json.dumps(context))
+                    for path in set(self.store.iterdir()) - before:
+                        if path.is_dir():
+                            self.ids.append(path.name)
+                            deadline = time.monotonic() + 8
+                            while json.loads((path/'job.json').read_text())['state'] in ('queued', 'running'):
+                                if time.monotonic() >= deadline:
+                                    self.fail('Synthetic successor did not stop')
+                                time.sleep(.02)
+                self.assertFalse(marker.exists(), 'A successor received mismatched context')
+                self.assertEqual(set(self.store.iterdir()), before)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(json.loads(result.stdout)['error']['code'], 'agent_context_owner_mismatch')
+
     def test_background_stdin_result_and_resume(self):
         ident = self.new(draft={'body':'Original'}, draftKey='ada-draft', draftFingerprint='abc')
         shown = self.wait(ident)

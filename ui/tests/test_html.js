@@ -1849,4 +1849,18 @@ assert.strictEqual(reading('<table><tr><td hidden>SECRET</td><td>Visible</td></t
   '<table><tr><td></td><td>Visible</td></tr><tr><td>A</td><td>B</td></tr></table>',
   "hidden cells retain their column positions")
 
+for (const hidden of ['hidden', 'hidden="until-found"', 'style="display:none"']) {
+  const url = "https://cdn.example.com/hidden-parent"
+  const source = '<div ' + hidden + '><span><img src="' + url + '">SECRET</span></div><p>Visible</p>'
+  for (const allowRemoteImages of [false, true]) {
+    const result = html.sanitize(source, { withReader: true, allowRemoteImages,
+      remoteImageData: { [url]: tinyPng } })
+    assert.strictEqual(result.remoteImageSources.length, 0, "hidden ancestors cannot trigger resource discovery")
+    for (const view of [result, result.reader]) {
+      assert.ok(!view.html.includes("SECRET") && !view.html.includes("<img"))
+      assert.ok(view.html.includes("Visible"))
+    }
+  }
+}
+
 console.log("test_html.js ok")

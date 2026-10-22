@@ -74,7 +74,7 @@ void ProcessTest::incrementalUtf8Lines()
     QVERIFY(exited.wait(5000));
     QCOMPARE(lines.size(), 2);
     QCOMPARE(lines.at(0).at(0).toString(), QString::fromUtf8("first €"));
-    QCOMPARE(lines.at(1).at(0).toString(), QString::fromUtf8("second U0001f642"));
+    QCOMPARE(lines.at(1).at(0).toString(), QString::fromUtf8("second 🙂"));
 }
 
 void ProcessTest::stderrIsBounded()

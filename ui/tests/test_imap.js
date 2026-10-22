@@ -883,4 +883,9 @@ for (const name of ["x\r", "x\n", "x\r\n", "x\0", "x\t", "x\x7f", "x\ud800", "x\
   assert.strictEqual(imap.deleteCommand(name), "")
 }
 
+for (const folder of ["constructor", "__proto__", "toString"]) {
+  deepEqual(imap.groupByFolder(["7:" + folder, "8:" + folder]),
+    [{ folder, uids: [7, 8] }], "server folder names are dictionary keys")
+}
+
 console.log("ImapProtocol.js ok")

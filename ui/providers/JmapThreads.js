@@ -140,7 +140,7 @@ function representativeThreads(responses) {
  */
 function threadMembers(responses) {
   var list = getList(argumentsAt(responses, CALL_THREADS))
-  var output = {}
+  var output = Object.create(null)
   for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
     var row = list[itemIndex] || {}
     var id = Protocol.trimmed(row.id)
@@ -163,10 +163,10 @@ function threadMembers(responses) {
 function memberIdsOf(representatives, threads) {
   var representativeRows = Array.isArray(representatives) ? representatives : []
   var map = threads && typeof threads === "object" ? threads : {}
-  var seen = {}
+  var seen = Object.create(null)
   var output = []
   for (var itemIndex = 0; itemIndex < representativeRows.length; itemIndex++) {
-    var members = map[representativeRows[itemIndex].threadId]
+    var members = Protocol.mapValue(map, representativeRows[itemIndex].threadId)
     if (!Array.isArray(members)) continue
     for (var nestedIndex = 0; nestedIndex < members.length; nestedIndex++) {
       if (seen[members[nestedIndex]]) continue
@@ -181,7 +181,7 @@ function memberIdsOf(representatives, threads) {
  */
 function memberIndex(list) {
   var rows = Array.isArray(list) ? list : []
-  var output = {}
+  var output = Object.create(null)
   for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
     var id = Protocol.trimmed((rows[itemIndex] || {}).id)
     if (id !== "") output[id] = rows[itemIndex]
@@ -279,12 +279,13 @@ function threadBlocks(representatives, threads, members, roles, query) {
   var representativeRows = Array.isArray(representatives) ? representatives : []
   var map = threads && typeof threads === "object" ? threads : {}
   var index = members && typeof members === "object" ? members : {}
-  var output = {}
+  var output = Object.create(null)
   for (var itemIndex = 0; itemIndex < representativeRows.length; itemIndex++) {
     var ids = Array.isArray(map[representativeRows[itemIndex].threadId]) ? map[representativeRows[itemIndex].threadId] : []
     var list = []
     for (var nestedIndex = 0; nestedIndex < ids.length; nestedIndex++) {
-      if (index[ids[nestedIndex]]) list.push(index[ids[nestedIndex]])
+      var member = Protocol.mapValue(index, ids[nestedIndex])
+      if (member) list.push(member)
     }
     output[representativeRows[itemIndex].id] = threadBlockFor(representativeRows[itemIndex].threadId, list, roles, query)
   }
@@ -312,7 +313,7 @@ function mailboxIdsOf(email) {
  */
 function membershipsFrom(list) {
   var rows = Array.isArray(list) ? list : []
-  var output = {}
+  var output = Object.create(null)
   for (var itemIndex = 0; itemIndex < rows.length; itemIndex++) {
     var id = Protocol.trimmed((rows[itemIndex] || {}).id)
     if (id === "") continue
@@ -341,7 +342,7 @@ function mergedInto(existing, additions, limit) {
     }
     if (held >= cap) source = {}
   }
-  var output = {}
+  var output = Object.create(null)
   for (var key in source) output[key] = source[key]
   for (var added in extra) output[added] = extra[added]
   return output

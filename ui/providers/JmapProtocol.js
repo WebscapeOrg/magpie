@@ -41,6 +41,10 @@ function trimmed(value) {
   return String(value === undefined || value === null ? "" : value).replace(/^\s+|\s+$/g, "")
 }
 
+function mapValue(map, key) {
+  return map && Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined
+}
+
 /** Ids as a list — trimmed, without blanks or repeats, in first-appearance
  * order. One id or an array of them, which is what every action takes.
  */
@@ -1290,7 +1294,7 @@ function resolveRole(role, mailboxes) {
     var box = list[itemIndex] || {}
     if (trimmed(box.role).toLowerCase() === wanted) return trimmed(box.id)
   }
-  var guess = ROLE_NAME_GUESSES[wanted]
+  var guess = mapValue(ROLE_NAME_GUESSES, wanted)
   if (!guess) return ""
   for (var nestedIndex = 0; nestedIndex < list.length; nestedIndex++) {
     var candidate = list[nestedIndex] || {}
@@ -1342,7 +1346,7 @@ function absentMailboxes(mailboxes) {
  * answer reads the same from either layer.
  */
 function missingMailboxError(role) {
-  var label = ROLE_LABELS[trimmed(role).toLowerCase()]
+  var label = mapValue(ROLE_LABELS, trimmed(role).toLowerCase())
   return "This account has no " + (label ? label : "such") + " mailbox"
 }
 
@@ -1439,7 +1443,7 @@ function filterFor(parsed, roles) {
 
   var role = trimmed(query.role).toLowerCase()
   if (role === "") return null
-  var resolved = trimmed(map[role])
+  var resolved = trimmed(mapValue(map, role))
   if (resolved === "") return null
 
   var filter = { inMailbox: resolved }
@@ -1591,14 +1595,14 @@ function countOf(value) {
 function mailboxPath(box, byId) {
   var entry = box || {}
   var names = [trimmed(entry.name)]
-  var seen = {}
+  var seen = Object.create(null)
   seen[trimmed(entry.id)] = true
   var current = entry
   for (var depth = 0; depth < MAX_MAILBOX_DEPTH; depth++) {
     var parentId = trimmed(current.parentId)
     if (parentId === "" || seen[parentId] === true) break
     seen[parentId] = true
-    var parent = byId[parentId]
+    var parent = mapValue(byId, parentId)
     if (!parent) break
     names.unshift(trimmed(parent.name))
     current = parent
@@ -1626,8 +1630,8 @@ function mailboxPath(box, byId) {
 function mailboxLabels(mailboxes, roles) {
   var list = mailboxArray(mailboxes)
   var map = roles || {}
-  var byId = {}
-  var systemIds = {}
+  var byId = Object.create(null)
+  var systemIds = Object.create(null)
   var itemIndex
   for (itemIndex = 0; itemIndex < list.length; itemIndex++) {
     var box = list[itemIndex] || {}
@@ -1635,7 +1639,7 @@ function mailboxLabels(mailboxes, roles) {
     if (key !== "") byId[key] = box
   }
   for (var role in map) {
-    var resolved = trimmed(map[role])
+    var resolved = trimmed(mapValue(map, role))
     if (resolved !== "") systemIds[resolved] = true
   }
 
@@ -1699,7 +1703,7 @@ function keywordSet(email) {
 }
 
 function hasKeyword(email, name) {
-  return isSet(keywordSet(email)[name])
+  return isSet(mapValue(keywordSet(email), name))
 }
 
 function inMailbox(email, mailboxId) {
@@ -1707,7 +1711,7 @@ function inMailbox(email, mailboxId) {
   if (id === "") return false
   var ids = (email || {}).mailboxIds
   if (!ids || typeof ids !== "object") return false
-  return isSet(ids[id])
+  return isSet(mapValue(ids, id))
 }
 
 /** The Gmail label ids a JMAP message amounts to, so a row, a star and an unread
@@ -1846,7 +1850,7 @@ function composedHeaders(source) {
  */
 function extraHeaders(email) {
   var list = email && Array.isArray(email.headers) ? email.headers : []
-  var written = {}
+  var written = Object.create(null)
   for (var c = 0; c < COMPOSED_HEADERS.length; c++)
     written[COMPOSED_HEADERS[c].toLowerCase()] = true
   var output = []
@@ -1986,7 +1990,7 @@ function partHeaders(part) {
 function bodyValueFor(values, partId) {
   var id = trimmed(partId)
   if (id === "" || !values || typeof values !== "object") return null
-  var found = values[id]
+  var found = mapValue(values, id)
   return found && typeof found === "object" ? found : null
 }
 
@@ -2271,7 +2275,7 @@ function patchFor(addLabelIds, removeLabelIds, roles, mailboxIds) {
   if (!movesMember(move, mailboxIds, map)) return patch
 
   if (plan.replace) {
-    var only = {}
+    var only = Object.create(null)
     only[to] = true
     patch.mailboxIds = only
   } else {
@@ -2314,7 +2318,7 @@ function patchIsEmpty(patch) {
  * adopts it, it may only ever carry a state the server returned.
  */
 function emailSet(accountId, ids, patch) {
-  var update = {}
+  var update = Object.create(null)
   var list = Array.isArray(ids) ? ids : []
   for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
     var id = trimmed(list[itemIndex])
@@ -2585,7 +2589,7 @@ function identityFor(identities, fromHeader) {
  * and the two keywords. A draft stops here; a send has the submission move it.
  */
 function importCall(accountId, blobId, draftsId, callId) {
-  var mailboxes = {}
+  var mailboxes = Object.create(null)
   var drafts = trimmed(draftsId)
   if (drafts !== "") mailboxes[drafts] = true
   var keywords = {}

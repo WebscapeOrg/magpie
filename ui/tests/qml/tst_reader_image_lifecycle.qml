@@ -5,13 +5,7 @@ import qs.Commons
 import "../../components" as Omamail
 import "../../message/Html.js" as Html
 
-// Three ways of reading one message, and the two things that must stay true
-// while moving between them: nothing is asked of the network, and the message
-// on screen is still the message that was open.
-//
-// The reading column is here too, because how wide it is and where it sits are
-// decided against a font Qt measures — which is the half of that decision no
-// node test can make.
+// Invariant: Image replies retain account, message and latest-request ownership.
 Item {
   width: MailStyle.space(900)
   height: 600
@@ -28,9 +22,7 @@ Item {
   QtObject {
     id: mailService
 
-    // Every trip to the network a body could cause. Reading mode is built
-    // beside the other two off one parse, so choosing between them must move
-    // none of these.
+
     property var reading: ({accountId: "account-a"})
     property var callbacks: []
     function fetchDisplayImage(source, callback) { callbacks = callbacks.concat([{source: source, done: callback}]) }
@@ -75,7 +67,7 @@ Item {
 
   Omamail.MessageReader {
     id: reader
-    // Sized rather than anchored: the panel's width is what these tests move.
+
     width: MailStyle.space(900)
     height: 600
     service: mailService

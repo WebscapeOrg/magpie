@@ -136,10 +136,10 @@ Item {
     // derived against the short column silently fails once the legend doubles it.
     function test_never_prints_over_the_centred_block() {
       var label = version()
-      for (var h = 120; h <= 520; h++) {
-        resize(400, h)
+      for (var height = 120; height <= 520; height++) {
+        resize(400, height)
         verify(!overlapping(label),
-          "version label overlaps the centred column at height " + h
+          "version label overlaps the centred column at height " + height
             + (slate().showLegend ? " (legend shown)" : ""))
       }
     }

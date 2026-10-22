@@ -68,6 +68,15 @@ Item {
       compare(storage.writes, [])
       compare(storage.deletes, [])
     }
+    function test_logout_cancels_deferred_session_restore() {
+      var auth = manager()
+      auth.credentials = {clientId:"123-example.apps.googleusercontent.com",clientSecret:"synthetic-secret"}
+      auth.logout()
+      wait(10)
+      compare(transport.calls.filter(function(request) { return request.method === "auth.token" }), [])
+      compare(auth.savedSessionPresent, false)
+      compare(auth.loggedIn, false)
+    }
     function test_deferred_restore_uses_the_current_account() {
       var auth = manager()
       auth.credentials = {clientId:"123-example.apps.googleusercontent.com",clientSecret:"synthetic-secret"}

@@ -10,9 +10,9 @@ TestCase {
     property int apiVersion: 6
     property var calls: []
     property var callback: null
-    function call(method, params, done) {
-      calls = calls.concat([{ method: method, params: params }])
-      callback = done
+    function call(method, parameters, onComplete) {
+      calls = calls.concat([{ method: method, params: parameters }])
+      callback = onComplete
     }
   }
   QtObject {

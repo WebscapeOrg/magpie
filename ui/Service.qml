@@ -567,10 +567,7 @@ Item {
     var value = String(secret || "")
     if (attributes.length === 0 || (operation === "put"
         && (value === "" || /[\u0000\r\n]/.test(value)))) {
-      if (typeof callback === "function") {
-        if (operation === "get") callback("", "invalid_params")
-        else callback(false, "invalid_params")
-      }
+      if (typeof callback === "function") callback(operation === "get" ? "" : false, "invalid_params")
       return false
     }
     var request = legacyCredentialProcessComponent.createObject(root, {
@@ -581,10 +578,7 @@ Item {
     })
     value = ""
     if (!request) {
-      if (typeof callback === "function") {
-        if (operation === "get") callback("", "credential_store_unavailable")
-        else callback(false, "credential_store_unavailable")
-      }
+      if (typeof callback === "function") callback(operation === "get" ? "" : false, "credential_store_unavailable")
       return false
     }
     request.running = true
@@ -990,11 +984,7 @@ Item {
       if (!root) return
       root.accountsWriting = false
       root.accountsWritePayload = ""
-      if (!error && result) {
-        root.accountsRevision = String(result.revision || "")
-        root.accountsReleasedIds = root.accountsReleasedIds.filter(function(id) { return released.indexOf(id) < 0 })
-        root.lastPersistedIds = Accounts.namedIds(writable).filter(function(id) { return root.accountsReleasedIds.indexOf(id) < 0 })
-      } else {
+      if (error || !result) {
         root.accountsSaveQueued = false
         root.accountsSaveQueuedAllowDrop = false
         root.accountsRevision = ""
@@ -1002,10 +992,15 @@ Item {
         root.restoreAccountRegistry()
         return
       }
+      root.accountsRevision = String(result.revision || "")
+      root.accountsReleasedIds = root.accountsReleasedIds.filter(function(id) { return released.indexOf(id) < 0 })
+      root.lastPersistedIds = Accounts.namedIds(writable).filter(function(id) { return root.accountsReleasedIds.indexOf(id) < 0 })
       if (root.accountsSaveQueued) {
         var drop = root.accountsSaveQueuedAllowDrop
         root.saveAccounts(drop ? { allowDrop: true } : undefined)
-      } else if (root.accountsReloadQueued) {
+        return
+      }
+      if (root.accountsReloadQueued) {
         root.accountsReloadQueued = false
         root.restoreAccountRegistry()
       }
@@ -1372,19 +1367,23 @@ Item {
     }, function(value, error) {
       if (!root) return
       root.unifiedRequestPending = false
-      if (root.unified && generation === root.unifiedRevision) {
-        if (error || !value) root.unifiedSnapshotError = "Could not combine mailboxes"
-        else {
-          var rows = value.messages || []
-          for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-            if (rows[rowIndex].date) rows[rowIndex].date = new Date(rows[rowIndex].date)
-          }
-          root.unifiedSnapshot = value
-          root.unifiedSnapshotError = ""
-        }
-      }
+      root.acceptUnifiedSnapshot(generation, value, error)
       if (root.unifiedRequestQueued) unifiedSnapshotTimer.restart()
     })
+  }
+
+  function acceptUnifiedSnapshot(generation, value, error) {
+    if (!unified || generation !== unifiedRevision) return
+    if (error || !value) {
+      unifiedSnapshotError = "Could not combine mailboxes"
+      return
+    }
+    var rows = value.messages || []
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      if (rows[rowIndex].date) rows[rowIndex].date = new Date(rows[rowIndex].date)
+    }
+    unifiedSnapshot = value
+    unifiedSnapshotError = ""
   }
 
   onUnifiedSourcesChanged: scheduleUnifiedSnapshot()
@@ -2022,10 +2021,9 @@ Item {
     // Invariant: Undo keeps unified view visible because the restored draft already names its account.
     if (host !== current && !unified) {
       for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
-        if (accountHosts.objectAt(hostIndex) === host) {
-          switchToIndex(hostIndex)
-          break
-        }
+        if (accountHosts.objectAt(hostIndex) !== host) continue
+        switchToIndex(hostIndex)
+        break
       }
     }
     return host.undoSend(callback)
@@ -2181,10 +2179,12 @@ Item {
   function withGoogleAccessToken(accountId, callback) {
     var accounts = accountList && accountList.accounts ? accountList.accounts : []
     for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
-      if (accounts[accountIndex] && accounts[accountIndex].id === accountId && accounts[accountIndex].provider === "gmail") {
-        var host = accountHosts.objectAt(accountIndex)
-        if (host) { host.withAccessToken(callback); return }
-      }
+      var account = accounts[accountIndex]
+      if (!account || account.id !== accountId || account.provider !== "gmail") continue
+      var host = accountHosts.objectAt(accountIndex)
+      if (!host) continue
+      host.withAccessToken(callback)
+      return
     }
     callback("", "The Google calendar account is not signed in")
   }
@@ -2193,13 +2193,12 @@ Item {
   function withMicrosoftAccessToken(accountId, callback) {
     var accounts = accountList && accountList.accounts ? accountList.accounts : []
     for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
-      if (accounts[accountIndex] && accounts[accountIndex].id === accountId && accounts[accountIndex].provider === "outlook") {
-        var host = accountHosts.objectAt(accountIndex)
-        if (host && host.auth && typeof host.auth.withGraphToken === "function") {
-          host.auth.withGraphToken(callback)
-          return
-        }
-      }
+      var account = accounts[accountIndex]
+      if (!account || account.id !== accountId || account.provider !== "outlook") continue
+      var host = accountHosts.objectAt(accountIndex)
+      if (!host || !host.auth || typeof host.auth.withGraphToken !== "function") continue
+      host.auth.withGraphToken(callback)
+      return
     }
     callback("", "The Microsoft calendar account is not signed in")
   }
@@ -2503,12 +2502,13 @@ Item {
     function onReadyChanged() {
       root.scheduleSenderIdentities()
       root.scheduleConversationProjection()
-      if (root.backend.ready) {
-        if (root.accountsSaveQueued) root.saveAccounts(root.accountsSaveQueuedAllowDrop ? { allowDrop: true } : undefined)
-        else root.restoreAccountRegistry()
-        root.refreshRecipientContacts()
+      if (!root.backend.ready) {
+        root.contactsLoading = false
+        return
       }
-      else root.contactsLoading = false
+      if (root.accountsSaveQueued) root.saveAccounts(root.accountsSaveQueuedAllowDrop ? { allowDrop: true } : undefined)
+      else root.restoreAccountRegistry()
+      root.refreshRecipientContacts()
     }
   }
 

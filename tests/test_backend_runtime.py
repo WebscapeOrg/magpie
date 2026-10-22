@@ -20,6 +20,19 @@ SOURCE = Path(__file__).resolve().parents[1] / "scripts/backend-runtime.py"
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_cleanup_does_not_stop_another_fixtures_patch(self):
+        other = patch.object(sys, 'synthetic_other_fixture', 'still active', create=True)
+        other.start()
+        try:
+            self.doCleanups()
+            self.assertEqual(getattr(sys, 'synthetic_other_fixture', None), 'still active')
+        finally:
+            other.stop()
+
+    def own_patch(self, replacement):
+        self.addCleanup(replacement.stop)
+        return replacement.start()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -36,16 +49,15 @@ class RuntimeTests(unittest.TestCase):
         self.data = Path(self.tmp.name).resolve() / "data/omamail"
         self.home = Path(self.tmp.name).resolve() / "home"
         self.binary = self.data / "bin/omamail"
-        patch.object(self.manager, "DATA_ROOT", self.data).start()
-        patch.object(self.manager, "BINARY", self.binary).start()
-        patch.object(self.manager, "LOCAL_BUILD", self.data / "local-build.json").start()
-        patch.object(self.manager, "LOCK", self.data / "runtime.lock").start()
-        self.addCleanup(patch.stopall)
-        patch.dict(os.environ, {}, clear=True).start()
-        patch.object(self.manager.Path, "home", return_value=self.home).start()
-        patch.object(self.manager.platform, "system", return_value="Linux").start()
-        patch.object(self.manager.platform, "machine", return_value="x86_64").start()
-        patch.object(self.manager, "download", side_effect=AssertionError("unexpected network")).start()
+        self.own_patch(patch.object(self.manager, "DATA_ROOT", self.data))
+        self.own_patch(patch.object(self.manager, "BINARY", self.binary))
+        self.own_patch(patch.object(self.manager, "LOCAL_BUILD", self.data / "local-build.json"))
+        self.own_patch(patch.object(self.manager, "LOCK", self.data / "runtime.lock"))
+        self.own_patch(patch.dict(os.environ, {}, clear=True))
+        self.own_patch(patch.object(self.manager.Path, "home", return_value=self.home))
+        self.own_patch(patch.object(self.manager.platform, "system", return_value="Linux"))
+        self.own_patch(patch.object(self.manager.platform, "machine", return_value="x86_64"))
+        self.own_patch(patch.object(self.manager, "download", side_effect=AssertionError("unexpected network")))
 
     def test_runtime_lives_in_xdg_data_outside_plugin_tree(self):
         data = Path(self.tmp.name).resolve() / "data"
@@ -264,7 +276,7 @@ touch linked
             if after:
                 after()
             return sums if url.endswith("SHA256SUMS") else archive
-        patch.object(self.manager, "download", side_effect=download).start()
+        self.own_patch(patch.object(self.manager, "download", side_effect=download))
 
     def test_missing_status_never_downloads(self):
         result = self.manager.run("status")

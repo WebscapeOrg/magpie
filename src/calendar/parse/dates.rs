@@ -25,8 +25,11 @@ pub(super) fn local(date: NaiveDateTime) -> Option<i64> {
         .earliest()
         .map(|d| d.timestamp_millis())
 }
-fn offset(text: &str) -> Option<i64> {
-    if !matches!(text.len(), 5 | 7) || !text.is_ascii() {
+fn offset_seconds(text: &str) -> Option<i64> {
+    if !matches!(text.len(), 5 | 7)
+        || !text.is_ascii()
+        || !text[1..].bytes().all(|byte| byte.is_ascii_digit())
+    {
         return None;
     }
     let sign = match &text[..1] {
@@ -34,7 +37,17 @@ fn offset(text: &str) -> Option<i64> {
         "-" => -1,
         _ => return None,
     };
-    Some(sign * (text[1..3].parse::<i64>().ok()? * 60 + text[3..5].parse::<i64>().ok()?))
+    let hours = text[1..3].parse::<i64>().ok()?;
+    let minutes = text[3..5].parse::<i64>().ok()?;
+    let seconds = if text.len() == 7 {
+        text[5..7].parse::<i64>().ok()?
+    } else {
+        0
+    };
+    if hours > 23 || minutes > 59 || seconds > 59 {
+        return None;
+    }
+    Some(sign * (hours * 3600 + minutes * 60 + seconds))
 }
 pub(super) fn month_days(year: i32, month: u32) -> u32 {
     (28..=31)
@@ -97,7 +110,7 @@ fn transition(rule: &Component, year: i32) -> Option<i64> {
             + if until.len() == 8 { 86_399_999 } else { 0 };
         let reading = found
             - if until.ends_with('Z') {
-                offset(rule.text("TZOFFSETFROM")).unwrap_or(0) * 60_000
+                offset_seconds(rule.text("TZOFFSETFROM")).unwrap_or(0) * 1000
             } else {
                 0
             };
@@ -127,7 +140,7 @@ pub(super) fn zone(calendar: &Component, tzid: &str, reading: NaiveDateTime) -> 
     let ordered: Vec<_> = ["STANDARD", "DAYLIGHT"]
         .iter()
         .flat_map(|kind| zone.children.iter().filter(move |c| c.name == *kind))
-        .filter_map(|c| Some((c, offset(c.text("TZOFFSETTO"))?)))
+        .filter_map(|c| Some((c, offset_seconds(c.text("TZOFFSETTO"))?)))
         .collect();
     if ordered.len() == 1 {
         return Some(ordered[0].1);
@@ -185,7 +198,7 @@ pub(super) fn zone(calendar: &Component, tzid: &str, reading: NaiveDateTime) -> 
                     .map(|d| d.and_utc().timestamp_millis())
                     .min()
             }?;
-            Some((at, offset(r.text("TZOFFSETFROM"))?))
+            Some((at, offset_seconds(r.text("TZOFFSETFROM"))?))
         })
         .min_by_key(|(at, _)| *at);
     earliest
@@ -210,7 +223,7 @@ pub(super) fn moment(property: Option<&Property>, calendar: &Component) -> Value
     } else if !tz.is_empty() {
         let offset = zone(calendar, tz, value);
         (
-            Some(value.and_utc().timestamp_millis() - offset.unwrap_or(0) * 60_000),
+            Some(value.and_utc().timestamp_millis() - offset.unwrap_or(0) * 1000),
             offset.is_some(),
             tz,
         )
@@ -259,4 +272,39 @@ pub(super) fn duration(text: &str) -> i64 {
         number.clear();
     }
     if number.is_empty() { sign * total } else { 0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn round2_timezone_offset_seconds_and_invalid_components_reach_events() {
+        for (offset, seconds, resolved) in [
+            ("+010521", 3921, true),
+            ("-003021", -1821, true),
+            ("+2460", 0, false),
+            ("-0060", 0, false),
+            ("+126199", 0, false),
+            ("++100", 0, false),
+        ] {
+            let source = format!(
+                "BEGIN:VCALENDAR\r\nBEGIN:VTIMEZONE\r\nTZID:Test\r\nBEGIN:STANDARD\r\nDTSTART:20000101T000000\r\nTZOFFSETFROM:{offset}\r\nTZOFFSETTO:{offset}\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:test\r\nDTSTART;TZID=Test:20260102T120000\r\nSUMMARY:Meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+            );
+            let response = format!(
+                "<multistatus><response><href>/meeting.ics</href><calendar-data><![CDATA[{source}]]></calendar-data></response></multistatus>"
+            );
+            let parsed =
+                super::super::parse(&json!({"kind":"caldav","body":response,"sourceId":"test"}))
+                    .unwrap();
+            let event = &parsed["events"][0];
+            let expected = date("20260102T120000")
+                .unwrap()
+                .and_utc()
+                .timestamp_millis()
+                - seconds * 1000;
+            assert_eq!(event["start"]["ms"], expected, "{offset}");
+            assert_eq!(event["start"]["resolved"], resolved, "{offset}");
+        }
+    }
 }

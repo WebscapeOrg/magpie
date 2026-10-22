@@ -139,15 +139,30 @@ impl TokenExpiry {
     }
 }
 
-type Tokens = std::collections::HashMap<String, (String, TokenExpiry)>;
+#[derive(Clone, Eq, Hash, PartialEq)]
+struct Audience {
+    tenant: String,
+    resource: String,
+}
+
+impl Audience {
+    fn new(tenant: &str, resource: &str) -> Self {
+        Self {
+            tenant: tenant.into(),
+            resource: resource.into(),
+        }
+    }
+}
+
+type Tokens = std::collections::HashMap<Audience, (String, TokenExpiry)>;
 
 fn cached_token(
     tokens: &Tokens,
-    resource: &str,
+    audience: &Audience,
     monotonic_now: std::time::Instant,
     wall_now: std::time::SystemTime,
 ) -> Option<String> {
-    let (token, expiry) = tokens.get(resource)?;
+    let (token, expiry) = tokens.get(audience)?;
     // Invariant: Linux's monotonic clock stops during suspend. Wall time catches sleep
     // and forward corrections; the monotonic deadline still bounds reuse if
     // the wall clock moves backwards. Keep the original 60-second margin.
@@ -163,7 +178,6 @@ type AccountTokens = std::sync::Arc<tokio::sync::Mutex<Tokens>>;
 struct Grant {
     account_id: String,
     client_id: String,
-    tenant: String,
 }
 
 static TOKENS: OnceLock<tokio::sync::Mutex<std::collections::HashMap<Grant, AccountTokens>>> =
@@ -212,7 +226,8 @@ async fn access_token_with(
     }
     let tenant = stored_tenant(&entry);
     let url = destination(&json!({"provider":"outlook", "endpoint":"token", "tenant":tenant}))?;
-    let lock = account_tokens(account, client_id, tenant).await?;
+    let lock = account_tokens(account, client_id).await?;
+    let audience = Audience::new(tenant, resource);
     let account = account.to_owned();
     let client_id = client_id.to_owned();
     let resource = resource.to_owned();
@@ -221,7 +236,7 @@ async fn access_token_with(
         // rotating a refresh token must not race another resource's exchange.
         if let Some(token) = cached_token(
             &tokens,
-            &resource,
+            &audience,
             std::time::Instant::now(),
             std::time::SystemTime::now(),
         ) {
@@ -243,7 +258,7 @@ async fn access_token_with(
         )
         .await?;
         tokens.insert(
-            resource.to_owned(),
+            audience,
             (
                 access.to_owned(),
                 TokenExpiry::after(
@@ -412,15 +427,10 @@ where
         .map_err(|_| "auth_refresh_failed")?
 }
 
-async fn account_tokens(
-    account: &str,
-    client: &str,
-    tenant: &str,
-) -> Result<AccountTokens, &'static str> {
+async fn account_tokens(account: &str, client: &str) -> Result<AccountTokens, &'static str> {
     let key = Grant {
         account_id: account.to_lowercase(),
         client_id: client.into(),
-        tenant: tenant.into(),
     };
     let mut accounts = TOKENS.get_or_init(Default::default).lock().await;
     if accounts.len() >= 128 && !accounts.contains_key(&key) {
@@ -452,7 +462,7 @@ pub(super) async fn change_outlook(parameters: &Value, clear: bool) -> Result<Va
             })
             .ok_or("auth_secret_invalid")?
     };
-    let lock = account_tokens(account, client, stored_tenant(&entry)).await?;
+    let lock = account_tokens(account, client).await?;
     let key = outlook_key(client, account);
     let token = token.to_owned();
     in_outlook_lane(lock, move |mut tokens| async move {
@@ -827,13 +837,22 @@ mod tests {
 
     #[tokio::test]
     async fn device_grant_store_waits_for_an_older_probe_rotation() {
+        device_grant_store_after_authority_edit("").await;
+    }
+
+    #[tokio::test]
+    async fn device_grant_store_after_authority_edit_waits_for_rotation() {
+        device_grant_store_after_authority_edit("organizations").await;
+    }
+
+    async fn device_grant_store_after_authority_edit(tenant: &str) {
         if crate::mail::tests::isolated() {
             return;
         }
         let account = "outlook:consent-race@example.org";
         let _fixture = crate::mail::tests::account_fixture(json!({"version":1,
             "activeId":account,"accounts":[{"provider":"outlook","email":"consent-race@example.org",
-            "clientId":"synthetic-client","imap":{"tenant":""}}]}));
+            "clientId":"synthetic-client","imap":{"tenant":tenant}}]}));
         let key = outlook_key("synthetic-client", account);
         struct RecordingStore {
             key: CredentialKey,
@@ -858,12 +877,10 @@ mod tests {
             key: key.clone(),
             writes: writes.clone(),
         });
-        let lane = account_tokens(account, "synthetic-client", "consumers")
-            .await
-            .unwrap();
+        let lane = account_tokens(account, "synthetic-client").await.unwrap();
         let mut probe = lane.lock().await;
         probe.insert(
-            "graph".into(),
+            Audience::new("consumers", "graph"),
             (
                 "old-graph".into(),
                 TokenExpiry::after(
@@ -975,9 +992,7 @@ mod tests {
             started: std::sync::Mutex::new(Some(started)),
             finished: finished.clone(),
         });
-        let lane = account_tokens(account, "synthetic-client", "consumers")
-            .await
-            .unwrap();
+        let lane = account_tokens(account, "synthetic-client").await.unwrap();
         let older = tokio::spawn(in_outlook_lane(lane, move |tokens| async move {
             let result = persist_outlook_rotation(
                 "original",
@@ -1137,13 +1152,47 @@ mod tests {
     }
 
     #[test]
+    fn outlook_cached_tokens_keep_authorities_separate() {
+        let monotonic = std::time::Instant::now();
+        let wall = std::time::SystemTime::now();
+        let tokens = Tokens::from([(
+            Audience::new("consumers", "mail"),
+            ("consumer-token".into(), expiry_at(monotonic, wall, 3600)),
+        )]);
+        assert!(
+            cached_token(
+                &tokens,
+                &Audience::new("organizations", "mail"),
+                monotonic,
+                wall
+            )
+            .is_none()
+        );
+        assert_eq!(
+            cached_token(
+                &tokens,
+                &Audience::new("consumers", "mail"),
+                monotonic,
+                wall
+            ),
+            Some("consumer-token".into())
+        );
+    }
+
+    #[test]
     fn outlook_cache_expires_after_long_suspend() {
         let monotonic = std::time::Instant::now();
         let wall = std::time::UNIX_EPOCH + Duration::from_secs(100000);
         let expiry = expiry_at(monotonic, wall, 3600);
         let tokens = Tokens::from([
-            ("mail".into(), ("mail-token".into(), expiry)),
-            ("graph".into(), ("graph-token".into(), expiry)),
+            (
+                Audience::new("consumers", "mail"),
+                ("mail-token".into(), expiry),
+            ),
+            (
+                Audience::new("consumers", "graph"),
+                ("graph-token".into(), expiry),
+            ),
         ]);
         // Invariant: Linux monotonic time advanced only while awake; wall time includes
         // the five hours asleep. Neither resource may reuse the old token.
@@ -1151,7 +1200,7 @@ mod tests {
             assert!(
                 cached_token(
                     &tokens,
-                    resource,
+                    &Audience::new("consumers", resource),
                     monotonic + Duration::from_secs(10),
                     wall + Duration::from_secs(5 * 3600)
                 )
@@ -1165,13 +1214,13 @@ mod tests {
         let monotonic = std::time::Instant::now();
         let wall = std::time::UNIX_EPOCH + Duration::from_secs(100000);
         let tokens = Tokens::from([(
-            "mail".into(),
+            Audience::new("consumers", "mail"),
             ("token".into(), expiry_at(monotonic, wall, 3600)),
         )]);
         assert!(
             cached_token(
                 &tokens,
-                "mail",
+                &Audience::new("consumers", "mail"),
                 monotonic + Duration::from_secs(10),
                 wall + Duration::from_secs(7200)
             )
@@ -1181,7 +1230,7 @@ mod tests {
         assert!(
             cached_token(
                 &tokens,
-                "mail",
+                &Audience::new("consumers", "mail"),
                 monotonic + Duration::from_secs(3600),
                 wall - Duration::from_secs(7200)
             )
@@ -1196,18 +1245,18 @@ mod tests {
         let wall = std::time::UNIX_EPOCH + Duration::from_secs(100000);
         let tokens = Tokens::from([
             (
-                "mail".into(),
+                Audience::new("consumers", "mail"),
                 ("mail-token".into(), expiry_at(monotonic, wall, 3600)),
             ),
             (
-                "graph".into(),
+                Audience::new("consumers", "graph"),
                 ("graph-token".into(), expiry_at(monotonic, wall, 1800)),
             ),
         ]);
         assert_eq!(
             cached_token(
                 &tokens,
-                "mail",
+                &Audience::new("consumers", "mail"),
                 monotonic + Duration::from_secs(10),
                 wall + Duration::from_secs(600)
             ),
@@ -1216,7 +1265,7 @@ mod tests {
         assert_eq!(
             cached_token(
                 &tokens,
-                "graph",
+                &Audience::new("consumers", "graph"),
                 monotonic + Duration::from_secs(10),
                 wall + Duration::from_secs(600)
             ),
@@ -1225,7 +1274,7 @@ mod tests {
         assert_eq!(
             cached_token(
                 &tokens,
-                "mail",
+                &Audience::new("consumers", "mail"),
                 monotonic + Duration::from_secs(10),
                 wall + Duration::from_secs(2000)
             ),
@@ -1234,13 +1283,21 @@ mod tests {
         assert!(
             cached_token(
                 &tokens,
-                "graph",
+                &Audience::new("consumers", "graph"),
                 monotonic + Duration::from_secs(10),
                 wall + Duration::from_secs(2000)
             )
             .is_none()
         );
-        assert!(cached_token(&tokens, "missing", monotonic, wall).is_none());
+        assert!(
+            cached_token(
+                &tokens,
+                &Audience::new("consumers", "missing"),
+                monotonic,
+                wall
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -1257,26 +1314,45 @@ mod tests {
                 expiry.wall.duration_since(wall).unwrap(),
                 Duration::from_secs(lifetime)
             );
-            let tokens = Tokens::from([("mail".into(), ("token".into(), expiry))]);
+            let tokens =
+                Tokens::from([(Audience::new("consumers", "mail"), ("token".into(), expiry))]);
             assert_eq!(
-                cached_token(&tokens, "mail", monotonic, wall).is_some(),
+                cached_token(
+                    &tokens,
+                    &Audience::new("consumers", "mail"),
+                    monotonic,
+                    wall
+                )
+                .is_some(),
                 lifetime > 60
             );
         }
         let tokens = Tokens::from([(
-            "mail".into(),
+            Audience::new("consumers", "mail"),
             ("token".into(), expiry_at(monotonic, wall, 3600)),
         )]);
         assert!(
-            cached_token(&tokens, "mail", monotonic + Duration::from_secs(3540), wall).is_none()
-        );
-        assert!(
-            cached_token(&tokens, "mail", monotonic, wall + Duration::from_secs(3540)).is_none()
+            cached_token(
+                &tokens,
+                &Audience::new("consumers", "mail"),
+                monotonic + Duration::from_secs(3540),
+                wall
+            )
+            .is_none()
         );
         assert!(
             cached_token(
                 &tokens,
-                "mail",
+                &Audience::new("consumers", "mail"),
+                monotonic,
+                wall + Duration::from_secs(3540)
+            )
+            .is_none()
+        );
+        assert!(
+            cached_token(
+                &tokens,
+                &Audience::new("consumers", "mail"),
                 monotonic + Duration::from_secs(3539),
                 wall + Duration::from_secs(3539)
             )
@@ -1307,27 +1383,15 @@ mod tests {
     }
     #[tokio::test]
     async fn token_cache_identity_preserves_field_boundaries() {
-        let first = account_tokens(
-            "outlook:lane-fixture@example.org",
-            "left:right",
-            "consumers",
-        )
-        .await
-        .unwrap();
-        let second = account_tokens(
-            "outlook:lane-fixture@example.org:left",
-            "right",
-            "consumers",
-        )
-        .await
-        .unwrap();
-        let normalized = account_tokens(
-            "outlook:LANE-FIXTURE@example.org",
-            "left:right",
-            "consumers",
-        )
-        .await
-        .unwrap();
+        let first = account_tokens("outlook:lane-fixture@example.org", "left:right")
+            .await
+            .unwrap();
+        let second = account_tokens("outlook:lane-fixture@example.org:left", "right")
+            .await
+            .unwrap();
+        let normalized = account_tokens("outlook:LANE-FIXTURE@example.org", "left:right")
+            .await
+            .unwrap();
         assert!(std::sync::Arc::ptr_eq(&first, &normalized));
         assert!(
             !std::sync::Arc::ptr_eq(&first, &second),
@@ -1338,15 +1402,11 @@ mod tests {
     #[tokio::test]
     async fn token_cache_invalidation_matches_the_exact_account() {
         let account = "outlook:exact-fixture@example.org";
-        let related = account_tokens(
-            "outlook:exact-fixture@example.org:alias",
-            "client",
-            "consumers",
-        )
-        .await
-        .unwrap();
+        let related = account_tokens("outlook:exact-fixture@example.org:alias", "client")
+            .await
+            .unwrap();
         related.lock().await.insert(
-            "mail".into(),
+            Audience::new("consumers", "mail"),
             (
                 "unrelated-token".into(),
                 TokenExpiry::after(
@@ -1358,7 +1418,12 @@ mod tests {
         );
         invalidate(account).await.unwrap();
         assert_eq!(
-            related.lock().await.get("mail").unwrap().0,
+            related
+                .lock()
+                .await
+                .get(&Audience::new("consumers", "mail"))
+                .unwrap()
+                .0,
             "unrelated-token",
             "invalidating an account must preserve another account's token"
         );
@@ -1367,35 +1432,27 @@ mod tests {
     #[tokio::test]
     async fn invalidation_waits_for_rotation_without_opening_another_refresh_lane() {
         let account = "outlook:rotation-fixture@example.org";
-        let lock = account_tokens(account, "synthetic", "consumers")
-            .await
-            .unwrap();
+        let lock = account_tokens(account, "synthetic").await.unwrap();
         let mut rotation = lock.lock().await;
         let invalidation = tokio::spawn(async move { invalidate(account).await });
         tokio::task::yield_now().await;
         assert!(!invalidation.is_finished());
-        let another = account_tokens(account, "synthetic", "consumers")
-            .await
-            .unwrap();
+        let another = account_tokens(account, "synthetic").await.unwrap();
         assert!(std::sync::Arc::ptr_eq(&lock, &another));
         assert!(
             tokio::time::timeout(Duration::from_millis(20), another.lock())
                 .await
                 .is_err()
         );
-        let independent = account_tokens(
-            "outlook:other-fixture@example.org",
-            "synthetic",
-            "consumers",
-        )
-        .await
-        .unwrap();
+        let independent = account_tokens("outlook:other-fixture@example.org", "synthetic")
+            .await
+            .unwrap();
         assert!(
             independent.try_lock().is_ok(),
             "unrelated mailboxes must stay independent"
         );
         rotation.insert(
-            "mail".into(),
+            Audience::new("consumers", "mail"),
             (
                 "old-token".into(),
                 TokenExpiry::after(

@@ -22,21 +22,11 @@ function unified(params) {
   }
 }
 
-function findPipe(item) {
-  if (item.command && item.command[1] === "serve") return item
-  var children = item.children || []
-  for (var i = 0; i < children.length; i++) {
-    var found = findPipe(children[i])
-    if (found) return found
-  }
-  return null
-}
-
 function install(service) {
-  var pipe = findPipe(service.backend)
+  var pipe = BackendFixture.findPipe(service.backend)
   if (!pipe) throw new Error("No backend pipe")
   var offset = pipe.written.length
-  var listener = Qt.createQmlObject('import QtQuick; Connections { property var handler; function onWrittenChanged() { handler(target.written) } }', service)
+  var listener = Qt.createQmlObject('import QtQuick; Connections { target: null; property var handler; function onWrittenChanged() { handler(target.written) } }', service)
   listener.handler = function(written) {
     var lines = written.slice(offset).split("\n")
     offset = written.length - lines[lines.length - 1].length

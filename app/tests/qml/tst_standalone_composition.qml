@@ -538,7 +538,6 @@ TestCase {
     verify(composition.shell.updateEntryInline("omamail", {id:"omamail",maxMessages:42}))
     compare(host.settings, {maxMessages:42})
 
-    var opened = ""
     var fakeApp = Qt.createQmlObject('import QtQuick; QtObject {'
       + ' property bool opened: false; property string payload: "";'
       + ' function open(value) { opened = true; payload = value }'

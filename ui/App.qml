@@ -26,6 +26,7 @@ import "components"
 import "compose"
 import "calendar"
 import "backend" as Backend
+import "search" as Search
 
 Item {
   id: root
@@ -863,6 +864,7 @@ Item {
 
   function goMailbox(key) {
     if (!service) return
+    searchBar.setQuery("")
     service.selectMailbox(key)
     backToList()
   }
@@ -876,6 +878,7 @@ Item {
     var slot = sidebarSlots[index]
     if (slot.kind === "mailbox") return goMailbox(slot.key)
     // Invariant: The provider resolves label selection; an IMAP label is a folder.
+    searchBar.setQuery("")
     service.selectLabel(slot.name, slot.id)
     backToList()
   }
@@ -955,6 +958,10 @@ Item {
     if (id === "guestChoose") return eventComposer.chooseGuestSuggestion()
     if (id === "undoSend") { undoPendingSend(); return }
     if (id === "search") return searchBar.focusField()
+    if (id === "searchSuggestionNext") return searchBar.moveSuggestion(1)
+    if (id === "searchSuggestionPrevious") return searchBar.moveSuggestion(-1)
+    if (id === "searchSuggestionComplete") return searchBar.completeSuggestion()
+    if (id === "searchSuggestionAccept") return searchBar.accept()
     if (id === "goMailbox") return goSlot(Keymap.slotFor(id, sequence))
     if (id === "goAccount") {
       var accountIndex = Keymap.slotFor(id, sequence)
@@ -993,6 +1000,7 @@ Item {
 
   // Invariant: QQC.Popup with CloseOnEscape consumes Escape before this handler.
   function goBack() {
+    if (searchBar.dismissAssistance()) return
     if (eventComposer.guestSuggestionsOpen) { eventComposer.dismissGuestSuggestions(); return }
     if (calendarView.dismissPreview()) return
     if (activeAssistant && activeAssistant.commandsOpen) { activeAssistant.dismissCommands(); return }
@@ -1038,6 +1046,8 @@ Item {
 
     // Invariant: IMAP cursor IDs are account-local; clear the cursor before shortcuts can act through another account.
     function onActiveAccountIdChanged() {
+      searchBar.dismissAssistance()
+      searchBar.setQuery(root.service ? root.service.searchQuery : "")
       root.clearChecksIfForeign()
       root.cursorId = ""
       root.closeLabelPopups()
@@ -1047,6 +1057,10 @@ Item {
       composeExitDialog.close()
     }
     function onSidebarWidthChanged() { root.sidebarWidth = root.service.sidebarWidth }
+    function onSearchQueryChanged() {
+      if (!searchBar.fieldFocused) searchBar.setQuery(root.service ? root.service.searchQuery : "")
+    }
+    function onSearchGenerationChanged() { statusViewport.contentY = 0 }
     function onListWidthChanged() { root.listWidth = root.service.listWidth }
     function onMessagesChanged() {
       root.clearChecksIfForeign()
@@ -1376,6 +1390,7 @@ Item {
         eventComposing: eventComposer.opened,
         guestSuggestions: eventComposer.guestSuggestionsOpen,
         searchFocused: searchBar.fieldFocused,
+        searchSuggestions: searchBar.suggestionsOpen,
         calendarVisible: root.calendarVisible,
         currentView: root.currentView,
         sendPending: !!root.service && root.service.sendPending
@@ -1388,7 +1403,9 @@ Item {
         return false
       }
       function applyContextFocus() {
-        if (composeExitDialog.opened) return
+        if (composeExitDialog.opened || searchBar.helpOpened || searchBar.controlsFocused) return
+        if ((keyContext === "list" || keyContext === "reader")
+            && statusViewport.visible && focusWithin(statusViewport)) return
         if (keyContext === "assistant" || keyContext === "assistantCommands") {
           if (composeAgent.opened && !composeAgent.activeFocus) composeAgent.takeFocus()
           else if (agentPrompt.opened && !agentPrompt.activeFocus) agentPrompt.takeFocus()
@@ -1401,7 +1418,7 @@ Item {
           if (eventComposer.opened) eventComposer.takeFocus()
           else compose.takeFocus()
         }
-        else if (keyContext === "search") searchBar.focusField()
+        else if (keyContext === "search" || keyContext === "searchSuggestions") searchBar.takeFocus()
         else parkKeyboard()
       }
 
@@ -1420,11 +1437,17 @@ Item {
       Item {
         id: header
         objectName: "app-title-bar"
+        readonly property bool searchVisible: !root.showPage && !root.composing && !root.calendarVisible
+        readonly property bool searchStacked: searchVisible
+          && width - headerLeft.width - headerRight.width - MailStyle.space(52) < MailStyle.space(220)
+        readonly property real topRowHeight: Math.max(MailStyle.space(48),headerLeft.height + MailStyle.space(12),headerRight.height + MailStyle.space(12))
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         height: calendarHeaderSlot.visible && calendarHeaderSlot.stacked
-          ? MailStyle.space(60) + calendarView.toolbarHeight : Math.max(MailStyle.space(48), calendarHeaderSlot.visible ? calendarView.toolbarHeight + MailStyle.space(12) : 0)
+          ? MailStyle.space(60) + calendarView.toolbarHeight
+          : searchStacked ? topRowHeight + searchBar.implicitHeight + MailStyle.space(16)
+          : Math.max(topRowHeight,calendarHeaderSlot.visible ? calendarView.toolbarHeight + MailStyle.space(12) : 0)
         visible: !root.composing
 
         WindowMoveArea {
@@ -1438,7 +1461,8 @@ Item {
           anchors.left: parent.left
           anchors.leftMargin: MailStyle.space(14)
           anchors.verticalCenter: parent.verticalCenter
-          anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (MailStyle.space(48) - header.height) / 2 : 0
+          anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (MailStyle.space(48) - header.height) / 2
+            : header.searchStacked ? (header.topRowHeight - header.height) / 2 : 0
           spacing: MailStyle.space(8)
 
           IconButton {
@@ -1479,26 +1503,34 @@ Item {
         // Invariant: Search uses the space between control clusters, whose widths can differ.
         Item {
           id: searchSlot
-          anchors.left: headerLeft.right
-          anchors.right: headerRight.left
-          anchors.leftMargin: MailStyle.space(12)
-          anchors.rightMargin: MailStyle.space(12)
-          anchors.verticalCenter: parent.verticalCenter
+          anchors.left: header.searchStacked ? parent.left : headerLeft.right
+          anchors.right: header.searchStacked ? parent.right : headerRight.left
+          anchors.leftMargin: MailStyle.space(14)
+          anchors.rightMargin: MailStyle.space(14)
+          y: header.searchStacked ? header.topRowHeight + MailStyle.space(4) : (header.topRowHeight - height) / 2
           height: searchBar.implicitHeight
 
           SearchBar {
             id: searchBar
+            objectName: "search-bar"
             anchors.verticalCenter: parent.verticalCenter
             // Invariant: Center search on the header, then clamp it to the available slot to avoid overlapping controls.
-            x: Math.max(0, Math.min(parent.width - width,
+            x: header.searchStacked ? 0 : Math.max(0, Math.min(parent.width - width,
               (header.width - width) / 2 - parent.x))
-            width: Math.min(MailStyle.space(340), parent.width)
-            visible: !root.showPage && !root.composing && !root.calendarVisible
-              && parent.width >= MailStyle.space(120)
+            width: header.searchStacked ? parent.width : Math.min(MailStyle.space(340),parent.width)
+            visible: header.searchVisible
           textColor: root.foreground
           accentColor: root.accent
+          dimColor: root.dim
+          popupBackgroundColor: root.popupBackground
+          popupBorderColor: root.popupBorder
           panelFontFamily: root.fontFamily
-          serverSearching: !!root.service && root.service.serverSearchLoading
+          overlayParent: focusScope
+          assistanceAvailable: !!root.service && root.service.searchAssistanceAvailable === true
+          operators: root.service && root.service.searchOperators ? root.service.searchOperators : []
+          labels: root.service && root.service.searchLabels ? root.service.searchLabels : []
+          serverSearching: !!root.service && root.service.serverSearchLoading === true && !assistanceAvailable
+          onKeyPressed: function(event) { keyRouter.routeKeyEvent(event) }
           // Invariant: Search replaces the list and invalidates its open reader history.
           onSubmitted: function(query) {
             if (!root.service) return
@@ -1529,7 +1561,8 @@ Item {
           anchors.right: parent.right
           anchors.rightMargin: MailStyle.space(14)
           anchors.verticalCenter: parent.verticalCenter
-          anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (MailStyle.space(48) - header.height) / 2 : 0
+          anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (MailStyle.space(48) - header.height) / 2
+            : header.searchStacked ? (header.topRowHeight - header.height) / 2 : 0
           spacing: MailStyle.space(8)
 
           Widgets.Button {
@@ -1676,6 +1709,7 @@ Item {
           }
           // Invariant: The provider resolves label selection; an IMAP label is a folder.
           onLabelSelected: function(labelId, name) {
+            searchBar.setQuery("")
             root.service.selectLabel(name, labelId)
             root.backToList()
           }
@@ -1752,21 +1786,62 @@ Item {
           visible: width > 0 && !root.showPage && !root.composing
             && !root.calendarVisible
 
-          LocalMailStatus {
-              id: localStatus
-              anchors.top: parent.top
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.margins: MailStyle.space(8)
-              mailbox: root.service.localMailbox || null
-              textColor: root.foreground
-              dimColor: root.dim
-              panelFontFamily: MailStyle.listFamily
+          Flickable {
+            id: statusViewport
+            objectName: "mail-status-viewport"
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.margins: MailStyle.space(8)
+            height: Math.min(contentHeight,Math.max(0,listColumn.height * 0.45))
+            contentHeight: statusContents.implicitHeight
+            onContentHeightChanged: Qt.callLater(revealFocusedControl)
+            onHeightChanged: Qt.callLater(revealFocusedControl)
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            function revealFocusedControl() {
+              var focused = statusViewport.Window.activeFocusItem
+              var ancestor = focused
+              while (ancestor && ancestor !== statusContents) ancestor = ancestor.parent
+              if (!ancestor || !focused) return
+              var top = focused.mapToItem(statusContents,0,0).y
+              var bottom = top + focused.height
+              if (top < contentY) contentY = top
+              else if (bottom > contentY + height) contentY = Math.max(0,Math.min(contentHeight - height,bottom - height))
+            }
+            Connections {
+              target: statusViewport.Window.window
+              function onActiveFocusItemChanged() { statusViewport.revealFocusedControl() }
+            }
+            Column {
+              id: statusContents
+              width: statusViewport.width - MailStyle.space(8)
+              spacing: MailStyle.space(8)
+              LocalMailStatus {
+                id: localStatus
+                width: parent.width
+                mailbox: root.service.localMailbox || null
+                searchActive: searchStatus.visible
+                textColor: root.foreground
+                dimColor: root.dim
+                panelFontFamily: MailStyle.listFamily
+              }
+              Search.SearchStatus {
+                id: searchStatus
+                width: parent.width
+                service: root.service
+                textColor: root.foreground
+                accentColor: root.accent
+                dimColor: root.dim
+                panelFontFamily: MailStyle.listFamily
+              }
+            }
           }
           MessageList {
               id: list
-              anchors.top: localStatus.visible ? localStatus.bottom : parent.top
-              anchors.topMargin: localStatus.visible ? MailStyle.space(6) : 0
+              anchors.top: statusViewport.height > 0 ? statusViewport.bottom : parent.top
+              anchors.topMargin: statusViewport.height > 0 ? MailStyle.space(6) : 0
               anchors.bottom: parent.bottom
               anchors.left: parent.left
               anchors.right: parent.right

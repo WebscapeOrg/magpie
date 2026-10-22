@@ -81,7 +81,8 @@ Item {
     if (!usesBackend() || !auth || !auth.loggedIn || account === "") {
       deferred.call(function() {
         if (!handle.aborted && typeof callback === "function")
-          callback(null, !usesBackend() ? "Mail backend is unavailable" : "Sign in to the configured Gmail account first")
+          callback(null, !usesBackend() ? "Mail backend is unavailable" : "Sign in to the configured Gmail account first",
+            {code:!usesBackend() ? "backend_unavailable" : "gmail_unauthorized",method:method})
       })
       return handle
     }
@@ -98,7 +99,8 @@ Item {
       if (handle.aborted || epoch !== root.backendEpoch || auth !== session
           || !auth.loggedIn || String(auth.accountId || "") !== account) return
       if (typeof callback === "function")
-        callback(error ? null : result, error ? backendError(error, method) : "")
+        callback(error ? null : result, error ? backendError(error, method) : "",
+          error ? {code:String(error.message || ""),method:method} : null)
     }
     var pending = backend.call(method, parameters, function(result, error) {
       if (!error && result && result.queued === true && String(result.ticket || "") !== "") {
@@ -225,6 +227,7 @@ Item {
     var results = new Array(list.length)
     var remaining = list.length
     var firstError = ""
+    var firstDetail = null
     var pendingProgress = []
     var progressTimer = null
 
@@ -269,17 +272,17 @@ Item {
       // Invariant: A partial page is still a failed page: hiding one failed request just
       // because another answered would let the caller keep a continuation
       // token beyond the missing row.
-      callback(ordered, firstError)
+      callback(ordered, firstError, firstDetail)
     }
 
     var nextIndex = 0
     var active = 0
     function start(index) {
       active++
-      var child = root.getMessage(list[index], full, function(payload, error) {
+      var child = root.getMessage(list[index], full, function(payload, error, detail) {
         active--
         if (handle.aborted) return
-        if (error && !firstError) firstError = error
+        if (error && !firstError) { firstError = error; firstDetail = detail }
         results[index] = payload
         queueProgress(payload)
         remaining--

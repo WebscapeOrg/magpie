@@ -135,6 +135,8 @@ The unreleased API 8 contract also includes `local.*` replica/watch/intent metho
 
 API 8 distinguishes `gmail_request_deferred` (Magpie deferred a request before HTTP) from `gmail_server_rate_limited` (Google refused a request, or an active cooldown follows that refusal). Both are retryable within the existing bounded queue and sync schedules. API-7 `gmail_rate_limited` and persisted earlier API-8 values remain ambiguous, so the UI describes those without attributing the limit to Gmail. The named `Gmail request status` contract cases are listed under `unreleased.cases` and exercised by the private-replica API gate, Gmail transport and QML error tests; these semantics do not change the released binary pin.
 
+Gmail search assistance and the saved-mail-to-Gmail search session require API 8 with the matching development contract hash. Provider metadata supplies the operator catalogue, and query preparation reports validation, structured syntax and local support from the Rust parser. `local.list` accepts an optional `asOf` timestamp in milliseconds and binds its cursor to the account, query and timestamp. `local.summaries` accepts up to 100 account-owned IDs and returns effective saved summaries, missing IDs, pending-edit flags and query-match information; an optional paged pending-edit scan supports the active search overlay. Responses retain the 16 MiB bound. The UI sends the original query to Gmail, reuses saved summaries for confirmed IDs and requests only missing metadata. These additions remain in the existing unreleased API 8 step; published API 7 retains its previous search path and contract fixtures.
+
 
 ## Released and unreleased: one step ahead of the pin
 

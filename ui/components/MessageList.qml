@@ -5,6 +5,7 @@ import qs.Commons
 import qs.Ui
 import "../account/Model.js" as Model
 import "../account/Unified.js" as Unified
+import "../search/Presentation.js" as SearchPresentation
 
 ListView {
   id: root
@@ -20,6 +21,14 @@ ListView {
   // Invariant: checked IDs live above recycled rows so list reloads preserve the selection.
   property var checkedIds: []
   property bool ctrlHeld: false
+  readonly property int searchGeneration: service && service.searchGeneration !== undefined
+    ? service.searchGeneration : 0
+  readonly property bool searchActive: !!service && (service.searchActive === true
+    || SearchPresentation.active(service.searchStatus))
+  property var viewportIds: []
+  property var viewportAnchor: null
+  property int viewportRevision: 0
+  property bool restoringViewport: false
 
   signal messageActivated(string id)
   signal checkToggled(string id)
@@ -50,11 +59,70 @@ ListView {
     if (last < first) last = Math.min(count - 1, first + 20)
     service.inboxTools.visibleRows = service.messages.slice(Math.max(0, first - 2), last + 3)
   }
-  onContentYChanged: { Qt.callLater(updateVisibleRows); loadMoreSoon() }
+  onContentYChanged: { rememberViewport(); Qt.callLater(updateVisibleRows); loadMoreSoon() }
   onContentHeightChanged: loadMoreSoon()
   onCountChanged: Qt.callLater(updateVisibleRows)
   onVisibleChanged: Qt.callLater(updateVisibleRows)
-  Component.onCompleted: Qt.callLater(updateVisibleRows)
+  Component.onCompleted: {
+    viewportIds = SearchPresentation.rowIds(searchActive && service ? service.messages : [])
+    Qt.callLater(rememberViewport)
+    Qt.callLater(updateVisibleRows)
+  }
+  onSearchGenerationChanged: resetSearchViewport()
+
+  function rememberViewport() {
+    if (restoringViewport || !searchActive || !viewportIds.length) return
+    var index = indexAt(1, contentY + 1)
+    if (index < 0) index = indexAt(1, contentY + topMargin + spacing + 1)
+    var item = itemAtIndex(index)
+    if (!item || index < 0 || index >= viewportIds.length) return
+    viewportAnchor = {id: viewportIds[index], index: index, offset: item.y - contentY,
+      generation: searchGeneration, ids: viewportIds}
+  }
+
+  function resetSearchViewport() {
+    viewportAnchor = null
+    restoringViewport = true
+    var revision = ++viewportRevision
+    Qt.callLater(function() {
+      if (revision !== root.viewportRevision) return
+      root.forceLayout()
+      root.positionViewAtBeginning()
+      root.contentY = root.originY - root.topMargin
+      root.restoringViewport = false
+      root.rememberViewport()
+    })
+  }
+
+  function preserveSearchViewport() {
+    if (!searchActive) { viewportIds = []; viewportAnchor = null; return }
+    var anchor = viewportAnchor
+      && viewportAnchor.generation === searchGeneration ? viewportAnchor : null
+    viewportIds = SearchPresentation.rowIds(service ? service.messages : [])
+    restoringViewport = true
+    var revision = ++viewportRevision
+    Qt.callLater(function() {
+      if (revision !== root.viewportRevision) return
+      root.forceLayout()
+      var index = SearchPresentation.anchorIndex(anchor, root.viewportIds)
+      if (index < 0) {
+        root.positionViewAtBeginning()
+        root.contentY = root.originY - root.topMargin
+      }
+      else {
+        root.positionViewAtIndex(index, ListView.Beginning)
+        root.forceLayout()
+        var item = root.itemAtIndex(index)
+        if (item) {
+          var minimum = root.originY - root.topMargin
+          var maximum = Math.max(minimum, root.originY + root.contentHeight - root.height + root.bottomMargin)
+          root.contentY = Math.max(minimum, Math.min(maximum, item.y - anchor.offset))
+        }
+      }
+      root.restoringViewport = false
+      root.rememberViewport()
+    })
+  }
 
   function reveal(id) {
     var index = Model.indexById(root.service.messages, id)
@@ -125,15 +193,17 @@ ListView {
     width: parent.width
     visible: root.service.messages.length === 0
       && !Model.showInitialListSkeleton(root.service.listLoading, 0)
-    implicitHeight: MailStyle.space(70)
+    implicitHeight: Math.max(MailStyle.space(70), emptyLabel.implicitHeight + MailStyle.space(20))
 
     Text {
+      id: emptyLabel
+      objectName: "message-list-empty"
       anchors.centerIn: parent
       width: parent.width - MailStyle.space(20)
       horizontalAlignment: Text.AlignHCenter
-      text: root.service.listLoaded
-          ? (root.service.searchQuery !== "" ? "Nothing matches that search" : "Nothing here")
-          : ""
+      text: SearchPresentation.emptyText(root.service.searchStatus, root.service.listLoading,
+        root.service.listLoaded, root.service.searchQuery !== "")
+      textFormat: Text.PlainText
       color: root.dimColor
       font.family: root.panelFontFamily
       font.pixelSize: MailStyle.bodySmall
@@ -168,7 +238,7 @@ ListView {
   property int lastAutoCount: -1
 
   function loadMoreIfAtFoot() {
-    if (!root.scroller || !root.service) return false
+    if (!root.scroller || !root.service || root.restoringViewport) return false
     var atFoot = root.scroller.atYEnd || root.scroller.contentY + root.scroller.height >= root.scroller.contentHeight - 1
     if (!atFoot || !root.service.hasMore || root.service.listLoading || !root.count || root.lastAutoCount === root.count) return false
     root.lastAutoCount = root.count
@@ -192,7 +262,11 @@ ListView {
 
   Connections {
     target: root.service
-    function onMessagesChanged() { root.lastAutoCount = -1; Qt.callLater(root.updateVisibleRows) }
+    function onMessagesChanged() {
+      root.preserveSearchViewport()
+      root.lastAutoCount = -1
+      Qt.callLater(root.updateVisibleRows)
+    }
     function onListLoadingChanged() {
       if (root.service.listLoading) {
         root.loadStartCount = root.service.messages.length

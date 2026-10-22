@@ -29,7 +29,7 @@ readonly property string keyContext:
     root.assistantEditing ? (root.activeAssistant.commandsOpen ? "assistantCommands" : "assistant")
   : root.showPage  ? "page"
   : root.composing ? "compose"
-  : searchBar.fieldFocused ? "search"
+  : searchBar.fieldFocused ? (searchBar.suggestionsOpen ? "searchSuggestions" : "search")
   : root.calendarVisible ? "calendar"
   : root.currentView === "reader" ? "reader"
   : "list"
@@ -40,6 +40,7 @@ readonly property string keyContext:
 | `list` | The message list | The mailbox keys |
 | `reader` | A message open | The mailbox keys, plus reply/forward and zoom. `j`/`k` move the mailbox cursor and immediately open its message; `Shift+J`/`Shift+K` scroll the message body |
 | `search` | A query being typed | `Escape`, and the modified keys |
+| `searchSuggestions` | Gmail search suggestions | Up/Down selects, Tab completes, Enter searches unless a suggestion was selected, Escape dismisses |
 | `compose` | A draft being written | `Escape`, `Ctrl+Return`, and the modified keys |
 | `eventCompose` | Creating or editing an event | `Enter` saves and closes after success; `Escape` closes; modified keys remain available |
 | `assistant` | Typing or reading in the AI dock | `Return`/`Enter` sends, `Escape`, and the modified keys |
@@ -51,6 +52,8 @@ readonly property string keyContext:
 Back returns to the previous screen with the draft intact.
 
 When a button has keyboard focus, unmodified Return, keypad Enter and Space activate that button. The shared button controls accept `ShortcutOverride` for those keys so mailbox open/selection shortcuts cannot intercept them. Modified application shortcuts and Escape retain their normal routing.
+
+Search suggestions leave focus in the native search field. Enter submits the typed query until an arrow key selects a suggestion; Enter then completes that suggestion without searching. Tab completes the selected or first suggestion. Escape dismisses suggestions before the existing search exit behavior. Context changes restore field focus without selecting the query; only the `/` shortcut selects all. Input-method composition retains its native keys.
 
 While an AI request is running, Escape interrupts it and keeps the dock open; otherwise Escape closes the dock. An open command suggestion or history view is left first.
 
@@ -70,7 +73,7 @@ event is left alone, preserving normal typing, IME input and line breaks.
 `mail` in the table below is shorthand for `list` and `reader`; `all` is every
 context.
 
-**A text-entry context binds no bare key but `Escape`, except AI send/command selection described above and Enter to save in the single-line event editor.**
+**A text-entry context binds no bare key but `Escape`, except search suggestions, AI send/command selection described above and Enter to save in the single-line event editor.**
 There is no "is the user typing" question anywhere in the code, because there is
 nothing left for it to answer: if a bare letter is not bound in `compose`, it
 cannot fire there, and the field gets it the way any other character arrives.
@@ -87,7 +90,7 @@ types into nothing:
 onKeyContextChanged: Qt.callLater(applyContextFocus)
 function applyContextFocus() {
   if (keyContext === "compose") compose.takeFocus()
-  else if (keyContext === "search") searchBar.focusField()
+  else if (keyContext === "search" || keyContext === "searchSuggestions") searchBar.takeFocus()
   else parkKeyboard()
 }
 ```
@@ -155,6 +158,10 @@ used to exist, and they had.
 | `goAccount` | `Alt+1`, `Alt+2`, `Alt+3`, `Alt+4`, `Alt+5`, `Alt+6`, `Alt+7`, `Alt+8`, `Alt+9`, `Alt+0` | mail+calendar | Go to that email account |
 | `switchAccount` | `Alt+A` | mail | Switch account |
 | `askAgent` | `Alt+G` | mail+compose | Ask AI about the message or draft |
+| `searchSuggestionNext` | `Down` | searchSuggestions | Next search suggestion |
+| `searchSuggestionPrevious` | `Up` | searchSuggestions | Previous search suggestion |
+| `searchSuggestionComplete` | `Tab` | searchSuggestions | Complete the search suggestion |
+| `searchSuggestionAccept` | `Return`, `Enter` | searchSuggestions | Complete the selected suggestion or search |
 | `assistantSend` | `Return`, `Enter`, `Ctrl+Return`, `Ctrl+Enter` | assistant+assistantCommands | Send the AI message |
 | `assistantCommandNext` | `Down` | assistantCommands | Next command |
 | `assistantCommandPrevious` | `Up` | assistantCommands | Previous command |

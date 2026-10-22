@@ -12,6 +12,7 @@ Item {
     property string providerId: "gmail"
     property string mailboxKey: "inbox"
     property string searchQuery: ""
+    property var searchStatus: ({})
     property bool listLoaded: true
     property bool listLoading: false
     property var messages: [({ id: "m1" })]
@@ -80,6 +81,8 @@ Item {
 
     function init() {
       mailService.searchQuery = ""
+      mailService.searchStatus = ({})
+      mailService.messages = [({id:"m1"})]
       mailService.pluginName = "Omamail"
       mailService.version = "0.7.0"
       blankSlateLoader.width = MailStyle.space(400)
@@ -100,6 +103,20 @@ Item {
       var label = textLabel(slate(), '\"<b>Search terms</b>\"')
       verify(label)
       compare(label.textFormat, Text.PlainText)
+    }
+    function test_pending_failed_and_stopped_searches_do_not_claim_no_matches() {
+      mailService.searchQuery = "from:sender@example.test"
+      mailService.messages = []
+      var label = findChild(slate(), "reader-empty-status")
+      verify(label)
+      var phases = ["preparing", "local", "checking", "failed", "partial", "stopped", "invalid"]
+      for (var index = 0; index < phases.length; index++) {
+        mailService.searchStatus = {phase:phases[index]}
+        verify(label.text !== "")
+        verify(label.text.indexOf("No messages match") === -1, phases[index])
+      }
+      mailService.searchStatus = {phase:"complete"}
+      verify(label.text.indexOf("No messages match") === 0)
     }
     function test_manifest_markup_is_literal_text() {
       mailService.pluginName = '<b>Mail</b>'

@@ -67,6 +67,7 @@ async fn serve(store: &Arc<Store>, account: &str, request: Value) -> Result<Valu
     if !matches!(
         method.as_str(),
         "local.list"
+            | "local.summaries"
             | "local.status"
             | "local.edits"
             | "local.pause"
@@ -107,6 +108,8 @@ async fn exchange(endpoint: &LocalEndpoint, method: &str, params: &Value) -> Res
             return Err(match error {
                 "invalid_params" => "invalid_params",
                 "local_search_unsupported" => "local_search_unsupported",
+                "local_search_invalid" => "local_search_invalid",
+                "local_content_too_large" => "local_content_too_large",
                 "local_edit_already_started" => "local_edit_already_started",
                 "local_edit_id_conflict" => "local_edit_id_conflict",
                 "local_message_unavailable" => "local_message_unavailable",

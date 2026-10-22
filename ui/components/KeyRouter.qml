@@ -16,6 +16,7 @@ Item {
     else if (event.key === Qt.Key_Down) key = "Down"
     else if (event.key === Qt.Key_Return) key = "Return"
     else if (event.key === Qt.Key_Enter) key = "Enter"
+    else if (event.key === Qt.Key_Tab) key = "Tab"
     if (key === "") return false
     var sequence = ""
     if (event.modifiers & Qt.ControlModifier) sequence += "Ctrl+"

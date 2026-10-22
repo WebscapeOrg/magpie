@@ -88,6 +88,10 @@ Item {
     property string activeAccountId: "me@example.com"
     property string mailboxKey: "inbox"
     property string searchQuery: ""
+    property bool searchAssistanceAvailable: false
+    property var searchOperators: [{operator:"from",values:["me"],example:"from:alex@example.com",description:"Sender"}]
+    property var searchLabels: []
+    property var searchStatus: ({})
     property string rawQuery: ""
     property string selectedId: ""
     property string lastError: ""
@@ -151,6 +155,8 @@ Item {
       searchQuery = String(query || "")
       record("search:" + searchQuery)
     }
+    function stopSearch() { record("stop-search") }
+    function retrySearch() { record("retry-search") }
     function preferredSendAs(_recipients) { return null }
     function refreshRecipientContacts() {}
     function cursorOffset(_id, _delta) { return "" }
@@ -258,6 +264,8 @@ Item {
       mailService.hasSavedAccounts = true
       mailService.anyAccountReady = true
       mailService.searchQuery = ""
+      mailService.searchAssistanceAvailable = false
+      mailService.searchStatus = ({})
       mailService.mailboxKey = "inbox"
       mailService.selectedId = ""
       mailService.selectedMessage = null
@@ -659,8 +667,7 @@ Item {
     // open, and `e` typed itself into the query instead of archiving.
     function test_opening_a_message_takes_the_keyboard_back_from_search() {
       var field = having(app, function(item) {
-        return item.placeholderText !== undefined
-          && String(item.placeholderText).indexOf("Search...") === 0
+        return item.objectName === "search-query-field"
       })
       verify(field, "the search field is on the page")
       var scope = having(app, function(item) {
@@ -678,6 +685,74 @@ Item {
       compare(field.text, "", "the letter is a shortcut again, not text")
       compare(mailService.count("act:archive:message-1"), 1,
         "and the list's keys work with the reader open")
+    }
+
+    function test_search_context_changes_preserve_typing_and_caret() {
+      mailService.searchAssistanceAvailable = true
+      app.runShortcut("search", "/")
+      var field = findChild(app,"search-query-field")
+      wait(0)
+      keyClick("f")
+      wait(0)
+      keyClick("r")
+      wait(0)
+      compare(field.text,"fr")
+      compare(field.selectedText,"")
+      keyClick(Qt.Key_Down)
+      keyClick(Qt.Key_Return)
+      wait(0)
+      compare(field.text,"from:")
+      compare(field.selectedText,"")
+      compare(mailService.searchQuery,"")
+      mailService.searchAssistanceAvailable = false
+    }
+    function test_search_preparation_does_not_replace_a_new_query_being_typed() {
+      app.runShortcut("search", "/")
+      var field = findChild(app,"search-query-field")
+      wait(0)
+      keyClick("n")
+      keyClick("e")
+      keyClick("w")
+      mailService.searchQuery = "earlier submission"
+      compare(field.text,"new")
+      compare(field.selectedText,"")
+    }
+    function test_search_status_appears_after_initially_empty_viewport() {
+      var viewport = findChild(app,"mail-status-viewport")
+      verify(viewport)
+      tryCompare(viewport,"height",0)
+      mailService.searchStatus = {phase:"checking",text:"Searching Gmail...",scope:"Gmail accounts",canStop:true}
+      tryVerify(function() { return viewport.height > 0 })
+      var stop = findChild(app,"search-stop")
+      verify(stop.visible)
+      verify(stop.height > 0)
+      mailService.searchStatus = ({})
+      tryCompare(viewport,"height",0)
+      mailService.searchStatus = {phase:"failed",text:"Saved results",error:"Connect and retry.",canRetry:true}
+      tryVerify(function() { return viewport.height > 0 })
+      verify(findChild(app,"search-retry").visible)
+    }
+    function test_search_status_actions_keep_focus_after_leaving_query_data() {
+      return [
+        {tag:"stop",status:{phase:"checking",text:"Searching Gmail...",canStop:true},button:"search-stop",action:"stop-search"},
+        {tag:"retry",status:{phase:"failed",text:"Saved results",error:"Connect and retry.",canRetry:true},button:"search-retry",action:"retry-search"}
+      ]
+    }
+    function test_search_status_actions_keep_focus_after_leaving_query(data) {
+      mailService.searchStatus = data.status
+      app.runShortcut("search", "/")
+      var field = findChild(app,"search-query-field")
+      tryCompare(field,"activeFocus",true)
+      keyClick("x")
+      var button = findChild(app,data.button)
+      verify(button.visible)
+      button.forceActiveFocus()
+      wait(60)
+      verify(button.activeFocus,"deferred context routing keeps the chosen search action focused")
+      keyClick(Qt.Key_Return)
+      compare(mailService.count(data.action),1)
+      compare(field.text,"x")
+      compare(mailService.count("search:x"),0)
     }
 
     function test_back_on_the_root_clears_a_search_before_closing() {

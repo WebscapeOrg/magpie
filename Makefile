@@ -104,6 +104,10 @@ QML_FILES += ui/tests/qml/tst_mail_account_lifecycle.qml
 QML_FILES += ui/tests/qml/tst_service_attachment_owner.qml
 QML_FILES += ui/tests/qml/tst_compose_recovery_attachment_gate.qml
 QML_FILES += ui/backend/RestartController.qml ui/tests/qml/tst_restart_controller.qml
+QML_FILES += ui/search/SearchSuggestions.qml ui/search/SearchHelp.qml ui/search/SearchStatus.qml
+QML_FILES += ui/account/SubmittedSearch.qml
+QML_FILES += ui/tests/qml/tst_search_completion.qml ui/tests/qml/tst_search_results.qml ui/tests/qml/tst_submitted_search.qml
+QML_FILES += ui/tests/qml/tst_search_participants.qml
 APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml app/tests/qml/tst_calendar_palette_bindings.qml
 APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)
@@ -128,6 +132,7 @@ test-backend-process:
 	cargo build --locked --target-dir "$(CURDIR)/target" --bin omamail
 	node ui/tests/test_backend_queue.js target/debug/omamail
 	python3 tests/test_backend_process.py
+	python3 tests/test_search_backend.py
 	python3 tests/test_agent_native_bridge.py
 
 # Invariant: real CLI protocol fixtures are opt-in and use a local model server.
@@ -198,6 +203,8 @@ test-js:
 	node ui/tests/test_conversation.js
 	node tests/test_reader_pipeline.js
 	node ui/tests/test_keymap.js
+	node ui/tests/test_search_completion.js
+	node ui/tests/test_search_state.js
 	node ui/tests/test_accounts.js
 	node ui/tests/test_unified.js
 	node ui/tests/test_aliases.js

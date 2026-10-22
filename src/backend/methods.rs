@@ -190,6 +190,7 @@ pub const ALL: &[&str] = &[
     "jmap.stream.close",
     "reader.prefetch",
     "local.list",
+    "local.summaries",
     "local.status",
     "local.overview",
     "local.edits",

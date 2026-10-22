@@ -498,7 +498,11 @@ impl Session {
                         .filter(|n| (1..=100).contains(n))
                         .ok_or("invalid_params")?,
                 };
-                query.push(("q".into(), field(params, "query", false)?.trim().into()));
+                let search = field(params, "query", false)?.trim();
+                query.push(("q".into(), search.into()));
+                if crate::local_mail::include_spam_trash(search) {
+                    query.push(("includeSpamTrash".into(), "true".into()));
+                }
                 query.push(("maxResults".into(), size.to_string()));
                 query.push((
                     "pageToken".into(),

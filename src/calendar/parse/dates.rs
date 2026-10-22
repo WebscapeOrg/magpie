@@ -10,7 +10,22 @@ pub(super) fn rules(text: &str) -> HashMap<String, String> {
         .collect()
 }
 pub(super) fn date(text: &str) -> Option<NaiveDateTime> {
-    let text = text.trim().trim_end_matches('Z');
+    let text = text.trim();
+    let bytes = text.as_bytes();
+    let valid = match bytes.len() {
+        8 => bytes.iter().all(u8::is_ascii_digit),
+        15 | 16 => {
+            bytes[..8].iter().all(u8::is_ascii_digit)
+                && bytes[8] == b'T'
+                && bytes[9..15].iter().all(u8::is_ascii_digit)
+                && (bytes.len() == 15 || bytes[15] == b'Z')
+        }
+        _ => false,
+    };
+    if !valid {
+        return None;
+    }
+    let text = text.strip_suffix('Z').unwrap_or(text);
     if text.len() == 8 {
         NaiveDate::parse_from_str(text, "%Y%m%d")
             .ok()?
@@ -296,6 +311,24 @@ pub(super) fn duration(text: &str) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn date_values_reject_suffixes_and_non_digits_before_event_projection() {
+        for value in [
+            "20260101Z",
+            "20260101T120000ZZ",
+            "+0260101",
+            "20260101t120000",
+            "2026-101",
+        ] {
+            let calendar=super::super::ics::parse(&format!("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:shape\r\nDTSTART:{value}\r\nEND:VEVENT\r\nEND:VCALENDAR")).unwrap();
+            let events = super::super::ics::events(&calendar).unwrap();
+            assert!(events[0]["start"].is_null(), "{value}");
+        }
+        for value in ["20260101", "20260101T120000", "20260101T120000Z"] {
+            assert!(date(value).is_some(), "{value}");
+        }
+    }
 
     #[test]
     fn round2_timezone_offset_seconds_and_invalid_components_reach_events() {

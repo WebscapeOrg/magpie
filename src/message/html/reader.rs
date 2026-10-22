@@ -591,7 +591,7 @@ fn visit_node(node: &Node, state: &mut State, images: &mut Images<'_>, tables: b
             if name == "tr" && state.chain.is_empty() && row(node, state, images, tables) {
                 return;
             }
-            if table_part(name)
+            if !(table_part(name)
                 || matches!(
                     name,
                     "div"
@@ -616,23 +616,22 @@ fn visit_node(node: &Node, state: &mut State, images: &mut Images<'_>, tables: b
                         | "legend"
                         | "details"
                         | "summary"
-                )
-            {
-                let inferred = if state.chain.is_empty() {
-                    heading(node)
-                } else {
-                    String::new()
-                };
-                if !inferred.is_empty() {
-                    build_heading(node, state, images, tables, &inferred, true)
-                } else {
-                    state.flush("p");
-                    walk(node, state, images, tables);
-                    state.flush("p")
-                }
-            } else {
-                walk(node, state, images, tables)
+                )) {
+                walk(node, state, images, tables);
+                return;
             }
+            let inferred = if state.chain.is_empty() {
+                heading(node)
+            } else {
+                String::new()
+            };
+            if !inferred.is_empty() {
+                build_heading(node, state, images, tables, &inferred, true);
+                return;
+            }
+            state.flush("p");
+            walk(node, state, images, tables);
+            state.flush("p")
         }
     }
 }

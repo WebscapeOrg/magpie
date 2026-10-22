@@ -1,5 +1,5 @@
 //! Invariant: Durable editor recovery. Stored attachment metadata never authorizes file IO.
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     io::Read,
@@ -117,12 +117,10 @@ fn draft(value: &Value) -> Result<Value> {
     if people.len() > 1024 {
         return Err("recovery_too_large");
     }
-    out["replyRecipients"] = json!(
-        people
-            .iter()
-            .map(|v| json!({"email":text(&v["email"]),"display":text(&v["display"])}))
-            .collect::<Vec<_>>()
-    );
+    out["replyRecipients"] = json!(people
+        .iter()
+        .map(|v| json!({"email":text(&v["email"]),"display":text(&v["display"])}))
+        .collect::<Vec<_>>());
     for key in [
         "originalAttachments",
         "forwardedAttachments",
@@ -169,9 +167,141 @@ fn draft(value: &Value) -> Result<Value> {
         }
         out[key] = json!(attachments);
     }
+    attachment_state(value, &mut out)?;
     Ok(out)
 }
+fn attachment_owner(value: &Value) -> Result<(&str, &str)> {
+    let identity = |key| {
+        value[key]
+            .as_str()
+            .filter(|text| {
+                !text.is_empty() && text.len() <= 4096 && !text.chars().any(char::is_control)
+            })
+            .ok_or("recovery_invalid")
+    };
+    Ok((identity("draftKey")?, identity("accountId")?))
+}
+
+fn attachment_job(value: &Value, owner: &str, account: &str) -> Result<Option<Value>> {
+    let object = value.as_object().ok_or("recovery_invalid")?;
+    if object
+        .keys()
+        .any(|key| !["mode", "path", "owner", "accountId"].contains(&key.as_str()))
+        || value["owner"] != owner
+        || value["accountId"] != account
+    {
+        return Err("recovery_invalid");
+    }
+    let mode = value["mode"].as_str().ok_or("recovery_invalid")?;
+    let path = value["path"].as_str().ok_or("recovery_invalid")?;
+    if matches!(mode, "pick" | "clipboard") {
+        if !path.is_empty() {
+            return Err("recovery_invalid");
+        }
+        return Ok(None);
+    }
+    if !matches!(mode, "read" | "recover" | "recover-owned") {
+        return Err("recovery_invalid");
+    }
+    if path.len() > 4096 {
+        return Err("recovery_too_large");
+    }
+    if !Path::new(path).is_absolute()
+        || path.chars().any(char::is_control)
+        || path.split('/').any(|part| matches!(part, "." | ".."))
+    {
+        return Err("recovery_attachment_path_invalid");
+    }
+    Ok(Some(
+        json!({"mode":mode,"path":path,"owner":owner,"accountId":account}),
+    ))
+}
+
+fn attachment_state(value: &Value, out: &mut Value) -> Result<()> {
+    for key in [
+        "attachmentSourceMessageId",
+        "forwardAttachmentError",
+        "attachmentRecoveryError",
+    ] {
+        let Some(field) = value.get(key) else {
+            continue;
+        };
+        let field = field.as_str().ok_or("recovery_invalid")?;
+        if field.len() > 4096 {
+            return Err("recovery_too_large");
+        }
+        if key == "attachmentSourceMessageId" && field.chars().any(char::is_control) {
+            return Err("recovery_invalid");
+        }
+        out[key] = json!(field);
+    }
+    if let Some(loading) = value.get("forwardAttachmentsLoading") {
+        out["forwardAttachmentsLoading"] = json!(loading.as_bool().ok_or("recovery_invalid")?);
+    }
+    if let Some(serial) = value.get("forwardLoadSerial") {
+        out["forwardLoadSerial"] = json!(serial
+            .as_u64()
+            .filter(|serial| *serial <= i32::MAX as u64)
+            .ok_or("recovery_invalid")?);
+    }
+    let source = out["attachmentSourceMessageId"].as_str().unwrap_or("");
+    if out["forwardAttachmentsLoading"] == true && source.is_empty() {
+        return Err("recovery_invalid");
+    }
+    if !source.is_empty() {
+        attachment_owner(value)?;
+    }
+    let mut interrupted = false;
+    if let Some(jobs) = value.get("attachJobs") {
+        let jobs = jobs.as_array().ok_or("recovery_invalid")?;
+        if jobs.len() > 1000 {
+            return Err("recovery_too_large");
+        }
+        let mut kept = Vec::new();
+        for job in jobs {
+            let (owner, account) = attachment_owner(value)?;
+            match attachment_job(job, owner, account)? {
+                Some(job) => kept.push(job),
+                None => interrupted = true,
+            }
+        }
+        out["attachJobs"] = json!(kept);
+    }
+    if let Some(pending) = value.get("pendingAttachment") {
+        out["pendingAttachment"] = Value::Null;
+        if !pending.is_null() {
+            let (owner, account) = attachment_owner(value)?;
+            match attachment_job(pending, owner, account)? {
+                Some(job) => out["pendingAttachment"] = job,
+                None => interrupted = true,
+            }
+        }
+    }
+    if interrupted {
+        // Invariant: A restarted process cannot replay the old picker or clipboard contents.
+        out["attachmentRecoveryError"] = json!(
+            "Attachment selection was interrupted. Choose the files or paste the image again."
+        );
+    }
+    Ok(())
+}
+
 fn meaningful(d: &Value) -> bool {
+    if d["forwardAttachmentsLoading"] == true
+        || [
+            "attachmentSourceMessageId",
+            "forwardAttachmentError",
+            "attachmentRecoveryError",
+        ]
+        .iter()
+        .any(|key| d[key].as_str().is_some_and(|text| !text.is_empty()))
+        || d["attachJobs"]
+            .as_array()
+            .is_some_and(|jobs| !jobs.is_empty())
+        || d["pendingAttachment"].is_object()
+    {
+        return true;
+    }
     if d["userModified"] == true {
         return true;
     }

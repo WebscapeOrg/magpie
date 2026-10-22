@@ -135,11 +135,9 @@ fn malformed_edit_history_never_writes_recovery() {
 
 #[test]
 fn meaningful_body_history_and_parked_identity_survive() {
-    assert!(
-        !normalize(&saved("  ")).unwrap()["active"]
-            .as_bool()
-            .unwrap()
-    );
+    assert!(!normalize(&saved("  ")).unwrap()["active"]
+        .as_bool()
+        .unwrap());
     let mut value = saved("\n\nSignature");
     value["draft"]["placedBody"] = json!("\n\nSignature");
     assert_eq!(normalize(&value).unwrap(), empty());
@@ -200,7 +198,7 @@ fn snapshots_are_private_atomic_and_stale_clear_cannot_erase_newer_draft() {
 #[cfg(unix)]
 #[test]
 fn links_never_read_write_or_modify_outside_target() {
-    use std::os::unix::fs::{PermissionsExt, symlink};
+    use std::os::unix::fs::{symlink, PermissionsExt};
     for name in ["compose.json", ".compose.lock"] {
         for hard in [false, true] {
             let temp = Temp::new();
@@ -214,14 +212,12 @@ fn links_never_read_write_or_modify_outside_target() {
             } else {
                 symlink(&outside, path).unwrap();
             }
-            assert!(
-                call_at(
-                    &temp.0,
-                    "compose.recoverySave",
-                    &json!({"record":saved("draft"),"expectedRevision":revision(&[])})
-                )
-                .is_err()
-            );
+            assert!(call_at(
+                &temp.0,
+                "compose.recoverySave",
+                &json!({"record":saved("draft"),"expectedRevision":revision(&[])})
+            )
+            .is_err());
             assert_eq!(std::fs::read(&outside).unwrap(), b"secret");
             assert_eq!(
                 std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777,
@@ -307,14 +303,12 @@ fn malformed_or_oversize_save_does_not_replace_existing_snapshot() {
         json!({"version":2,"active":false}),
         saved(&"x".repeat(MAX_BYTES)),
     ] {
-        assert!(
-            call_at(
-                &temp.0,
-                "compose.recoverySave",
-                &json!({"record":value,"expectedRevision":first["revision"]})
-            )
-            .is_err()
-        );
+        assert!(call_at(
+            &temp.0,
+            "compose.recoverySave",
+            &json!({"record":value,"expectedRevision":first["revision"]})
+        )
+        .is_err());
         assert_eq!(
             call_at(&temp.0, "compose.recoveryRead", &json!({})).unwrap(),
             first
@@ -325,11 +319,9 @@ fn malformed_or_oversize_save_does_not_replace_existing_snapshot() {
 #[test]
 fn delivery_receipts_survive_recovery_without_changing_legacy_empty_fields() {
     let mut value = saved("pending");
-    assert!(
-        normalize(&value).unwrap()["draft"]
-            .get("pendingSendId")
-            .is_none()
-    );
+    assert!(normalize(&value).unwrap()["draft"]
+        .get("pendingSendId")
+        .is_none());
     value["draft"]["pendingSendId"] = json!("send-one");
     value["draft"]["deliveryUnknown"] = json!(true);
     let record = normalize(&value).unwrap();
@@ -365,4 +357,169 @@ fn recovery_lock_releases_even_with_an_inherited_file_description() {
         0
     );
     drop(inherited);
+}
+
+fn attachment_recovery() -> Value {
+    json!({"version":1,"active":true,"returnView":"reader","draft":{
+        "draftKey":"draft-one","accountId":"one@example.org","body":"Keep me",
+        "attachmentSourceMessageId":"source-message", "forwardAttachmentsLoading":true,
+        "forwardAttachmentError":"", "forwardLoadSerial":17,
+        "attachmentRecoveryError":"",
+        "attachJobs":[{"mode":"recover-owned","path":"/synthetic/one.png","owner":"draft-one","accountId":"one@example.org"}],
+        "pendingAttachment":{"mode":"read","path":"/synthetic/two.pdf","owner":"draft-one","accountId":"one@example.org"}
+    }})
+}
+
+#[test]
+fn attachment_recovery_preserves_source_and_owned_jobs_across_disk_roundtrip() {
+    let temp = Temp::new();
+    let mut input = attachment_recovery();
+    input["parked"] = json!([input["draft"].clone()]);
+    let answer = call_at(
+        &temp.0,
+        "compose.recoverySave",
+        &json!({"record":input,"expectedRevision":revision(&[])}),
+    )
+    .unwrap();
+    for field in [
+        "attachmentSourceMessageId",
+        "forwardAttachmentsLoading",
+        "forwardAttachmentError",
+        "forwardLoadSerial",
+        "attachmentRecoveryError",
+        "attachJobs",
+        "pendingAttachment",
+    ] {
+        assert_eq!(
+            answer["record"]["draft"][field], input["draft"][field],
+            "{field}"
+        );
+        assert_eq!(
+            answer["record"]["parked"][0][field], input["draft"][field],
+            "parked {field}"
+        );
+    }
+    assert_eq!(
+        call_at(&temp.0, "compose.recoveryRead", &json!({})).unwrap(),
+        answer
+    );
+}
+
+#[test]
+fn attachment_recovery_keeps_pending_and_interrupted_drafts_without_text() {
+    for field in [
+        "attachmentSourceMessageId",
+        "attachJobs",
+        "pendingAttachment",
+        "forwardAttachmentError",
+        "attachmentRecoveryError",
+    ] {
+        let source = attachment_recovery();
+        let mut input = saved("");
+        input["draft"]["draftKey"] = json!("draft-one");
+        input["draft"][field] = if field.ends_with("Error") {
+            json!("Choose the file again")
+        } else {
+            source["draft"][field].clone()
+        };
+        assert_eq!(normalize(&input).unwrap()["active"], true, "{field}");
+    }
+}
+
+#[test]
+fn attachment_recovery_interrupts_host_actions_instead_of_replaying_them() {
+    for mode in ["pick", "clipboard"] {
+        let mut input = attachment_recovery();
+        let host = json!({"mode":mode,"path":"","owner":"draft-one","accountId":"one@example.org"});
+        input["draft"]["attachJobs"]
+            .as_array_mut()
+            .unwrap()
+            .push(host.clone());
+        input["draft"]["pendingAttachment"] = host;
+        let output = normalize(&input).unwrap();
+        assert_eq!(output["draft"]["attachJobs"].as_array().unwrap().len(), 1);
+        assert_eq!(output["draft"]["pendingAttachment"], Value::Null);
+        assert_eq!(
+            output["draft"]["attachmentRecoveryError"],
+            "Attachment selection was interrupted. Choose the files or paste the image again."
+        );
+    }
+}
+
+#[test]
+fn attachment_recovery_invalid_ownership_and_paths_never_replace_saved_bytes() {
+    let temp = Temp::new();
+    let baseline = call_at(
+        &temp.0,
+        "compose.recoverySave",
+        &json!({"record":saved("Original"),"expectedRevision":revision(&[])}),
+    )
+    .unwrap();
+    let path = temp.0.join("omamail/compose.json");
+    let before = std::fs::read(&path).unwrap();
+    let outside = temp.0.join("outside");
+    std::fs::write(&outside, b"untouched").unwrap();
+    for (field, invalid) in [
+        ("owner", json!("foreign")),
+        ("accountId", json!("foreign")),
+        ("mode", json!("forget")),
+        ("mode", json!("shell")),
+        ("path", json!("../outside")),
+        ("path", json!("/tmp/../outside")),
+        ("path", json!("/tmp/x\n")),
+    ] {
+        for pending in [false, true] {
+            let mut input = attachment_recovery();
+            let job = if pending {
+                &mut input["draft"]["pendingAttachment"]
+            } else {
+                &mut input["draft"]["attachJobs"][0]
+            };
+            job["path"] = json!(outside);
+            job[field] = invalid.clone();
+            assert!(
+                call_at(
+                    &temp.0,
+                    "compose.recoverySave",
+                    &json!({"record":input,"expectedRevision":baseline["revision"]})
+                )
+                .is_err(),
+                "{field} pending={pending}"
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(std::fs::read(&outside).unwrap(), b"untouched");
+        }
+    }
+}
+
+#[test]
+fn attachment_recovery_rejects_malformed_or_oversized_state_before_storage() {
+    let cases = [
+        ("forwardAttachmentsLoading", json!("true")),
+        ("forwardLoadSerial", json!(-1)),
+        ("forwardLoadSerial", json!(2147483648u64)),
+        ("attachmentSourceMessageId", json!("x".repeat(4097))),
+        ("forwardAttachmentError", json!("x".repeat(4097))),
+        ("attachmentRecoveryError", json!(true)),
+        ("attachJobs", json!({})),
+        ("attachJobs", json!(vec![json!({}); 1001])),
+        ("pendingAttachment", json!([])),
+        ("draftKey", json!(true)),
+        ("accountId", json!(true)),
+    ];
+    for (field, value) in cases {
+        let temp = Temp::new();
+        let mut input = attachment_recovery();
+        input["draft"][field] = value;
+        assert!(
+            call_at(
+                &temp.0,
+                "compose.recoverySave",
+                &json!({"record":input,"expectedRevision":revision(&[])})
+            )
+            .is_err(),
+            "{field}"
+        );
+        assert!(!temp.0.join("omamail").exists(), "{field}");
+    }
 }

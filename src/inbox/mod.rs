@@ -83,28 +83,8 @@ impl Inbox {
                         return Ok(json!({"accepted":false}));
                     };
                     let name = store::key(&["overviews", &account]);
-                    let mut chosen = Vec::new();
-                    store::update(&name, |saved| {
-                        if !saved.is_object() {
-                            return Err("inbox_storage_invalid");
-                        }
-                        for id in ids {
-                            let old = &saved[&id];
-                            if old["text"].as_str().is_some_and(|s| !s.is_empty())
-                                && old["version"] == 1
-                            {
-                                continue;
-                            }
-                            if params["retry"] != true
-                                && old["state"] == "failed"
-                                && now() - old["updated"].as_i64().unwrap_or(0) < 900_000
-                            {
-                                continue;
-                            }
-                            saved[&id] = json!({"state":"running","updated":now(),"version":1});
-                            chosen.push(id);
-                        }
-                        Ok(())
+                    let chosen = store::update(&name, |saved| {
+                        claim_overviews(saved, &ids, params["retry"] == true, now())
                     })?;
                     if chosen.is_empty() {
                         return Ok(json!({"accepted":true}));
@@ -112,39 +92,8 @@ impl Inbox {
                     tokio::spawn(async move {
                         let _permit = permit;
                         let result = overview_batch(&account, &chosen, &gmail).await;
-                        let _ = store::update(&name, |saved| {
-                            for id in &chosen {
-                                let text = result
-                                    .as_ref()
-                                    .ok()
-                                    .and_then(|rows| rows.as_array())
-                                    .and_then(|rows| rows.iter().find(|v| v["id"] == *id))
-                                    .and_then(|v| v["text"].as_str());
-                                saved[id] = match text {
-                                    Some(text) => {
-                                        json!({"state":"ready","text":text,"version":1,"updated":now()})
-                                    }
-                                    None => {
-                                        json!({"state":"failed","reason":overview_failure(result.as_ref().err().copied()),"updated":now(),"version":1})
-                                    }
-                                };
-                            }
-                            // Performance: Overviews are replaceable; keep a bounded recent working
-                            // set.
-                            if saved.as_object().unwrap().len() > 5000 {
-                                let mut keys: Vec<_> = saved
-                                    .as_object()
-                                    .unwrap()
-                                    .iter()
-                                    .map(|(k, v)| (v["updated"].as_i64().unwrap_or(0), k.clone()))
-                                    .collect();
-                                keys.sort();
-                                for (_, key) in keys.into_iter().take(1000) {
-                                    saved.as_object_mut().unwrap().remove(&key);
-                                }
-                            }
-                            Ok(())
-                        });
+                        let _ =
+                            store::update(&name, |saved| finish_overviews(saved, &chosen, &result));
                     });
                     Ok(json!({"accepted":true}))
                 }
@@ -193,6 +142,71 @@ impl Inbox {
         }
     }
 }
+#[cfg(all(feature = "agent", unix))]
+fn claim_overviews(
+    saved: &mut Value,
+    ids: &[String],
+    retry: bool,
+    at: i64,
+) -> Result<Vec<String>, &'static str> {
+    let mut chosen = Vec::new();
+    if !saved.is_object() {
+        return Err("inbox_storage_invalid");
+    }
+    for id in ids {
+        let old = &saved[id];
+        if old["text"].as_str().is_some_and(|s| !s.is_empty()) && old["version"] == 1 {
+            continue;
+        }
+        if !retry && old["state"] == "failed" && at - old["updated"].as_i64().unwrap_or(0) < 900_000
+        {
+            continue;
+        }
+        saved[id] = json!({"state":"running","updated":at,"version":1});
+        chosen.push(id.clone());
+    }
+    Ok(chosen)
+}
+
+#[cfg(all(feature = "agent", unix))]
+fn finish_overviews(
+    saved: &mut Value,
+    chosen: &[String],
+    result: &Result<Value, &'static str>,
+) -> Result<(), &'static str> {
+    for id in chosen {
+        let text = result
+            .as_ref()
+            .ok()
+            .and_then(|rows| rows.as_array())
+            .and_then(|rows| rows.iter().find(|v| v["id"] == *id))
+            .and_then(|v| v["text"].as_str());
+        saved[id] = match text {
+            Some(text) => {
+                json!({"state":"ready","text":text,"version":1,"updated":now()})
+            }
+            None => {
+                json!({"state":"failed","reason":overview_failure(result.as_ref().err().copied()),"updated":now(),"version":1})
+            }
+        };
+    }
+    // Performance: Overviews are replaceable; keep a bounded recent working
+    // set.
+    if saved.as_object().unwrap().len() > 5000 {
+        let mut keys: Vec<_> = saved
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (v["updated"].as_i64().unwrap_or(0), k.clone()))
+            .collect();
+        keys.sort();
+        for (_, key) in keys.into_iter().take(1000) {
+            saved.as_object_mut().unwrap().remove(&key);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(all(feature = "agent", unix))]
 async fn overview_batch(
     account: &str,

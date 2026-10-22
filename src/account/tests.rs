@@ -40,3 +40,16 @@ fn unknown_registry_provider_is_not_projected_as_gmail() {
     assert_eq!(result["accounts"], json!([]));
     assert_eq!(result["activeId"], "");
 }
+
+#[test]
+fn round2_account_controls_do_not_become_registered_ids() {
+    for provider in ["gmail", "outlook", "hey", "jmap", "imap"] {
+        for control in ['\0', '\u{7f}', '\u{1f}'] {
+            let email = format!("per{control}son@example.org");
+            let source = json!({"version":1,"accounts":[{"provider":provider,"email":email}]});
+            let result = summarize(source.to_string().as_bytes()).unwrap();
+            assert_eq!(result["accounts"][0]["id"], "", "{provider}: {control:?}");
+            assert_eq!(result["activeId"], "");
+        }
+    }
+}

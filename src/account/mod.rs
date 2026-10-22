@@ -54,7 +54,11 @@ fn valid_email(value: &str) -> bool {
     let Some((local, domain)) = value.split_once('@') else {
         return false;
     };
-    if local.is_empty() || local.chars().any(char::is_whitespace) {
+    if local.is_empty()
+        || local
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
         return false;
     }
     let parts: Vec<_> = domain.split('.').collect();

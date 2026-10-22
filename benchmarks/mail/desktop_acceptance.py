@@ -272,6 +272,17 @@ class DisplayCapture:
         (output / ("capture-" + str(event["serial"]))).touch()
 
 
+def validate_capture(event, expected_kind, serial):
+    if event.get("kind") != expected_kind or type(event.get("serial")) is not int or event["serial"] != serial:
+        raise RuntimeError("Missing, duplicated or reordered desktop capture")
+    validate_duration(event.get("started"))
+
+
+def validate_duration(value):
+    if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+        raise RuntimeError("Invalid desktop measurement time")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
@@ -337,6 +348,18 @@ def main():
         threading.Thread(target=read, daemon=True).start()
         display = DisplayCapture(env, process.pid, args.display_mode, float(args.scale))
         results = []
+        expected = (["coldInbox"] + ["input"] * args.samples + ["navigation"] * args.samples
+                    + ["search"] * args.samples + (["largeHtml"] * 3 if args.html_bytes else [])
+                    + ["offlineEdit", "compose", "composeFocus"])
+        checkpoints = []
+        required_checkpoints = ["cached-inbox-visible-without-credentials"]
+        if args.accessibility:
+            required_checkpoints.append("accessibility-inbox")
+        required_checkpoints.append("offline-star-and-archive-visible-and-undo-restores-mail")
+        if args.accessibility:
+            required_checkpoints.extend(["accessibility-compose", "accessible-send-durably-queued-without-credentials"])
+        else:
+            required_checkpoints.append("keyboard-send-durably-queued-without-credentials")
         code = None
         failure = None
         deadline = time.monotonic() + 180
@@ -348,17 +371,26 @@ def main():
                         break
                     log.write(line)
                     log.flush()
-                    if "DESKTOP_CHECKPOINT accessibility-" in line and args.accessibility:
-                        accessibility(process.pid, line.split("DESKTOP_CHECKPOINT ", 1)[1].strip(), output)
+                    if "DESKTOP_CHECKPOINT " in line:
+                        checkpoint = line.split("DESKTOP_CHECKPOINT ", 1)[1].strip()
+                        if checkpoint.startswith("accessibility-") and args.accessibility:
+                            accessibility(process.pid, checkpoint, output)
+                        checkpoints.append(checkpoint)
                     if "DESKTOP_CAPTURE " not in line:
                         continue
                     event = json.loads(line.split("DESKTOP_CAPTURE ", 1)[1])
+                    if len(results) >= len(expected):
+                        raise RuntimeError("Unexpected extra desktop capture")
+                    validate_capture(event, expected[len(results)], len(results) + 1)
                     frame = display.capture(event, launched, output)
+                    validate_duration(frame.result.get("presentedMs"))
                     results.append(frame.result)
                     display.acknowledge(frame, output)
                 else:
                     raise RuntimeError("Desktop acceptance timed out")
             code = process.wait(timeout=10)
+            if len(results) != len(expected) or checkpoints != required_checkpoints:
+                raise RuntimeError("Incomplete desktop measurements or functional checkpoints")
         except Exception as error:
             failure = str(error)
             raise

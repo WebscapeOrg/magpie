@@ -131,8 +131,14 @@ def main():
         if hashlib.sha256((HERE/'baseline/ui'/relative).read_bytes()).hexdigest()!=h:raise RuntimeError('Frozen baseline changed')
     cases=corpus()
     if args.cases:cases=[c for c in cases if c['name'] in args.cases]
-    subprocess.run(['cargo','build','--locked','--release','--bin','omamail'],cwd=ROOT,check=True)
-    binary=ROOT/'target/release/omamail'
+    build=subprocess.run(['cargo','build','--locked','--release','--bin','omamail','--message-format=json'],
+                         cwd=ROOT,check=True,stdout=subprocess.PIPE,text=True)
+    artifacts=[json.loads(line) for line in build.stdout.splitlines() if line.strip()]
+    executables=[item['executable'] for item in artifacts if item.get('reason')=='compiler-artifact'
+                 and item.get('target',{}).get('name')=='omamail'
+                 and item.get('target',{}).get('kind')==['bin'] and item.get('executable')]
+    if len(executables)!=1:raise RuntimeError('Expected one built omamail executable')
+    binary=Path(executables[0])
     version=tomllib.loads((ROOT/'Cargo.toml').read_text())['package']['version']
     env={k:v for k,v in os.environ.items() if not k.startswith(('QML','QS_'))}
     env.pop('WAYLAND_DISPLAY',None)

@@ -58,6 +58,14 @@ print(json.dumps({"cases": cases}))
     def test_missing_case_is_refused(self):
         self.assert_refused('cases.pop()')
 
+    def test_changed_executable_is_refused(self):
+        self.assert_refused('from pathlib import Path; Path(sys.argv[0]).write_text("changed during measurement")')
+
+    def test_invalid_cold_measurement_is_refused(self):
+        for value in ['float("nan")', 'float("inf")', '-1', 'True']:
+            with self.subTest(value=value):
+                self.assert_refused('cases[0]["coldUs"] = ' + value)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,33 +2,10 @@
 
 .import "JmapProtocol.js" as Protocol
 
-// Invariant: One row per conversation.
-//
-// `JmapProtocol.js` is the protocol — every string sent to a server and every
-// decision about what came back. This is one job done with it, and it is a file
-// of its own for the reason `HeyCli.js` is: the four-call chain, the rule about
-// which members a row counts and the block a row draws from are one subject,
-// and they are the only part of a JMAP list that is about a conversation rather
-// than about a message.
-//
-// A *conversation* is what a row stands for: a server thread as seen from one
-// query. Its *representative* is the message the server returns for it, the
-// newest member matching the query — so in the Unread view a thread is
-// represented by its unread reply rather than by its first message. Its
-// *counted members* are the members the row counts and reads flags from.
-//
-// Four chained calls, one POST, measured at 21 ms against the reference server:
-//
-//   0  Email/query  collapsed, so its ids are one representative per thread
-//   1  Email/get    those ids, for `threadId` alone
-//   2  Thread/get   those thread ids, for every member id, oldest first
-//   3  Email/get    every member, for `mailboxIds` and `keywords`
-//
-// The back-references are what make it one request rather than four: a page's
-// ids are not known here until the server answers, and a client that waited to
-// learn them would pay a round trip per link in that chain. That is the whole
-// of why the product spec's "one row per message" — which rested on thread
-// aggregation costing an extra round trip per page — does not bind here.
+// Invariant: The reference model counts a conversation's members in the current mailbox/query.
+// Its representative is the newest matching message, which can differ between views.
+// Performance: JMAP result references chain Email/query, Email/get, Thread/get and Email/get
+// into one request. Rust owns the live implementation; these helpers remain an independent oracle.
 
 var CALL_QUERY = "0"
 var CALL_REPRESENTATIVES = "1"

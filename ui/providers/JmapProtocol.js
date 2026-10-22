@@ -6,9 +6,8 @@
 // This library supplies presentation rules and protocol reference helpers for tests.
 // Transport, request and method failures remain distinct in the reference contract.
 
-// Invariant: The ceiling on a blob download, fixed in the transport script as well: the
-// same figure `attachment.sh` will send up to. Exceeding it is curl exit 63
-// rather than a 20 MB base64 line crossing a pipe.
+// Invariant: Preserve the historical JavaScript transport's reference limit for codec fixtures.
+// Live native request limits belong to the Rust transport.
 var MAX_BLOB_BYTES = 20971520
 
 // Invariant: The three values the `authScheme` field may hold. The script builds the
@@ -2036,10 +2035,7 @@ function toPart(part, values, depth) {
     body: { size: 0 },
     parts: []
   }
-  // Invariant: Kept for the day a `cid:` source is resolved to bytes. Nothing reads it
-  // today — no provider resolves one, and `Html.imageSourceKind` calls it
-  // inline and keeps the tag — and keeping it here is what makes that a change
-  // above the seam rather than a change to this provider.
+  // Invariant: Preserve MIME identity even though unresolved CID sources are rejected by Html.
   var cid = trimmed(source.cid)
   if (cid !== "") node.cid = cid
 

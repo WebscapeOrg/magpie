@@ -120,6 +120,32 @@ def render(report):
       f"Load before: {report['loadBefore']}; after: {report['loadAfter']}. Versions: {report['versions']}.",
       '', 'Reproduce: `python3 benchmarks/mail/roundtrip.py`. Raw samples, corpus/source/binary hashes and versions are in roundtrip-results.json. The separate results.md remains a CPU-only diagnostic, not the headline performance comparison.']
     return '\n'.join(lines)+'\n'
+def build_backend():
+    build=subprocess.run(['cargo','build','--locked','--release','--bin','omamail','--message-format=json'],
+                         cwd=ROOT,check=True,stdout=subprocess.PIPE,text=True)
+    artifacts=[json.loads(line) for line in build.stdout.splitlines() if line.strip()]
+    executables=[item['executable'] for item in artifacts if item.get('reason')=='compiler-artifact'
+                 and item.get('target',{}).get('name')=='omamail'
+                 and item.get('target',{}).get('kind')==['bin'] and item.get('executable')]
+    if len(executables)!=1:raise RuntimeError('Expected one built omamail executable')
+    binary=Path(executables[0])
+    return binary
+
+
+def roundtrip_results(output,cases):
+    rows=[];parts=[];total=None
+    for line in output.splitlines():
+        if 'ROUNDTRIP_PART ' not in line:continue
+        part=json.loads(line.split('ROUNDTRIP_PART ',1)[1])
+        if not parts:total=part['total']
+        if part['index']!=len(parts) or part['total']!=total:raise RuntimeError('Broken benchmark report transfer')
+        parts.append(part['data'])
+        if len(parts)==total:rows.append(json.loads(''.join(parts)));parts=[];total=None
+    expected=[(c['name'],p) for c in cases for p in ['mime','html','readprep']]
+    if parts or [(r['name'],r['phase']) for r in rows]!=expected:raise RuntimeError('Incomplete benchmark results')
+    return rows
+
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--samples',type=int,default=31)
@@ -131,14 +157,7 @@ def main():
         if hashlib.sha256((HERE/'baseline/ui'/relative).read_bytes()).hexdigest()!=h:raise RuntimeError('Frozen baseline changed')
     cases=corpus()
     if args.cases:cases=[c for c in cases if c['name'] in args.cases]
-    build=subprocess.run(['cargo','build','--locked','--release','--bin','omamail','--message-format=json'],
-                         cwd=ROOT,check=True,stdout=subprocess.PIPE,text=True)
-    artifacts=[json.loads(line) for line in build.stdout.splitlines() if line.strip()]
-    executables=[item['executable'] for item in artifacts if item.get('reason')=='compiler-artifact'
-                 and item.get('target',{}).get('name')=='omamail'
-                 and item.get('target',{}).get('kind')==['bin'] and item.get('executable')]
-    if len(executables)!=1:raise RuntimeError('Expected one built omamail executable')
-    binary=Path(executables[0])
+    binary=build_backend()
     sources=[path for base in ['src','ui/backend','ui/message'] for path in sorted((ROOT/base).rglob('*')) if path.is_file()]
     harness=[Path(__file__),HERE/'corpus.py',HERE/'run.py']
     provenance=fingerprints([binary,*sources,*harness])
@@ -168,16 +187,7 @@ def main():
             raise
         if process.returncode!=0 or 'ROUNDTRIP_ERROR' in output or 'ROUNDTRIP_DONE' not in output:raise RuntimeError(output[-6000:])
         verify_unchanged(provenance)
-        rows=[];parts=[];total=None
-        for line in output.splitlines():
-            if 'ROUNDTRIP_PART ' not in line:continue
-            part=json.loads(line.split('ROUNDTRIP_PART ',1)[1])
-            if not parts:total=part['total']
-            if part['index']!=len(parts) or part['total']!=total:raise RuntimeError('Broken benchmark report transfer')
-            parts.append(part['data'])
-            if len(parts)==total:rows.append(json.loads(''.join(parts)));parts=[];total=None
-        expected=[(c['name'],p) for c in cases for p in ['mime','html','readprep']]
-        if parts or [(r['name'],r['phase']) for r in rows]!=expected:raise RuntimeError('Incomplete benchmark results')
+        rows=roundtrip_results(output,cases)
         results=[]
         for r in rows:
             validate_samples(r['qml'],args.samples)

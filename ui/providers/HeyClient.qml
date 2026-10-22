@@ -6,6 +6,8 @@ import "HeyCli.js" as Cli
 Item {
   id: root
 
+  Deferred { id: deferred }
+
   visible: false
   width: 0
   height: 0
@@ -35,7 +37,7 @@ Item {
     var account = auth ? String(auth.accountId || "") : ""
     var program = auth ? String(auth.heyPath || "") : ""
     if (!auth || !auth.loggedIn || (account === "" && method !== "hey.profile") || program === "") {
-      Qt.callLater(function() {
+      deferred.call(function() {
         if (!handle.aborted) callback(null, "Sign in to the configured HEY account first")
       })
       return handle
@@ -45,7 +47,7 @@ Item {
       parameters.program = program
     }
     if (!usesBackend()) {
-      Qt.callLater(function() { if (!handle.aborted) callback(null, "Mail backend unavailable") })
+      deferred.call(function() { if (!handle.aborted) callback(null, "Mail backend unavailable") })
       return handle
     }
     root.inFlight++
@@ -88,7 +90,7 @@ Item {
         if (typeof callback === "function") callback(result, error)
       }, handle)
     }
-    Qt.callLater(function() { if (!handle.aborted) callback(null, "Mail backend unavailable") })
+    deferred.call(function() { if (!handle.aborted) callback(null, "Mail backend unavailable") })
     return handle
   }
 
@@ -101,7 +103,7 @@ Item {
    */
   function getSummaries(ids, callback) {
     var handle = newHandle()
-    Qt.callLater(function() {
+    deferred.call(function() {
       if (!root || handle.aborted || typeof callback !== "function") return
       callback([], "")
     })
@@ -113,7 +115,7 @@ Item {
     var remaining = ids.length
     var firstError = ""
     if (remaining === 0) {
-      Qt.callLater(function() { if (root && !handle.aborted) callback([], "") })
+      deferred.call(function() { if (root && !handle.aborted) callback([], "") })
       return handle
     }
     function readAt(index) {
@@ -141,7 +143,7 @@ Item {
     if (typeof callback !== "function") return handle
     if (full === true) return readFullPage(list, callback, handle, progress)
 
-    Qt.callLater(function() {
+    deferred.call(function() {
       if (!root || handle.aborted) return
       var output = []
       for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
@@ -162,7 +164,7 @@ Item {
 
     if (usesBackend()) {
       if (full !== true) {
-        Qt.callLater(function() {
+        deferred.call(function() {
           if (handle.aborted || typeof callback !== "function") return
           var known = root.messageResources[messageId]
           callback(known || null, known ? "" : "That message is no longer in the mailbox")
@@ -183,7 +185,7 @@ Item {
       }, handle)
     }
 
-    Qt.callLater(function() { if (!handle.aborted) callback(null, "Mail backend unavailable") })
+    deferred.call(function() { if (!handle.aborted) callback(null, "Mail backend unavailable") })
     return handle
   }
 
@@ -195,7 +197,7 @@ Item {
   function getAttachment(messageId, attachmentId, callback) {
     var handle = newHandle()
     if (typeof callback !== "function") return handle
-    Qt.callLater(function() {
+    deferred.call(function() {
       if (!root || handle.aborted) return
       callback("", "HEY serves attachments through `hey attachments`, which this cannot read yet")
     })
@@ -219,7 +221,7 @@ Item {
     if (typeof callback !== "function") return newHandle()
     if (address !== "") {
       var known = address
-      Qt.callLater(function() {
+      deferred.call(function() {
         if (!root) return
         callback([{ email: known, displayName: "", isPrimary: true, isDefault: true }], "")
       })
@@ -256,7 +258,7 @@ Item {
   function deleteLabel(id, callback) { return refuseLabelChange(callback) }
   function refuseLabelChange(callback) {
     if (typeof callback === "function")
-      Qt.callLater(function() { if (root) callback(null, "HEY labels are managed on HEY") })
+      deferred.call(function() { if (root) callback(null, "HEY labels are managed on HEY") })
     return newHandle()
   }
 
@@ -285,7 +287,7 @@ Item {
         if (typeof callback === "function") callback(null, error)
       }, handle)
     }
-    Qt.callLater(function() { if (!handle.aborted) callback(null, "Mail backend unavailable") })
+    deferred.call(function() { if (!handle.aborted) callback(null, "Mail backend unavailable") })
     return handle
   }
 
@@ -328,7 +330,7 @@ Item {
     return backendRead("hey.send", messageParams(payload, false), callback, newHandle())
   }
   function deleteDraft(messageId, callback) {
-    Qt.callLater(function() { if (typeof callback === "function") callback(null, "HEY draft deletion is not supported by the installed client") })
+    deferred.call(function() { if (typeof callback === "function") callback(null, "HEY draft deletion is not supported by the installed client") })
     return newHandle()
   }
   function saveDraft(payload, callback) {

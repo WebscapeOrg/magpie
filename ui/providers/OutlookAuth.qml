@@ -9,6 +9,8 @@ import "MicrosoftOAuth.js" as Microsoft
 Item {
   id: root
 
+  Deferred { id: deferred }
+
   visible: false
   width: 0
   height: 0
@@ -217,7 +219,7 @@ Item {
     if (!isCurrent(context) || !sessionEnabled) {
       // Invariant: A lookup from before a cancel, exiting now: waiters queued behind
       // it since are asked for again, or nothing would.
-      if (sessionEnabled && graphWaiters.length > 0) Qt.callLater(root.startGraphLookup)
+      if (sessionEnabled && graphWaiters.length > 0) deferred.call(root.startGraphLookup)
       return
     }
     var grants = graphGrants
@@ -465,9 +467,9 @@ Item {
   function runKeyringJob() {
     if (keyringJob) return
     if (keyringJobs.length === 0) {
-      if (restoreQueued) Qt.callLater(root.restoreSession)
-      if (graphQueued) Qt.callLater(root.startGraphLookup)
-      if (graphProbeQueued) { graphProbeQueued = false; Qt.callLater(function() { root.probeGraphConsent("") }) }
+      if (restoreQueued) deferred.call(root.restoreSession)
+      if (graphQueued) deferred.call(root.startGraphLookup)
+      if (graphProbeQueued) { graphProbeQueued = false; deferred.call(function() { root.probeGraphConsent("") }) }
       return
     }
     var next = keyringJobs.slice()
@@ -834,7 +836,7 @@ Item {
     sessionChecked = false
     sessionEnabled = true
     var context = sessionContext()
-    Qt.callLater(function() {
+    deferred.call(function() {
       if (root.isCurrent(context)) root.restoreSession()
     })
   }

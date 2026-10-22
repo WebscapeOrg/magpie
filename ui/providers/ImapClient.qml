@@ -5,6 +5,8 @@ import "../account/Aliases.js" as Aliases
 Item {
   id: root
 
+  Deferred { id: deferred }
+
   visible: false
   width: 0
   height: 0
@@ -173,7 +175,7 @@ Item {
 
   function getSummaries(ids, callback) {
     var handle = newHandle()
-    Qt.callLater(function() {
+    deferred.call(function() {
       if (!root || handle.aborted || typeof callback !== "function") return
       callback([], "")
     })
@@ -229,7 +231,7 @@ Item {
     if (typeof callback !== "function") return newHandle()
     var settings = auth ? auth.settings : null
     var username = settings ? String(settings.username || "") : ""
-    Qt.callLater(function() {
+    deferred.call(function() {
       if (!root) return
       callback({
         email: root.email || username,
@@ -245,7 +247,7 @@ Item {
     if (typeof callback !== "function") return newHandle()
     var address = String(root.email || "")
     var configured = auth && auth.settings ? auth.settings.aliases : null
-    Qt.callLater(function() {
+    deferred.call(function() {
       if (!root) return
       callback(Aliases.sendAsList(address, configured), "")
     })

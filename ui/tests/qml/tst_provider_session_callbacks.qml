@@ -8,6 +8,16 @@ Item {
     id: fakeBackend
     property bool ready: true
     property var requests: []
+    function test_removed_outlook_owner_does_not_restore_a_session() {
+      failOnWarning(/.?/)
+      lifecycleLoader.active = true
+      verify(lifecycleLoader.item)
+      lifecycleLoader.item.backend = fakeBackend
+      lifecycleLoader.item.accountId = "outlook:removed@example.test"
+      lifecycleLoader.active = false
+      wait(10)
+      compare(fakeBackend.requests.length, 0)
+    }
     function call(method, params, callback) {
       requests = requests.concat([{ method: method, params: params, callback: callback }])
     }
@@ -23,6 +33,7 @@ Item {
   }
   Component { id: heyFactory; Providers.HeyAuth { pluginDir: "/synthetic" } }
   Component { id: heyClientFactory; Providers.HeyClient {} }
+  Loader { id: lifecycleLoader; active: false; sourceComponent: outlookFactory }
   TestCase {
     name: "ProviderSessionCallbacks"
     function init() { fakeBackend.requests = [] }

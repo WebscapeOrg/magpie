@@ -154,6 +154,7 @@ pub(super) fn expand(events: Vec<Value>, from: i64, to: i64) -> Result<Vec<Value
     let mut overrides = HashMap::new();
     let mut masters = Vec::new();
     let mut out = Vec::new();
+    let mut budget = super::EventBudget::default();
     for event in events {
         let at = event["recurrenceIdMs"].as_i64().unwrap_or(0);
         if at != 0 {
@@ -161,6 +162,7 @@ pub(super) fn expand(events: Vec<Value>, from: i64, to: i64) -> Result<Vec<Value
         } else if !event["recurrenceRule"].as_str().unwrap_or("").is_empty() {
             masters.push(event);
         } else if event["status"] != "CANCELLED" && in_range(&event, from, to) {
+            budget.reserve(&event, 0)?;
             out.push(event);
         }
     }
@@ -175,29 +177,34 @@ pub(super) fn expand(events: Vec<Value>, from: i64, to: i64) -> Result<Vec<Value
             let key = (master["uid"].as_str().unwrap_or("").to_owned(), at);
             if let Some(replacement) = overrides.remove(&key) {
                 if replacement["status"] != "CANCELLED" && in_range(&replacement, from, to) {
+                    budget.reserve(&replacement, 0)?;
                     out.push(replacement);
                 }
             } else if !excluded.contains(&at) && master["status"] != "CANCELLED" {
+                let end = master["end"]["ms"]
+                    .as_i64()
+                    .map(|end| end.saturating_add(at.saturating_sub(ms(&master))));
+                if at >= to || end.unwrap_or(at.saturating_add(1)) <= from {
+                    continue;
+                }
+                budget.reserve(&master, 64)?;
                 let mut event = master.clone();
                 event["start"]["ms"] = json!(at);
-                if let Some(end) = master["end"]["ms"].as_i64() {
-                    event["end"]["ms"] = json!(end.saturating_add(at - ms(&master)));
+                if let Some(end) = end {
+                    event["end"]["ms"] = json!(end);
                 }
                 event["recurrenceIdMs"] = json!(at);
-                if in_range(&event, from, to) {
-                    out.push(event);
-                }
-            }
-            if out.len() > 25000 {
-                return Err("calendar_response_too_large");
+                out.push(event);
             }
         }
     }
-    out.extend(
-        overrides
-            .into_values()
-            .filter(|e| e["status"] != "CANCELLED" && in_range(e, from, to)),
-    );
+    for event in overrides
+        .into_values()
+        .filter(|event| event["status"] != "CANCELLED" && in_range(event, from, to))
+    {
+        budget.reserve(&event, 0)?;
+        out.push(event);
+    }
     sort(&mut out);
     Ok(out)
 }

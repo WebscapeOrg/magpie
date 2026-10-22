@@ -416,3 +416,18 @@ fn benchmark_local_queries() {
     drop(store);
     std::fs::remove_dir_all(path).unwrap();
 }
+
+#[test]
+fn attached_multipart_subtrees_do_not_supply_body_text_or_missing_body_jobs() {
+    let resource = json!({"payload":{"mimeType":"multipart/mixed","parts":[
+        {"mimeType":"text/plain","body":{"data":URL_SAFE_NO_PAD.encode("visible body")}},
+        {"mimeType":"multipart/mixed","filename":"attached.eml","parts":[
+            {"mimeType":"text/plain","body":{"data":URL_SAFE_NO_PAD.encode("attachment-only text")}},
+            {"mimeType":"text/html","body":{"attachmentId":"external-attachment-body","size":10}}
+        ]}
+    ]}});
+    let extracted = content::extract(&resource);
+    assert_eq!(extracted.body, "visible body\n");
+    assert_eq!(extracted.filenames, "attached.eml\n");
+    assert!(extracted.complete);
+}

@@ -475,3 +475,26 @@ async fn low_space_refuses_body_download_and_preserves_saved_mail() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn attached_multipart_descendants_never_start_body_downloads() {
+    if isolated() {
+        return;
+    }
+    let fixture =
+        account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let gmail = gmail::Session::default();
+        for foreground in [false, true] {
+            let mut resource = json!({"payload":{"mimeType":"multipart/mixed","headers":[{"name":"Content-Disposition","value":"attachment"}],"parts":[{"mimeType":"text/plain","body":{"attachmentId":"private-attached-body","size":10}}]}});
+            let before = resource.clone();
+            let result = sync::hydrate_text(&gmail, ACCOUNT, "one", &mut resource, foreground).await;
+            assert!(provider.world.lock().unwrap().requests.is_empty(), "attachment subtree must not contact provider");
+            assert_eq!(result, Ok(()));
+            assert_eq!(resource, before);
+        }
+    }).await;
+}

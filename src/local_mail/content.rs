@@ -37,9 +37,6 @@ pub(super) fn extract(resource: &Value) -> Text {
     };
     let mut pending = vec![&resource["payload"]];
     while let Some(part) = pending.pop() {
-        if let Some(parts) = part["parts"].as_array() {
-            pending.extend(parts.iter().rev());
-        }
         let filename = part["filename"].as_str().unwrap_or("");
         if !filename.is_empty() {
             output.filenames.push_str(filename);
@@ -47,6 +44,9 @@ pub(super) fn extract(resource: &Value) -> Text {
         }
         if is_attachment(part) {
             continue;
+        }
+        if let Some(parts) = part["parts"].as_array() {
+            pending.extend(parts.iter().rev());
         }
         let mime = part["mimeType"].as_str().unwrap_or("");
         if !matches!(mime, "text/plain" | "text/html") {

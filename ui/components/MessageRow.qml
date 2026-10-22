@@ -155,7 +155,7 @@ Rectangle {
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
-        font.bold: root.summary.unread
+        font.bold: root.summary.unread === true
       }
 
       Text {
@@ -164,7 +164,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.baseline: sender.baseline
         textFormat: Text.PlainText
-        text: root.summary.time
+        text: String(root.summary.time || "")
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
@@ -177,11 +177,11 @@ Rectangle {
       width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
       // Invariant: sender-controlled labels must never activate Qt’s rich-text loader.
       textFormat: Text.PlainText
-      text: root.summary.subject
+      text: String(root.summary.subject || "")
       color: root.textColor
       font.family: root.panelFontFamily
       font.pixelSize: MailStyle.listSize
-      font.bold: root.summary.unread
+      font.bold: root.summary.unread === true
       elide: Text.ElideRight
       horizontalAlignment: root.subjectAlignment
     }

@@ -134,5 +134,45 @@ Item {
       compose.submit()
       compare(mail.sent.length, 0)
     }
+    function test_preview_uses_imported_bytes_instead_of_reopening_the_path() {
+      var bytes = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+      compose.draftAttachments = [{filename: "picture.png", mimeType: "image/png",
+        data: bytes, path: "/synthetic/no-longer-present.png"}]
+      var preview = findChild(compose, "compose-attachment-preview-0")
+      verify(preview)
+      compare(String(preview.source), "data:image/png;base64," + bytes)
+      tryCompare(preview, "status", Image.Ready)
+    }
+    function test_untrusted_preview_bytes_never_reach_the_decoder_data() {
+      return [
+        {tag: "svg-disguised-as-png", mimeType: "image/png",
+          data: "PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnPjwvc3ZnPg=="},
+        {tag: "svg", mimeType: "image/svg+xml",
+          data: "PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnPjwvc3ZnPg=="},
+        {tag: "path-without-validated-bytes", mimeType: "image/png", data: ""}
+      ]
+    }
+    function test_untrusted_preview_bytes_never_reach_the_decoder(data) {
+      compose.draftAttachments = [{filename: "picture.png", mimeType: data.mimeType,
+        data: data.data, path: "/synthetic/untrusted-preview.svg"}]
+      var preview = findChild(compose, "compose-attachment-preview-0")
+      verify(preview)
+      compare(String(preview.source), "", "Qt must receive neither unvalidated data nor a local path")
+      compare(preview.status, Image.Null)
+      verify(!preview.visible)
+      compare(compose.draftAttachments.length, 1, "The attachment remains available to send")
+    }
+    function test_preview_metadata_shares_a_bounded_draft_budget() {
+      // Test coverage: metadata-only PNG headers exercise admission without allocating their pixels.
+      var large = {mimeType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUgAAEAAAAAYACAIAAAB5zxq0AAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}
+      var oversized = {mimeType: "image/png",
+        data: "iVBORw0KGgoAAAANSUhEUgABhqAAAYagCAIAAAAnMJyfAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}
+      var previews = compose.previewsFor([oversized, large, large, large])
+      compare(previews[0], "")
+      verify(previews[1] !== "")
+      verify(previews[2] !== "")
+      compare(previews[3], "", "Three 48 MiB images must not exceed the 128 MiB draft budget")
+    }
   }
 }

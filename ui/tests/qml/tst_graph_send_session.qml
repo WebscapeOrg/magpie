@@ -2,10 +2,8 @@ import QtQuick
 import QtTest
 import "../../providers" as Providers
 
-// A Graph send is bound to the mailbox that queued it. The token comes back
-// from a sign-in that may take as long as it likes, and in between the window
-// may have been pointed at another account: the MIME waiting here is the first
-// mailbox's, and nothing of it may be carried to the second.
+// Invariant: Rust resolves the submitted mailbox's Graph token. A later account
+// switch cannot retarget that request or deliver its success to the new account.
 Item {
   // The mail session, as much of it as a send consumer touches: a Graph token
   // asked for and answered when the test says so, and a session identity that

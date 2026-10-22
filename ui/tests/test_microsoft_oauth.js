@@ -16,7 +16,7 @@ deepEqual(outlook.settings("jane@hotmail.com"), {
   send: ""
 })
 
-// A work or school mailbox submits through Microsoft 365's own SMTP host and
+// Invariant: A work or school mailbox submits through Microsoft 365's own SMTP host and
 // may be told to send through Graph instead; a personal one is unchanged.
 const work = outlook.settings("jane@contoso.com", "organizations", "graph")
 assert.strictEqual(work.smtpHost, "smtp.office365.com")
@@ -24,7 +24,7 @@ assert.strictEqual(work.imapHost, "outlook.office365.com")
 assert.strictEqual(work.send, "graph")
 assert.strictEqual(outlook.settings("jane@hotmail.com", "", "smtp").send, "", "anything but graph is SMTP")
 
-// The tenant is one path segment of Microsoft's URL and nothing else: a
+// Invariant: The tenant is one path segment of Microsoft's URL and nothing else: a
 // stored value cannot steer the sign-in to another host.
 assert.strictEqual(microsoft.normalizeTenant(""), "consumers")
 assert.strictEqual(microsoft.normalizeTenant(" Organizations "), "organizations")
@@ -40,7 +40,7 @@ assert.strictEqual(microsoft.deviceUrlFor("bad tenant"), microsoft.DEVICE_URL,
 assert.strictEqual(microsoft.isWorkTenant("consumers"), false)
 assert.strictEqual(microsoft.isWorkTenant("organizations"), true)
 
-// Graph's token is asked for with the same refresh token and Graph's scope.
+// Invariant: Graph's token is asked for with the same refresh token and Graph's scope.
 const graphBody = microsoft.graphRefreshBody(clientId, "refresh-secret")
 assert.ok(graphBody.indexOf("grant_type=refresh_token") >= 0)
 assert.ok(graphBody.indexOf("Mail.Send") >= 0)
@@ -50,7 +50,7 @@ assert.strictEqual(microsoft.missingCalendarScope("https://graph.microsoft.com/M
 assert.ok(graphBody.indexOf("IMAP.AccessAsUser.All") < 0, "one resource per token")
 assert.strictEqual(microsoft.missingGraphScope("https://graph.microsoft.com/Mail.Send"), false)
 assert.strictEqual(microsoft.missingGraphScope("https://graph.microsoft.com/User.Read"), true)
-// Microsoft lists Graph's scopes short; an answer listing none says nothing.
+// Invariant: Microsoft lists Graph's scopes short; an answer listing none says nothing.
 assert.strictEqual(microsoft.missingGraphScope("Mail.Send Calendars.ReadWrite openid profile"), false)
 assert.strictEqual(microsoft.missingGraphScope("mail.send"), false)
 assert.strictEqual(microsoft.missingGraphScope(""), false)
@@ -137,7 +137,7 @@ assert.ok(microsoft.redact('{"access_token":"eyJsecret.payload.signature","devic
 
 console.log("test_microsoft_oauth.js ok")
 
-// Every request names one resource, the device-code request included:
+// Invariant: Every request names one resource, the device-code request included:
 // the sign-in asks the mail scopes, the Graph sign-in Graph's with offline
 // access, and neither names the other's resource.
 assert.ok(microsoft.deviceAuthorizationBody(clientId, microsoft.SCOPES).indexOf("IMAP.AccessAsUser.All") >= 0)
@@ -152,7 +152,7 @@ deepEqual(microsoft.missingMailScopes("https://outlook.office.com/IMAP.AccessAsU
   "a token answer lists resource scopes alone")
 assert.ok(microsoft.GRAPH_SIGN_IN_SCOPES.indexOf("https://graph.microsoft.com/Mail.Send") >= 0)
 assert.ok(microsoft.deviceAuthorizationBody(clientId, microsoft.GRAPH_SIGN_IN_SCOPES).indexOf("outlook.office.com") < 0)
-// A refusal for want of consent is told apart from a dead session, by the
+// Invariant: A refusal for want of consent is told apart from a dead session, by the
 // sub-error, the code, or the description; a plain bad grant is neither.
 const unconsented = microsoft.parseTokenResponse(400,
   JSON.stringify({ error: "invalid_grant", suberror: "consent_required", error_codes: [65001] }), "")
@@ -167,7 +167,7 @@ assert.strictEqual(microsoft.parseTokenResponse(400,
 assert.ok(microsoft.graphConsentMessage().indexOf("Allow Microsoft Graph") >= 0)
 assert.ok(microsoft.graphRefusedMessage("declined").indexOf("admin approval") >= 0)
 assert.ok(microsoft.graphRefusedMessage("declined").indexOf("Mail.Send") >= 0)
-// The name on an id token: the code entered as the mailbox's own account,
+// Invariant: The name on an id token: the code entered as the mailbox's own account,
 // as another, or as nobody the token names.
 function idToken(claims) {
   return "h." + Buffer.from(JSON.stringify(claims)).toString("base64url") + ".s"
@@ -180,7 +180,7 @@ assert.strictEqual(microsoft.signedInAs("not a token"), "")
 assert.strictEqual(microsoft.sameAccount(idToken({ preferred_username: "alice@example.test" }), "Alice@example.test"), true)
 assert.strictEqual(microsoft.sameAccount(idToken({ preferred_username: "bob@example.test" }), "alice@example.test"), false)
 assert.strictEqual(microsoft.sameAccount("", "alice@example.test"), false, "a grant without identity cannot be assigned to a mailbox")
-// By id where the mail session's is known: a name means nothing then.
+// Invariant: By id where the mail session's is known: a name means nothing then.
 assert.strictEqual(microsoft.accountKey(idToken({ tid: "tenant-1", oid: "user-1" })), "tenant-1/user-1")
 assert.strictEqual(microsoft.accountKey(idToken({ oid: "user-1" })), "")
 assert.strictEqual(microsoft.sameAccount(idToken({ tid: "tenant-1", oid: "user-1", preferred_username: "jane@contoso.onmicrosoft.com" }),

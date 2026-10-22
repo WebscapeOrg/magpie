@@ -3,9 +3,7 @@ const { load, deepEqual } = require("./load")
 
 const oauth = load("providers/OAuth.js")
 
-// ------------------------------------------------------------------ ports
-//
-// The port is user-editable in plugin settings, so anything outside the
+// Invariant: The port is user-editable in plugin settings, so anything outside the
 // unprivileged range has to fall back rather than fail at listen time.
 
 assert.strictEqual(oauth.normalizedPort(9481), 9481)
@@ -17,7 +15,6 @@ assert.strictEqual(oauth.normalizedPort(null), 9481)
 assert.strictEqual(oauth.redirectUri(9481), "http://127.0.0.1:9481/oauth2callback")
 assert.strictEqual(oauth.redirectUri(0), "http://127.0.0.1:9481/oauth2callback")
 
-// ------------------------------------------------------- authorization URL
 
 const url = oauth.authorizationUrl({
   clientId: "123-abc.apps.googleusercontent.com",
@@ -31,7 +28,7 @@ assert.ok(url.indexOf("code_challenge_method=S256") > 0)
 assert.ok(url.indexOf("access_type=offline") > 0)
 assert.ok(url.indexOf("include_granted_scopes=true") > 0,
   "calendar permission must extend an existing Gmail grant")
-// Without prompt=consent Google issues a refresh token only on the very first
+// Invariant: Without prompt=consent Google issues a refresh token only on the very first
 // authorization, so a reinstall would leave the plugin unable to stay signed in.
 assert.ok(url.indexOf("prompt=consent") > 0)
 assert.ok(url.indexOf("redirect_uri=http%3A%2F%2F127.0.0.1%3A9481%2Foauth2callback") > 0)
@@ -45,7 +42,6 @@ const hinted = oauth.authorizationUrl({
 })
 assert.ok(hinted.indexOf("login_hint=user%40example.com") > 0)
 
-// --------------------------------------------------------------- callback
 
 const good = oauth.parseCallbackRequestLine(
   "GET /oauth2callback?code=4/0AY0e&state=abc123 HTTP/1.1", "/oauth2callback")
@@ -57,7 +53,7 @@ assert.strictEqual(denied.ok, false)
 assert.strictEqual(denied.error, "Google sign-in was cancelled")
 assert.strictEqual(denied.state, "abc")
 
-// A browser that prefetches favicon.ico on the callback port must not be
+// Invariant: A browser that prefetches favicon.ico on the callback port must not be
 // mistaken for the callback and must not consume the single-shot listener.
 const wrongPath = oauth.parseCallbackRequestLine("GET /favicon.ico HTTP/1.1", "/oauth2callback")
 assert.strictEqual(wrongPath.ok, false)
@@ -69,7 +65,6 @@ assert.strictEqual(
   oauth.parseCallbackRequestLine("GET /oauth2callback?state=abc HTTP/1.1", "/oauth2callback").error,
   "Google did not return an authorization code")
 
-// ------------------------------------------------------------------- PKCE
 
 const pkce = oauth.parsePkceOutput(
   "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123\t" +
@@ -80,7 +75,6 @@ assert.strictEqual(pkce.state, "0123456789abcdef0123456789abcdef")
 assert.strictEqual(oauth.parsePkceOutput("only\ttwo").ok, false)
 assert.strictEqual(oauth.parsePkceOutput("short\tshort\tshort").ok, false)
 
-// ---------------------------------------------------------------- tokens
 
 const token = oauth.parseTokenResponse(200, JSON.stringify({
   access_token: "ya29.a0AfH", refresh_token: "1//0gRefresh", expires_in: 3599,
@@ -91,7 +85,7 @@ assert.strictEqual(token.accessToken, "ya29.a0AfH")
 assert.strictEqual(token.refreshToken, "1//0gRefresh")
 assert.strictEqual(token.expiresIn, 3599)
 
-// A refresh response carries no new refresh token; the old one has to survive.
+// Invariant: A refresh response carries no new refresh token; the old one has to survive.
 const refreshed = oauth.parseTokenResponse(200, JSON.stringify({
   access_token: "ya29.new", expires_in: 3599
 }), "1//0gPrevious")
@@ -109,14 +103,14 @@ assert.strictEqual(revoked.error, "Google rejected the saved session. Sign in ag
 assert.strictEqual(oauth.parseTokenResponse(500, "<html>", "").ok, false)
 assert.strictEqual(oauth.parseTokenResponse(200, "{}", "").ok, false, "no access_token is a failure")
 
-// A network outage did not revoke the saved grant. Treating every failed
+// Invariant: A network outage did not revoke the saved grant. Treating every failed
 // refresh as signed out strands a valid keyring token until the shell restarts.
 assert.strictEqual(oauth.refreshFailureDisposition({ ok: false, invalidGrant: false }), "retry",
   "temporary refresh failures keep trying the saved session")
 assert.strictEqual(oauth.refreshFailureDisposition({ ok: false, invalidGrant: true }), "signed_out",
   "only a rejected grant requires another sign-in")
 
-// Retries start promptly, then back off so a long outage does not hammer the
+// Invariant: Retries start promptly, then back off so a long outage does not hammer the
 // token endpoint forever. The cap keeps recovery bounded when the network
 // eventually returns.
 assert.strictEqual(oauth.refreshRetryDelay(0), 5000)
@@ -124,7 +118,6 @@ assert.strictEqual(oauth.refreshRetryDelay(1), 10000)
 assert.strictEqual(oauth.refreshRetryDelay(6), 300000)
 assert.strictEqual(oauth.refreshRetryDelay(100), 300000)
 
-// --------------------------------------------------------------- scopes
 
 deepEqual(
   oauth.missingScopes("https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly"),
@@ -143,9 +136,7 @@ assert.strictEqual(oauth.missingScopeMessage([]), "")
 assert(oauth.SCOPES.includes("https://www.googleapis.com/auth/contacts.readonly"), "new sign-ins request optional contact photos")
 assert(!oauth.requiredScopes(oauth.SCOPES).includes("https://www.googleapis.com/auth/contacts.readonly"), "denying optional contacts does not disable mail")
 
-// -------------------------------------------------------------- redaction
-//
-// Google echoes request parameters back in error descriptions, so anything
+// Invariant: Google echoes request parameters back in error descriptions, so anything
 // heading for a label goes through this first.
 
 assert.strictEqual(oauth.redact("failed for ya29.a0AfH_longtoken here"), "failed for [redacted] here")
@@ -155,15 +146,12 @@ assert.strictEqual(oauth.redact("secret GOCSPX-aBcD_1234 leaked"), "secret [reda
 assert.strictEqual(oauth.redact("nothing sensitive"), "nothing sensitive")
 assert.strictEqual(oauth.redact(null), "")
 
-// ------------------------------------------------------------ form bodies
 
 assert.strictEqual(
   oauth.formBody({ a: "1", b: "two words", c: "", d: null }),
   "a=1&b=two%20words")
 
-// ----------------------------------------------------------- browser pages
-//
-// This page is the only part of the app that renders outside Quickshell, so it
+// Invariant: This page is the only part of the app that renders outside Quickshell, so it
 // carries the active theme rather than inventing a look of its own.
 
 const theme = {
@@ -181,14 +169,14 @@ assert.ok(failure.indexOf("HTTP/1.1 400 Bad Request") === 0)
 assert.ok(failure.indexOf("#a55555") > 0, "a failure takes the urgent colour")
 assert.ok(failure.indexOf("Google sign-in was cancelled") > 0)
 
-// Nothing from the error path may carry a credential onto a web page.
+// Invariant: Nothing from the error path may carry a credential onto a web page.
 assert.ok(oauth.failureResponse(theme, "bad ya29.abcDEF123 token").indexOf("ya29.") < 0)
 
-// Called with no theme at all it still renders, because a listener that
+// Invariant: Called with no theme at all it still renders, because a listener that
 // answers nothing leaves the browser hanging on a blank tab.
 assert.ok(oauth.successResponse().indexOf("HTTP/1.1 200 OK") === 0)
 
-// Content-Length is a BYTE count. Measuring it in JS characters truncated the
+// Invariant: Content-Length is a BYTE count. Measuring it in JS characters truncated the
 // response for any page containing a multi-byte character — which the old
 // page did, with its ellipsis.
 function byteLen(text) { return Buffer.byteLength(text, "utf8") }
@@ -202,9 +190,7 @@ assert.strictEqual(oauth.byteLength("\u4f60\u597d"), 6)
 assert.strictEqual(oauth.byteLength(""), 0)
 
 
-// ------------------------------------------------- the callback's own page
-//
-// The loopback listener answers whatever connects to it — it cannot tell
+// Invariant: The loopback listener answers whatever connects to it — it cannot tell
 // Google's redirect from any other request to that port — so everything the
 // callback carries is attacker-controlled, and parseQuery hands it back
 // percent-decoded.
@@ -221,18 +207,18 @@ assert.strictEqual(oauth.byteLength(""), 0)
   assert.ok(page.toLowerCase().indexOf("<script") < 0, "and no script does either")
   assert.ok(page.indexOf("&lt;img src=x onerror=alert(1)&gt;") > 0, "it is shown as text")
 
-  // Escaping lengthens the body, and a Content-Length that disagrees with it
+  // Invariant: Escaping lengthens the body, and a Content-Length that disagrees with it
   // truncates the page in the browser.
   var split = page.indexOf("\r\n\r\n")
   var declared = Number(page.match(/Content-Length: (\d+)/)[1])
   assert.strictEqual(declared, oauth.byteLength(page.substring(split + 4)))
 
-  // The success page carries no callback text at all, which is why only the
+  // Invariant: The success page carries no callback text at all, which is why only the
   // failure path could ever have echoed anything.
   assert.ok(oauth.successResponse(null).indexOf("alert") < 0)
 }
 
-// The palette lands in a stylesheet, where escaping does nothing: a value
+// Invariant: The palette lands in a stylesheet, where escaping does nothing: a value
 // carrying "}" or "</style>" would close the rule and turn the rest into
 // markup. A theme is installed rather than sent, but this page is the one thing
 // here a browser renders.
@@ -246,14 +232,14 @@ assert.strictEqual(oauth.byteLength(""), 0)
   assert.ok(hostile.indexOf("<script") < 0, "a failure page carries no script at all")
   assert.ok(hostile.indexOf("<img") < 0)
   assert.ok(hostile.indexOf("display:none") < 0)
-  // One stylesheet, closed once: nothing in the palette ended it early.
+  // Invariant: One stylesheet, closed once: nothing in the palette ended it early.
   assert.strictEqual(hostile.split("</style>").length - 1, 1)
-  // A colour that is not a colour falls back rather than disappearing, so the
+  // Invariant: A colour that is not a colour falls back rather than disappearing, so the
   // page is still readable.
   assert.ok(hostile.indexOf("background:#131313;") > 0)
   assert.ok(hostile.indexOf("#FF5257") > 0)
 
-  // A real theme still comes through untouched.
+  // Invariant: A real theme still comes through untouched.
   const normal = oauth.successResponse({
     background: "#1d2021", foreground: "#ebdbb2", accent: "#458588",
     urgent: "#cc241d", fontFamily: "CaskaydiaMono Nerd Font"

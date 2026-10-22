@@ -597,7 +597,11 @@ assert.strictEqual(accounts.count(accounts.discardDraftAt(pendingList, 0)), 3)
   const saved = accounts.serialize(accounts.add(accounts.emptyList(), {
     email: "ada@example.org",
     provider: "jmap",
+    password: "synthetic-top-level-password",
+    secret: "synthetic-top-level-secret",
     jmap: {
+      password: "synthetic-jmap-password",
+      secret: "synthetic-jmap-secret",
       sessionUrl: "https://mail.example.org/jmap/session",
       username: "ada",
       authScheme: "basic",

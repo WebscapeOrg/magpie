@@ -395,11 +395,13 @@ pub(super) async fn hydrate_text(
     let mut pending = vec!["/payload".to_owned()];
     while let Some(path) = pending.pop() {
         let part = resource.pointer(&path).ok_or("gmail_invalid_response")?;
+        if super::content::is_attachment(part) {
+            continue;
+        }
         for index in 0..part["parts"].as_array().map_or(0, Vec::len) {
             pending.push(format!("{path}/parts/{index}"));
         }
-        if super::content::is_attachment(part)
-            || !matches!(part["mimeType"].as_str(), Some("text/plain" | "text/html"))
+        if !matches!(part["mimeType"].as_str(), Some("text/plain" | "text/html"))
             || part["body"]["data"].is_string()
         {
             continue;

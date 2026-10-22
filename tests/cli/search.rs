@@ -1,5 +1,5 @@
-//! Each list invocation exits. Only the opaque cursor crosses the process
-//! boundary: no backend, persisted snapshot, or credential cache is shared.
+//! Invariant: Each list invocation exits. Only the opaque cursor crosses the process boundary: no
+//! backend, persisted snapshot, or credential cache is shared.
 use super::*;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -9,8 +9,8 @@ async fn search_pages_survive_process_exit_and_deletion_of_the_cursor_message() 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let fixture = mail_list_fixture(listener.local_addr().unwrap().port(), true);
     let peer = tokio::spawn(async move {
-        // Three independent CLI processes, with deletions and a new arrival
-        // between them. UID 2 (the first cursor) no longer exists on page two.
+        // Algorithm: Three independent CLI processes, with deletions and a new arrival between
+        // them. UID 2 (the first cursor) no longer exists on page two.
         for round in 0..3 {
             let (stream, _) = listener.accept().await.unwrap();
             let (reader, mut writer) = stream.into_split();

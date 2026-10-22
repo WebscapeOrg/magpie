@@ -99,7 +99,7 @@ fn call(method: &str, params: &[u8]) -> Output {
         .spawn()
         .unwrap();
     let mut stdin = child.stdin.take().unwrap();
-    // Oversized inputs may be rejected before the writer finishes.
+    // Invariant: Oversized inputs may be rejected before the writer finishes.
     let _ = stdin.write_all(params);
     drop(stdin);
     child.wait_with_output().unwrap()
@@ -148,8 +148,8 @@ fn mail_list_fixture(imap_port: u16, keyring_succeeds: bool) -> MailListFixture 
     fs::create_dir_all(&config).unwrap();
     #[cfg(windows)]
     {
-        // These synthetic ancestors are created by std::fs, so unlike the
-        // native private-directory creator they inherit the temp directory ACL.
+        // Invariant: These synthetic ancestors are created by std::fs, so unlike the native
+        // private-directory creator they inherit the temp directory ACL.
         set_mode(&root, 0o700);
         set_mode(&config_root(&root), 0o700);
     }
@@ -253,8 +253,8 @@ fn set_mode(path: &Path, mode: u32) {
 }
 #[cfg(windows)]
 fn set_mode(path: &Path, _: u32) {
-    // Native private storage requires a protected DACL and this user's owner
-    // SID. A no-op Unix-mode stub does not make an inherited Windows file private.
+    // Invariant: Native private storage requires a protected DACL and this user's owner SID. A
+    // no-op Unix-mode stub does not make an inherited Windows file private.
     let user = std::env::var("USERNAME").unwrap();
     let grant = if path.is_dir() {
         format!("{user}:(OI)(CI)F")
@@ -316,9 +316,9 @@ fn metadata(path: &Path) -> (u64, (i64, i64), (i64, i64)) {
     descriptor.truncate(needed as usize);
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     descriptor.hash(&mut hash);
-    // Capture bytes separately in fixture_snapshot, and here preserve native
-    // timestamps, attributes, owner and DACL: a same-size write or permission
-    // repair must not pass a read-only regression merely because length stayed put.
+    // Invariant: Capture bytes separately in fixture_snapshot, and here preserve native timestamps,
+    // attributes, owner and DACL: a same-size write or permission repair must not pass a read-only
+    // regression merely because length stayed put.
     (
         metadata.len(),
         (
@@ -1287,7 +1287,7 @@ async fn synthetic_smtp_send(invocation: SendInvocation, reply: SmtpReply, owner
             reply["result"]["entries"].as_array().unwrap().is_empty(),
             "{reply}"
         );
-        // Consume notifications while stdin remains idle and open.
+        // Performance: Consume notifications while stdin remains idle and open.
         tokio::spawn(async move {
             loop {
                 let mut line = String::new();

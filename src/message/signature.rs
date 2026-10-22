@@ -21,11 +21,11 @@ fn prefix(data: &str, count: usize) -> Vec<u8> {
     let mut bits = 0;
     let mut value = 0u32;
     let mut bytes = Vec::new();
-    for c in clean(data).bytes() {
-        let digit = match c {
-            b'A'..=b'Z' => c - b'A',
-            b'a'..=b'z' => c - b'a' + 26,
-            b'0'..=b'9' => c - b'0' + 52,
+    for character in clean(data).bytes() {
+        let digit = match character {
+            b'A'..=b'Z' => character - b'A',
+            b'a'..=b'z' => character - b'a' + 26,
+            b'0'..=b'9' => character - b'0' + 52,
             b'+' => 62,
             b'/' => 63,
             _ => break,
@@ -43,25 +43,25 @@ fn prefix(data: &str, count: usize) -> Vec<u8> {
     bytes
 }
 pub fn raster_kind(data: &str) -> &'static str {
-    let b = prefix(data, 16);
-    if b.starts_with(b"\x89PNG") {
+    let bytes = prefix(data, 16);
+    if bytes.starts_with(b"\x89PNG") {
         "image/png"
-    } else if b.starts_with(b"\xff\xd8\xff") {
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
         "image/jpeg"
-    } else if b.starts_with(b"GIF8") {
+    } else if bytes.starts_with(b"GIF8") {
         "image/gif"
-    } else if b.len() >= 16 && b.starts_with(b"RIFF") && b.get(8..12) == Some(b"WEBP") {
+    } else if bytes.len() >= 16 && bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
         "image/webp"
     } else {
         ""
     }
 }
 fn base64_bytes(data: &str) -> usize {
-    let s = clean(data);
-    (s.len() * 3 / 4).saturating_sub(if s.ends_with("==") {
+    let encoded = clean(data);
+    (encoded.len() * 3 / 4).saturating_sub(if encoded.ends_with("==") {
         2
     } else {
-        usize::from(s.ends_with('='))
+        usize::from(encoded.ends_with('='))
     })
 }
 fn displayable_image(data: &str) -> bool {
@@ -97,15 +97,15 @@ static DATA: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^data:(image/(?:png|jpe?g|gif|webp));base64,([A-Za-z0-9+/=]+)$").unwrap()
 });
 pub fn data_image_ok(value: &str, max: usize) -> bool {
-    let Some(c) = DATA.captures(value) else {
+    let Some(captures) = DATA.captures(value) else {
         return false;
     };
-    let kind = raster_kind(&c[2]);
-    base64_bytes(&c[2]) <= max
-        && displayable_image(&c[2])
+    let kind = raster_kind(&captures[2]);
+    base64_bytes(&captures[2]) <= max
+        && displayable_image(&captures[2])
         && !kind.is_empty()
-        && (kind == c[1].to_lowercase()
-            || (kind == "image/jpeg" && c[1].eq_ignore_ascii_case("image/jpg")))
+        && (kind == captures[1].to_lowercase()
+            || (kind == "image/jpeg" && captures[1].eq_ignore_ascii_case("image/jpg")))
 }
 fn href_ok(value: &str) -> bool {
     let value = value.trim();

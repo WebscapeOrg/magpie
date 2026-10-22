@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub(super) fn rules(text: &str) -> HashMap<String, String> {
     text.split(';')
         .filter_map(|s| s.split_once('='))
-        .map(|(k, v)| (k.trim().to_uppercase(), v.trim().to_owned()))
+        .map(|(name, value)| (name.trim().to_uppercase(), value.trim().to_owned()))
         .collect()
 }
 pub(super) fn date(text: &str) -> Option<NaiveDateTime> {
@@ -23,7 +23,7 @@ pub(super) fn local(date: NaiveDateTime) -> Option<i64> {
     Local
         .from_local_datetime(&date)
         .earliest()
-        .map(|d| d.timestamp_millis())
+        .map(|instant| instant.timestamp_millis())
 }
 fn offset_seconds(text: &str) -> Option<i64> {
     if !matches!(text.len(), 5 | 7)
@@ -62,7 +62,7 @@ pub(super) fn weekday(text: &str) -> Option<(i32, u32)> {
     let at = text.len() - 2;
     let day = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
         .iter()
-        .position(|v| *v == &text[at..])? as u32;
+        .position(|weekday| *weekday == &text[at..])? as u32;
     let ordinal = if at == 0 { 0 } else { text[..at].parse().ok()? };
     Some((ordinal, day))
 }
@@ -74,15 +74,15 @@ fn transition(rule: &Component, year: i32) -> Option<i64> {
     }
     let month = parts
         .get("BYMONTH")
-        .and_then(|s| s.parse().ok())
+        .and_then(|value| value.parse().ok())
         .unwrap_or(start.month());
     let total = month_days(year, month);
     let day = if let Some(by) = parts.get("BYDAY") {
-        let (ordinal, day) = weekday(by.split(',').next()?)?;
+        let (ordinal, weekday_index) = weekday(by.split(',').next()?)?;
         let choices: Vec<_> = (1..=total)
-            .filter(|d| {
-                NaiveDate::from_ymd_opt(year, month, *d)
-                    .is_some_and(|d| d.weekday().num_days_from_sunday() == day)
+            .filter(|day_of_month| {
+                NaiveDate::from_ymd_opt(year, month, *day_of_month)
+                    .is_some_and(|date| date.weekday().num_days_from_sunday() == weekday_index)
             })
             .collect();
         let index = if ordinal < 0 {
@@ -92,11 +92,11 @@ fn transition(rule: &Component, year: i32) -> Option<i64> {
         };
         *choices.get(usize::try_from(index).ok()?)?
     } else if let Some(by) = parts.get("BYMONTHDAY") {
-        let d = by.split(',').next()?.parse::<i32>().ok()?;
-        if d < 0 {
-            (total as i32 + d + 1) as u32
+        let day = by.split(',').next()?.parse::<i32>().ok()?;
+        if day < 0 {
+            (total as i32 + day + 1) as u32
         } else {
-            d as u32
+            day as u32
         }
     } else {
         start.day()
@@ -125,8 +125,8 @@ fn dated(rule: &Component) -> Vec<NaiveDateTime> {
         .chain(
             rule.properties
                 .iter()
-                .filter(|p| p.name == "RDATE")
-                .map(|p| p.value.as_str()),
+                .filter(|property| property.name == "RDATE")
+                .map(|property| property.value.as_str()),
         )
         .flat_map(|s| s.split(','))
         .filter_map(date)
@@ -136,19 +136,23 @@ pub(super) fn zone(calendar: &Component, tzid: &str, reading: NaiveDateTime) -> 
     let zone = calendar
         .children
         .iter()
-        .find(|c| c.name == "VTIMEZONE" && c.text("TZID") == tzid)?;
+        .find(|component| component.name == "VTIMEZONE" && component.text("TZID") == tzid)?;
     let ordered: Vec<_> = ["STANDARD", "DAYLIGHT"]
         .iter()
-        .flat_map(|kind| zone.children.iter().filter(move |c| c.name == *kind))
-        .filter_map(|c| Some((c, offset_seconds(c.text("TZOFFSETTO"))?)))
+        .flat_map(|kind| {
+            zone.children
+                .iter()
+                .filter(move |component| component.name == *kind)
+        })
+        .filter_map(|component| Some((component, offset_seconds(component.text("TZOFFSETTO"))?)))
         .collect();
     if ordered.len() == 1 {
         return Some(ordered[0].1);
     }
     let history = ordered.len() > 2
-        || ordered
-            .iter()
-            .any(|(r, _)| r.text("RRULE").contains("UNTIL=") || r.property("RDATE").is_some());
+        || ordered.iter().any(|(rule, _)| {
+            rule.text("RRULE").contains("UNTIL=") || rule.property("RDATE").is_some()
+        });
     let mut candidates = Vec::new();
     let year = reading.year();
     for (rule, to) in &ordered {
@@ -188,17 +192,17 @@ pub(super) fn zone(calendar: &Component, tzid: &str, reading: NaiveDateTime) -> 
     }
     let earliest = ordered
         .iter()
-        .filter_map(|(r, _)| {
-            let at = if r.property("RRULE").is_some() {
-                transition(r, year - 1)
+        .filter_map(|(rule, _)| {
+            let at = if rule.property("RRULE").is_some() {
+                transition(rule, year - 1)
             } else {
-                dated(r)
+                dated(rule)
                     .into_iter()
                     .filter(|d| d.year() == year - 1)
                     .map(|d| d.and_utc().timestamp_millis())
                     .min()
             }?;
-            Some((at, offset_seconds(r.text("TZOFFSETFROM"))?))
+            Some((at, offset_seconds(rule.text("TZOFFSETFROM"))?))
         })
         .min_by_key(|(at, _)| *at);
     earliest
@@ -206,15 +210,19 @@ pub(super) fn zone(calendar: &Component, tzid: &str, reading: NaiveDateTime) -> 
         .or_else(|| ordered.first().map(|(_, offset)| *offset))
 }
 pub(super) fn moment(property: Option<&Property>, calendar: &Component) -> Value {
-    let Some(p) = property else {
+    let Some(property) = property else {
         return Value::Null;
     };
-    let Some(value) = date(&p.value) else {
+    let Some(value) = date(&property.value) else {
         return Value::Null;
     };
-    let tz = p.params.get("TZID").map(String::as_str).unwrap_or("");
-    let all_day = p.value.len() == 8;
-    let universal = p.value.ends_with('Z')
+    let tz = property
+        .params
+        .get("TZID")
+        .map(String::as_str)
+        .unwrap_or("");
+    let all_day = property.value.len() == 8;
+    let universal = property.value.ends_with('Z')
         || ["UTC", "GMT", "Z", "ETC/UTC", "ETC/GMT"].contains(&tz.to_uppercase().as_str());
     let (ms, resolved, tz) = if all_day {
         (local(value), true, "")
@@ -243,16 +251,16 @@ pub(super) fn duration(text: &str) -> i64 {
     let mut total = 0i64;
     let mut number = String::new();
     let mut timed = false;
-    for c in text.chars() {
-        if c == 'T' {
+    for character in text.chars() {
+        if character == 'T' {
             timed = true;
             continue;
         }
-        if c.is_ascii_digit() {
-            number.push(c);
+        if character.is_ascii_digit() {
+            number.push(character);
             continue;
         }
-        let multiplier = match c {
+        let multiplier = match character {
             'W' => 604800000,
             'D' => 86400000,
             'H' if timed => 3600000,
@@ -263,8 +271,8 @@ pub(super) fn duration(text: &str) -> i64 {
         let Some(value) = number
             .parse::<i64>()
             .ok()
-            .and_then(|v| v.checked_mul(multiplier))
-            .and_then(|v| total.checked_add(v))
+            .and_then(|value| value.checked_mul(multiplier))
+            .and_then(|value| total.checked_add(value))
         else {
             return 0;
         };

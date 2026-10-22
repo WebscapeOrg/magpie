@@ -705,12 +705,16 @@ fn retry_hints_are_numeric_bounded_and_never_preserve_server_text() {
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let body = serde_json::json!({"error":{"message":format!("private mail address. Retry after {time}"), "details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo", "retryDelay":"120.5s"}]}});
     assert_eq!(body_retry_after(&body), Some(Duration::from_millis(120500)));
-    assert_eq!(
+    let deadline = chrono::DateTime::parse_from_rfc3339(&time)
+        .unwrap()
+        .timestamp_millis();
+    let before = chrono::Utc::now().timestamp_millis();
+    let delay =
         body_retry_after(&serde_json::json!({"error":{"message":format!("Retry after {time}")}}))
-            .unwrap()
-            .as_secs(),
-        89
-    );
+            .unwrap();
+    let after = chrono::Utc::now().timestamp_millis();
+    assert!((deadline - after).max(0) as u128 <= delay.as_millis());
+    assert!(delay.as_millis() <= (deadline - before).max(0) as u128);
 }
 
 #[tokio::test]

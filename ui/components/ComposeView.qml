@@ -1105,9 +1105,9 @@ DropArea {
       var mailbox = typeof root.service.findAccount === "function" ? root.service.findAccount(ownerAccount) : null
       var stored = job.mode !== "forget" && Number(root.service.backend.apiVersion) >= 8 && (!mailbox || mailbox.providerId !== "hey")
       var method = job.mode === "forget" ? "attachment.forget" : stored ? "attachment.import" : "attachment.read"
-      var params = {path:job.path}
-      if (stored) { params.accountId = ownerAccount; params.draftKey = owner }
-      root.service.backend.call(method, params, function(result, error) {
+      var parameters = {path:job.path}
+      if (stored) { parameters.accountId = ownerAccount; parameters.draftKey = owner }
+      root.service.backend.call(method, parameters, function(result, error) {
         root.attachmentReadPending = false
         var code = error ? String(error.message || "") : ""
         finishAttach(job.mode, JSON.stringify(error ? { ok: false,

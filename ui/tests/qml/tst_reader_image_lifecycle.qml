@@ -26,8 +26,6 @@ Item {
     property var reading: ({accountId: "account-a"})
     property var callbacks: []
     function fetchDisplayImage(source, callback) { callbacks = callbacks.concat([{source: source, done: callback}]) }
-    property int fetches: 0
-    property int renders: 0
 
     property string selectedId: "message-9"
     property var selectedMessage: ({
@@ -61,8 +59,7 @@ Item {
     property bool canOpenOnWeb: false
     property var selectedAttachments: []
 
-    function getMessage() { fetches++ }
-    function showRemoteImages() { renders++ }
+    function showRemoteImages() {}
   }
 
   Omamail.MessageReader {

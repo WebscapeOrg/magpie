@@ -387,6 +387,7 @@ Item {
     }
 
     function test_a_second_send_parks_behind_the_first_and_undo_takes_back_the_newest() {
+      failOnWarning(/TypeError|invalid context/)
       seed([entry(ada), entry(bob)], adaId)
       var compose = composeView()
       app.startCompose("new")

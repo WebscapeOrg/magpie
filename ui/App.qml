@@ -1318,12 +1318,13 @@ Item {
   }
 
   function editAccount(index) {
-    if (!service) return
+    if (!service) return false
     var accounts = service.accountSummaries || []
     var provider = index >= 0 && index < accounts.length
       ? String(accounts[index].provider || "gmail") : "gmail"
-    if (!service.switchToIndex(index)) return
+    if (!service.switchToIndex(index)) return false
     pushEntry("setup", { provider: provider, draft: false })
+    return true
   }
 
   // The row this page is editing, not the mailbox the id happens to name: with
@@ -2348,8 +2349,7 @@ Item {
               panelFontFamily: root.fontFamily
               onClientSetupRequested: root.openClientSetup()
               onCalendarSignInRequested: function(index) {
-                root.editAccount(index)
-                Qt.callLater(function() { if (root.service) root.service.signIn() })
+                if (root.editAccount(index)) root.service.signIn()
               }
               onOpenCalendarRequested: {
                 root.showCalendar()

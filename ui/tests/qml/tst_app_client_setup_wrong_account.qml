@@ -68,8 +68,50 @@ Item {
     }
 
     function cleanup() {
+      mailService.eachHost(function(host) {
+        if (host.auth && typeof host.auth.cancelLogin === "function") host.auth.cancelLogin()
+      })
       mailService.accountList = ({ version: 1, accounts: [], activeId: "" })
       wait(0)
+    }
+
+    function test_calendar_signin_click_keeps_its_account_when_selection_changes() {
+      var fixture = BackendFixture.markReady(mailService, 7)
+      mailService.accountsLoaded = true
+      mailService.accountList = {version: 1, activeId: gmailId, accounts: [
+        {id: gmailId, email: gmailId, provider: "gmail", clientId: ""},
+        {id: "other@example.test", email: "other@example.test", provider: "gmail", clientId: ""}
+      ]}
+      tryCompare(mailService, "accountCount", 2)
+      var first = mailService.findAccount(gmailId)
+      var second = mailService.findAccount("other@example.test")
+      tryVerify(function() { return first.auth && second.auth })
+      first.auth.credentials = {clientId: "123-example.apps.googleusercontent.com", clientSecret: "synthetic-secret"}
+      second.auth.credentials = {clientId: "456-example.apps.googleusercontent.com", clientSecret: "synthetic-secret"}
+      first.auth.cancelLogin()
+      second.auth.cancelLogin()
+      app.openSettings()
+      waitForRendering(app)
+      var button = named(app, "calendar-discover-google")
+      verify(button)
+      compare(button.text, "Sign in...")
+      var viewport = button.parent
+      while (viewport && viewport.contentY === undefined) viewport = viewport.parent
+      verify(viewport)
+      viewport.contentY = Math.max(0, button.mapToItem(viewport.contentItem, 0, 0).y - 40)
+      waitForRendering(button)
+      var switchSelection = function() { mailService.switchTo("other@example.test") }
+      button.clicked.connect(switchSelection)
+      var before = fixture.requests.length
+      mouseClick(button, button.width / 2, button.height / 2)
+      button.clicked.disconnect(switchSelection)
+      wait(0)
+      var logins = fixture.requests.slice(before).filter(function(request) { return request.method === "auth.begin" })
+      compare(logins.length, 1)
+      compare(logins[0].params.clientId, "123-example.apps.googleusercontent.com")
+      compare(second.auth.loginBusy, false)
+      first.auth.cancelLogin()
+      second.auth.cancelLogin()
     }
 
     function test_client_setup_switches_off_a_non_gmail_active_account() {

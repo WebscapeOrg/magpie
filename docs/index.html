@@ -1040,6 +1040,7 @@ footer p:last-child { margin-bottom: 0; }
     });
     try { localStorage.setItem("omamail-lang", lang); } catch (e) {}
     labelTheme();
+    renderCopy();
   }
 
   Array.prototype.forEach.call(languageButtons, function (button) {
@@ -1129,34 +1130,47 @@ footer p:last-child { margin-bottom: 0; }
 
   var copy = document.querySelector(".copy");
   var copyResetTimer;
+  var copyState = "idle";
+  function renderCopy() {
+    if (!copy) return;
+    copy.disabled = copyState === "pending";
+    if (copyState === "done") copy.setAttribute("data-state", "done");
+    else copy.removeAttribute("data-state");
+    if (copyState === "pending") {
+      copy.textContent = lang === "zh" ? "正在复制…" : "Copying…";
+    } else if (copyState === "done") {
+      copy.textContent = copyLabels[lang];
+    } else if (copyState === "manual") {
+      var shortcut = /mac/i.test(navigator.platform || "") ? "⌘C" : "Ctrl+C";
+      copy.textContent = (lang === "zh" ? "按 " : "Press ") + shortcut;
+    } else {
+      copy.innerHTML = copy.getAttribute("data-" + lang);
+    }
+  }
+  function setCopyState(state) {
+    copyState = state;
+    renderCopy();
+  }
   function selectCommand() {
     var range = document.createRange();
     range.selectNodeContents(document.querySelector(".command .cmd"));
     var selection = window.getSelection();
     selection.removeAllRanges();
     selection.addRange(range);
-    var shortcut = /mac/i.test(navigator.platform || "") ? "⌘C" : "Ctrl+C";
-    copy.textContent = (lang === "zh" ? "按 " : "Press ") + shortcut;
-    copy.removeAttribute("data-state");
-    copy.disabled = false;
+    setCopyState("manual");
   }
   function copyCommand() {
     clearTimeout(copyResetTimer);
-    copy.removeAttribute("data-state");
     if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
       selectCommand();
       return;
     }
-    copy.disabled = true;
-    copy.textContent = lang === "zh" ? "正在复制…" : "Copying…";
+    setCopyState("pending");
     try {
       return navigator.clipboard.writeText(copy.getAttribute("data-copy")).then(function () {
-        copy.textContent = copyLabels[lang];
-        copy.setAttribute("data-state", "done");
-        copy.disabled = false;
+        setCopyState("done");
         copyResetTimer = setTimeout(function () {
-          copy.innerHTML = copy.getAttribute("data-" + lang);
-          copy.removeAttribute("data-state");
+          setCopyState("idle");
         }, 1600);
       }, selectCommand);
     } catch (error) {

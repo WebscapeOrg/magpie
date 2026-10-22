@@ -2013,12 +2013,16 @@ Item {
   readonly property bool sending: !!sendingHost
   readonly property var pendingSendHost: {
     var newest = null
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
-      if (!host || !host.sendPending) continue
-      if (!newest || host.latestSend.order > newest.latestSend.order
-          || (host.latestSend.order === newest.latestSend.order
-            && host.latestSend.queuedAt > newest.latestSend.queuedAt)) newest = host
+    var newestSend = null
+    for (var accountIndex = 0; accountIndex < accountHosts.count; accountIndex++) {
+      var host = accountHosts.objectAt(accountIndex)
+      var latest = host ? host.latestSend : null
+      if (!latest || !host.sendPending) continue
+      if (!newestSend || latest.order > newestSend.order
+          || (latest.order === newestSend.order && latest.queuedAt > newestSend.queuedAt)) {
+        newest = host
+        newestSend = latest
+      }
     }
     return newest
   }

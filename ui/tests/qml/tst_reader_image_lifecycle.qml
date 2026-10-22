@@ -164,9 +164,9 @@ Item {
       var body = childOfType(reader, "QQuickTextEdit")
       verify(body)
       var position = null
-      for (var y = 1; y < body.height && !position; y += 3) {
-        for (var x = 1; x < body.width; x += 3) {
-          if (body.linkAt(x, y) === "omarchy-image:1") { position = {x: x, y: y}; break }
+      for (var pixelY = 1; pixelY < body.height && !position; pixelY += 3) {
+        for (var pixelX = 1; pixelX < body.width; pixelX += 3) {
+          if (body.linkAt(pixelX, pixelY) === "omarchy-image:1") { position = {x: pixelX, y: pixelY}; break }
         }
       }
       verify(position, "The plain message contains a clickable image marker")

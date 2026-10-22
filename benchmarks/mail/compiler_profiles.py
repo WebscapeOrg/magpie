@@ -12,6 +12,11 @@ from corpus import corpus
 from run import html_semantics, measured_cases, mime_semantics, stats
 
 
+def binary_identity(path):
+    content = path.read_bytes()
+    return dict(sha256=hashlib.sha256(content).hexdigest(), bytes=len(content))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--size", type=Path, required=True)
@@ -20,14 +25,15 @@ def main():
     args = parser.parse_args()
     payload = dict(cases=corpus(), samples=31, batch=3, phases=["mime", "readprep"])
     outputs = {}
-    binaries = {}
+    paths = {"size": args.size.resolve(), "speed": args.speed.resolve()}
+    binaries = {name: binary_identity(path) for name, path in paths.items()}
     load = os.getloadavg()
-    for name, path in [("size", args.size), ("speed", args.speed)]:
-        result = subprocess.run([str(path.resolve())], input=json.dumps(payload), text=True,
+    for name, path in paths.items():
+        result = subprocess.run([str(path)], input=json.dumps(payload), text=True,
                                 capture_output=True, check=True, timeout=180)
         outputs[name] = measured_cases(json.loads(result.stdout), payload)
-        binaries[name] = dict(sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-                              bytes=path.stat().st_size)
+    if any(binary_identity(path) != binaries[name] for name, path in paths.items()):
+        raise RuntimeError("Compiler profile executable changed during measurement")
     rows = []
     for size, speed in zip(outputs["size"], outputs["speed"], strict=True):
         normalize = mime_semantics if size["phase"] == "mime" else html_semantics

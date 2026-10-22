@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import importlib.util
+import hashlib
 import io
 import json
 import os
@@ -57,7 +58,7 @@ class Child:
 
 
 class BenchmarkProcesses(unittest.TestCase):
-    def roundtrip(self, child):
+    def roundtrip(self, child, external_target=False):
         module = load("roundtrip")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -72,20 +73,37 @@ class BenchmarkProcesses(unittest.TestCase):
             (root / "Cargo.toml").write_text('[package]\nversion="0.11.0"\n')
             (root / "backend-api.json").write_text('{"apiVersion":8}')
             (root / "target/release/omamail").write_bytes(b"synthetic executable")
+            binary = root / "target/release/omamail"
+            if external_target:
+                binary = root / "custom/release/omamail"
+                binary.parent.mkdir(parents=True)
+                binary.write_bytes(b"fresh custom-target executable")
+            artifact = json.dumps({"reason": "compiler-artifact", "target": {"name": "omamail", "kind": ["bin"]},
+                                   "executable": str(binary)})
+            def launch(*arguments, **options):
+                qml = Path(arguments[0][-1]).read_text()
+                self.assertIn("executable: " + json.dumps(str(binary)), qml)
+                return child
             with patch.object(module, "HERE", benchmark), patch.object(module, "ROOT", root), \
                     patch.object(module, "corpus", return_value=[]), \
                     patch.object(module, "__file__", str(benchmark / "roundtrip.py")), \
                     patch.object(sys, "argv", ["roundtrip.py", "--samples", "3"]), \
-                    patch.object(subprocess, "run"), \
+                    patch.object(subprocess, "run", return_value=SimpleNamespace(stdout=artifact)), \
                     patch.object(subprocess, "check_output", return_value="synthetic version"), \
-                    patch.object(subprocess, "Popen", return_value=child), \
+                    patch.object(subprocess, "Popen", side_effect=launch), \
                     patch.object(os, "killpg") as kill_group, \
                     patch("builtins.print"):
                 try:
                     module.main()
                 except subprocess.TimeoutExpired:
                     pass
+                if external_target:
+                    report = json.loads((benchmark / "roundtrip-results.json").read_text())
+                    self.assertEqual(report["binarySha256"], hashlib.sha256(binary.read_bytes()).hexdigest())
                 return kill_group.call_args_list
+
+    def test_roundtrip_measures_the_cargo_artifact_from_a_custom_target(self):
+        self.roundtrip(Child("ROUNDTRIP_DONE\n"), external_target=True)
 
     def test_completed_roundtrip_does_not_signal_reaped_process_group(self):
         child = Child("ROUNDTRIP_DONE\n")
@@ -118,6 +136,66 @@ class BenchmarkProcesses(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "display startup refused"):
                     module.main()
             self.assertTrue(bus.waited, "Setup failure must reap the private DBus process")
+
+    def desktop_report(self, kinds, checkpoints=None, serials=None, elapsed=5):
+        with patch.dict(sys.modules, {"PIL": SimpleNamespace(Image=None, ImageGrab=None)}):
+            module = load("desktop_acceptance")
+        checkpoints = checkpoints if checkpoints is not None else [
+            "cached-inbox-visible-without-credentials",
+            "offline-star-and-archive-visible-and-undo-restores-mail",
+            "keyboard-send-durably-queued-without-credentials"]
+        events = [dict(kind=kind, serial=serials[index] if serials else index + 1, started=1000)
+                  for index, kind in enumerate(kinds)]
+        text = "".join("DESKTOP_CAPTURE " + json.dumps(event) + "\n" for event in events)
+        text += "".join("DESKTOP_CHECKPOINT " + value + "\n" for value in checkpoints)
+        children = [Child("unix:path=/synthetic\n"), Child("99\n"), Child(text)]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "synthetic"
+            executable.write_bytes(b"synthetic executable")
+            arguments = ["desktop_acceptance.py", "--output", str(root / "output"),
+                         "--binary", str(executable), "--driver", str(executable),
+                         "--display-mode", "xvfb", "--samples", "3", "--html-bytes", "0"]
+            def capture(event, launched, output):
+                return module.PresentedFrame(dict(event, presentedMs=elapsed), {})
+            with patch.object(sys, "argv", arguments), \
+                    patch.object(module, "source_hash", return_value="synthetic source"), \
+                    patch.object(module, "seed", return_value={"HOME": str(root)}), \
+                    patch.object(subprocess, "Popen", side_effect=children), \
+                    patch.object(subprocess, "check_output", return_value="synthetic revision"), \
+                    patch.object(module.DisplayCapture, "capture", side_effect=capture), \
+                    patch.object(module.DisplayCapture, "acknowledge"), \
+                    patch.dict(os.environ, {}, clear=False), patch("builtins.print"):
+                try:
+                    module.main()
+                except (RuntimeError, SystemExit):
+                    pass
+            report = json.loads((root / "output/results.json").read_text())
+            self.assertTrue(all(child.waited for child in children))
+            return report
+
+    def desktop_kinds(self):
+        return ["coldInbox"] + ["input"] * 3 + ["navigation"] * 3 + ["search"] * 3 + ["offlineEdit", "compose", "composeFocus"]
+
+    def test_complete_desktop_measurement_is_accepted(self):
+        self.assertEqual(self.desktop_report(self.desktop_kinds())["status"], "pass")
+
+    def test_desktop_refuses_empty_and_incomplete_measurements(self):
+        for kinds in [[], self.desktop_kinds()[:-1], self.desktop_kinds()[::-1]]:
+            with self.subTest(kinds=kinds):
+                self.assertEqual(self.desktop_report(kinds)["status"], "fail")
+
+    def test_desktop_requires_completed_functional_checkpoints(self):
+        self.assertEqual(self.desktop_report(self.desktop_kinds(), checkpoints=[])["status"], "fail")
+
+    def test_desktop_refuses_reused_frame_serials(self):
+        kinds = self.desktop_kinds()
+        self.assertEqual(self.desktop_report(kinds, serials=[1] * len(kinds))["status"], "fail")
+
+    def test_desktop_refuses_invalid_presented_times(self):
+        for elapsed in [-1, float("nan"), float("inf")]:
+            with self.subTest(elapsed=elapsed):
+                self.assertEqual(self.desktop_report(self.desktop_kinds(), elapsed=elapsed)["status"], "fail")
 
     def test_ipc_timeout_cleans_descendant_after_leader_exit(self):
         specification = importlib.util.spec_from_file_location("ipc_benchmark", ROOT / "benchmarks/ipc/run.py")

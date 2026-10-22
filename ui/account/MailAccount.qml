@@ -313,15 +313,22 @@ Item {
   property var conversationJobs: []
   property bool conversationBusy: false
   property int conversationSerial: 0
+  property var conversationHandle: null
+  function cancelConversation() {
+    if (backend && typeof backend.call === "function" && conversationHandle
+        && typeof conversationHandle.cancel === "function") conversationHandle.cancel()
+    conversationHandle = null
+    conversationSerial++
+    conversationBusy = false
+    conversationJobs = []
+  }
   Connections {
     target: root.backend
     ignoreUnknownSignals: true
     function onReadyChanged() {
       if (root.backend && root.backend.ready) root.queueConversation("project", null, null, null)
       else {
-        root.conversationSerial++
-        root.conversationBusy = false
-        root.conversationJobs = []
+        root.cancelConversation()
       }
     }
   }
@@ -335,9 +342,7 @@ Item {
   property int listLiveSerial: 0
   onAccountIdChanged: {
     clearSelection()
-    conversationSerial++
-    conversationBusy = false
-    conversationJobs = []
+    cancelConversation()
     conversationOrganisation = ({ showsRail: false, viewedMailboxKey: "" })
     renderSerial++
     syncFingerprint = ""
@@ -1463,7 +1468,7 @@ Item {
     var selected = selectedId
     var beforeMembers = JSON.stringify(memberSummaries)
     var beforeThread = JSON.stringify(selectedThread)
-    backend.call("account.conversation", {
+    var handle = backend.call("account.conversation", {
       operation: job.operation, thread: selectedThread, summaries: memberSummaries,
       selectedId: selectedId, summary: job.summary, additions: job.additions,
       messages: job.operation === "seed" ? messages : [],
@@ -1472,6 +1477,7 @@ Item {
       searching: viewingSearch, mailboxes: mailboxes
     }, function(result, error) {
       if (!root || serial !== root.conversationSerial) return
+      root.conversationHandle = null
       root.conversationBusy = false
       if (!error && result && account === root.accountId && selected === root.selectedId
           && beforeMembers === JSON.stringify(root.memberSummaries)
@@ -1491,6 +1497,7 @@ Item {
       }
       root.pumpConversation()
     })
+    if (conversationBusy && serial === conversationSerial) conversationHandle = handle
   }
   function selectConversation(messageId, summary) {
     if (String(messageId) !== selectedId) return
@@ -2669,7 +2676,10 @@ Item {
     actionCompletions = []
     for (var i = 0; i < callbacks.length; i++) callbacks[i]()
   }
-  Component.onDestruction: cancelActionCompletions()
+  Component.onDestruction: {
+    cancelConversation()
+    cancelActionCompletions()
+  }
 
   // ------------------------------------------------------------- lifecycle
 
@@ -2736,27 +2746,42 @@ Item {
   // Loaders rather than one of each kept side by side: an AuthManager probes
   // for socat and reads the keyring the moment it exists, and an IMAP account
   // has no business doing either.
-  Loader {
-    id: authLoader
-    sourceComponent: root.providerId === "imap" ? imapAuthComponent
-      : (root.providerId === "jmap" ? jmapAuthComponent
-      : (root.providerId === "outlook" ? outlookAuthComponent
-        : (root.providerId === "hey" ? heyAuthComponent : gmailAuthComponent)))
-  }
-
-  // The client takes the manager as a required property, so it cannot be built
-  // until there is one.
-  // A test's stand-in for the provider.
+  property bool providerLoadersReady: false
   property Component clientOverride: null
 
+  function loadProvider() {
+    apiLoader.active = false
+    var component = providerId === "imap" ? imapAuthComponent
+      : (providerId === "jmap" ? jmapAuthComponent
+      : (providerId === "outlook" ? outlookAuthComponent
+        : (providerId === "hey" ? heyAuthComponent : gmailAuthComponent)))
+    if (authLoader.sourceComponent === component) loadClient()
+    else authLoader.sourceComponent = component
+  }
+
+  function loadClient() {
+    apiLoader.active = false
+    apiLoader.sourceComponent = clientOverride ? clientOverride
+      : (providerId === "imap" || providerId === "outlook" ? imapClientComponent
+        : (providerId === "jmap" ? jmapClientComponent
+          : (providerId === "hey" ? heyClientComponent : gmailClientComponent)))
+    apiLoader.active = !!authLoader.item
+  }
+
+  onProviderIdChanged: if (providerLoadersReady) loadProvider()
+  onClientOverrideChanged: if (providerLoadersReady) loadClient()
+  Component.onCompleted: {
+    providerLoadersReady = true
+    loadProvider()
+  }
+
+  Loader {
+    id: authLoader
+    onLoaded: root.loadClient()
+  }
   Loader {
     id: apiLoader
-    active: !!authLoader.item
-    sourceComponent: root.clientOverride ? root.clientOverride
-      : (root.providerId === "imap" || root.providerId === "outlook"
-        ? imapClientComponent
-        : (root.providerId === "jmap" ? jmapClientComponent
-          : (root.providerId === "hey" ? heyClientComponent : gmailClientComponent)))
+    active: false
   }
 
   Component {

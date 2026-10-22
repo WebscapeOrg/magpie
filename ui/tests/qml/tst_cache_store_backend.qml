@@ -8,9 +8,9 @@ Item {
     property bool ready: false
     property var reads: []
     property var requests: []
-    function call(method, params, done) {
-      if (method === "cache.queryRestore") reads = reads.concat([{params:params,done:done}])
-      else requests = requests.concat([{method:method,params:params,done:done}])
+    function call(method, parameters, done) {
+      if (method === "cache.queryRestore") reads = reads.concat([{params:parameters,done:done}])
+      else requests = requests.concat([{method:method,params:parameters,done:done}])
     }
   }
   Cache.CacheStore { id: cache; backend:backend; accountId:"a@example.org" }

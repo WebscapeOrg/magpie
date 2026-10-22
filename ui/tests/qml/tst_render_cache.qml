@@ -7,8 +7,8 @@ Item {
     id: backend
     property bool ready: true
     property var requests: []
-    function call(method, params, callback) {
-      if (method === "reader.render" || method === "public.image") requests.push({method: method, params: params, callback: callback})
+    function call(method, parameters, callback) {
+      if (method === "reader.render" || method === "public.image") requests.push({method: method, params: parameters, callback: callback})
     }
     function complete(index, text, error) {
       var document = {type: "root", children: [{type: "text", text: text}]}

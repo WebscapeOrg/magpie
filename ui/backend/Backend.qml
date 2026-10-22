@@ -57,37 +57,37 @@ Item {
   signal requestFailed(string method, var error)
 
   function parseMessage(raw, callback) {
-    return Upload.parse(raw, function(method, params, done) {
-      return root.call(method, params, done)
+    return Upload.parse(raw, function(method, parameters, done) {
+      return root.call(method, parameters, done)
     }, function() { return root.ready }, callback, uploadQueue)
   }
 
   function putBodyCache(accountId, id, body, callback) {
-    return Upload.putBody(accountId, id, body, function(method, params, done) {
-      return root.call(method, params, done)
+    return Upload.putBody(accountId, id, body, function(method, parameters, done) {
+      return root.call(method, parameters, done)
     }, function() { return root.ready }, callback, uploadQueue)
   }
 
-  function call(method, params, callback) {
-    if (operationRefusal(method, params) !== null)
-      return request(method, params, callback, false)
+  function call(method, parameters, callback) {
+    if (operationRefusal(method, parameters) !== null)
+      return request(method, parameters, callback, false)
     // Keep each physical frame small even for Unicode-heavy MIME/JSON data.
-    if (JSON.stringify(params).length > 200000) {
-      return Upload.request(method, params, function(nextMethod, nextParams, done) {
+    if (JSON.stringify(parameters).length > 200000) {
+      return Upload.request(method, parameters, function(nextMethod, nextParams, done) {
         return root.request(nextMethod, nextParams, done, false)
       }, function() { return root.ready }, callback, uploadQueue)
     }
-    return request(method, params, callback, false)
+    return request(method, parameters, callback, false)
   }
 
-  function operationRefusal(method, params) {
-    var operation = method === "request.upload" && params ? params.method : method
+  function operationRefusal(method, parameters) {
+    var operation = method === "request.upload" && parameters ? parameters.method : method
     return Compatibility.unreleasedRefusal(operation, unreleasedMethods, needsUpdate)
       || Compatibility.methodRefusal(protocolInfo, operation)
   }
 
-  function request(method, params, callback, internal) {
-    var operation = method === "request.upload" && params ? params.method : method
+  function request(method, parameters, callback, internal) {
+    var operation = method === "request.upload" && parameters ? parameters.method : method
     var done = function(result, error) {
       if (error) root.requestFailed(operation, error)
       if (typeof callback === "function") callback(result, error)
@@ -98,7 +98,7 @@ Item {
       done(null, { code: -32010, message: message })
       return
     }
-    var refusal = operationRefusal(method, params)
+    var refusal = operationRefusal(method, parameters)
     if (refusal !== null) {
       done(null, refusal)
       return
@@ -106,7 +106,7 @@ Item {
     var id = "qml-" + (++sequence)
     // Snapshot the payload now, just as an immediately written request did.
     // The caller may reuse or mutate its model while this frame is waiting.
-    var entry = { id: id, frame: Wire.request(id, method, params),
+    var entry = { id: id, frame: Wire.request(id, method, parameters),
       callback: done, operation: operation, cancelled: false }
     queued.push(entry)
     drainRequests()

@@ -28,15 +28,15 @@ Item {
     store = next
   }
 
-  function request(method, params, callback) {
+  function request(method, parameters, callback) {
     if (!loaded || !backend || !backend.ready || !accountId) {
       if (typeof callback === "function") callback(null, "Cache is unavailable")
       return
     }
     var mine = epoch
-    params.accountId = accountId
-    params.generation = generation
-    backend.call(method, params, function(value, error) {
+    parameters.accountId = accountId
+    parameters.generation = generation
+    backend.call(method, parameters, function(value, error) {
       if (!root || mine !== root.epoch) return
       if (error && error.message === "cache_stale_generation") root.restore()
       if (!error) root.apply(value)

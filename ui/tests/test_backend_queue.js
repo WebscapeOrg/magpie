@@ -226,9 +226,9 @@ for(const reason of ['cancel','append failure']) {
 {
   const {backend,sent,reply}=bridge()
   for(let requestIndex=0;requestIndex<64;requestIndex++) backend.call('providers.list',{},()=>{})
-  const params={accountId:'one@example.org',message:{subject:'original'}}
-  backend.call('cache.resourcePut',params,()=>{})
-  params.accountId='two@example.org';params.message.subject='changed'
+  const parameters={accountId:'one@example.org',message:{subject:'original'}}
+  backend.call('cache.resourcePut',parameters,()=>{})
+  parameters.accountId='two@example.org';parameters.message.subject='changed'
   reply(sent[0],{})
   assert.deepStrictEqual(sent[64].params,{accountId:'one@example.org',message:{subject:'original'}})
 }
@@ -324,8 +324,8 @@ if(process.argv[2]) {
     fs.rmSync(home,{recursive:true,force:true})
     if(code!==0) {console.error('Native backend failed',code,stderr);process.exitCode=1}
   })
-  function call(method,params) {
-    return new Promise((resolve,reject)=>backend.call(method,params,(result,error)=>error?reject(error):resolve(result)))
+  function call(method,parameters) {
+    return new Promise((resolve,reject)=>backend.call(method,parameters,(result,error)=>error?reject(error):resolve(result)))
   }
   async function testNative() {
     const info=await call('system.info',{})

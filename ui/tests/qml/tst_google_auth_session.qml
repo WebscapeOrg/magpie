@@ -7,8 +7,8 @@ Item {
     id: transport
     property bool ready: true
     property var calls: []
-    function call(method, params, callback) {
-      calls = calls.concat([{method: method, params: params, done: callback}])
+    function call(method, parameters, callback) {
+      calls = calls.concat([{method: method, params: parameters, done: callback}])
     }
   }
   QtObject {

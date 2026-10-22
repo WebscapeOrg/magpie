@@ -8,10 +8,10 @@ Item {
     id: backend
     property bool ready: false
     property var requests: []
-    function call(method, params, callback) {
+    function call(method, parameters, callback) {
       if (method !== "account.conversation") return
-      var copy = JSON.parse(JSON.stringify(params))
-      if (params.operation === "project") callback(Native.conversation(copy), null)
+      var copy = JSON.parse(JSON.stringify(parameters))
+      if (parameters.operation === "project") callback(Native.conversation(copy), null)
       else requests.push({params:copy,callback:callback})
     }
     function complete(index) {

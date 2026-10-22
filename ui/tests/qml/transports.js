@@ -7,8 +7,8 @@ function install(client) {
     var backend = {
       ready: true,
       testCalls: [],
-      call: function(method, params, callback) {
-        var request = { method: method, params: params, callback: callback, answered: false }
+      call: function(method, parameters, callback) {
+        var request = { method: method, params: parameters, callback: callback, answered: false }
         this.testCalls.push(request)
         return this.testCalls.length
       }
@@ -33,22 +33,22 @@ function transports(client) {
 
 function newSince(client, before) {
   var now = transports(client)
-  var out = []
+  var result = []
   for (var requestIndex = 0; requestIndex < now.length; requestIndex++) {
-    if (before.indexOf(now[requestIndex]) < 0) out.push(now[requestIndex])
+    if (before.indexOf(now[requestIndex]) < 0) result.push(now[requestIndex])
   }
-  return out
+  return result
 }
 
 function requested(request) {
-  var params = request.params
-  var credential = params.credential || {}
+  var parameters = request.params
+  var credential = parameters.credential || {}
   return {
-    verb: params.verb,
-    url: params.url || "",
+    verb: parameters.verb,
+    url: parameters.url || "",
     scheme: credential.scheme || "",
-    fields: [params.url || "", credential.scheme || "", credential.username || "",
-      credential.secret || "", params.body || ""]
+    fields: [parameters.url || "", credential.scheme || "", credential.username || "",
+      credential.secret || "", parameters.body || ""]
   }
 }
 

@@ -10,8 +10,8 @@ Item {
     property var pendingStop: null
     property bool failWatch: false
     signal notification(string method, var params)
-    function call(method, params, callback) {
-      calls = calls.concat([{method:method, params:params}])
+    function call(method, parameters, callback) {
+      calls = calls.concat([{method:method, params:parameters}])
       if (method === "mail.unwatch") pendingStop = callback
       else callback(null, method === "mail.watch" && failWatch ? {message:"temporary"} : null)
     }

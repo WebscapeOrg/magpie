@@ -39,14 +39,14 @@ QtObject {
   function invitationParams(invited) {
     var organizer = Calendar.replyRecipient(invited)
     if (!organizer) return null
-    var params = { accountId: account.accountId, uid: invited.uid, organizer: organizer }
+    var parameters = { accountId: account.accountId, uid: invited.uid, organizer: organizer }
     if (invited.recurrenceIdMs) {
-      params.originalStart = new Date(invited.recurrenceIdMs).toISOString()
+      parameters.originalStart = new Date(invited.recurrenceIdMs).toISOString()
       var raw = String(invited.source && invited.source.recurrenceId || "")
       var day = /(?:^|;)VALUE=DATE(?:;[^:]*)?:(\d{4})(\d{2})(\d{2})$/.exec(raw)
-      if (day) params.originalStart = day[1] + "-" + day[2] + "-" + day[3]
+      if (day) parameters.originalStart = day[1] + "-" + day[2] + "-" + day[3]
     }
-    return params
+    return parameters
   }
 
   function reconcile() {
@@ -60,10 +60,10 @@ QtObject {
     var key = identity + "\n" + id + "\n" + invited.uid
     if (key === reconciledKey) return
     reconciledKey = key
-    var params = invitationParams(invited)
-    if (!params) return
+    var parameters = invitationParams(invited)
+    if (!parameters) return
     reconciling = true
-    account.backend.call(method, params, function(result, error) {
+    account.backend.call(method, parameters, function(result, error) {
       rsvpAction.reconciling = false
       if (identity !== account.accountId || id !== account.selectedId || account.rsvpSending
           || revision !== rsvpAction.attendanceRevision) return
@@ -169,15 +169,15 @@ QtObject {
     var messageId = account.selectedId
     var identity = account.accountId
     var answeringAs = account.receivedAsAddress
-    var params = invitationParams(invited)
-    if (!params) {
+    var parameters = invitationParams(invited)
+    if (!parameters) {
       account.fail("This invitation names no organiser to answer")
       return
     }
-    params.response = response
+    parameters.response = response
     account.rsvpSending = true
     account.clearNotice()
-    account.backend.call(method, params, function(result, error) {
+    account.backend.call(method, parameters, function(result, error) {
       account.rsvpSending = false
       if (identity !== account.accountId) return
       if (error || !result || result.response !== response) {

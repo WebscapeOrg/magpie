@@ -31,13 +31,13 @@ QtObject {
   property bool retired: false
 
   function available() { return backend && backend.ready }
-  function request(method, params, callback) {
+  function request(method, parameters, callback) {
     if (!available()) {
       Qt.callLater(function() { if (queue && typeof queue.apply === "function" && !queue.retired) callback(null, "Mail backend unavailable") })
       return false
     }
-    params.accountId = String(account.accountId || "")
-    backend.call(method, params, function(result, error) {
+    parameters.accountId = String(account.accountId || "")
+    backend.call(method, parameters, function(result, error) {
       if (queue && typeof queue.apply === "function" && !queue.retired) callback(result, error ? String(error.message || "Mail backend request failed") : "")
     })
     return true
@@ -110,11 +110,11 @@ QtObject {
     submitted = next
     parked = parked.concat([next[sendId]])
     arm()
-    var params = {provider:String(account.providerId || ""),sendId:sendId,
+    var parameters = {provider:String(account.providerId || ""),sendId:sendId,
       order:Math.max(0,Math.floor(Number(order) || 0)),delaySeconds:account.undoSendSeconds}
-    if (nativeFields) { params.fields = nativeFields; params.resumeUnsent = true }
-    else params.payload = payload
-    request(nativeFields ? "outbox.compose" : "outbox.enqueue", params, function(result, error) {
+    if (nativeFields) { parameters.fields = nativeFields; parameters.resumeUnsent = true }
+    else parameters.payload = payload
+    request(nativeFields ? "outbox.compose" : "outbox.enqueue", parameters, function(result, error) {
       if (error) {
         if (queue.handled[sendId] === "sent") return
         var unknown = Object.assign({}, queue.uncertain)
@@ -237,7 +237,7 @@ QtObject {
     function onReadyChanged() {
       if (queue.available()) { queue.revision = -1; queue.sync() }
     }
-    function onNotification(method, params) { if (method === "outbox.changed") queue.apply(params) }
+    function onNotification(method, parameters) { if (method === "outbox.changed") queue.apply(parameters) }
   }
   readonly property Connections authEvents: Connections {
     target: queue.account ? queue.account.auth : null

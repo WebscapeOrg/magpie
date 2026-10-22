@@ -40,7 +40,7 @@ Item {
       property var auth: null
       property string email: ""
       function handle() { return ({ aborted: false }) }
-      function later(fn) { Qt.callLater(fn); return handle() }
+      function later(callback) { Qt.callLater(callback); return handle() }
       function listMessages() { return handle() }
       function getMessages() { return handle() }
       function getMessage() { return handle() }

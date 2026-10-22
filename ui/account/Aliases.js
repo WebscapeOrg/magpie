@@ -35,7 +35,7 @@ function trimmed(value) {
 // back apart — the name lost everything before its comma, permanently, without
 // the user having touched the field.
 function splitEntries(text) {
-  var out = []
+  var result = []
   var current = ""
   var quoted = false
   var angled = false
@@ -60,14 +60,14 @@ function splitEntries(text) {
     if (character === "<") angled = true
     else if (character === ">") angled = false
     if (!angled && (character === "," || character === "\n" || character === "\r")) {
-      out.push(current)
+      result.push(current)
       current = ""
       continue
     }
     current += character
   }
-  out.push(current)
-  return out
+  result.push(current)
+  return result
 }
 
 // `"Lee, Jason"` is the quoted form; anything else is taken as written. The
@@ -125,7 +125,7 @@ function parse(value) {
   else if (typeof value === "string") raw = splitEntries(value)
   else return []
 
-  var out = []
+  var result = []
   var seen = {}
   var haveDefault = false
   for (var aliasIndex = 0; aliasIndex < raw.length; aliasIndex++) {
@@ -141,14 +141,14 @@ function parse(value) {
     // shows back to the user.
     var isDefault = parsed.isDefault && !haveDefault
     if (isDefault) haveDefault = true
-    out.push({
+    result.push({
       email: parsed.email,
       displayName: parsed.displayName,
       isPrimary: false,
       isDefault: isDefault
     })
   }
-  return out
+  return result
 }
 
 // ---------------------------------------------------------------- formatting
@@ -233,17 +233,17 @@ function withSenderName(rows, name) {
   var list = Array.isArray(rows) ? rows : []
   var wanted = trimmed(name)
   if (wanted === "") return list
-  var out = []
+  var result = []
   for (var aliasIndex = 0; aliasIndex < list.length; aliasIndex++) {
     var row = list[aliasIndex]
     if (row && row.isPrimary === true) {
       var named = {}
       for (var key in row) named[key] = row[key]
       named.displayName = wanted
-      out.push(named)
+      result.push(named)
     } else {
-      out.push(row)
+      result.push(row)
     }
   }
-  return out
+  return result
 }

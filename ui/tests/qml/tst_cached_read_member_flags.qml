@@ -30,17 +30,17 @@ Item {
     property bool ready: true
     // What the disk holds, by message id.
     property var cached: ({})
-    function call(method, params, callback) {
+    function call(method, parameters, callback) {
       if (method === "reader.open") {
-        function projection(message) { return Native.readerProjection(message, params) }
-        if (params.cacheOnly) callback(cached[params.id] ? projection(cached[params.id]) : null, null)
-        else transport.pending[params.id] = function(message, error) {
+        function projection(message) { return Native.readerProjection(message, parameters) }
+        if (parameters.cacheOnly) callback(cached[parameters.id] ? projection(cached[parameters.id]) : null, null)
+        else transport.pending[parameters.id] = function(message, error) {
           callback(message ? projection(message) : null, error ? {code: "read_failed"} : null)
         }
       } else if (method === "reader.cancel") {
         callback({cancelled: true}, null)
       } else {
-        var result = Native.answer(method, params)
+        var result = Native.answer(method, parameters)
         if (result !== undefined) callback(result, null)
       }
     }
@@ -115,13 +115,13 @@ Item {
     // A member's resource carries no block of its own; a representative's
     // carries the conversation's, as it stood when the resource was read.
     function resource(id, text, unread, replyUnread) {
-      var out = {id: id, threadId: "t", labelIds: unread ? ["INBOX", "UNREAD"] : ["INBOX"],
+      var result = {id: id, threadId: "t", labelIds: unread ? ["INBOX", "UNREAD"] : ["INBOX"],
         payload: {mimeType: "text/plain", headers: [
           {name: "Subject", value: "Thread"}, {name: "From", value: "Sender <sender@example.org>"}],
           body: {data: Mail.bytesToBase64(Mail.utf8Bytes(text), true)}}}
       if (replyUnread !== undefined)
-        out.thread = {id: "t", memberIds: ["first", "reply"], count: 2, unread: unread || replyUnread}
-      return out
+        result.thread = {id: "t", memberIds: ["first", "reply"], count: 2, unread: unread || replyUnread}
+      return result
     }
     function summary(id, text, unread, replyUnread) {
       return Native.summary(resource(id, text, unread, replyUnread), new Date())

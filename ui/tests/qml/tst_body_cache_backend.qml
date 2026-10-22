@@ -9,8 +9,8 @@ Item {
     property var calls: []
     property var putDone: null
     property var readDone: null
-    function call(method, params, done) {
-      calls = calls.concat([{method:method,params:params}])
+    function call(method, parameters, done) {
+      calls = calls.concat([{method:method,params:parameters}])
       if (method === "cache.bodyRead") readDone = done
       else done(null, null)
     }

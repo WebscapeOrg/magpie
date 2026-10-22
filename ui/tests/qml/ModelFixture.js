@@ -4,21 +4,21 @@
 
 // The old pure JS rules are the oracle at the RPC boundary. Native parity
 // tests exercise the Rust implementation; this fixture tests Service wiring.
-function unified(params) {
+function unified(parameters) {
   var capabilities = {}
   var names = ["archive", "spam", "star", "labels", "web", "move", "conversations"]
   for (var capabilityIndex = 0; capabilityIndex < names.length; capabilityIndex++)
-    capabilities[names[capabilityIndex]] = Unified.everyMailboxCan(params.abilities, names[capabilityIndex])
+    capabilities[names[capabilityIndex]] = Unified.everyMailboxCan(parameters.abilities, names[capabilityIndex])
   return {
-    messages: Unified.mergeMessages(params.sources),
-    totalUnread: Unified.totalUnread(params.summaries),
-    mailboxes: Unified.sharedMailboxRows(params.abilities),
+    messages: Unified.mergeMessages(parameters.sources),
+    totalUnread: Unified.totalUnread(parameters.summaries),
+    mailboxes: Unified.sharedMailboxRows(parameters.abilities),
     capabilities: capabilities,
-    loading: Unified.anyLoading(params.states),
-    loaded: Unified.allLoaded(params.states),
-    hasMore: Unified.anyHasMore(params.states),
-    serverSearchLoading: Unified.anyServerSearchLoading(params.states),
-    error: Unified.firstError(params.states)
+    loading: Unified.anyLoading(parameters.states),
+    loaded: Unified.allLoaded(parameters.states),
+    hasMore: Unified.anyHasMore(parameters.states),
+    serverSearchLoading: Unified.anyServerSearchLoading(parameters.states),
+    error: Unified.firstError(parameters.states)
   }
 }
 

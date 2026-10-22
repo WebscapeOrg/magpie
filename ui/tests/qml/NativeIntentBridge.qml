@@ -10,7 +10,7 @@ QtObject {
   property var pending: []
   property string endpoint: Quickshell.env("OMAMAIL_TEST_BACKEND_URL")
 
-  function call(method, params, callback) {
+  function call(method, parameters, callback) {
     if (method !== "providers.resolve" && method !== "model.intent"
         && method !== "model.apply" && method !== "model.unified"
         && method !== "agent.jobsProjection") {
@@ -32,6 +32,6 @@ QtObject {
       var reply = JSON.parse(request.responseText)
       callback(reply.result, reply.error || "")
     }
-    request.send(JSON.stringify({ jsonrpc: "2.0", id: ++serial, method: method, params: params }))
+    request.send(JSON.stringify({ jsonrpc: "2.0", id: ++serial, method: method, params: parameters }))
   }
 }

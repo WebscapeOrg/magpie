@@ -156,14 +156,14 @@ function pageWatermark(sources) {
 function composeThread(accountId, thread) {
   if (!thread || typeof thread !== "object") return thread
   if (!Array.isArray(thread.memberIds)) return thread
-  var out = ({})
-  for (var field in thread) out[field] = thread[field]
+  var result = ({})
+  for (var field in thread) result[field] = thread[field]
   var composed = []
   for (var memberIndex = 0; memberIndex < thread.memberIds.length; memberIndex++) {
     composed.push(unifiedId(accountId, thread.memberIds[memberIndex]))
   }
-  out.memberIds = composed
-  return out
+  result.memberIds = composed
+  return result
 }
 
 // The rail's summaries, keyed and self-identifying the way every other row is.
@@ -171,7 +171,7 @@ function composeThread(accountId, thread) {
 // was not enough.
 function composeMembers(accountId, summaries) {
   var source = summaries && typeof summaries === "object" ? summaries : ({})
-  var out = ({})
+  var result = ({})
   for (var key in source) {
     var summary = source[key]
     var copy = summary
@@ -182,14 +182,14 @@ function composeMembers(accountId, summaries) {
       copy.id = unifiedId(accountId, summary.id)
       if (summary.thread) copy.thread = composeThread(accountId, summary.thread)
     }
-    out[unifiedId(accountId, key)] = copy
+    result[unifiedId(accountId, key)] = copy
   }
-  return out
+  return result
 }
 
 function mergeMessages(sources) {
   var values = Array.isArray(sources) ? sources : []
-  var out = []
+  var result = []
   var seen = ({})
   for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
     var source = values[sourceIndex] || ({})
@@ -217,18 +217,18 @@ function mergeMessages(sources) {
       copy.sourceLabel = String(source.label || "Mailbox")
       // Read off the copy, whose fields the loop above has already pulled
       // across, rather than reaching into the row a second time.
-      out.push({ at: messageTime(copy), row: copy })
+      result.push({ at: messageTime(copy), row: copy })
     }
   }
-  out.sort(compareTimedRows)
+  result.sort(compareTimedRows)
   // Truncated at the shallowest watermark, so the list has no hole in the
   // middle of it. A merge of one source, or of sources that have all run out,
   // keeps everything.
   var floor = pageWatermark(values)
   var rows = []
-  for (var resultIndex = 0; resultIndex < out.length; resultIndex++) {
-    if (floor > 0 && out[resultIndex].at < floor) break
-    rows.push(out[resultIndex].row)
+  for (var resultIndex = 0; resultIndex < result.length; resultIndex++) {
+    if (floor > 0 && result[resultIndex].at < floor) break
+    rows.push(result[resultIndex].row)
   }
   return rows
 }
@@ -335,7 +335,7 @@ function sharedMailboxRows(abilities) {
   var rows = Array.isArray(abilities) ? abilities : []
   if (rows.length === 0) return []
   var first = rowsOf(rows[0])
-  var out = []
+  var result = []
   for (var capabilityIndex = 0; capabilityIndex < first.length; capabilityIndex++) {
     var key = String(first[capabilityIndex].key || "")
     if (key === "") continue
@@ -346,9 +346,9 @@ function sharedMailboxRows(abilities) {
         break
       }
     }
-    if (everyone) out.push(first[capabilityIndex])
+    if (everyone) result.push(first[capabilityIndex])
   }
-  return out
+  return result
 }
 
 function rowsOf(row) {

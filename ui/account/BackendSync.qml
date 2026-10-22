@@ -92,8 +92,8 @@ Item {
     target: root.backend
     ignoreUnknownSignals: true
     function onReadyChanged() { root.reconcile() }
-    function onNotification(method, params) {
-      if (method === "mail.updated") root.accept(params)
+    function onNotification(method, parameters) {
+      if (method === "mail.updated") root.accept(parameters)
     }
   }
 }

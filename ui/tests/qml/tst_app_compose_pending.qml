@@ -58,6 +58,13 @@ Item {
     function refreshAgentJobs() {}
     property var displayPreferences: Display.normalize({})
     function setDisplayPreference(key, value) { displayPreferences = Display.changed(displayPreferences, key, value) }
+    property bool listLoading: false
+    property bool listLoaded: true
+    property bool hasMore: false
+    property bool hasSavedAccounts: true
+    property bool signInProgress: false
+    property string accountAddress: accountEmail
+    function attachmentIsSaving(_id, _attachment) { return false }
     property bool ready: true
     property bool anyAccountReady: true
     property bool sendPending: true
@@ -1589,6 +1596,7 @@ Item {
     // once its body has loaded, the composer opens on it with what was
     // written — no second key. `c` still does the same.
     function test_open_edits_a_draft_once_its_body_has_loaded() {
+      failOnWarning(/attachmentIsSaving/)
       var compose = composeView()
       mailService.mailboxKey = "drafts"
       app.cursorId = "draft-7"

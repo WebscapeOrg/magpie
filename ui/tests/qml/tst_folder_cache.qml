@@ -52,8 +52,9 @@ Item {
     function monitoredMigrated(x) {
       monitoredIds = x;
     }
-    function fail(x) {
-      console.log(x);
+    property var errors: []
+    function fail(error) {
+      errors = errors.concat([error])
     }
     function abortRequest(x) {
     }
@@ -107,6 +108,7 @@ Item {
       finish(fresh, ["Jobs", "Bills"]);
       tryCompare(actions, "reloading", false, 1000);
       compare(JSON.stringify(mailbox.monitoredIds), JSON.stringify(["Jobs", "Bills"]));
+      compare(mailbox.errors, [])
     }
   }
 }

@@ -49,6 +49,7 @@ Item {
     calendarBorderWidth: 1
     panelFontFamily: "sans-serif"
   }
+  SignalSpy { id: created; target: view; signalName: "createAt" }
   TestCase {
     name: "CalendarDetailRefresh"
     when: windowShown
@@ -64,6 +65,22 @@ Item {
       view.closeDetail()
       fixture.pending = []
       fixture.events = [event("first"),event("second")]
+      created.clear()
+    }
+    function test_month_day_click_uses_nine_local_time_data() {
+      return [{tag: "spring-transition", month: 2, day: 29, iso: "2026-03-29"},
+        {tag: "autumn-transition", month: 9, day: 25, iso: "2026-10-25"}]
+    }
+    function test_month_day_click_uses_nine_local_time(data) {
+      fixture.events = []
+      view.visibleMonth = new Date(2026, data.month, 1)
+      view.setView("month")
+      var day = findChild(view, "calendar-month-day-" + data.iso)
+      verify(day !== null)
+      waitForRendering(day)
+      mouseClick(day, day.width / 2, day.height / 2)
+      compare(created.count, 1)
+      compare(created.signalArguments[0][0], new Date(2026, data.month, data.day, 9).getTime())
     }
     function test_click_refreshes_guests_and_same_etag_list_does_not_erase_them() {
       view.activateEvent(fixture.events[0])

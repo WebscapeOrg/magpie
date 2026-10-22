@@ -57,7 +57,7 @@ class Diagnostics(unittest.TestCase):
 
     def test_backend_provider_identifiers_survive_redaction(self):
         codes = ['gmail_http_failed', 'calendar_auth_refused', 'upload_capacity_exceeded',
-                 'invalid_upload_encoding']
+                 'invalid_upload_encoding', 'gmail_request_deferred', 'gmail_server_rate_limited']
         self.call('record', [self.event(code) for code in codes])
         data = (self.folder / 'errors.json').read_text()
         for code in codes:
@@ -90,7 +90,8 @@ class Diagnostics(unittest.TestCase):
                  'cost': 60, 'attempt': 2, 'status': 429, 'reason': 'userRateLimitExceeded',
                  'retryAfterMs': 90000, 'waitMs': 800, 'elapsedMs': 950,
                  'outcome': 'gmail_rate_limited', 'private': 'SECRET-body'}
-        rows = [event, dict(event, status=None, reason='localBudget')]
+        rows = [event, dict(event, status=None, reason='localBudget', outcome='gmail_request_deferred'),
+                dict(event, status=None, reason='serverCooldown', outcome='gmail_server_rate_limited')]
         for key in ['time', 'operation', 'lane', 'reason', 'outcome', 'status', 'retryAfterMs', 'cost']:
             rows.append(dict(event, **{key: 'SECRET-token\r\n\x00日本語'}))
         path = self.folder / 'gmail.json'
@@ -100,6 +101,9 @@ class Diagnostics(unittest.TestCase):
         report = (self.folder / 'report.txt').read_text()
         self.assertIn('userRateLimitExceeded', report)
         self.assertIn('localBudget', report)
+        self.assertIn('serverCooldown', report)
+        self.assertIn('gmail_request_deferred', report)
+        self.assertIn('gmail_server_rate_limited', report)
         self.assertIn('"retryAfterMs": 90000', report)
         self.assertIn('"cost": 60', report)
         self.assertNotIn('SECRET', report)

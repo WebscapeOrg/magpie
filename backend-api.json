@@ -2183,6 +2183,29 @@
       "Attachment recovery rejects unexpected pending job controls",
       "Attachment recovery rejects nonboolean source loading state",
       "Attachment recovery rejects an oversized pending queue"
+    ],
+    "gmailErrorCases": [
+      {
+        "name": "Local Gmail request admission waits before HTTP",
+        "error": "gmail_request_deferred",
+        "reason": "localBudget",
+        "status": null,
+        "retryable": true
+      },
+      {
+        "name": "Gmail rejects a request for its rate limit",
+        "error": "gmail_server_rate_limited",
+        "reason": "userRateLimitExceeded",
+        "status": 403,
+        "retryable": true
+      },
+      {
+        "name": "Gmail server cooldown prevents another HTTP request",
+        "error": "gmail_server_rate_limited",
+        "reason": "serverCooldown",
+        "status": null,
+        "retryable": true
+      }
     ]
   }
 }

@@ -176,7 +176,7 @@ impl Store {
         self.read(|db| {
             let (stored, complete): (i64,i64) = sql(db.query_row("SELECT (SELECT count(*) FROM messages),(SELECT count(*) FROM messages WHERE text_complete=1)", [], |r| Ok((r.get(0)?,r.get(1)?))))?;
             let pending: i64 = sql(db.query_row("SELECT count(*) FROM jobs", [], |r| r.get(0)))?;
-            let failed: i64 = sql(db.query_row("SELECT count(*) FROM jobs WHERE error!=''", [], |r| r.get(0)))?;
+            let failed: i64 = sql(db.query_row("SELECT count(*) FROM jobs WHERE error NOT IN ('','gmail_request_deferred')", [], |r| r.get(0)))?;
             let edits: i64 = sql(db.query_row("SELECT count(DISTINCT ticket) FROM edits WHERE state IN ('queued','sending')", [], |r| r.get(0)))?;
             let conflicts: i64 = sql(db.query_row("SELECT count(DISTINCT ticket) FROM edits WHERE state='conflict'",[],|r|r.get(0)))?;
             let inventory = state(db,"inventoryComplete")? == "true";

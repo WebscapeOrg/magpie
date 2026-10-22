@@ -287,12 +287,14 @@ Item {
 
   Item {
     id: headerBlock
+    readonly property bool stacked: !root.isDraft
+      && width < readerTriage.implicitWidth + MailStyle.space(240)
     visible: !!root.summary
     anchors.top: parent.top
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.margins: root.pageInset
-    implicitHeight: headerColumn.implicitHeight
+    implicitHeight: headerColumn.y + headerColumn.implicitHeight
 
     IconTextButton {
       id: continueDraftButton
@@ -309,12 +311,16 @@ Item {
       onClicked: root.composeRequested("draft")
     }
 
-    Row {
+    Grid {
       id: readerTriage
       anchors.right: parent.right
       anchors.top: parent.top
       visible: !root.isDraft
+      spacing: MailStyle.space(2)
+      columns: Math.max(1, Math.min(5,
+        Math.floor((headerBlock.width + spacing) / (unreadButton.width + spacing))))
       IconButton {
+        id: unreadButton
         objectName: "reader-mark-unread"
         iconName: "unread"
         iconSize: Style.font.icon * 2.5
@@ -330,14 +336,45 @@ Item {
         foreground: root.dimColor; hoverColor: root.textColor; fontFamily: root.panelFontFamily
         onClicked: { var at = mapToGlobal(0,height); root.snoozeRequested(at.x,at.y) }
       }
+      IconButton {
+        id: archiveButton
+        objectName: "reader-archive"
+        visible: !root.service || root.service.canArchive
+        iconName: "archive"
+        iconSize: Style.font.icon * 2.5
+        tooltipText: "Archive · e"
+        foreground: root.dimColor; hoverColor: root.textColor; fontFamily: root.panelFontFamily
+        onClicked: root.actionRequested("archive")
+      }
+      IconButton {
+        id: moveButton
+        objectName: "reader-move-button"
+        visible: !!root.service && root.service.canMoveToLabel
+        iconName: "label"
+        iconSize: Style.font.icon * 2.5
+        tooltipText: "Move to... · v"
+        foreground: root.dimColor; hoverColor: root.textColor; fontFamily: root.panelFontFamily
+        onClicked: root.actionRequested("moveToLabel")
+      }
+      IconButton {
+        id: trashButton
+        objectName: "reader-trash"
+        iconName: "trash"
+        iconSize: Style.font.icon * 2.5
+        tooltipText: "Move to trash · d"
+        foreground: root.dimColor; hoverColor: root.textColor; fontFamily: root.panelFontFamily
+        onClicked: root.actionRequested("trash")
+      }
     }
 
     Column {
       id: headerColumn
       anchors.left: parent.left
-      anchors.right: root.isDraft ? continueDraftButton.left : readerTriage.left
-      anchors.rightMargin: MailStyle.space(8)
+      anchors.right: root.isDraft ? continueDraftButton.left
+        : (headerBlock.stacked ? parent.right : readerTriage.left)
+      anchors.rightMargin: headerBlock.stacked ? 0 : MailStyle.space(8)
       anchors.top: parent.top
+      anchors.topMargin: headerBlock.stacked ? readerTriage.height + MailStyle.space(4) : 0
       spacing: MailStyle.space(4)
 
       Item {
@@ -797,10 +834,8 @@ Item {
         id: messageActions
         visible: !root.isDraft
         readonly property int gap: MailStyle.space(2)
-        implicitWidth: trashButton.x + trashButton.width
-        implicitHeight: Math.max(replyButton.height, replyAllButton.height,
-          forwardButton.height, archiveButton.visible ? archiveButton.height : 0,
-          trashButton.height)
+        implicitWidth: forwardButton.x + forwardButton.width
+        implicitHeight: Math.max(replyButton.height, replyAllButton.height, forwardButton.height)
         width: implicitWidth
         height: implicitHeight
 
@@ -830,63 +865,6 @@ Item {
           foreground: root.dimColor; hoverColor: root.textColor; fontFamily: root.panelFontFamily
           onClicked: root.composeRequested("forward")
         }
-
-        // Invariant: keep destructive actions separated from reply/forward, with separator height
-        // derived from the buttons.
-        Item {
-          id: actionGap
-          x: forwardButton.x + forwardButton.width + messageActions.gap
-          implicitWidth: MailStyle.space(28)
-          implicitHeight: replyButton.implicitHeight
-          width: implicitWidth
-          height: parent.height
-
-          PanelSeparator {
-            anchors.centerIn: parent
-            width: 1
-            height: MailStyle.space(15)
-            foreground: root.dimColor
-          }
-        }
-
-        // Invariant: an account with no archive capability must not expose the archive action.
-        IconButton {
-          iconSize: Style.font.icon * 2.5
-          id: archiveButton
-          x: actionGap.x + actionGap.width + messageActions.gap
-          y: Math.round((parent.height - height) / 2)
-          visible: !root.service || root.service.canArchive
-          iconName: "archive"; tooltipText: "Archive · e"
-          foreground: root.dimColor; hoverColor: root.textColor; fontFamily: root.panelFontFamily
-          onClicked: root.actionRequested("archive")
-        }
-        IconButton {
-          iconSize: Style.font.icon * 2.5
-          id: moveButton
-          objectName: "reader-move-button"
-          x: (archiveButton.visible
-            ? archiveButton.x + archiveButton.width
-            : actionGap.x + actionGap.width) + messageActions.gap
-          y: Math.round((parent.height - height) / 2)
-          visible: !!root.service && root.service.canMoveToLabel
-          iconName: "label"; tooltipText: "Move to... · v"
-          foreground: root.dimColor; hoverColor: root.textColor; fontFamily: root.panelFontFamily
-          onClicked: root.actionRequested("moveToLabel")
-        }
-        IconButton {
-          iconSize: Style.font.icon * 2.5
-          id: trashButton
-          x: (moveButton.visible
-            ? moveButton.x + moveButton.width
-            : (archiveButton.visible
-              ? archiveButton.x + archiveButton.width
-              : actionGap.x + actionGap.width)) + messageActions.gap
-          y: Math.round((parent.height - height) / 2)
-          iconName: "trash"; tooltipText: "Move to trash · d"
-          foreground: root.dimColor; hoverColor: root.textColor; fontFamily: root.panelFontFamily
-          onClicked: root.actionRequested("trash")
-        }
-
       }
 
       // Invariant: the mode-picker slot owns placement; reading the Row’s own unresolved height

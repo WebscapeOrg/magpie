@@ -57,6 +57,8 @@ fn error_code(error: &str) -> &str {
         | "private_fs_busy"
         | "auth_signed_out"
         | "gmail_rate_limited"
+        | "gmail_request_deferred"
+        | "gmail_server_rate_limited"
         | "gmail_timeout" => error,
         _ => "unknown_error",
     }

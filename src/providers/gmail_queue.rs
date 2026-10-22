@@ -202,7 +202,9 @@ async fn send(inner: &Inner, account: &str, entry: &Entry) -> Outcome {
         )
         .await;
         match (answer, wait) {
-            (Err("gmail_rate_limited"), Some(wait)) => tokio::time::sleep(*wait).await,
+            (Err("gmail_request_deferred" | "gmail_server_rate_limited"), Some(wait)) => {
+                tokio::time::sleep(*wait).await
+            }
             (answer, _) => return answer,
         }
     }
@@ -255,7 +257,8 @@ mod tests {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let queue = Queue::new(scripted(
             vec![
-                Err("gmail_rate_limited"),
+                Err("gmail_request_deferred"),
+                Err("gmail_server_rate_limited"),
                 Ok(json!({})),
                 Err("gmail_http_failed"),
             ],
@@ -283,26 +286,35 @@ mod tests {
         let sent = sent.lock().unwrap();
         assert_eq!(
             sent.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
-            ["messages/a/trash", "messages/a/trash", "messages/b/trash"]
+            [
+                "messages/a/trash",
+                "messages/a/trash",
+                "messages/a/trash",
+                "messages/b/trash"
+            ]
         );
         assert!(
             sent[1].1 - started >= BACKOFF[0],
-            "the resend waited the first backoff"
+            "local admission retries wait the first backoff"
         );
-        assert!(sent[2].1 >= sent[1].1, "b went out only after a settled");
+        assert!(
+            sent[2].1 - sent[1].1 >= BACKOFF[1],
+            "server refusals wait the next backoff"
+        );
+        assert!(sent[3].1 >= sent[2].1, "b went out only after a settled");
     }
 
     #[tokio::test(start_paused = true)]
     async fn persistent_rate_limiting_fails_after_the_last_backoff() {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let queue = Queue::new(scripted(
-            vec![Err("gmail_rate_limited"); BACKOFF.len() + 4],
+            vec![Err("gmail_server_rate_limited"); BACKOFF.len() + 4],
             Arc::clone(&sent),
         ));
         let session = Arc::new(AccountSession::new());
         let started = Instant::now();
         let (_, outcome) = queue.enqueue("one", session, job("a")).unwrap();
-        assert_eq!(outcome.await.unwrap(), Err("gmail_rate_limited"));
+        assert_eq!(outcome.await.unwrap(), Err("gmail_server_rate_limited"));
         assert_eq!(sent.lock().unwrap().len(), BACKOFF.len() + 1);
         let total: Duration = BACKOFF.iter().sum();
         assert!(started.elapsed() >= total);
@@ -311,7 +323,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn invalidation_refuses_unsent_entries_and_accounts_do_not_share_a_line() {
         let sent = Arc::new(Mutex::new(Vec::new()));
-        let queue = Queue::new(scripted(vec![Err("gmail_rate_limited")], Arc::clone(&sent)));
+        let queue = Queue::new(scripted(
+            vec![Err("gmail_server_rate_limited")],
+            Arc::clone(&sent),
+        ));
         let mut events = queue.subscribe();
         let one = Arc::new(AccountSession::new());
         let two = Arc::new(AccountSession::new());

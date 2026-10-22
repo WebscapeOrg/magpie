@@ -98,9 +98,8 @@ impl Service {
         Ok((objects, path("/")))
     }
 }
-/// Invariant: The default collection, so a Put reaches CreateItem. It counts the calls
-/// that actually reached the daemon, then refuses, which is the shape of a
-/// write the daemon commits and the client never hears about.
+/// Invariant: Refused creates still count as requests reaching the daemon. The
+/// concurrent-write mode retains attributes to detect duplicate credential entries.
 struct Collection {
     creates: Arc<AtomicUsize>,
     locked: Arc<AtomicBool>,

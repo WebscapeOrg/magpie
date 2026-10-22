@@ -77,6 +77,58 @@ Item {
       compare(transport.calls[0].method, "auth.token")
       compare(transport.calls[0].params.accountId, "second@example.org")
     }
+    function test_waiter_session_change_blocks_later_token_data() {
+      return [
+        {tag: "sign-out", change: function(auth) { auth.logout() }},
+        {tag: "account", change: function(auth) { auth.accountId = "second@example.org" }},
+        {tag: "account-return", change: function(auth) {
+          auth.accountId = "second@example.org"
+          auth.accountId = "first@example.org"
+        }},
+        {tag: "client", change: function(auth) {
+          auth.credentials = {clientId: "replacement-client", clientSecret: "synthetic-secret"}
+        }}
+      ]
+    }
+    function test_waiter_session_change_blocks_later_token(data) {
+      var auth = manager()
+      var observed = []
+      auth.tokenWaiters = [
+        function(token, error) { data.change(auth) },
+        function(token, error) { observed.push({token: token, error: error}) }
+      ]
+      auth.acceptSignIn({ok: true, accessToken: "synthetic-access", expiresIn: 3600,
+        scope: auth.scopes.join(" "), refreshToken: ""})
+      compare(observed.length, 1)
+      compare(observed[0].token, "")
+      verify(observed[0].error !== "")
+      compare(auth.tokenWaiters, [])
+    }
+    function test_waiter_signout_does_not_announce_signin() {
+      var auth = manager()
+      var successes = 0
+      auth.loginSucceeded.connect(function() { successes++ })
+      auth.tokenWaiters = [function(token, error) { auth.logout() }]
+      auth.acceptSignIn({ok: true, accessToken: "synthetic-access", expiresIn: 3600,
+        scope: auth.scopes.join(" "), refreshToken: ""})
+      compare(successes, 0)
+      compare(auth.loggedIn, false)
+    }
+    function test_unchanged_session_delivers_all_waiters_and_success() {
+      var auth = manager()
+      var tokens = []
+      var successes = 0
+      auth.loginSucceeded.connect(function() { successes++ })
+      auth.tokenWaiters = [
+        function(token, error) { tokens.push(token) },
+        function(token, error) { tokens.push(token) }
+      ]
+      auth.acceptSignIn({ok: true, accessToken: "synthetic-access", expiresIn: 3600,
+        scope: auth.scopes.join(" "), refreshToken: ""})
+      compare(tokens, ["synthetic-access", "synthetic-access"])
+      compare(successes, 1)
+      compare(auth.loggedIn, true)
+    }
     function test_terminal_native_error_is_signed_out_data() {
       return [
         {tag: "missing", code: "gmail_token_missing"},

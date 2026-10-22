@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Omamail
+import "../../message/Signature.js" as Signature
 
 Item {
   width: 700
@@ -107,6 +108,23 @@ Item {
       compare(page.importingAccountId, "a@example.org")
       picked(); read(); imported()
       compare(fakeService.signatureId, "a@example.org")
+    }
+    function test_oversized_image_import_does_not_save_a_signature() {
+      var trigger = findChild(page, "settings-signature-import")
+      verify(trigger)
+      page.y = 20 - trigger.mapToItem(page, 0, 0).y
+      waitForRendering(trigger)
+      mouseClick(trigger, trigger.width / 2, trigger.height / 2)
+      picked()
+      var data = "R0lGODlh/////4AAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+      fakeBackend.callback({ok: true, mimeType: "image/gif", data: data}, null)
+      compare(fakeBackend.method, "message.signatureImport")
+      fakeBackend.callback(Signature.importImage(data), null)
+      compare(fakeService.signatureId, "")
+      compare(fakeService.signatureHtml, "")
+      compare(page.importing, false)
+      compare(page.importFailed, true)
+      compare(page.importNote, "That image cannot be safely displayed")
     }
     function test_picker_completion_keeps_the_original_account() {
       page.importSignature()

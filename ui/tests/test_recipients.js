@@ -83,4 +83,20 @@ const hostile = recipients.replyFields({from: {email: "sender@example.com"},
 }, "replyAll", own)
 assert(!/[\r\n]/.test(hostile.to + hostile.cc))
 
+for (const email of ["visible@example.test,hidden@example.test", "visible@example.test;hidden@example.test",
+  "Group:visible@example.test;", "Name <visible@example.test>", "visible@example.test\r\nBcc:hidden@example.test",
+  "visible @example.test", "visible@example.test\u0000"]) {
+  const contact = {name: "Visible contact", email}
+  deepEqual(recipients.suggest([contact], "visible", 5), [], "malformed structured contacts cannot be selected")
+  deepEqual(recipients.replyFields({from: contact, to: own}, "reply", own),
+    {to: "", cc: "", outgoing: false}, "one structured contact cannot add another recipient")
+  assert.strictEqual(recipients.append("kept@example.test", contact), "kept@example.test")
+}
+for (const email of ['"quoted,local"@example.test', '"space local"@example.test',
+  '"escaped\\\"quote"@example.test', 'user+tag@example.test', 'user@[IPv6:2001:db8::1]']) {
+  assert.strictEqual(recipients.append("", {email}), email, "valid single mailboxes keep their address syntax")
+}
+assert.strictEqual(recipients.address({name: "Team: Ada; Bob", email: "visible@example.test"}),
+  '"Team: Ada; Bob" <visible@example.test>', "display names cannot introduce group syntax")
+
 console.log("recipient tests passed")

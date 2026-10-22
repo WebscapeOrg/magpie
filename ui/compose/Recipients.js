@@ -38,8 +38,9 @@ function replyFields(summary, mode, ownAddresses) {
 function cleanContact(value) {
   var contact = value || ({})
   var name = String(contact.name || "").replace(/[\r\n]+/g, " ").trim()
-  var email = String(contact.email || "").replace(/[\r\n\s]+/g, "").trim()
-  if (email.indexOf("@") <= 0 || email.indexOf("@") === email.length - 1) return null
+  var email = String(contact.email || "").trim()
+  if (/[\u0000-\u001f\u007f]/.test(email)
+      || !/^(?:"(?:[^"\\]|\\.)*"|[^\s()<>\[\]:;@\\,"]+)@(?:[^\s()<>\[\]:;@\\,"]+|\[(?:IPv6:)?[0-9a-fA-F:.]+\])$/.test(email)) return null
   return ({ name: name, email: email })
 }
 
@@ -117,7 +118,7 @@ function address(contact) {
   if (!value) return ""
   if (value.name === "") return value.email
   var name = value.name.replace(/([\\"])/g, "\\$1")
-  if (/[,<>]/.test(name)) name = "\"" + name + "\""
+  if (/[()<>\[\]:;@\\",]/.test(name)) name = "\"" + name + "\""
   return name + " <" + value.email + ">"
 }
 

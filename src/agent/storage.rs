@@ -346,9 +346,8 @@ impl Store {
     pub fn remove(&self, id: &str) -> Result<()> {
         let dir = self.directory(id)?;
         let entries = names(&dir, Some(256))?;
-        // Validate the complete set before deleting anything.
         for name in &entries {
-            // Pre-streaming jobs kept this legacy output file. Permit its
+            // Invariant: Pre-streaming jobs kept this legacy output file. Permit its
             // removal only after the same regular/private/no-link validation.
             if !name.starts_with(".write-") && name != "response.txt" {
                 filename(name)?;
@@ -381,7 +380,7 @@ mod tests {
     struct Temp(PathBuf);
     impl Temp {
         fn new() -> Self {
-            // macOS temp_dir() can start with the system /var symlink. Resolve
+            // Invariant: macOS temp_dir() can start with the system /var symlink. Resolve
             // only the fixture parent; storage must still reject fixture links.
             let p = std::env::temp_dir().canonicalize().unwrap().join(format!(
                 "omamail-agent-store-{}-{}",

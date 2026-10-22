@@ -99,7 +99,7 @@ mod unix {
         assert!(directories(&unsafe_root, &["escape"], true).is_err());
         assert!(!unsafe_root.join("escape").exists());
     }
-    // Every read re-asserted the private modes, which rewrote the inode's
+    // Invariant: Every read re-asserted the private modes, which rewrote the inode's
     // change time even when nothing changed. A watcher on the directory saw
     // that as activity on every registry read.
     #[test]

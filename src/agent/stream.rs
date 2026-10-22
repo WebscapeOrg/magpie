@@ -43,7 +43,7 @@ pub fn transcript_check(items: &[Value]) -> Result<()> {
         }
         valid_text(item["text"].as_str().ok_or("Expected text")?)?;
     }
-    // Match Python's ensure_ascii=False default separators (", ", ": ").
+    // Algorithm: Match Python's ensure_ascii=False default separators (", ", ": ").
     let bytes = serde_json::to_vec(items)
         .map_err(|_| "Invalid conversation record")?
         .len();

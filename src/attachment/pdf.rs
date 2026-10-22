@@ -47,7 +47,7 @@ fn decoded_name(raw: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn has_refused_name(bytes: &[u8]) -> bool {
-    // An xref can point inside a string or a stream. Check ALL original bytes,
+    // Invariant: An xref can point inside a string or a stream. Check ALL original bytes,
     // including spans skipped by the recognizer, for native action/opaque
     // object names. False positives here retain the old refusal to open.
     bytes.split(|b| *b == b'/').skip(1).any(|part| {
@@ -61,7 +61,7 @@ fn has_refused_name(bytes: &[u8]) -> bool {
 }
 
 fn xml_declaration(bytes: &[u8]) -> bool {
-    // XML 1.0/1.1 declaration grammar, not arbitrary processing instructions.
+    // Invariant: XML 1.0/1.1 declaration grammar, not arbitrary processing instructions.
     // Attribute order, quoting and the complete closing ?> are significant.
     static DECLARATION: LazyLock<regex::bytes::Regex> = LazyLock::new(|| {
         regex::bytes::Regex::new(concat!(
@@ -301,7 +301,7 @@ pub(super) fn xml_declarations(bytes: &[u8]) -> Option<Vec<usize>> {
         let start = reader.at;
         let word = reader.word()?;
         if word == b"xref" {
-            // Cross-reference tables contain only integers and n/f markers.
+            // Invariant: Cross-reference tables contain only integers and n/f markers.
             // The final startxref must point to this exact table, not a prefix
             // supplied alongside an unrelated document.
             loop {
@@ -334,7 +334,7 @@ pub(super) fn xml_declarations(bytes: &[u8]) -> Option<Vec<usize>> {
             let Value::Dictionary(dictionary) = value else {
                 return None;
             };
-            // PDF stream data starts after LF or CRLF, not arbitrary whitespace.
+            // Invariant: PDF stream data starts after LF or CRLF, not arbitrary whitespace.
             if reader.bytes.get(reader.at) == Some(&b'\r') {
                 reader.at += 1;
             }
@@ -358,7 +358,7 @@ pub(super) fn xml_declarations(bytes: &[u8]) -> Option<Vec<usize>> {
                     declarations.push(data_start + bom);
                 }
             }
-            // Never search for endstream through arbitrary bytes. Only the
+            // Invariant: Never search for endstream through arbitrary bytes. Only the
             // declared length plus one optional line ending may precede it.
             if reader.bytes.get(reader.at) == Some(&b'\r') {
                 reader.at += 1;

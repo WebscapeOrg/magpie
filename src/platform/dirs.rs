@@ -112,7 +112,7 @@ impl AppDirs {
                 FOLDERID_Downloads, FOLDERID_LocalAppData, FOLDERID_RoamingAppData,
             };
             let local = known_folder(&FOLDERID_LocalAppData)?;
-            // Program files install into LocalAppData/omamail. Keep all data
+            // Invariant: Program files install into LocalAppData/omamail. Keep all data
             // outside that replaceable installation directory.
             Self::from_roots(
                 known_folder(&FOLDERID_RoamingAppData)?,
@@ -133,7 +133,7 @@ impl AppDirs {
             #[cfg(target_os = "macos")]
             let (config, cache, state, runtime, downloads) = {
                 let support = home.join("Library/Application Support");
-                // Darwin's system temporary directory commonly uses /var, a
+                // Invariant: Darwin's system temporary directory commonly uses /var, a
                 // system alias of /private/var. Resolve this OS-selected root
                 // before entering the no-symlink storage boundary.
                 let runtime = temporary.canonicalize().map_err(|_| "home_invalid")?;
@@ -187,7 +187,7 @@ impl AppDirs {
         self.config.join(APP_DIRECTORY)
     }
 }
-// CLI integration children cannot use the unit-test in-memory override. This
+// Invariant: CLI integration children cannot use the unit-test in-memory override. This
 // is compiled only with the test credential feature, which is forbidden in
 // release builds by credentials/mod.rs. Production keeps native Known Folders.
 #[cfg(all(windows, feature = "integration-test-credentials"))]
@@ -213,7 +213,7 @@ fn linux_downloads(home: &Path, config: &Path) -> PathBuf {
     use std::{io::Read, os::unix::fs::OpenOptionsExt};
     const LIMIT: u64 = 64 * 1024;
     let read = || -> Option<String> {
-        // NONBLOCK avoids opening a FIFO/device before metadata can reject it.
+        // Invariant: NONBLOCK avoids opening a FIFO/device before metadata can reject it.
         // Both the metadata and the actual read are bounded against file growth.
         let file = std::fs::OpenOptions::new()
             .read(true)
@@ -365,7 +365,7 @@ fn known_folder(id: &windows_sys::core::GUID) -> Result<PathBuf, &'static str> {
         UI::Shell::{KF_FLAG_DONT_VERIFY, SHGetKnownFolderPath},
     };
     let mut raw = ptr::null_mut();
-    // The path, not proof that it exists: every root is resolved together,
+    // Invariant: The path, not proof that it exists: every root is resolved together,
     // and a Downloads folder the user removed would otherwise take the
     // registry and the caches down with it. Whoever writes there creates it
     // or reports that it could not.

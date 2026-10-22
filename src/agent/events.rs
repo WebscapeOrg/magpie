@@ -167,8 +167,6 @@ pub fn validate(value: &Value) -> Result<()> {
     Ok(())
 }
 
-// A string the agent handed back, fit to draw: control characters gone, a
-// title on one line, notes keeping their line breaks, and cut to size.
 fn clean(value: Option<&Value>, keep_lines: bool, limit: usize) -> String {
     let text = match value {
         Some(Value::String(s)) => s.clone(),
@@ -195,7 +193,7 @@ fn clean(value: Option<&Value>, keep_lines: bool, limit: usize) -> String {
         .to_owned()
 }
 
-// The last array in the text that JSON will decode, tried from every `[`
+// Algorithm: The last array in the text that JSON will decode, tried from every `[`
 // working back from the end: a `]` inside a title is a character, not a
 // bracket, and text after the array is only text.
 fn last_json_array(text: &str) -> Vec<Value> {
@@ -216,7 +214,7 @@ fn last_json_array(text: &str) -> Vec<Value> {
     Vec::new()
 }
 
-// An ISO date or date-time as (epoch milliseconds, was a whole day). A bare
+// Invariant: An ISO date or date-time as (epoch milliseconds, was a whole day). A bare
 // day is midnight in this machine's zone; a time with no offset is read in
 // it too; and a time on an all-day event is only its day.
 fn parse_when(value: Option<&Value>, all_day: bool) -> Option<(i64, bool)> {
@@ -258,7 +256,7 @@ fn in_years(year: i32) -> bool {
     (YEARS.0..=YEARS.1).contains(&year)
 }
 
-// Midnight at the start of a civil day in this machine's zone, and the day
+// Invariant: Midnight at the start of a civil day in this machine's zone, and the day
 // after it: a whole day is the day, not 86400000 milliseconds, which on a
 // clock-change day is an hour too many or too few.
 fn local_midnight_ms(day: NaiveDate) -> i64 {
@@ -362,8 +360,6 @@ mod tests {
             events[1]["endMs"].as_i64().unwrap() - events[1]["startMs"].as_i64().unwrap(),
             3_600_000
         );
-        // A day with a time but marked whole is its day; an end before the
-        // start is no end.
         let odd = parse(
             "[{\"title\":\"T\",\"start\":\"2026-10-02T15:00:00Z\",\"end\":\"2026-10-01T15:00:00Z\",\"allDay\":true}]",
         );

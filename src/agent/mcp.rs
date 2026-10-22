@@ -69,7 +69,7 @@ fn serve(
 ) -> Result<(), &'static str> {
     let mut initialized = false;
     let mut processed = 0;
-    // Same request IDs are replay-safe for this connection; bound memory too.
+    // Invariant: Same request IDs are replay-safe for this connection; bound memory too.
     let mut replies: Vec<(Value, Value)> = Vec::new();
     loop {
         let mut line = Vec::new();

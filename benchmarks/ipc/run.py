@@ -42,7 +42,7 @@ pub fn send(out:&mut impl Write,v:Value){reply(out,v).unwrap()}
 }
 fn main(){
  let mut out=io::stdout().lock();
- // Allocate fixtures before the handshake, outside the measurements.
+ // Performance: Allocate fixtures before the handshake, outside the measurements.
  let sizes=[1024usize,32768,262144,1048576,10485760];
  let fixtures:Vec<String>=sizes.iter().map(|s|"x".repeat(*s)).collect();
  for line in io::stdin().lock().lines(){
@@ -102,7 +102,7 @@ Scope {
       || result.data!==root.expected[root.sizeIndex]){
     root.fail("Response validation failed"); return
    }
-   // Same-host wall clocks, sub-ms values remain limited by QML Date.now.
+   // Performance: Same-host wall clocks, sub-ms values remain limited by QML Date.now.
    var response=end-result.startedMs
    if(response < -1 || result.startedMs<root.batchStart-1){root.fail("Clock mismatch");return}
    root.responseSum+=Math.max(0,response)
@@ -138,7 +138,7 @@ Scope {
         process=subprocess.Popen([shutil.which('qs'),'--no-color','--path',str(temp/'shell.qml')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)
         try: output,_=process.communicate(timeout=250)
         except subprocess.TimeoutExpired:
-            # The unreaped leader reserves its process-group identity, even if
+            # Invariant: The unreaped leader reserves its process-group identity, even if
             # only a descendant still holds an output pipe open.
             try: os.killpg(process.pid,signal.SIGKILL)
             except ProcessLookupError: pass

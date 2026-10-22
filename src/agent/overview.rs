@@ -49,7 +49,7 @@ async fn turn(prompt: &str, model: &str) -> Result<Value, &'static str> {
     }
     let _cleanup = Cleanup(id.clone());
     let mut command = Provider::Claude.isolated_command(&path, "", model, &id, false)?;
-    // Enterprise's headless router owns subscription selection and quota fallback.
+    // Invariant: Enterprise's headless router owns subscription selection and quota fallback.
     // Other installations keep the normal Claude executable and login.
     if let Some(home) = std::env::var_os("HOME") {
         let router = std::path::PathBuf::from(home).join(".local/bin/claude-routed");

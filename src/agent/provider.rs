@@ -22,7 +22,7 @@ impl Provider {
         }) {
             return name.into();
         }
-        // GUI-launched standalone apps on macOS do not inherit a login shell's
+        // Invariant: GUI-launched standalone apps on macOS do not inherit a login shell's
         // PATH. Discover standard CLI install locations without executing one.
         let mut directories = Vec::new();
         if let Some(home) = std::env::var_os("HOME") {
@@ -65,7 +65,7 @@ impl Provider {
                 super::config::claude(&mut command, id)?;
             }
             Self::Codex => {
-                // Auth remains in CODEX_HOME; user tool/plugin customizations do
+                // Invariant: Auth remains in CODEX_HOME; user tool/plugin customizations do
                 // not become authority to act on mail-supplied instructions.
                 command.args([
                     "--ignore-user-config",
@@ -92,7 +92,7 @@ impl Provider {
                     "agents.enabled=false",
                     "features.skip_host_skill_discovery=true",
                     "skills.bundled.enabled=false",
-                    // Keep the sole mail tool visible even when model metadata
+                    // Invariant: Keep the sole mail tool visible even when model metadata
                     // requires code-mode-only tools. No general tool discovery.
                     "features.code_mode={enabled=false,direct_only_tool_namespaces=[\"mcp__omamail\"]}",
                     "features.tool_search=false",
@@ -173,7 +173,7 @@ impl Provider {
                     "-c",
                     "approval_policy=\"never\"",
                 ]);
-                // Admission serializes a conversation; never resume --last.
+                // Invariant: Admission serializes a conversation; never resume --last.
                 if !resume.is_empty() {
                     command.args(["resume", resume]);
                 }

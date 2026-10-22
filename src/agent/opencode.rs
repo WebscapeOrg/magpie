@@ -383,7 +383,7 @@ async fn serve_lease(
     if released {
         return Ok(());
     }
-    // EOF after a crashed worker revokes its immutable native-session binding.
+    // Invariant: EOF after a crashed worker revokes its immutable native-session binding.
     // Never interrupt a completed turn or one that already has a successor.
     let needs_stop = (|| {
         let store = Store::open()?;
@@ -519,7 +519,7 @@ pub async fn serve() -> Result<()> {
     group.0.stdin.take();
     group.signal(libc::SIGTERM);
     tokio::time::sleep(Duration::from_millis(200)).await;
-    // Group's destructor kills and reaps while its PID identity is reserved.
+    // Invariant: Group's destructor kills and reaps while its PID identity is reserved.
     drop(group);
     Ok(())
 }

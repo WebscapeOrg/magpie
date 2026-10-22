@@ -106,7 +106,7 @@ async fn cancellation_and_deadline_kill_process_group() {
         let mut parser = parser();
         let cancel_future = async {
             if cancel {
-                // Cancel after the descendant installs its SIGTERM handler,
+                // Invariant: Cancel after the descendant installs its SIGTERM handler,
                 // rather than racing Python startup on a loaded CI runner.
                 loop {
                     if std::fs::read_to_string(&pidpath)

@@ -119,7 +119,7 @@ fn invalid_controls_duplicate_parts_and_oversize_leave_last_good_projection() {
 #[test]
 fn completion_requires_identity_and_last_step_success() {
     for provider in [Provider::OpenCode, Provider::Codex] {
-        // A protocol can complete with only an accepted draft proposal. The
+        // Invariant: A protocol can complete with only an accepted draft proposal. The
         // worker separately requires persisted content before making it ready.
         let mut empty = started(provider);
         empty.accept(finish(provider)).unwrap();

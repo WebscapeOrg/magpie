@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Diagnostic Node and QML columns use the same synthetic fixtures.
+# Performance: Diagnostic Node and QML columns use the same synthetic fixtures.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
@@ -20,9 +20,8 @@ if [[ -z $runtime ]]; then
 fi
 
 printf '\n'
-# Keep Qt diagnostics in this command's output instead of the desktop journal.
+# Invariant: Keep Qt diagnostics in this command's output instead of the desktop journal.
 export QT_FORCE_STDERR_LOGGING=1
-# The Node-only diagnostic remains useful when Qt is unavailable.
 if ! "$runtime" ui/tests/bench_html.qml; then
   printf '\nThe QML column did not run: %s exited non-zero above.\n' "$runtime"
   printf 'On a machine where the shell itself runs, that is worth looking into.\n'

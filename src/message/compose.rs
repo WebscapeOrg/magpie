@@ -329,7 +329,7 @@ pub fn build(fields: &Value) -> Result<Value> {
     if !fields.is_object() {
         return Err("invalid_params");
     }
-    // Bound every supplied value before decoding or constructing nested MIME.
+    // Invariant: Bound every supplied value before decoding or constructing nested MIME.
     if serde_json::to_vec(fields)
         .map_err(|_| "invalid_params")?
         .len()

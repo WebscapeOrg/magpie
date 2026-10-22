@@ -81,7 +81,7 @@ pub(super) async fn run_with_stderr_limit(
     let child = command.spawn().map_err(|_| "process_unavailable")?;
     let mut reaper = ChildReaper(Some(child));
     let child = reaper.0.as_mut().ok_or("process_unavailable")?;
-    // Windows assigns the still-suspended process to its job before resuming it.
+    // Invariant: Windows assigns the still-suspended process to its job before resuming it.
     // A failed attach cannot execute any child code.
     let group = super::platform::Tree::for_async_child(child)?;
     let mut stdin = child.stdin.take().ok_or("process_pipe_failed")?;
@@ -107,7 +107,7 @@ pub(super) async fn run_with_stderr_limit(
     })
     .await
     .unwrap_or(Err("process_timed_out"));
-    // Also terminate descendants retaining inherited pipes, including on cancellation.
+    // Invariant: Also terminate descendants retaining inherited pipes, including on cancellation.
     drop(group);
     if result.is_err() {
         let _ = child.kill().await;
@@ -206,7 +206,7 @@ mod tests {
         ));
         std::fs::create_dir(&root).unwrap();
         let root_arg = root.to_str().unwrap().to_owned();
-        // Each child announces that it started, then refuses to finish until
+        // Invariant: Each child announces that it started, then refuses to finish until
         // all three announcements exist. A serialized runner would deadlock
         // and time out; successful output therefore proves actual overlap
         // without relying on scheduler-sensitive elapsed time.
@@ -227,7 +227,7 @@ mod tests {
         let task = tokio::spawn(async move {
             run("python3", &["-c".into(), "import os,sys,time; open(sys.argv[1],'w').write(str(os.getpid())); time.sleep(30)".into(), path], b"", Duration::from_secs(30), 1024).await
         });
-        // The file exists from open() and holds the pid only after write(),
+        // Invariant: The file exists from open() and holds the pid only after write(),
         // so an empty read is the child mid-way, not a failure.
         let mut pid = None;
         for _ in 0..1500 {

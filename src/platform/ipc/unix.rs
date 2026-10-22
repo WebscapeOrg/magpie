@@ -67,7 +67,7 @@ impl LocalEndpoint {
         if !self.check_socket()? {
             return Err("outbox_owner_unavailable");
         }
-        // Socket creation and connect must finish synchronously while Darwin's
+        // Invariant: Socket creation and connect must finish synchronously while Darwin's
         // thread-local cwd is installed. The socket itself is nonblocking, so
         // backlog exhaustion cannot escape the caller's async deadline.
         let stream = self.with_path(connect_nonblocking)?;
@@ -104,7 +104,7 @@ impl LocalEndpoint {
     }
     #[cfg(target_os = "macos")]
     fn with_path<T>(&self, operation: impl FnOnce(&str) -> std::io::Result<T>) -> Result<T> {
-        // Darwin provides per-thread cwd precisely for descriptor-anchored
+        // Invariant: Darwin provides per-thread cwd precisely for descriptor-anchored
         // operations without an *at syscall. Never suspend or change process cwd.
         unsafe extern "C" {
             fn pthread_fchdir_np(fd: libc::c_int) -> libc::c_int;
@@ -112,7 +112,7 @@ impl LocalEndpoint {
         struct Reset;
         impl Drop for Reset {
             fn drop(&mut self) {
-                // A failed reset would redirect later relative IO on this worker.
+                // Invariant: A failed reset would redirect later relative IO on this worker.
                 // Stop the process rather than continuing in an unexpected root.
                 if unsafe { pthread_fchdir_np(-1) } != 0 {
                     std::process::abort();

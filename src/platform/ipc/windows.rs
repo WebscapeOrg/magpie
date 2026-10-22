@@ -68,7 +68,7 @@ impl LocalEndpoint {
                 Err(_) => return Err("outbox_owner_unavailable"),
             }
         };
-        // Validate the actual pipe's owner/DACL and server process token before
+        // Invariant: Validate the actual pipe's owner/DACL and server process token before
         // sending even the handshake, let alone message content. Identification
         // QoS prevents a server from using the client's token to act as it.
         security::validate(stream.as_raw_handle(), true).map_err(|_| "outbox_owner_unavailable")?;
@@ -152,7 +152,7 @@ pub(crate) fn check_peer(stream: &NamedPipeServer) -> Result<()> {
     struct Revert;
     impl Drop for Revert {
         fn drop(&mut self) {
-            // Continuing on a pooled executor thread with an attacker token is
+            // Invariant: Continuing on a pooled executor thread with an attacker token is
             // unsafe. There is no recovery if reverting to the process fails.
             if unsafe { RevertToSelf() } == 0 {
                 std::process::abort();

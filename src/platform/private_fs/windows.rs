@@ -76,7 +76,7 @@ fn path_parts(path: &Path) -> Result<(Vec<u16>, Vec<&OsStr>)> {
         name_units(name)?;
         names.push(name);
     }
-    // Path::components normalizes interior '.'; reject that spelling as well.
+    // Invariant: Path::components normalizes interior '.'; reject that spelling as well.
     if path
         .as_os_str()
         .to_string_lossy()
@@ -148,7 +148,7 @@ pub(crate) fn final_path(file: &File) -> Result<PathBuf> {
     Ok(std::ffi::OsString::from_wide(&buffer[..length]).into())
 }
 fn check_child(parent: &File, child: &File) -> Result<()> {
-    // Handles are authoritative. This is an additional containment assertion,
+    // Invariant: Handles are authoritative. This is an additional containment assertion,
     // never a path used for a subsequent open/write/delete. Rename races refuse.
     if final_path(child)?.parent() != Some(final_path(parent)?.as_path()) {
         return Err("cache_unsafe_path");
@@ -262,7 +262,7 @@ fn open_directory(
     private: bool,
     writable: bool,
 ) -> Result<Option<File>> {
-    // Mutation consumers flush directory metadata after replacing/removing cache
+    // Invariant: Mutation consumers flush directory metadata after replacing/removing cache
     // entries. FlushFileBuffers requires GENERIC_WRITE; traversal and explicit
     // readonly calls retain only read access.
     let Some(file) = open_at(
@@ -293,7 +293,6 @@ fn walk_directories(
     readonly: bool,
 ) -> Result<Option<File>> {
     let (drive, components) = path_parts(root)?;
-    // Validate the whole input before creation can have any side effect.
     for name in suffix {
         name_units(name.as_ref())?;
     }
@@ -327,7 +326,7 @@ pub(crate) fn open_private(dir: &File, name: &str, writable: bool) -> Result<Opt
     )
 }
 fn regular_with_access(dir: &File, name: &str, access: u32) -> Result<Option<File>> {
-    // Keep validation of an opened name outside our own replacement's brief
+    // Invariant: Keep validation of an opened name outside our own replacement's brief
     // rename/delete transition. The returned handle remains authoritative and
     // usable after the guard is released, including when its name is replaced.
     let _replacement = REPLACEMENTS.read().map_err(|_| "cache_unavailable")?;
@@ -363,7 +362,7 @@ fn delete_handle(file: &File) -> Result<()> {
 }
 pub(crate) fn remove_owned(dir: &File, name: &str) -> Result<()> {
     validate_owned_root(dir)?;
-    // Delete the very handle whose type/link count/ACL we checked, never a name
+    // Invariant: Delete the very handle whose type/link count/ACL we checked, never a name
     // looked up a second time after the check.
     let Some(file) = open_at(
         dir,
@@ -393,7 +392,7 @@ pub(crate) fn create_private(dir: &File, name: &str) -> Result<File> {
     Ok(file)
 }
 pub(crate) fn atomic_replace(dir: &File, name: &str, bytes: &[u8]) -> Result<()> {
-    // Windows replacement briefly transitions the destination through a
+    // Invariant: Windows replacement briefly transitions the destination through a
     // delete-pending name. Serialize our writers so one validated replacement
     // cannot observe another operation's transient namespace state.
     let _replacement = REPLACEMENTS.write().map_err(|_| "cache_unavailable")?;
@@ -417,7 +416,7 @@ pub(crate) fn atomic_replace(dir: &File, name: &str, bytes: &[u8]) -> Result<()>
         let length = (offset + name.len() * 2).max(size_of::<nt::FILE_RENAME_INFORMATION>());
         let mut buffer = vec![0usize; length.div_ceil(size_of::<usize>())];
         let info = buffer.as_mut_ptr().cast::<nt::FILE_RENAME_INFORMATION>();
-        // Native rename supports RootDirectory; Win32 FILE_RENAME_INFO does not.
+        // Invariant: Native rename supports RootDirectory; Win32 FILE_RENAME_INFO does not.
         unsafe {
             (*info).Anonymous.Flags =
                 nt::FILE_RENAME_REPLACE_IF_EXISTS | nt::FILE_RENAME_POSIX_SEMANTICS;
@@ -443,7 +442,7 @@ pub(crate) fn atomic_replace(dir: &File, name: &str, bytes: &[u8]) -> Result<()>
             return Err("cache_unavailable");
         }
         renamed = true;
-        // FlushFileBuffers runs both before and after rename, through the same
+        // Invariant: FlushFileBuffers runs both before and after rename, through the same
         // file handle. Power-loss durability still needs native filesystem tests.
         file.sync_all().map_err(|_| "cache_unavailable")
     })();
@@ -496,14 +495,14 @@ pub(crate) fn lock_exclusive(dir: &File, name: &str) -> Result<ExclusiveLock> {
     )?
     .ok_or("cache_unavailable")?;
     security::validate(file.as_raw_handle(), true)?;
-    // A non-inheritable handle with share=0 is the lease. No PID files, stale
+    // Invariant: A non-inheritable handle with share=0 is the lease. No PID files, stale
     // cleanup, or path-based deletion; Windows releases it when the owner dies.
     Ok(ExclusiveLock { _file: file })
 }
 
 pub(crate) fn names(dir: &File) -> Result<Vec<String>> {
     validate_owned_root(dir)?;
-    // Restart the cursor on the already pinned and validated handle. ReOpenFile
+    // Invariant: Restart the cursor on the already pinned and validated handle. ReOpenFile
     // does not reliably accept directory handles on all supported Windows
     // filesystems; serializing prevents two restarts from sharing a cursor.
     let _enumeration = ENUMERATIONS.lock().map_err(|_| "cache_unavailable")?;
@@ -586,7 +585,7 @@ pub(crate) fn open_external(path: &Path) -> Result<File> {
     let (drive, names) = path_parts(path).map_err(|_| "mail_send_attachment_path")?;
     let (last, parents) = names.split_last().ok_or("mail_send_attachment_path")?;
     let mut dir = drive_root(&drive)?;
-    // Attachments may be intentionally shared: only containment, regular-file
+    // Invariant: Attachments may be intentionally shared: only containment, regular-file
     // shape and reparse refusal apply, without imposing a private-data DACL.
     for name in parents {
         dir = open_at(&dir, name, true, nt::FILE_OPEN, READ, SHARE)?

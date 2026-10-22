@@ -12,7 +12,7 @@ from pathlib import Path
 with tempfile.TemporaryDirectory(prefix="omamail-discovery-tls-") as directory:
     cert, key = Path(directory) / "cert.pem", Path(directory) / "key.pem"
     request, extensions = Path(directory) / "request.pem", Path(directory) / "extensions.cnf"
-    # The peer presents this certificate as an end entity, so it must say
+    # Invariant: The peer presents this certificate as an end entity, so it must say
     # CA:FALSE — and say it once. `req -x509` adds its own basicConstraints
     # (CA:TRUE, which webpki refuses on a leaf), and LibreSSL on macOS keeps
     # it beside an -addext copy, a duplicate the OpenSSL that Python loads

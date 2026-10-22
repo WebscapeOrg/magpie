@@ -79,7 +79,7 @@ fn entity(
     let mut mime_type = mail.ctype.mimetype.clone();
     if parts.is_empty() {
         let bytes = if mime_type.starts_with("multipart/") {
-            // mailparse treats a missing boundary's content as preamble and
+            // Invariant: mailparse treats a missing boundary's content as preamble and
             // discards it. Recover the original body before transfer decoding.
             let (_, offset) =
                 mailparse::parse_headers(mail.raw_bytes).map_err(|_| "invalid_message")?;
@@ -128,7 +128,7 @@ fn entity(
         "headers":headers,"body":body,"parts":parts}))
 }
 
-// Match the existing byte-string adapter: unfold whitespace, but leave encoded
+// Invariant: Match the existing byte-string adapter: unfold whitespace, but leave encoded
 // words intact. The reader owns RFC 2047 decoding and must not decode twice.
 fn unfold_header(raw: &[u8]) -> String {
     let mut result = String::new();

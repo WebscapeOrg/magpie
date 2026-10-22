@@ -26,7 +26,7 @@ QtObject {
         var result=operation()
         var coldUs=(Date.now()-start)*1000
         for(var w=0;w<5;w++) result=operation()
-        // Calibrate batches to >=20ms to bound millisecond timer quantization.
+        // Performance: Calibrate batches to >=20ms to bound millisecond timer quantization.
         var batch=1
         var elapsed=0
         while(batch<=2048) {

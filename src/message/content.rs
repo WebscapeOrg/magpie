@@ -78,7 +78,7 @@ fn utf8(bytes: &[u8]) -> String {
 fn decode(charset: &str, bytes: &[u8]) -> String {
     let charset = charset.trim().to_ascii_lowercase();
     let encoding = encoding_rs::Encoding::for_label(charset.as_bytes());
-    // Preserve the existing repair for UTF-8 sent under a single-byte label.
+    // Invariant: Preserve the existing repair for UTF-8 sent under a single-byte label.
     // The alias's canonical name also covers cp1251, latin2, and friends.
     let name = encoding.map_or(charset.as_str(), |e| e.name());
     let single_byte = name.starts_with("windows-125")
@@ -91,12 +91,12 @@ fn decode(charset: &str, bytes: &[u8]) -> String {
         return text.to_owned();
     }
     match encoding {
-        // A MIME charset labels these octets; a BOM must not silently select
+        // Invariant: A MIME charset labels these octets; a BOM must not silently select
         // another decoder. Malformed legacy sequences become replacement chars.
         Some(encoding) if encoding != encoding_rs::UTF_8 => {
             encoding.decode_without_bom_handling(bytes).0.into_owned()
         }
-        // Keep the established permissive fallback for UTF-8 and unknown labels.
+        // Invariant: Keep the established permissive fallback for UTF-8 and unknown labels.
         _ => utf8(bytes),
     }
 }
@@ -427,7 +427,7 @@ fn walk(
     }
     Ok(())
 }
-// Be conservative: angle-bracket prose is a legitimate plain alternative.
+// Invariant: Be conservative: angle-bracket prose is a legitimate plain alternative.
 // Require nested markup, not merely a document-root name or closing tag in text.
 fn markup_as_text(plain: &str) -> bool {
     let text = plain.trim();
@@ -459,7 +459,7 @@ fn markup_as_text(plain: &str) -> bool {
             .find(|child| child.kind != "text" || !child.text.trim().is_empty())
             .is_some_and(|child| child.kind != "text")
     };
-    // Style text alone is ambiguous too: require a nested structural sibling.
+    // Invariant: Style text alone is ambiguous too: require a nested structural sibling.
     if first.name == "style" {
         return root.children.iter().any(|n| {
             matches!(n.name.as_str(), "html" | "body" | "div" | "table") && begins_with_markup(n)

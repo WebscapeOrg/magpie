@@ -1,6 +1,6 @@
 .pragma library
 
-// Shared Node/QML fixtures and timers measure JavaScript preparation only.
+// Performance: Shared Node/QML fixtures and timers measure JavaScript preparation only.
 // Each synthetic card nests nine layout tables to exercise flattening limits.
 function outlookMail(cards) {
   var out = "<html><head><title>Newsletter</title><style>.x{color:red}</style></head><body>"
@@ -34,7 +34,7 @@ function pad(text, width) {
   return out
 }
 
-// Milliseconds per run, over enough runs to outlast the clock's resolution.
+// Performance: Milliseconds per run, over enough runs to outlast the clock's resolution.
 function timed(run) {
   var started = Date.now()
   var runs = 0
@@ -45,7 +45,6 @@ function timed(run) {
   return (Date.now() - started) / runs
 }
 
-// Parse once, prepare all three content modes, then build the reader document.
 function openOnce(html, source, palette) {
   var ready = html.sanitize(source,
     { allowRemoteImages: false, withPlainText: true, withReader: true })
@@ -77,7 +76,7 @@ function run(html, log) {
     var ready = openOnce(html, source, palette)
 
     var open = timed(function() { openOnce(html, source, palette) })
-    // A drag walks through widths; the document is not reparsed for any of them.
+    // Performance: A drag walks through widths; the document is not reparsed for any of them.
     var step = 0
     var relayout = timed(function() {
       palette.maxImageWidth = 300 + (step++ % 30) * 20
@@ -85,7 +84,6 @@ function run(html, log) {
     })
     palette.maxImageWidth = 380
 
-    // Reader and formatted documents have independent complexity budgets.
     var refused = ready.reader.tooHeavy
       ? refusedBy(ready.reader.complexity, html.limits)
       : (ready.tooHeavy ? "formatted view only (" + refusedBy(ready.complexity, html.limits) + ")" : "")

@@ -160,7 +160,7 @@ async fn icloud_refusal_never_contacts_an_untrusted_target() {
     );
 }
 
-// A Graph calendar id is base64 with `=` padding, which the request builder
+// Invariant: A Graph calendar id is base64 with `=` padding, which the request builder
 // writes into the path literally while a nextLink may carry it as `%3D`. Both
 // spell the same resource, so the second page must not be refused; a link that
 // decodes to a different resource still is.
@@ -404,7 +404,7 @@ async fn google_move_sends_explicit_zero_content_length() {
 async fn independent_calendar_requests_progress_concurrently() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
-    // No response until all three requests arrived: a serial transport cannot
+    // Invariant: No response until all three requests arrived: a serial transport cannot
     // finish this exchange. The timeout only prevents a regression hanging CI.
     let server = tokio::spawn(async move {
         let mut sockets = Vec::new();

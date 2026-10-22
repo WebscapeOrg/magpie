@@ -7,7 +7,33 @@ Item {
   QtObject {
     id: fakeBackend
     property bool ready: true
+    property string executable: "/synthetic/omamail"
     property var requests: []
+    function test_hey_account_change_discards_cached_mail() {
+      var auth = hey()
+      auth.accountId = "hey:first@example.test"
+      auth.loggedIn = true
+      var client = createTemporaryObject(heyClientFactory, root, { auth: auth, backend: fakeBackend })
+      client.rememberResources([{ id: "1:1", marker: "first-account-private-mail" }])
+      auth.accountId = "hey:second@example.test"
+      var result = undefined
+      client.getMessage("1:1", false, function(message) { result = message })
+      wait(10)
+      compare(result, null, "cached mail must not cross an account switch")
+    }
+    function test_hey_account_change_discards_cached_sender() {
+      var auth = hey()
+      auth.accountId = "hey:first@example.test"
+      auth.loggedIn = true
+      var client = createTemporaryObject(heyClientFactory, root, { auth: auth, backend: fakeBackend })
+      client.address = "first@example.test"
+      auth.accountId = "hey:second@example.test"
+      var delivered = false
+      client.getSendAs(function() { delivered = true })
+      wait(10)
+      compare(delivered, false, "sender must be loaded for the replacement account")
+      compare(fakeBackend.requests[fakeBackend.requests.length - 1].method, "hey.profile")
+    }
     function test_removed_outlook_owner_does_not_restore_a_session() {
       failOnWarning(/.?/)
       lifecycleLoader.active = true
@@ -86,6 +112,7 @@ Item {
     function hey() {
       var auth = createTemporaryObject(heyFactory, root)
       auth.backend = fakeBackend
+      auth.heyPath = "/synthetic/hey"
       auth.toolsChecked = true
       auth.missingTools = []
       fakeBackend.requests = []

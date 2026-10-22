@@ -34,7 +34,6 @@ Item {
   readonly property var inboxTools: inboxController
   InboxTools { id: inboxController; service: root }
 
-
   visible: false
   width: 0
   height: 0
@@ -224,13 +223,13 @@ Item {
 
   function agentJobFor(messageId, accountId) {
     var target = agentTarget(messageId, accountId)
-    return target.owner ? agentRunner.selectionJob( [target.id], target.owner.accountId) : null
+    return target.owner ? agentRunner.selectionJob([target.id], target.owner.accountId) : null
   }
 
   function agentHistoryFor(fields, ids, accountId) {
     if (fields && fields.draftKey) {
       var sender = sendHostFor(fields)
-      return sender ? agentRunner.historyFor( sender.accountId, [], fields.draftKey) : []
+      return sender ? agentRunner.historyFor(sender.accountId, [], fields.draftKey) : []
     }
     if (!ids || !ids.length) return []
     var target = agentTarget(ids[0], accountId)
@@ -241,7 +240,7 @@ Item {
       if (item.owner !== target.owner) return []
       own.push(item.id)
     }
-    return agentRunner.historyFor( target.owner.accountId, own, "")
+    return agentRunner.historyFor(target.owner.accountId, own, "")
   }
 
   function agentSelectionJob(ids, accountId) {
@@ -253,7 +252,7 @@ Item {
       if (item.owner !== target.owner) return null
       own.push(item.id)
     }
-    return agentRunner.selectionJob( own, target.owner.accountId)
+    return agentRunner.selectionJob(own, target.owner.accountId)
   }
 
   // Invariant: Deferred AI actions retain their opening account. Only an omitted account ID resolves to current.
@@ -368,7 +367,7 @@ Item {
 
   function agentJobsForDraft(fields) {
     var owner = sendHostFor(fields)
-    return owner ? agentRunner.draftJobs( owner.accountId, fields.draftKey) : []
+    return owner ? agentRunner.draftJobs(owner.accountId, fields.draftKey) : []
   }
 
   function askAgentDraft(fields, ask) {
@@ -667,7 +666,6 @@ Item {
     persistSetting("unifiedCalendarView", value === true)
   }
 
-
   function setShowBarIcon(value) {
     persistSetting("showBarIcon", value === true)
   }
@@ -676,7 +674,6 @@ Item {
   function setUnifiedMailboxes(value) {
     persistSetting("unifiedMailboxes", value === true)
   }
-
 
   property var accountList: Accounts.emptyList()
   property bool accountsLoaded: false
@@ -1182,7 +1179,6 @@ Item {
   }
   signal duplicateAccount(string email)
 
-
   property int unreadTotal: 0
   // Invariant: First-run setup depends on readiness across all accounts, not only the visible mailbox.
   property bool anyAccountReady: false
@@ -1330,7 +1326,6 @@ Item {
     return result
   }
 
-
   // Invariant: Coalesce native merge requests and reject responses from older account or view generations.
   property var unifiedSnapshot: ({})
   property int unifiedRevision: 0
@@ -1442,7 +1437,6 @@ Item {
     var url = CalendarSources.calendarEditorUrl(sharedCalendar.sourceList)
     if (url !== "") openExternal(url)
   }
-
 
   property bool windowOpen: false
   onWindowOpenChanged: {
@@ -1636,7 +1630,6 @@ Item {
   readonly property bool hasMore: unified
     ? !!unifiedSnapshot.hasMore : (!!current && current.hasMore)
   readonly property bool selectionIsPreview: !!reading && reading.selectionIsPreview
-
 
   readonly property string resultSummary: current ? current.resultSummary : ""
   // Invariant: reading owns all message details, independently of which account supplies the visible list.
@@ -2213,7 +2206,6 @@ Item {
     if (host && host !== current && !unified) switchToIndex(index)
     replyFailed(String(sendId || ""))
   }
-
 
   readonly property alias calendarCache: sharedCalendarCache
   CalendarCache { id: sharedCalendarCache; backend: root.backend; cacheName: root.backend && Number(root.backend.apiVersion)>=8 ? "calendar-shared" : "calendar" }

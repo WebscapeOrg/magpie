@@ -2391,11 +2391,21 @@ Item {
     }
     return host.undoSend(callback)
   }
-  function loadAttachments(messageId, attachments, callback, draftKey) {
-    var host = hostForId(messageId)
-    if (host) return host.loadAttachments(sourceIdFor(messageId), attachments, callback, draftKey)
-    if (typeof callback === "function") callback([], "No mailbox is selected")
-    return null
+  function loadAttachments(messageId, attachments, callback, draftKey, ownerAccountId) {
+    var bound = ownerAccountId !== undefined && ownerAccountId !== null
+    var owner = bound ? String(ownerAccountId) : ""
+    var encodedOwner = Unified.accountOf(messageId)
+    if (bound && (owner === "" || (encodedOwner !== "" && encodedOwner !== owner))) {
+      if (typeof callback === "function") callback([], "These attachments belong to a different mailbox")
+      return null
+    }
+    var host = bound ? findAccount(owner) : hostForId(messageId)
+    if (!host) {
+      if (typeof callback === "function") callback([], "The mailbox for these attachments is unavailable")
+      return null
+    }
+    var source = bound ? (encodedOwner !== "" ? Unified.sourceIdOf(messageId) : String(messageId || "")) : sourceIdFor(messageId)
+    return host.loadAttachments(source, attachments, callback, draftKey)
   }
   function openAttachment(messageId, attachment) {
     var host = hostForId(messageId)

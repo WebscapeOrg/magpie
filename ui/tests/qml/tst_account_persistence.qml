@@ -84,19 +84,11 @@ Item {
       compare(svc.lastPersistedIds.length, 2);
       return svc;
     }
-    function latestRequest(svc, method) {
-      var id = ""
-      for (var i = 0; i < svc.backend.children.length; i++) {
-        var child = svc.backend.children[i]
-        if (!child.written) continue
-        var lines = child.written.split("\n")
-        for (var j = 0; j < lines.length; j++) {
-          if (!lines[j]) continue
-          var request = JSON.parse(lines[j])
-          if (request.method === method) id = request.id
-        }
-      }
-      return id
+    function latestRequest(service, method) {
+      var requests = BackendFixture.install(service).requests
+      for (var requestIndex = requests.length - 1; requestIndex >= 0; requestIndex--)
+        if (requests[requestIndex].method === method) return requests[requestIndex].id
+      return ""
     }
     function finishWrite(svc) {
       var id = latestRequest(svc, "accounts.save")

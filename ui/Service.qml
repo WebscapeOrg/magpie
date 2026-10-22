@@ -46,6 +46,13 @@ Item {
   // Invariant: Native hosts supply the platform adapter; the plugin shell leaves it unset.
   property var platform: null
   property var initialSettings: null
+  property int configWrites: 0
+  property int persistenceFailureRevision: 0
+  readonly property bool persistencePending: configWrites > 0 || accountsWriting
+    || accountsSaveQueued || accountsReading || accountsReloadQueued || windowWriting
+    || windowPrefsSettling.running || sending || runningActionCount > 0 || queuedActionCount > 0
+    || calendarController.savingSource || calendarController.savingPassword
+    || calendarController.creatingEvent || calendarController.eventWriting
   readonly property var capabilities: platform && platform.capabilities
     ? platform.capabilities : ({ agent: true, tray: true, mailto: true, notifications: true })
   readonly property bool standalone: !!platform && platform.standalone === true
@@ -487,14 +494,26 @@ Item {
       if (typeof callback === "function") callback(false, "Invalid configuration file")
       return false
     }
-    if (platform && typeof platform.writeConfig === "function")
-      return platform.writeConfig(String(name), String(text), callback)
+    configWrites++
+    var completed = false
+    var done = function(ok, error) {
+      if (completed) return
+      completed = true
+      root.configWrites--
+      if (!ok) root.persistenceFailureRevision++
+      if (typeof callback === "function") callback(ok, error)
+    }
+    if (platform && typeof platform.writeConfig === "function") {
+      var accepted = platform.writeConfig(String(name), String(text), done)
+      if (accepted === false) done(false, "Could not start configuration write")
+      return accepted
+    }
     var request = hostProcessComponent.createObject(root, {
-      operation: "write", callback: callback, payload: String(text) + "\n",
+      operation: "write", callback: done, payload: String(text) + "\n",
       command: [root.pluginDir + "/scripts/config-store.sh", String(name)]
     })
     if (!request) {
-      if (typeof callback === "function") callback(false, "Could not start configuration write")
+      done(false, "Could not start configuration write")
       return false
     }
     request.running = true
@@ -635,6 +654,7 @@ Item {
     for (var field in next) entry[field] = next[field]
     if (shell && typeof shell.updateEntryInline === "function"
         && shell.updateEntryInline(pluginId, entry) === false) {
+      persistenceFailureRevision++
       fail("Could not save settings. Please try again.")
       return false
     }
@@ -982,6 +1002,7 @@ Item {
       root.accountsWriting = false
       root.accountsWritePayload = ""
       if (error || !result) {
+        root.persistenceFailureRevision++
         root.accountsSaveQueued = false
         root.accountsSaveQueuedAllowDrop = false
         root.accountsRevision = ""
@@ -2429,14 +2450,32 @@ Item {
   Component {
     id: hostProcessComponent
     Process {
+      id: hostProcess
       required property string operation
       property var callback: null
       property string payload: ""
+      property bool processStarted: false
+      property bool completed: false
+      objectName: operation === "write" ? "configuration-writer" : "host-process"
       stdinEnabled: payload !== ""
       stdout: StdioCollector { waitForEnd: true }
       stderr: StdioCollector { waitForEnd: true }
-      onStarted: if (payload !== "") { write(payload); payload = "" }
-      onExited: function(exitCode) {
+      readonly property Timer startDeadline: Timer {
+        objectName: "config-write-start-deadline"
+        interval: 10000
+        running: hostProcess.operation === "write" && !hostProcess.processStarted && !hostProcess.completed
+        onTriggered: {
+          hostProcess.running = false
+          hostProcess.finish(-1)
+        }
+      }
+      onStarted: {
+        processStarted = true
+        if (payload !== "") { write(payload); payload = "" }
+      }
+      function finish(exitCode) {
+        if (completed) return
+        completed = true
         var done = callback
         callback = null
         if (typeof done === "function") {
@@ -2450,6 +2489,7 @@ Item {
         }
         destroy()
       }
+      onExited: function(exitCode) { finish(exitCode) }
     }
   }
 

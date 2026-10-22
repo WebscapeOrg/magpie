@@ -109,6 +109,220 @@ Item {
       compare(backend.shutdownError, null)
     }
 
+    function completeRestartShutdown(backend, process) {
+      var quit = requests(process).slice(-1)[0]
+      compare(quit.method, "system.quit")
+      reply(process, quit, { quitReady: true })
+      verify(backend.restarting)
+      verify(!backend.ready)
+      process.exited(0)
+      wait(0)
+      verify(process.running)
+      verify(backend.restarting)
+      verify(!backend.ready)
+      process.started()
+      var handshake = requests(process).slice(-1)[0]
+      compare(handshake.method, "system.info")
+      return handshake
+    }
+
+    function restartedInfo() {
+      return { name: "omamail", apiVersion: 1, protocol: 1, version: "0.8.2",
+        methods: ["system.info", "system.quit", "gmail.read", "upload.begin"] }
+    }
+
+    function test_restart_drains_queue_and_waits_for_handshake_each_time() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var completed = 0
+      for (var requestIndex = 0; requestIndex < 80; requestIndex++)
+        backend.call("gmail.read", { id: requestIndex }, function(result, error) { if (!error) completed++ })
+      var restarts = 0
+      backend.restart(function(error) { compare(error, null); restarts++ })
+      verify(backend.restarting)
+      for (var replyIndex = 0; replyIndex < 80; replyIndex++) {
+        var request = requests(process)[replyIndex + 1]
+        compare(request.method, "gmail.read")
+        reply(process, request, { ok: true })
+      }
+      compare(completed, 80)
+      compare(restarts, 0)
+      var handshake = completeRestartShutdown(backend, process)
+      compare(restarts, 0, "a launched process is not ready until its handshake succeeds")
+      var before = process.written
+      var refused = null
+      backend.call("gmail.read", {}, function(result, error) { refused = error })
+      verify(refused !== null)
+      compare(process.written, before)
+      reply(process, handshake, restartedInfo())
+      compare(restarts, 1)
+      verify(backend.ready)
+      verify(!backend.restarting)
+      verify(!backend.stopping)
+      backend.restart(function(error) { compare(error, null); restarts++ })
+      handshake = completeRestartShutdown(backend, process)
+      reply(process, handshake, restartedInfo())
+      compare(restarts, 2)
+      verify(backend.ready)
+      compare(process.command[0], backend.executable)
+    }
+
+    function test_restart_duplicate_is_refused_without_extra_quit() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var completed = 0
+      backend.restart(function(error) { compare(error, null); completed++ })
+      var before = process.written
+      var refused = null
+      backend.restart(function(error) { refused = error })
+      compare(refused.message, "Backend restart is already in progress")
+      compare(process.written, before)
+      var handshake = completeRestartShutdown(backend, process)
+      reply(process, handshake, restartedInfo())
+      compare(completed, 1)
+    }
+
+    function test_restart_after_separate_shutdown_and_runtime_validation() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var stopped = false
+      backend.shutdown(function(error) { compare(error, null); stopped = true })
+      reply(process, requests(process).slice(-1)[0], { quitReady: true })
+      process.exited(0)
+      verify(stopped)
+      backend.launchEnabled = false
+      wait(0)
+      backend.launchEnabled = true
+      wait(0)
+      verify(!process.running, "runtime validation alone must not restart a shut-down backend")
+      var before = requests(process).length
+      var completed = false
+      backend.restart(function(error) { compare(error, null); completed = true })
+      verify(process.running)
+      process.started()
+      compare(requests(process).length, before + 1, "no second quit is sent")
+      reply(process, requests(process).slice(-1)[0], restartedInfo())
+      verify(completed)
+      verify(backend.ready)
+    }
+
+    function test_restart_incompatible_handshake_stops_without_dispatch() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var failures = []
+      backend.restart(function(error) { failures.push(error) })
+      var handshake = completeRestartShutdown(backend, process)
+      var info = restartedInfo()
+      info.version = "0.8.1"
+      reply(process, handshake, info)
+      compare(failures.length, 1)
+      compare(failures[0].message, "Incompatible backend")
+      verify(!backend.ready)
+      verify(!process.running)
+      var before = process.written
+      backend.call("gmail.read", {}, function() {})
+      compare(process.written, before)
+      process.exited(1)
+      compare(failures.length, 1)
+    }
+
+    function test_restart_startup_deadline_data() {
+      return [{ tag: "no process start", handshake: false }, { tag: "no handshake", handshake: true }]
+    }
+
+    function test_restart_startup_deadline(data) {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var failures = []
+      backend.restart(function(error) { failures.push(error) })
+      reply(process, requests(process).slice(-1)[0], { quitReady: true })
+      process.exited(0)
+      wait(0)
+      verify(process.running)
+      if (data.handshake) process.started()
+      restartDeadlineOf(backend).triggered()
+      compare(failures.length, 1)
+      compare(failures[0].message, "Backend restart timed out")
+      verify(!process.running)
+      verify(!backend.ready)
+      process.exited(1)
+      compare(failures.length, 1)
+    }
+
+    function test_restart_never_relaunches_without_confirmed_stop() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var failures = []
+      backend.restart(function(error) { failures.push(error) })
+      deadlineOf(backend).triggered()
+      stopConfirmationOf(backend).triggered()
+      compare(failures.length, 1)
+      compare(failures[0].message, "Backend stop was not confirmed")
+      verify(!process.running)
+      var before = process.written
+      backend.restart(function(error) { failures.push(error) })
+      compare(failures.length, 2)
+      compare(failures[1].message, "Backend stop was not confirmed")
+      verify(!process.running)
+      compare(process.written, before)
+      process.exited(1)
+      var completed = false
+      backend.restart(function(error) { compare(error, null); completed = true })
+      verify(process.running)
+      process.started()
+      reply(process, requests(process).slice(-1)[0], restartedInfo())
+      verify(completed)
+      verify(backend.ready)
+    }
+
+    function test_restart_failed_quit_requires_explicit_retry_after_exit() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var failures = []
+      backend.restart(function(error) { failures.push(error) })
+      reply(process, requests(process).slice(-1)[0], null, { code: -32000, message: "quit failed" })
+      compare(failures.length, 0)
+      process.exited(1)
+      wait(0)
+      compare(failures.length, 1)
+      compare(failures[0].message, "Backend shutdown failed")
+      verify(!process.running)
+      backend.restart(function(error) { compare(error, null) })
+      verify(process.running)
+      process.started()
+      reply(process, requests(process).slice(-1)[0], restartedInfo())
+      verify(backend.ready)
+    }
+
+    function test_shutdown_cancels_pending_restart_without_relaunch() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var restartError = null
+      backend.restart(function(error) { restartError = error })
+      var stopped = false
+      backend.shutdown(function(error) { compare(error, null); stopped = true })
+      compare(restartError.message, "Backend restart was cancelled")
+      reply(process, requests(process).slice(-1)[0], { quitReady: true })
+      process.exited(0)
+      wait(0)
+      verify(stopped)
+      verify(!process.running)
+      verify(!backend.restarting)
+    }
+
+    function test_restart_refuses_changed_executable_after_shutdown() {
+      var backend = makeBackend()
+      var process = makeReady(backend)
+      var failure = null
+      backend.restart(function(error) { failure = error })
+      backend.executable = "/tmp/changed-synthetic-backend"
+      reply(process, requests(process).slice(-1)[0], { quitReady: true })
+      process.exited(0)
+      wait(0)
+      compare(failure.message, "Backend changed during restart")
+      verify(!process.running)
+    }
+
     function test_internal_upload_burst_shares_one_reservation_queue() {
       var backend = makeBackend()
       var process = makeReady(backend)
@@ -252,6 +466,15 @@ Item {
         if (child.interval === 1000 && child.repeat === false) return child
       }
       fail("No backend stop confirmation deadline")
+      return null
+    }
+
+    function restartDeadlineOf(backend) {
+      for (var childIndex = 0; childIndex < backend.data.length; childIndex++) {
+        var child = backend.data[childIndex]
+        if (child.interval === 10000 && child.repeat === false) return child
+      }
+      fail("No backend restart deadline")
       return null
     }
 

@@ -49,6 +49,11 @@ Item {
   property var shutdownCallbacks: []
   property var shutdownError: null
   property var shutdownFailure: null
+  property bool processExitConfirmed: true
+  property bool restarting: false
+  property var restartCallback: null
+  property string restartExecutable: ""
+  property int restartSequence: 0
 
   signal shutdownComplete(var error)
   signal notification(string method, var params)
@@ -140,7 +145,67 @@ Item {
     } finally { draining = false }
   }
 
-  function shutdown(callback) {
+  function restart(callback) {
+    if (restarting) {
+      if (typeof callback === "function")
+        callback({ code: -32010, message: "Backend restart is already in progress" })
+      return
+    }
+    if (!launchEnabled || executable === "" || (shutdownStarted && !shutdownFinished)) {
+      if (typeof callback === "function")
+        callback({ code: -32010, message: "Backend cannot restart yet" })
+      return
+    }
+    restarting = true
+    var sequence = ++restartSequence
+    restartCallback = callback
+    restartExecutable = executable
+    if (shutdownFinished) {
+      startAfterShutdown()
+      return
+    }
+    shutdown(function(error) {
+      if (!root.restarting) return
+      if (error) root.finishRestart(error)
+      else Qt.callLater(function() {
+        if (root.restartSequence === sequence) root.startAfterShutdown()
+      })
+    }, true)
+  }
+
+  function startAfterShutdown() {
+    if (!restarting) return
+    if (!shutdownFinished || !processExitConfirmed || child.running) {
+      finishRestart({ code: -32010, message: "Backend stop was not confirmed" })
+      return
+    }
+    if (!launchEnabled || executable === "" || executable !== restartExecutable) {
+      finishRestart({ code: -32010, message: "Backend changed during restart" })
+      return
+    }
+    shutdownStarted = false
+    shutdownFinished = false
+    shutdownError = null
+    shutdownFailure = null
+    quitRequested = false
+    failure = ""
+    restartDeadline.restart()
+    child.running = true
+  }
+
+  function finishRestart(error) {
+    if (!restarting) return
+    restartDeadline.stop()
+    var callback = restartCallback
+    restartCallback = null
+    restartExecutable = ""
+    restarting = false
+    if (typeof callback === "function") callback(error || null)
+  }
+
+  function shutdown(callback, forRestart) {
+    if (restarting && !forRestart)
+      finishRestart({ code: -32010, message: "Backend restart was cancelled" })
     if (typeof callback === "function") {
       if (shutdownFinished) {
         callback(shutdownError)
@@ -156,7 +221,7 @@ Item {
     uploadQueue.fail({ code: -32010, message: "Backend is shutting down" })
     if (!connected) {
       // Invariant: A process starting during shutdown must still enter the bounded quit path.
-      if (child.running) return
+      if (child.running || !processExitConfirmed) return
       finishShutdown(null)
       return
     }
@@ -199,6 +264,8 @@ Item {
     }
     failPending(message)
     child.running = false
+    if (!shutdownStarted)
+      finishRestart({ code: -32010, message: message })
   }
 
   function failPending(message) {
@@ -273,6 +340,13 @@ Item {
   }
 
   Timer {
+    id: restartDeadline
+    interval: 10000
+    repeat: false
+    onTriggered: root.stopForFailure("Backend restart timed out")
+  }
+
+  Timer {
     id: shutdownDeadline
     interval: 5000
     repeat: false
@@ -295,7 +369,9 @@ Item {
     running: root.launchEnabled && root.executable !== ""
     stdinEnabled: true
     stdout: SplitParser { onRead: data => root.receive(data) }
+    onRunningChanged: { if (running) root.processExitConfirmed = false }
     onStarted: {
+      root.processExitConfirmed = false
       if (!root.launchEnabled) {
         root.stopForFailure("Backend unavailable")
         return
@@ -307,12 +383,18 @@ Item {
       }
       root.failure = ""
       root.request("system.info", {}, function(info, error) {
-        if (error || !Compatibility.accepts(info, root.expectedVersion, root.expectedApiVersion, root.latestApiVersion))
+        if (error)
+          root.stopForFailure(root.failure || "Backend handshake failed")
+        else if (!Compatibility.accepts(info, root.expectedVersion, root.expectedApiVersion, root.latestApiVersion))
           root.stopForFailure("Incompatible backend")
-        else root.protocolInfo = info
+        else {
+          root.protocolInfo = info
+          root.finishRestart(null)
+        }
       }, true)
     }
     onExited: function(exitCode) {
+      root.processExitConfirmed = true
       var clean = Compatibility.isCleanShutdown(
         root.stopping, root.quitRequested, Object.keys(root.pending).length + root.queued.length,
         root.shutdownFailure !== null, exitCode)
@@ -329,6 +411,7 @@ Item {
       if (root.stopping)
         root.finishShutdown(root.shutdownFailure
           || { code: -32010, message: message })
+      else root.finishRestart({ code: -32010, message: message })
     }
   }
 }

@@ -195,7 +195,8 @@ Item {
       draftSaveCallbacks = queued
       callback(error ? null : "draft-1", String(error || ""))
     }
-    function refresh() {}
+    property int refreshCalls: 0
+    function refresh() { refreshCalls++ }
     function fail(text) { lastError = String(text || "") }
     function note(text) { actionStatus = String(text || "") }
     signal replySent()
@@ -210,6 +211,37 @@ Item {
   TestCase {
     name: "AppComposePending"
     when: windowShown
+
+    function test_restart_blocks_application_shortcuts_and_escape_cancels_only_saving() {
+      app.open("{}")
+      app.startCompose("new")
+      var compose = composeView()
+      named(compose, "compose-subject-field").text = "Keep during restart"
+      app.openSettings()
+      wait(20)
+      mailService.refreshCalls = 0
+      keyClick(Qt.Key_R, Qt.ControlModifier)
+      compare(mailService.refreshCalls, 1, "positive control: refresh shortcut reaches the service")
+      var controller = findChild(app, "app-restart")
+      verify(controller)
+      app.composeWriteQueued = true
+      controller.persistenceRevision = 0
+      controller.resumeWrites = false
+      controller.expires = Date.now() + 10000
+      controller.phase = "saving"
+      keyClick(Qt.Key_R, Qt.ControlModifier)
+      compare(mailService.refreshCalls, 1)
+      compare(app.showSettings, true)
+      controller.phase = "stopping"
+      keyClick(Qt.Key_Escape)
+      compare(controller.phase, "stopping")
+      compare(app.showSettings, true)
+      controller.phase = "saving"
+      keyClick(Qt.Key_Escape)
+      compare(controller.phase, "idle")
+      compare(app.showSettings, true)
+      compare(named(compose, "compose-subject-field").text, "Keep during restart")
+    }
 
     function named(item, objectName) {
       if (!item) return null
@@ -375,6 +407,8 @@ Item {
     }
 
     function init() {
+      var restarting = findChild(app, "app-restart")
+      if (restarting) restarting.finish("", false)
       mailService.agentAvailable = true
       mailService.anyAccountReady = true
       mailService.backendRuntime = null

@@ -25,6 +25,10 @@ Column {
   signal editRequested(int index)
   signal openCalendarRequested()
   signal calendarSignInRequested(int index)
+  signal restartRequested()
+  property bool restartBusy: false
+  property string restartStatus: ""
+  property bool restartFailed: false
 
   readonly property var accounts: service ? service.accountSummaries : []
   // Invariant: live account summaries change during polling; a stable signature list preserves the
@@ -34,7 +38,7 @@ Column {
   property string selectedSignatureAccountId: ""
 
   readonly property var sections: {
-    var values = [{ key: "display", title: "Layout and fonts", y: displaySettings.y }, { key: "backend", title: "Mail backend", y: backendSetup.y }]
+    var values = [{ key: "restart", title: "Restart", y: restartSection.y }, { key: "display", title: "Layout and fonts", y: displaySettings.y }, { key: "backend", title: "Mail backend", y: backendSetup.y }]
     if (!root.service || root.service.hasTray !== false)
       values.push({ key: "bar", title: "Bar", y: barHeading.y })
     if (root.service && root.service.hasMailto === true)
@@ -219,6 +223,12 @@ Column {
       service.setAccountSignature(selectedSignatureAccountId, signatureEdit.text)
   }
 
+  function flushEdits() {
+    saveName()
+    saveSenderName()
+    saveSignature()
+  }
+
   function selectSignatureAccount(id) {
     var next = signatureAccount(id)
     if (!next || String(next.id || "") === selectedSignatureAccountId) return
@@ -260,6 +270,49 @@ Column {
   }
 
   spacing: MailStyle.space(16)
+
+  Column {
+    id: restartSection
+    objectName: "restart-settings"
+    width: parent.width
+    spacing: MailStyle.space(8)
+
+    Widgets.Button {
+      objectName: "restart-button"
+      text: root.restartBusy ? "Restarting" : "Restart"
+      enabled: !root.restartBusy
+      focusable: true
+      bordered: true
+      foreground: root.textColor
+      accent: root.accentColor
+      fontFamily: root.panelFontFamily
+      onClicked: root.restartRequested()
+    }
+
+    Text {
+      width: parent.width
+      text: "Restart the installed mail engine. Your window, workspace, layout and draft stay in place."
+      textFormat: Text.PlainText
+      color: root.dimColor
+      font.family: root.panelFontFamily
+      font.pixelSize: MailStyle.bodySmall
+      wrapMode: Text.WordWrap
+    }
+
+    Text {
+      objectName: "restart-status"
+      visible: text !== ""
+      width: parent.width
+      text: root.restartStatus
+      textFormat: Text.PlainText
+      color: root.restartFailed ? root.urgentColor : root.textColor
+      font.family: root.panelFontFamily
+      font.pixelSize: MailStyle.bodySmall
+      wrapMode: Text.WordWrap
+      Accessible.role: Accessible.StaticText
+      Accessible.name: text
+    }
+  }
 
   DisplaySettings {
     id: displaySettings

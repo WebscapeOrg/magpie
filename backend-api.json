@@ -2109,6 +2109,42 @@
         "message": "recovery_too_large"
       },
       "errorCode": -32000
+    },
+    {
+      "name": "Gmail request status: local admission",
+      "method": "local.status",
+      "params": {
+        "accountId": "gmail-status-0@example.org"
+      },
+      "equals": {
+        "error": "gmail_request_deferred",
+        "pending": 1,
+        "failed": 0
+      }
+    },
+    {
+      "name": "Gmail request status: server refusal",
+      "method": "local.status",
+      "params": {
+        "accountId": "gmail-status-1@example.org"
+      },
+      "equals": {
+        "error": "gmail_server_rate_limited",
+        "pending": 1,
+        "failed": 1
+      }
+    },
+    {
+      "name": "Gmail request status: server cooldown",
+      "method": "local.status",
+      "params": {
+        "accountId": "gmail-status-2@example.org"
+      },
+      "equals": {
+        "error": "gmail_server_rate_limited",
+        "pending": 1,
+        "failed": 1
+      }
     }
   ],
   "unreleased": {
@@ -2182,30 +2218,10 @@
       "Attachment recovery rejects unrecognized pending actions",
       "Attachment recovery rejects unexpected pending job controls",
       "Attachment recovery rejects nonboolean source loading state",
-      "Attachment recovery rejects an oversized pending queue"
-    ],
-    "gmailErrorCases": [
-      {
-        "name": "Local Gmail request admission waits before HTTP",
-        "error": "gmail_request_deferred",
-        "reason": "localBudget",
-        "status": null,
-        "retryable": true
-      },
-      {
-        "name": "Gmail rejects a request for its rate limit",
-        "error": "gmail_server_rate_limited",
-        "reason": "userRateLimitExceeded",
-        "status": 403,
-        "retryable": true
-      },
-      {
-        "name": "Gmail server cooldown prevents another HTTP request",
-        "error": "gmail_server_rate_limited",
-        "reason": "serverCooldown",
-        "status": null,
-        "retryable": true
-      }
+      "Attachment recovery rejects an oversized pending queue",
+      "Gmail request status: local admission",
+      "Gmail request status: server refusal",
+      "Gmail request status: server cooldown"
     ]
   }
 }

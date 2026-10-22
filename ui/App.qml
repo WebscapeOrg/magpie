@@ -25,6 +25,7 @@ import "message/Message.js" as Message
 import "components"
 import "compose"
 import "calendar"
+import "backend" as Backend
 
 Item {
   id: root
@@ -66,6 +67,23 @@ Item {
   property var composeReceiptAcks: []
   property var composeReceiptAckBusy: ({})
   property var composeDeliveryStates: ({})
+  readonly property bool restartBusy: restartController.busy
+  readonly property string restartStatus: restartController.message
+  readonly property bool restartFailed: restartController.failed
+  readonly property bool restartWorkSaved: !!service && !service.persistencePending
+    && !composeWriting && !composeWriteQueued && !composeReading && !composeReceiptChecking
+    && !composeRecoveryConflict && !settings.importing
+    && (!(compose.opened || compose.parkedForSend) || composeRecoveryLoaded)
+
+  Backend.RestartController { id: restartController; objectName: "app-restart"; app: root }
+
+  function prepareRestart() {
+    settings.flushEdits()
+    if (compose.opened || compose.parkedForSend) saveComposeRecovery()
+    if (service && typeof service.saveWindowPrefs === "function") service.saveWindowPrefs()
+  }
+
+  function requestRestart() { return restartController.request() }
 
   // Invariant: Recovery accepts native-normalized records; live editor fields remain editor-owned.
   function loadComposeRecovery(record) {
@@ -864,6 +882,10 @@ Item {
 
   // Invariant: Key IDs come from keys/Keymap.js; sequence distinguishes bindings sharing an ID.
   function runShortcut(id, sequence) {
+    if (restartBusy) {
+      if (id === "back") restartController.cancel()
+      return
+    }
     if (id === "assistantSend") return activeAssistant ? activeAssistant.submitCurrent() : false
     if (id === "assistantChooseCommand") return activeAssistant ? activeAssistant.chooseCommand() : false
     if (id === "assistantCommandNext") return activeAssistant ? activeAssistant.moveCommand(1) : false
@@ -1288,10 +1310,26 @@ Item {
       if (!visible && root.opened && !root.closingFromHost) root.requestClose()
     }
 
+    Widgets.Button {
+      objectName: "cancel-restart"
+      z: 300
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      anchors.margins: MailStyle.space(18)
+      visible: restartController.canCancel
+      text: "Cancel restart"
+      focusable: true
+      bordered: true
+      foreground: root.foreground
+      background: root.background
+      accent: root.accent
+      onClicked: restartController.cancel()
+    }
+
     Rectangle {
       anchors.fill: parent
       z: 200
-      visible: root.backendUnavailable
+      visible: root.backendUnavailable && !root.restartBusy && !root.showSettings
       color: root.background
       BackendSetup {
         anchors.centerIn: parent
@@ -1311,7 +1349,7 @@ Item {
 
     FocusScope {
       id: focusScope
-      enabled: !root.backendUnavailable
+      enabled: (!root.backendUnavailable || root.showSettings) && !root.restartBusy
       anchors.fill: parent
       anchors.margins: MailStyle.space(6)
       focus: true
@@ -1495,12 +1533,16 @@ Item {
           spacing: MailStyle.space(8)
 
           Widgets.Button {
+            id: folderButton
             objectName: "folder-button"
             anchors.verticalCenter: parent.verticalCenter
             visible: !root.showPage && !root.composing && !root.calendarVisible
-            text: "Folder"
+            text: folderNameMetrics.elidedText
+            Accessible.name: folderNameMetrics.text
             bordered: true
-            tooltipText: root.foldersVisible ? "Hide folders" : "Show folders"
+            tooltipText: folderNameMetrics.text + " · " + (root.foldersVisible ? "Hide folders" : "Show folders")
+            tooltipMaximumWidth: Math.max(1, Math.min(MailStyle.space(320), window.width - MailStyle.space(32)))
+            tooltipBelow: true
             foreground: root.dim
             accent: root.accent
             selected: root.foldersVisible
@@ -1508,6 +1550,18 @@ Item {
             fontSize: MailStyle.caption
             focusable: true
             onClicked: root.foldersVisible = !root.foldersVisible
+
+            TextMetrics {
+              id: folderNameMetrics
+              text: Model.currentFolderName(root.service)
+              font.family: folderButton.fontFamily
+              font.pixelSize: folderButton.fontSize
+              font.bold: folderButton.selected
+              elide: Text.ElideMiddle
+              elideWidth: Math.max(MailStyle.space(36), Math.min(MailStyle.space(160),
+                header.width - headerLeft.width - headerComposeButton.width - MailStyle.space(90)
+                  - folderButton.horizontalPadding * 2))
+            }
           }
 
           Widgets.Button {
@@ -2084,6 +2138,10 @@ Item {
               accentColor: root.accent
               urgentColor: root.urgent
               panelFontFamily: root.fontFamily
+              restartBusy: root.restartBusy
+              restartStatus: root.restartStatus
+              restartFailed: root.restartFailed
+              onRestartRequested: root.requestRestart()
               onClientSetupRequested: root.openClientSetup()
               onCalendarSignInRequested: function(index) {
                 if (root.editAccount(index)) root.service.signIn()

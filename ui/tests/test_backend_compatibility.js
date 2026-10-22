@@ -77,7 +77,6 @@ assert.strictEqual(
   compatibility.isCleanShutdown(true, true, 0, false, 1), false,
   "a backend crash after the quit request is not a clean shutdown")
 
-console.log("backend compatibility tests passed")
 
 assert.strictEqual(compatibility.connectedApiVersion({ protocol: 1, version: "0.9.0" }), 1, "0.9.0 predates the field")
 assert.strictEqual(compatibility.connectedApiVersion({ protocol: 1, version: "0.9.1" }), 0)
@@ -121,3 +120,5 @@ assert.strictEqual(compatibility.methodRefusal(step, "local.edit"), null)
 assert.strictEqual(compatibility.methodRefusal(null, "system.info"), null)
 assert.deepEqual(compatibility.methodRefusal(step, "local.watch"),
   {code:-32012, message:"backend_needs_update"})
+
+console.log("backend compatibility tests passed")

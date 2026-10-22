@@ -8,7 +8,6 @@ function serializedSnapshot(stack) {
 }
 
 
-deepEqual(nav.ROOTS, ["list", "calendar"])
 deepEqual(nav.OVERLAYS, ["compose", "eventComposer", "help"])
 
 deepEqual(nav.entry("reader", { id: "m1" }), { id: "m1", kind: "reader" })

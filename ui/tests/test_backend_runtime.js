@@ -29,7 +29,6 @@ assert.strictEqual(runtime.canInstall("error", false, false), true)
 assert.strictEqual(runtime.canInstall("missing", true, false), false)
 assert.strictEqual(runtime.canInstall("missing", false, true), false)
 assert.strictEqual(runtime.canInstall("unsupported", false, false), false)
-console.log("backend runtime tests passed")
 
 assert.strictEqual(runtime.decode(status()).latestApiVersion, 1)
 assert.deepEqual(runtime.decode(status()).unreleasedMethods, [])
@@ -45,3 +44,5 @@ const hash = "a".repeat(64)
 assert.strictEqual(runtime.decode(status({contractHash:hash})).contractHash,hash)
 for (const contractHash of [undefined,null,"bad",7,"a".repeat(65)])
   assert.strictEqual(runtime.decode(status({contractHash})).contractHash,"")
+
+console.log("backend runtime tests passed")

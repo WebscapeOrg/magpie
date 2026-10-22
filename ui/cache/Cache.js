@@ -4,8 +4,6 @@
 var VERSION = 2
 var MAX_QUERIES = 12
 var MAX_SUMMARIES_PER_QUERY = 100
-// Performance: Bodies remain separate from the small page snapshot; serializing them with every list update would block the GUI.
-var MAX_BODIES = 1000
 
 function emptyStore() {
   return { version: VERSION, account: "", profile: null, labels: [], queries: {}, session: null }

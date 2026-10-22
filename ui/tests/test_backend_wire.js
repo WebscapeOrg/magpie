@@ -13,7 +13,6 @@ for (const line of ["not json", "[]", "null", '{}',
   '{"jsonrpc":"2.0","id":"qml-1","result":1,"error":{}}',
   '{"jsonrpc":"2.0","id":"qml-1","error":"bad"}'
 ]) assert.strictEqual(wire.response(line), null)
-console.log("test_backend_wire.js ok")
 
 const upload = load("backend/Upload.js")
 const bytes = Array.from({ length: 256 }, (_, byte) => String.fromCharCode(byte)).join("")
@@ -71,7 +70,6 @@ for (const chunkSize of [0, -1, 0.5, Infinity, "65536"]) {
   assert(!failed.calls.some(call => call.method === "upload.append"))
 }
 assert.strictEqual(runUpload(largeRaw, { chunkSize: 1024 * 1024 }).calls.filter(call => call.method === "upload.append").length, 2)
-console.log("backend upload tests ok")
 
 const notification = { jsonrpc: "2.0", method: "mail.updated", params: { accountId: "a@example.org", sequence: 1 } }
 assert.deepStrictEqual(JSON.parse(JSON.stringify(wire.notification(JSON.stringify(notification)))), notification)
@@ -160,7 +158,6 @@ for(const stopping of [false,true]) {
 }
 run=receiver();run.context.receive('{"jsonrpc":"2.0","id":"unrelated","result":1}')
 assert.strictEqual(run.replies.length+run.failures.length,0)
-console.log('Backend.receive single-decode, chunking, malformed envelopes and shutdown notification guards passed')
 // Invariant: Invalid assembled JSON must never deliver partially decoded data.
 run=receiver()
 for(let index=0;index<2;index++)run.context.receive(JSON.stringify({jsonrpc:'2.0',method:'transport.chunk',params:{transfer:'2',index,total:2,size:4,data:'xx'}}))
@@ -188,3 +185,5 @@ for(const id of ['__proto__','constructor','toString']) {
     assert.strictEqual(run.replies[0].result,'still correlated')
   }
 }
+
+console.log("test_backend_wire.js ok")

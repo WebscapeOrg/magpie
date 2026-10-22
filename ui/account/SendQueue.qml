@@ -33,12 +33,12 @@ QtObject {
   function available() { return backend && backend.ready }
   function request(method, parameters, callback) {
     if (!available()) {
-      Qt.callLater(function() { if (queue && typeof queue.apply === "function" && !queue.retired) callback(null, "Mail backend unavailable") })
+      Qt.callLater(function() { if (queue && !queue.retired && typeof queue.apply === "function") callback(null, "Mail backend unavailable") })
       return false
     }
     parameters.accountId = String(account.accountId || "")
     backend.call(method, parameters, function(result, error) {
-      if (queue && typeof queue.apply === "function" && !queue.retired) callback(result, error ? String(error.message || "Mail backend request failed") : "")
+      if (queue && !queue.retired && typeof queue.apply === "function") callback(result, error ? String(error.message || "Mail backend request failed") : "")
     })
     return true
   }
@@ -94,7 +94,7 @@ QtObject {
     for (var receiptIndex = 0; receiptIndex < receipts.length; receiptIndex++) {
       (function(id) {
         Qt.callLater(function() {
-          if (!queue || typeof queue.request !== "function" || queue.retired) return
+          if (!queue || queue.retired || typeof queue.request !== "function") return
           queue.request("outbox.forget", { sendId: id }, function(result, error) {
             if (!error) queue.apply(result.snapshot)
           })

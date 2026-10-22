@@ -1,8 +1,6 @@
 .pragma library
 
 // Invariant: Navigation changes return fresh arrays; popping the root returns the same array so the caller can close the window.
-var ROOTS = ["list", "calendar"]
-
 var OVERLAYS = ["compose", "eventComposer", "help"]
 
 var KINDS = ["list", "calendar", "reader", "calendarDetail", "settings",

@@ -25,7 +25,7 @@ QtObject {
     var label = "Done"
     var acted = false
     for (var countedGroupIndex = 0; countedGroupIndex < groups.length; countedGroupIndex++) total += groups[countedGroupIndex].ids.length
-    function replyFor(group, index, host) {
+    function replyFor(group, index) {
       var answered = false
       return function(result) {
         if (answered) return
@@ -56,7 +56,7 @@ QtObject {
     for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
       var host = service.findAccount(groups[groupIndex].accountId)
       if (host && typeof host.actionLabel === "function") label = host.actionLabel(action)
-      var reply = replyFor(groups[groupIndex], groupIndex, host)
+      var reply = replyFor(groups[groupIndex], groupIndex)
       if (host && host.actMany(groups[groupIndex].ids, action, reply)) acted = true
       else reply({failedIds: groups[groupIndex].ids})
     }

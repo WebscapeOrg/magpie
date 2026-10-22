@@ -572,7 +572,6 @@ assert.strictEqual(accounts.count(accounts.discardDraftAt(pendingList, 0)), 3)
   assert.strictEqual(accounts.find(both, "jane@gmail.com").signature, "Jane\nRoe")
 }
 
-console.log("test_accounts.js ok")
 
 const named = accounts.setLabel(
   accounts.add(accounts.emptyList(), { email: "me@gmail.com", provider: "gmail" }),
@@ -724,3 +723,5 @@ for (const settings of [
 assert.strictEqual(accounts.savedOnly(accounts.load(JSON.stringify({version: 1, accounts: [
   {provider: "jmap", email: "", jmap: {authScheme: "basic"}}
 ]}))).accounts.length, 0, "a default authentication scheme alone is an empty setup row")
+
+console.log("test_accounts.js ok")

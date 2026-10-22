@@ -1,5 +1,4 @@
 const assert = require("assert")
-const path = require("path")
 const { load, deepEqual } = require("./load")
 
 const cache = load("cache/Cache.js")

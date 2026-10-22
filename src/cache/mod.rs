@@ -200,7 +200,6 @@ fn call_at(root: &Path, method: &str, params: &Value) -> Result<Value> {
     }
     let Some(dir) = directory(root, &account, false)? else {
         return Ok(match method {
-            "cache.bodyClear" => json!({"cleared":true}),
             "cache.bodyTouch" => json!({"touched":false}),
             _ => Value::Null,
         });

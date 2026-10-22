@@ -591,7 +591,6 @@ DropArea {
     // Invariant: replies use the message’s owning mailbox even when another mailbox is active.
     accountId = root.service ? String(root.service.composeAccountId || "") : ""
     opened = true
-    var quoted = ""
 
     if (summary && mode !== "new") {
       threadId = summary.threadId
@@ -620,7 +619,7 @@ DropArea {
     }
 
     bodyPrefix = ""
-    bodyQuote = quoted
+    bodyQuote = ""
     placeBody()
 
     selectPreferredFrom()

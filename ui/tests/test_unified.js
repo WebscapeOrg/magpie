@@ -236,8 +236,6 @@ assert.strictEqual(unified.firstError([{ error: "no label to give" }]), "no labe
 assert.strictEqual(unified.firstError([{ error: "" }]), "")
 assert.strictEqual(unified.firstError([]), "")
 
-console.log("Unified.js ok")
-
 // Invariant: Merged pagination stops at the newest unfinished source's last-row time so no deeper source fills another's unseen gap.
 const deepAndShallow = [
   { id: "a@example.org", hasMore: true, messages: [
@@ -272,3 +270,5 @@ assert.strictEqual(unified.pageWatermark([
   { id: "a@example.org", hasMore: true, messages: [] },
   { id: "b@example.net", hasMore: true, messages: [{ id: "1", date: 600 }] }
 ]), 600)
+
+console.log("Unified.js ok")

@@ -695,8 +695,6 @@ assert.strictEqual(model.badgeCount({ thread: { id: "d", count: 0, memberIds: []
 assert.strictEqual(model.badgeCount({ id: "m" }), 0)
 assert.strictEqual(model.badgeCount(null), 0)
 
-console.log("test_model.js ok")
-
 // Invariant: Zoom steps round to twentieths so reversing a step restores the saved value.
 assert.strictEqual(model.zoomAfterStep(1, 0.1), 1.1)
 assert.strictEqual(model.zoomAfterStep(1.1, -0.1), 1)
@@ -1473,3 +1471,5 @@ assert.strictEqual(model.monitoredNote([]), "")
 
 deepEqual(model.unavailableActions({ archive: true, star: true, move: true }), [])
 deepEqual(model.unavailableActions({ archive: true, star: true }), ["move"])
+
+console.log("test_model.js ok")

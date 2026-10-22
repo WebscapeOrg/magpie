@@ -24,9 +24,6 @@ Rectangle {
   property bool hasCursor: false
   property bool selected: false
   property bool checked: false
-  property string agentState: ""
-  property string agentProgress: ""
-  property bool agentAttention: false
   property bool selectionActive: false
   property bool ctrlHeld: false
   readonly property bool selectionMode: selectionActive || checked || ctrlHeld

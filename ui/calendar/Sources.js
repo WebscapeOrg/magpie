@@ -21,16 +21,21 @@ function normalizeKind(value) {
   return KINDS.indexOf(kind) >= 0 ? kind : "caldav"
 }
 
-function sourceId(raw) {
+function sourceId(raw, list) {
   var value = raw || {}
   var kind = normalizeKind(value.kind)
   if (kind === "google") return "google:" + trimmed(value.accountId)
   if (kind === "microsoft") return "microsoft:" + trimmed(value.accountId)
-  var address = trimmed(value.url).toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-  return kind + ":" + address
+  var address = comparableUrl(value.url)
+  var username = trimmed(value.username)
+  var saved = list && Array.isArray(list.sources) ? list.sources : []
+  for (var index = 0; index < saved.length; index++) {
+    var source = saved[index]
+    if (source && source.kind === kind && comparableUrl(source.url) === address
+        && trimmed(source.username) === username && trimmed(source.id) !== "")
+      return source.id
+  }
+  return kind + ":" + JSON.stringify([address, username])
 }
 
 function makeSource(raw) {
@@ -136,6 +141,11 @@ function validate(raw) {
   if (!/^https:\/\//i.test(source.url))
     return { ok: false, error: "Use an HTTPS CalDAV calendar address" }
   if (source.username === "") return { ok: false, error: "Add the CalDAV username" }
+  var identity = source.id || sourceId(source)
+  var identityBytes = 1025
+  try { identityBytes = encodeURIComponent(identity).replace(/%[0-9A-F]{2}/g, "_").length } catch (encodingError) {}
+  if (identityBytes > 1024)
+    return { ok: false, error: "The calendar address and username are too long" }
   return { ok: true, source: source }
 }
 

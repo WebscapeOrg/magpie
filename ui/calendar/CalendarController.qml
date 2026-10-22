@@ -640,7 +640,7 @@ Item {
     if (savingSource || discoveringCalendars) return
     var candidate = raw || {}
     candidate.kind = "caldav"
-    candidate.id = Sources.sourceId(candidate)
+    candidate.id = Sources.sourceId(candidate, sourceList)
     candidate.enabled = true
     var checked = Sources.validate(candidate)
     if (!checked.ok) { calendarSaved(false, checked.error); return }

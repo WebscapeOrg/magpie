@@ -557,6 +557,59 @@ Item {
       compare(controller.loading, false, "the obsolete request does not keep the visible range loading")
     }
 
+    function test_caldav_calendars_keep_distinct_credentials_data() {
+      return [
+        {tag: "punctuation", firstUrl: "https://calendar.example/a_b/", secondUrl: "https://calendar.example/a-b/", firstUser: "ada", secondUser: "ada"},
+        {tag: "path-case", firstUrl: "https://calendar.example/Team/", secondUrl: "https://calendar.example/team/", firstUser: "ada", secondUser: "ada"},
+        {tag: "username", firstUrl: "https://calendar.example/team/", secondUrl: "https://calendar.example/team/", firstUser: "ada", secondUser: "bob"}
+      ]
+    }
+
+    function test_caldav_calendars_keep_distinct_credentials(data) {
+      controller.sourceList = {version: 1, sources: []}
+      controller.addCalDavCalendar({name: "First", url: data.firstUrl, username: data.firstUser}, "first-secret")
+      compare(mailService.configWrites.length, 1)
+      mailService.configCallback(true, "")
+      var first = JSON.stringify(controller.sourceList.sources[0])
+      var firstKey = mailService.credentialWrites[0].accountId
+
+      controller.addCalDavCalendar({name: "Second", url: data.secondUrl, username: data.secondUser}, "second-secret")
+      compare(mailService.configWrites.length, 2)
+      var saved = JSON.parse(mailService.configWrites[1].payload)
+      compare(saved.sources.length, 2, "adding a distinct calendar must not replace the first")
+      compare(JSON.stringify(saved.sources[0]), first, "the first calendar retains its identity and settings")
+      mailService.configCallback(true, "")
+      compare(mailService.credentialWrites.length, 2)
+      verify(mailService.credentialWrites[1].accountId !== firstKey, "the second password must not overwrite the first credential")
+      compare(mailService.credentialWrites[1].accountId, saved.sources[1].id)
+      compare(mailService.credentialWrites[0].secret, "first-secret")
+      compare(mailService.credentialWrites[1].secret, "second-secret")
+    }
+
+    function test_readding_a_caldav_calendar_preserves_its_legacy_credential_key() {
+      controller.addCalDavCalendar({name: "Renamed", url: "https://CALENDAR.EXAMPLE/team", username: "work@example.com"}, "replacement-secret")
+      compare(mailService.configWrites.length, 1)
+      var saved = JSON.parse(mailService.configWrites[0].payload)
+      compare(saved.sources.length, 1)
+      compare(saved.sources[0].id, "caldav:team")
+      mailService.configCallback(true, "")
+      compare(mailService.credentialWrites[0].accountId, "caldav:team")
+    }
+
+    function test_oversized_caldav_identity_performs_no_settings_or_credential_write_data() {
+      return [{tag: "ascii", suffix: new Array(1100).join("a")},
+        {tag: "unicode", suffix: new Array(700).join("é")}]
+    }
+
+    function test_oversized_caldav_identity_performs_no_settings_or_credential_write(data) {
+      var before = JSON.stringify(controller.sourceList)
+      controller.addCalDavCalendar({name: "Long", url: "https://calendar.example/" + data.suffix, username: "ada"}, "synthetic-secret")
+      compare(mailService.configWrites.length, 0)
+      compare(mailService.credentialWrites.length, 0)
+      compare(JSON.stringify(controller.sourceList), before)
+      compare(controller.savingSource, false)
+    }
+
     // Google and Microsoft calendars arrive with their account's sign-in,
     // after a view that was already open asked for its range.
     function test_a_calendar_arriving_with_a_sign_in_reloads_the_range() {

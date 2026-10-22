@@ -43,7 +43,7 @@ Item {
     // One notification per batch; clicking reads its newest message.
     if (list.length > 1) {
       var names = []
-      for (var i = 0; i < list.length && i < 3; i++) names.push(Model.notificationTitle(list[i]))
+      for (var messageIndex = 0; messageIndex < list.length && messageIndex < 3; messageIndex++) names.push(Model.notificationTitle(list[messageIndex]))
       title = Model.pluralize(list.length, "new message")
       body = names.join(", ")
     }

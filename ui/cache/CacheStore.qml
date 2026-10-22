@@ -21,8 +21,8 @@ Item {
     var next = { version: 2, account: store.account, profile: store.profile,
       labels: store.labels, session: store.session }
     var fields = ["account", "profile", "labels", "session"]
-    for (var i = 0; i < fields.length; i++) {
-      var field = fields[i]
+    for (var fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
+      var field = fields[fieldIndex]
       if (value[field] !== undefined) next[field] = value[field]
     }
     store = next
@@ -59,12 +59,12 @@ Item {
   function serializablePage(page) {
     var summaries = page && Array.isArray(page.summaries) ? page.summaries : []
     var rows = []
-    for (var i = 0; i < summaries.length; i++) {
+    for (var summaryIndex = 0; summaryIndex < summaries.length; summaryIndex++) {
       var row = {}
-      for (var field in summaries[i]) {
-        if (field !== "date") row[field] = summaries[i][field]
+      for (var field in summaries[summaryIndex]) {
+        if (field !== "date") row[field] = summaries[summaryIndex][field]
       }
-      var date = summaries[i].date
+      var date = summaries[summaryIndex].date
       if (date && typeof date.getTime === "function") row.dateMs = date.getTime()
       rows.push(row)
     }

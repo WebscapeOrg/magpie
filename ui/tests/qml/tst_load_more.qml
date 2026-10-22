@@ -55,7 +55,7 @@ Item {
       fakeService.hasMore = false
       fakeService.listLoading = false
       var rows = []
-      for (var i = 1; i <= 12; i++) rows.push(row(i + ":INBOX"))
+      for (var rowIndex = 1; rowIndex <= 12; rowIndex++) rows.push(row(rowIndex + ":INBOX"))
       fakeService.messages = rows
       list.contentY = 0
       wait(30)
@@ -79,7 +79,7 @@ Item {
       // it again asks for the next.
       fakeService.listLoading = false
       var more = fakeService.messages.slice()
-      for (var i = 13; i <= 24; i++) more.push(row(i + ":INBOX"))
+      for (var rowIndex = 13; rowIndex <= 24; rowIndex++) more.push(row(rowIndex + ":INBOX"))
       fakeService.messages = more
       wait(20)
       verify(list.contentY < list.contentHeight - list.height, "the foot moved away")
@@ -126,7 +126,7 @@ Item {
     function test_large_lists_keep_delegates_bounded_and_rebind_identity() {
       fakeService.hasMore = false
       var values=[]
-      for (var i=0;i<10000;i++) values.push(row("synthetic-"+i))
+      for (var rowIndex=0;rowIndex<10000;rowIndex++) values.push(row("synthetic-"+rowIndex))
       fakeService.messages=values
       wait(100)
       compare(list.count,10000)
@@ -168,8 +168,8 @@ Item {
     function findByName(item, name) {
       if (item.objectName === name) return item
       var kids = item.children || []
-      for (var i = 0; i < kids.length; i++) {
-        var found = findByName(kids[i], name)
+      for (var childIndex = 0; childIndex < kids.length; childIndex++) {
+        var found = findByName(kids[childIndex], name)
         if (found) return found
       }
       return null

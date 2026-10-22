@@ -22,8 +22,8 @@ Item {
     function test_records_stay_bounded_and_open_waits_for_flush() {
       var diagnostics = createTemporaryObject(factory, parent)
       var worker = findChild(diagnostics, "diagnostics-helper")
-      for (var i = 0; i < 40; i++)
-        diagnostics.record("agent.jobStart", {code:-32000,message:"synthetic-" + i, data:"SECRET-BODY"})
+      for (var sampleIndex = 0; sampleIndex < 40; sampleIndex++)
+        diagnostics.record("agent.jobStart", {code:-32000,message:"synthetic-" + sampleIndex, data:"SECRET-BODY"})
       compare(diagnostics.queue.length, 32)
       diagnostics.open()
       compare(worker.command, ["python3", "/synthetic/scripts/diagnostics.py", "record"])
@@ -43,7 +43,7 @@ Item {
     }
     function test_polling_duplicates_do_not_spawn_repeated_writers() {
       var diagnostics = createTemporaryObject(factory, parent)
-      for (var i = 0; i < 50; i++)
+      for (var sampleIndex = 0; sampleIndex < 50; sampleIndex++)
         diagnostics.record("agent.jobsList", {code:-32000,message:"agent_invalid_state"})
       compare(diagnostics.queue.length, 1)
     }

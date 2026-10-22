@@ -39,13 +39,13 @@ function splitEntries(text) {
   var current = ""
   var quoted = false
   var angled = false
-  for (var i = 0; i < text.length; i++) {
-    var character = text.charAt(i)
+  for (var characterIndex = 0; characterIndex < text.length; characterIndex++) {
+    var character = text.charAt(characterIndex)
     if (quoted) {
       // A backslash escapes the next character, including the closing quote.
-      if (character === "\\" && i + 1 < text.length) {
-        current += character + text.charAt(i + 1)
-        i++
+      if (character === "\\" && characterIndex + 1 < text.length) {
+        current += character + text.charAt(characterIndex + 1)
+        characterIndex++
         continue
       }
       if (character === "\"") quoted = false
@@ -128,8 +128,8 @@ function parse(value) {
   var out = []
   var seen = {}
   var haveDefault = false
-  for (var i = 0; i < raw.length; i++) {
-    var item = raw[i]
+  for (var aliasIndex = 0; aliasIndex < raw.length; aliasIndex++) {
+    var item = raw[aliasIndex]
     var parsed = typeof item === "string" ? fromText(item)
       : (item && typeof item === "object" ? fromObject(item) : null)
     if (!parsed) continue
@@ -167,8 +167,8 @@ function quotedName(name) {
 function format(aliases) {
   var list = parse(aliases)
   var entries = []
-  for (var i = 0; i < list.length; i++) {
-    var item = list[i]
+  for (var aliasIndex = 0; aliasIndex < list.length; aliasIndex++) {
+    var item = list[aliasIndex]
     var text = item.displayName !== ""
       ? quotedName(item.displayName) + " <" + item.email + ">"
       : item.email
@@ -196,8 +196,8 @@ function sendAsList(address, aliases) {
   var seen = {}
   var rows = parse(aliases)
   var claimed = false
-  for (var i = 0; i < rows.length; i++) {
-    if (rows[i].isDefault) {
+  for (var defaultIndex = 0; defaultIndex < rows.length; defaultIndex++) {
+    if (rows[defaultIndex].isDefault) {
       claimed = true
       break
     }
@@ -211,8 +211,8 @@ function sendAsList(address, aliases) {
       isDefault: !claimed
     })
   }
-  for (var j = 0; j < rows.length; j++) {
-    var row = rows[j]
+  for (var aliasIndex = 0; aliasIndex < rows.length; aliasIndex++) {
+    var row = rows[aliasIndex]
     if (seen[row.email]) continue
     seen[row.email] = true
     list.push({
@@ -234,8 +234,8 @@ function withSenderName(rows, name) {
   var wanted = trimmed(name)
   if (wanted === "") return list
   var out = []
-  for (var i = 0; i < list.length; i++) {
-    var row = list[i]
+  for (var aliasIndex = 0; aliasIndex < list.length; aliasIndex++) {
+    var row = list[aliasIndex]
     if (row && row.isPrimary === true) {
       var named = {}
       for (var key in row) named[key] = row[key]

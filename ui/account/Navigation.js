@@ -41,8 +41,8 @@ function isObject(value) {
 }
 
 function contains(list, value) {
-  for (var i = 0; i < list.length; i++) {
-    if (list[i] === value) return true
+  for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
+    if (list[entryIndex] === value) return true
   }
   return false
 }
@@ -78,8 +78,8 @@ function entry(kind, fields) {
 function copy(stack) {
   var source = Array.isArray(stack) ? stack : []
   var next = []
-  for (var i = 0; i < source.length; i++) {
-    var item = source[i]
+  for (var entryIndex = 0; entryIndex < source.length; entryIndex++) {
+    var item = source[entryIndex]
     if (isObject(item)) next.push(entry(item.kind, item))
   }
   if (next.length === 0) next.push(entry(DEFAULT_KIND))
@@ -168,8 +168,8 @@ function resetTo(stack, kind) {
 // leave it on screen, so the reader under a shortcut sheet is still the page.
 function page(stack) {
   var source = Array.isArray(stack) ? stack : []
-  for (var i = source.length - 1; i >= 0; i--) {
-    if (isObject(source[i]) && !isOverlay(source[i].kind)) return source[i]
+  for (var entryIndex = source.length - 1; entryIndex >= 0; entryIndex--) {
+    if (isObject(source[entryIndex]) && !isOverlay(source[entryIndex].kind)) return source[entryIndex]
   }
   return entry(DEFAULT_KIND)
 }
@@ -179,8 +179,8 @@ function page(stack) {
 // that is the one Escape has to close first.
 function overlay(stack) {
   var source = Array.isArray(stack) ? stack : []
-  for (var i = source.length - 1; i >= 0; i--) {
-    if (isObject(source[i]) && isOverlay(source[i].kind)) return source[i]
+  for (var entryIndex = source.length - 1; entryIndex >= 0; entryIndex--) {
+    if (isObject(source[entryIndex]) && isOverlay(source[entryIndex].kind)) return source[entryIndex]
   }
   return null
 }
@@ -205,8 +205,8 @@ function rootFor(state) {
 function kinds(stack) {
   var source = Array.isArray(stack) ? stack : []
   var names = []
-  for (var i = 0; i < source.length; i++) {
-    names.push(isObject(source[i]) ? String(source[i].kind || "") : "")
+  for (var entryIndex = 0; entryIndex < source.length; entryIndex++) {
+    names.push(isObject(source[entryIndex]) ? String(source[entryIndex].kind || "") : "")
   }
   return names
 }

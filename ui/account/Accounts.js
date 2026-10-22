@@ -34,7 +34,7 @@ function parseJson(text, fallback) {
   try {
     var parsed = JSON.parse(String(text || ""))
     return parsed === null || parsed === undefined ? fallback : parsed
-  } catch (e) {
+  } catch (error) {
     return fallback
   }
 }
@@ -95,8 +95,8 @@ var DEFAULT_PROVIDER = "gmail"
 
 function normalizeProvider(value) {
   var name = trimmed(value).toLowerCase()
-  for (var i = 0; i < PROVIDERS.length; i++) {
-    if (PROVIDERS[i] === name) return name
+  for (var providerIndex = 0; providerIndex < PROVIDERS.length; providerIndex++) {
+    if (PROVIDERS[providerIndex] === name) return name
   }
   return DEFAULT_PROVIDER
 }
@@ -280,8 +280,8 @@ function copyList(list) {
 function indexOfId(accounts, id) {
   var key = trimmed(id)
   if (!key) return -1
-  for (var i = 0; i < accounts.length; i++) {
-    if (accounts[i] && accounts[i].id === key) return i
+  for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+    if (accounts[accountIndex] && accounts[accountIndex].id === key) return accountIndex
   }
   return -1
 }
@@ -316,8 +316,8 @@ function count(list) {
 function hasSavedAccounts(list) {
   var source = list || {}
   var values = Array.isArray(source.accounts) ? source.accounts : []
-  for (var i = 0; i < values.length; i++) {
-    var entry = values[i] || {}
+  for (var accountIndex = 0; accountIndex < values.length; accountIndex++) {
+    var entry = values[accountIndex] || {}
     if (trimmed(entry.id) !== "" || isValidEmail(entry.email)) return true
   }
   return false
@@ -383,8 +383,8 @@ function replaceAt(list, index, account) {
 function namedIds(list) {
   var values = Array.isArray((list || {}).accounts) ? list.accounts : []
   var ids = []
-  for (var i = 0; i < values.length; i++) {
-    var id = trimmed((values[i] || {}).id)
+  for (var accountIndex = 0; accountIndex < values.length; accountIndex++) {
+    var id = trimmed((values[accountIndex] || {}).id)
     if (id) ids.push(id)
   }
   return ids
@@ -395,8 +395,8 @@ function namedIds(list) {
 function withoutId(ids, id) {
   var kept = []
   var values = Array.isArray(ids) ? ids : []
-  for (var i = 0; i < values.length; i++) {
-    if (values[i] !== id) kept.push(values[i])
+  for (var accountIndex = 0; accountIndex < values.length; accountIndex++) {
+    if (values[accountIndex] !== id) kept.push(values[accountIndex])
   }
   return kept
 }
@@ -404,10 +404,10 @@ function withoutId(ids, id) {
 function dropsAnyId(ids, payload) {
   var wanted = Array.isArray(ids) ? ids : []
   var kept = namedIds(payload)
-  for (var i = 0; i < wanted.length; i++) {
+  for (var wantedIndex = 0; wantedIndex < wanted.length; wantedIndex++) {
     var found = false
-    for (var j = 0; j < kept.length; j++) {
-      if (kept[j] === wanted[i]) { found = true; break }
+    for (var keptIndex = 0; keptIndex < kept.length; keptIndex++) {
+      if (kept[keptIndex] === wanted[wantedIndex]) { found = true; break }
     }
     if (!found) return true
   }
@@ -418,8 +418,8 @@ function dropsAnyId(ids, payload) {
 // replacement, and the scan wraps so removing the last row falls back up the
 // list. Pending accounts are skipped: the window cannot show one.
 function nextActiveId(accounts, from) {
-  for (var i = 0; i < accounts.length; i++) {
-    var entry = accounts[(from + i) % accounts.length]
+  for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+    var entry = accounts[(from + accountIndex) % accounts.length]
     if (entry && entry.id) return entry.id
   }
   return ""
@@ -489,8 +489,8 @@ function discardDraftAt(list, index) {
 function idList(value) {
   var list = Array.isArray(value) ? value : []
   var out = []
-  for (var i = 0; i < list.length; i++) {
-    var item = trimmed(list[i])
+  for (var aliasIndex = 0; aliasIndex < list.length; aliasIndex++) {
+    var item = trimmed(list[aliasIndex])
     if (item !== "" && out.indexOf(item) < 0) out.push(item)
   }
   return out
@@ -602,9 +602,9 @@ function load(text) {
 
   var next = emptyList()
   var entries = Array.isArray(raw.accounts) ? raw.accounts : []
-  for (var i = 0; i < entries.length; i++) {
-    if (!isObject(entries[i])) continue
-    var entry = makeAccount(repairedAddress(entries[i]))
+  for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+    if (!isObject(entries[entryIndex])) continue
+    var entry = makeAccount(repairedAddress(entries[entryIndex]))
     // The id is recomputed rather than trusted, so a hand-edited file cannot
     // introduce two entries the rest of the code believes are different
     // accounts while Gmail treats them as one.
@@ -654,8 +654,8 @@ function carriesData(entry) {
 function dropsNamedMailbox(list, payload) {
   var source = Array.isArray((list || {}).accounts) ? list.accounts : []
   var kept = Array.isArray((payload || {}).accounts) ? payload.accounts : []
-  for (var i = 0; i < source.length; i++) {
-    var id = trimmed((source[i] || {}).id)
+  for (var sourceIndex = 0; sourceIndex < source.length; sourceIndex++) {
+    var id = trimmed((source[sourceIndex] || {}).id)
     if (id !== "" && indexOfId(kept, id) < 0) return true
   }
   return false
@@ -664,8 +664,8 @@ function dropsNamedMailbox(list, payload) {
 function draftCount(list) {
   var values = Array.isArray((list || {}).accounts) ? list.accounts : []
   var drafts = 0
-  for (var i = 0; i < values.length; i++) {
-    if (values[i] && values[i].pending === true) drafts++
+  for (var accountIndex = 0; accountIndex < values.length; accountIndex++) {
+    if (values[accountIndex] && values[accountIndex].pending === true) drafts++
   }
   return drafts
 }
@@ -673,12 +673,12 @@ function draftCount(list) {
 function savedOnly(list) {
   var next = copyList(list)
   var kept = []
-  for (var i = 0; i < next.accounts.length; i++) {
+  for (var accountIndex = 0; accountIndex < next.accounts.length; accountIndex++) {
     // Drafts, and nothing else. A row with no id that is not a draft is a
     // mailbox whose address `repairedAddress` could not recover — unusable
     // until someone corrects it, but its settings and its keyring entry are
     // still there, and deleting it is not this function's decision to make.
-    var entry = next.accounts[i]
+    var entry = next.accounts[accountIndex]
     if (entry && entry.pending !== true && carriesData(entry)) kept.push(entry)
   }
   next.accounts = kept

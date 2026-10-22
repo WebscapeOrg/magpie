@@ -76,8 +76,8 @@ Item {
 
     function rows(count) {
       var out = []
-      for (var i = 0; i < count; i++)
-        out.push({ id: "m" + i, subject: "Message " + i, unread: false, labelIds: ["INBOX"] })
+      for (var messageIndex = 0; messageIndex < count; messageIndex++)
+        out.push({ id: "m" + messageIndex, subject: "Message " + messageIndex, unread: false, labelIds: ["INBOX"] })
       return out
     }
 
@@ -87,9 +87,9 @@ Item {
     function listAsks(before) {
       var out = []
       var sent = Transports.newSince(account.api, before)
-      for (var i = 0; i < sent.length; i++)
-        if (sent[i].method === "jmap.list" && sent[i].params.maxResults !== 3)
-          out.push(sent[i].params.maxResults)
+      for (var requestIndex = 0; requestIndex < sent.length; requestIndex++)
+        if (sent[requestIndex].method === "jmap.list" && sent[requestIndex].params.maxResults !== 3)
+          out.push(sent[requestIndex].params.maxResults)
       return out
     }
 

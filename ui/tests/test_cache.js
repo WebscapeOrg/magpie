@@ -156,8 +156,8 @@ deepEqual(cache.searchSummaries(scoped, "scoped invoice", function(sourceQuery) 
 // enthusiastic Load-more session from turning every save into megabytes, and
 // its stale continuation token is dropped because it follows omitted rows.
 const tooMany = []
-for (let i = 0; i < cache.MAX_SUMMARIES_PER_QUERY + 5; i++)
-  tooMany.push(summary("cap-" + i, NOW - i))
+for (let summaryIndex = 0; summaryIndex < cache.MAX_SUMMARIES_PER_QUERY + 5; summaryIndex++)
+  tooMany.push(summary("cap-" + summaryIndex, NOW - summaryIndex))
 let cappedStore = cache.putQuery(cache.emptyStore(), "in:anywhere|25", {
   summaries: tooMany,
   estimate: tooMany.length,
@@ -175,9 +175,9 @@ assert.strictEqual(cappedQuery.estimate, tooMany.length)
 // bucket that would break that — live in their own files instead.
 
 let big = cache.emptyStore()
-for (let i = 0; i < cache.MAX_QUERIES + 6; i++) {
-  big = cache.putQuery(big, "q" + i + "|25",
-    { summaries: [summary("m" + i, NOW)], estimate: 1, nextPageToken: "" }, NOW + i)
+for (let queryIndex = 0; queryIndex < cache.MAX_QUERIES + 6; queryIndex++) {
+  big = cache.putQuery(big, "q" + queryIndex + "|25",
+    { summaries: [summary("m" + queryIndex, NOW)], estimate: 1, nextPageToken: "" }, NOW + queryIndex)
 }
 big = cache.prune(big)
 assert.strictEqual(Object.keys(big.queries).length, cache.MAX_QUERIES)

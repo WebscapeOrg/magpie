@@ -39,7 +39,7 @@ QtObject {
     monitorQueue = ids.map(function(id) { return String(id) })
     monitorGrown = []
     monitorRemaining = monitorQueue.length
-    for (var i = 0; i < monitorConcurrency; i++) nextMonitorCount()
+    for (var slotIndex = 0; slotIndex < monitorConcurrency; slotIndex++) nextMonitorCount()
   }
 
   function nextMonitorCount() {
@@ -51,7 +51,7 @@ QtObject {
     var handle = account.api.getLabelCounts(labelId, function(counts, error) {
       if (!labelActions || serial !== monitorSerial || answered) return
       answered = true
-      monitorHandles = monitorHandles.filter(function(h) { return h !== handle })
+      monitorHandles = monitorHandles.filter(function(pendingHandle) { return pendingHandle !== handle })
       if (!error && counts) recordMonitorCount(labelId, counts)
       monitorCountDone()
     })
@@ -83,7 +83,7 @@ QtObject {
     if (after > before && monitoredSeen[labelId] !== undefined)
       monitorGrown = monitorGrown.concat([{ name: String(updated.name || labelId), delta: after - before }])
     var seen = Object.create(null)
-    for (var k in monitoredSeen) seen[k] = monitoredSeen[k]
+    for (var currentLabelId in monitoredSeen) seen[currentLabelId] = monitoredSeen[currentLabelId]
     seen[labelId] = after
     monitoredSeen = seen
   }
@@ -98,7 +98,7 @@ QtObject {
     monitorRemaining = 0
     monitorGrown = []
     monitoredLoading = false
-    for (var i = 0; i < handles.length; i++) account.abortRequest(handles[i])
+    for (var handleIndex = 0; handleIndex < handles.length; handleIndex++) account.abortRequest(handles[handleIndex])
   }
 
   // A sign-out drops the counts in flight along with everything else.
@@ -130,7 +130,7 @@ QtObject {
   }
 
   function labelByPath(path) {
-    for (var i = 0; i < account.labels.length; i++) if (labelPathOf(account.labels[i]) === String(path || "")) return account.labels[i]
+    for (var labelIndex = 0; labelIndex < account.labels.length; labelIndex++) if (labelPathOf(account.labels[labelIndex]) === String(path || "")) return account.labels[labelIndex]
     return null
   }
 

@@ -7,8 +7,8 @@
 function unified(params) {
   var capabilities = {}
   var names = ["archive", "spam", "star", "labels", "web", "move", "conversations"]
-  for (var i = 0; i < names.length; i++)
-    capabilities[names[i]] = Unified.everyMailboxCan(params.abilities, names[i])
+  for (var capabilityIndex = 0; capabilityIndex < names.length; capabilityIndex++)
+    capabilities[names[capabilityIndex]] = Unified.everyMailboxCan(params.abilities, names[capabilityIndex])
   return {
     messages: Unified.mergeMessages(params.sources),
     totalUnread: Unified.totalUnread(params.summaries),
@@ -30,8 +30,8 @@ function install(service) {
   listener.handler = function(written) {
     var lines = written.slice(offset).split("\n")
     offset = written.length - lines[lines.length - 1].length
-    for (var i = 0; i < lines.length - 1; i++) {
-      var request = JSON.parse(lines[i])
+    for (var lineIndex = 0; lineIndex < lines.length - 1; lineIndex++) {
+      var request = JSON.parse(lines[lineIndex])
       if (request.method === "model.unified")
         service.backend.receive(JSON.stringify({jsonrpc:"2.0",id:request.id,result:unified(request.params)}))
     }

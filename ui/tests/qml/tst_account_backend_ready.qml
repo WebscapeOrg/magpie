@@ -67,8 +67,8 @@ Item {
       backend.launchEnabled = true
       wait(0)
       var process = null
-      for (var i = 0; i < backend.children.length; i++) {
-        var child = backend.children[i]
+      for (var childIndex = 0; childIndex < backend.children.length; childIndex++) {
+        var child = backend.children[childIndex]
         if (child.command && child.command[1] === "serve") process = child
       }
       verify(process !== null)

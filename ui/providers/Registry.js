@@ -58,8 +58,8 @@ function define(source) {
   var facts = NativeDomain.FACTS[String(raw.ID || "")] || {}
   var boxes = []
   var list = Array.isArray(raw.MAILBOXES) ? raw.MAILBOXES : []
-  for (var i = 0; i < list.length; i++) {
-    var box = mailbox(list[i])
+  for (var providerIndex = 0; providerIndex < list.length; providerIndex++) {
+    var box = mailbox(list[providerIndex])
     box.query = String((facts.queries || {})[box.key] || "")
     boxes.push(box)
   }
@@ -88,22 +88,22 @@ var DEFAULT_ID = "gmail"
 
 function ids() {
   var out = []
-  for (var i = 0; i < ALL.length; i++) out.push(ALL[i].id)
+  for (var providerIndex = 0; providerIndex < ALL.length; providerIndex++) out.push(ALL[providerIndex].id)
   return out
 }
 
 function get(id) {
   var wanted = String(id === undefined || id === null ? "" : id).trim().toLowerCase()
-  for (var i = 0; i < ALL.length; i++) {
-    if (ALL[i].id === wanted) return ALL[i]
+  for (var providerIndex = 0; providerIndex < ALL.length; providerIndex++) {
+    if (ALL[providerIndex].id === wanted) return ALL[providerIndex]
   }
   return ALL[0]
 }
 
 function exists(id) {
   var wanted = String(id === undefined || id === null ? "" : id).trim().toLowerCase()
-  for (var i = 0; i < ALL.length; i++) {
-    if (ALL[i].id === wanted) return true
+  for (var providerIndex = 0; providerIndex < ALL.length; providerIndex++) {
+    if (ALL[providerIndex].id === wanted) return true
   }
   return false
 }
@@ -137,13 +137,13 @@ function mailboxes(id, absent, apiVersion) {
   var list = get(id).mailboxes
   var missing = Array.isArray(absent) ? absent : []
   var drop = []
-  for (var i = 0; i < missing.length; i++) drop.push(String(missing[i]))
+  for (var missingIndex = 0; missingIndex < missing.length; missingIndex++) drop.push(String(missing[missingIndex]))
   var out = []
-  for (var j = 0; j < list.length; j++) {
-    if (drop.indexOf(list[j].key) < 0
-        && (apiVersion === undefined || Number(apiVersion) >= Number(list[j].minimumApiVersion || 0))
-        && (!list[j].maximumApiVersion || (apiVersion !== undefined && Number(apiVersion) <= list[j].maximumApiVersion)))
-      out.push(list[j])
+  for (var currentMailboxIndex = 0; currentMailboxIndex < list.length; currentMailboxIndex++) {
+    if (drop.indexOf(list[currentMailboxIndex].key) < 0
+        && (apiVersion === undefined || Number(apiVersion) >= Number(list[currentMailboxIndex].minimumApiVersion || 0))
+        && (!list[currentMailboxIndex].maximumApiVersion || (apiVersion !== undefined && Number(apiVersion) <= list[currentMailboxIndex].maximumApiVersion)))
+      out.push(list[currentMailboxIndex])
   }
   return out
 }
@@ -151,8 +151,8 @@ function mailboxes(id, absent, apiVersion) {
 function mailboxIndex(id, key) {
   var list = get(id).mailboxes
   var wanted = String(key === undefined || key === null ? "" : key)
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].key === wanted) return i
+  for (var currentMailboxIndex = 0; currentMailboxIndex < list.length; currentMailboxIndex++) {
+    if (list[currentMailboxIndex].key === wanted) return currentMailboxIndex
   }
   return 0
 }
@@ -165,8 +165,8 @@ function mailboxFor(id, key) {
 function hasMailbox(id, key) {
   var list = get(id).mailboxes
   var wanted = String(key === undefined || key === null ? "" : key)
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].key === wanted) return true
+  for (var currentMailboxIndex = 0; currentMailboxIndex < list.length; currentMailboxIndex++) {
+    if (list[currentMailboxIndex].key === wanted) return true
   }
   return false
 }

@@ -25,7 +25,7 @@ QtObject {
     var total = 0
     var label = "Done"
     var acted = false
-    for (var n = 0; n < groups.length; n++) total += groups[n].ids.length
+    for (var countedGroupIndex = 0; countedGroupIndex < groups.length; countedGroupIndex++) total += groups[countedGroupIndex].ids.length
     function replyFor(group, index, host) {
       var answered = false
       return function(result) {
@@ -34,8 +34,8 @@ QtObject {
         var reportedFailures = result && Array.isArray(result.failedIds) ? result.failedIds : group.ids
         var localFailures = []
         // A reply cannot name another account or a row outside this request.
-        for (var f = 0; f < reportedFailures.length; f++) {
-          var id = reportedFailures[f]
+        for (var failureIndex = 0; failureIndex < reportedFailures.length; failureIndex++) {
+          var id = reportedFailures[failureIndex]
           if (group.ids.indexOf(id) >= 0 && localFailures.indexOf(id) < 0) {
             localFailures.push(id)
             failed.push(Unified.unifiedId(group.accountId, id))
@@ -55,12 +55,12 @@ QtObject {
         if (typeof completion === "function") completion({failedIds: failed})
       }
     }
-    for (var i = 0; i < groups.length; i++) {
-      var host = service.findAccount(groups[i].accountId)
+    for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+      var host = service.findAccount(groups[groupIndex].accountId)
       if (host && typeof host.actionLabel === "function") label = host.actionLabel(action)
-      var reply = replyFor(groups[i], i, host)
-      if (host && host.actMany(groups[i].ids, action, reply)) acted = true
-      else reply({failedIds: groups[i].ids})
+      var reply = replyFor(groups[groupIndex], groupIndex, host)
+      if (host && host.actMany(groups[groupIndex].ids, action, reply)) acted = true
+      else reply({failedIds: groups[groupIndex].ids})
     }
     return acted
   }

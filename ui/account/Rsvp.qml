@@ -78,7 +78,7 @@ QtObject {
         if (!normalized.length) return
         var current = normalized[0]
         var keys = ["summary", "description", "location", "start", "end", "sequence", "status", "meetLink"]
-        for (var i = 0; i < keys.length; i++) updated[keys[i]] = current[keys[i]]
+        for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) updated[keys[keyIndex]] = current[keys[keyIndex]]
         updated = Calendar.withResponse(updated, account.receivedAsAddress, String(result.response || "").toUpperCase())
         if (result.response === "needsAction") {
           updated.attendees = (updated.attendees || []).map(function(attendee) {

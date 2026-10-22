@@ -144,23 +144,23 @@ assert.strictEqual(conversation.mailboxNameFor({ labelIds: ["SPAM"] }, "inbox", 
 {
   const drawn = conversation.stops(block, known, "maaaaaf", "inbox", mailboxes)
   assert.strictEqual(drawn.length, 3, "one stop per member")
-  deepEqual(drawn.map(s => s.id), ["maaaaaf", "maaaaae", "maaaaad"],
+  deepEqual(drawn.map(stop => stop.id), ["maaaaaf", "maaaaae", "maaaaad"],
     "newest first, the other way up from Thread/get's own order")
-  deepEqual(drawn.map(s => s.open), [true, false, false],
+  deepEqual(drawn.map(stop => stop.open), [true, false, false],
     "the open message keeps its place in the timeline")
-  deepEqual(drawn.map(s => s.unread), [true, false, false])
-  deepEqual(drawn.map(s => s.mailbox), ["", "", "Drafts"],
+  deepEqual(drawn.map(stop => stop.unread), [true, false, false])
+  deepEqual(drawn.map(stop => stop.mailbox), ["", "", "Drafts"],
     "only the member outside the Inbox names where it is")
   assert.strictEqual(drawn[1].sender, "Ada Lovelace")
   assert.strictEqual(drawn[1].time, "4d")
-  assert.ok(drawn.every(s => s.known), "every summary has arrived")
+  assert.ok(drawn.every(stop => stop.known), "every summary has arrived")
 }
 
 {
   // The Sent view: this account sent none of these, so all three are elsewhere
   // and all three say so.
   const drawn = conversation.stops(block, known, "maaaaaf", "sent", mailboxes)
-  deepEqual(drawn.map(s => s.mailbox), ["Inbox", "Inbox", "Drafts"])
+  deepEqual(drawn.map(stop => stop.mailbox), ["Inbox", "Inbox", "Drafts"])
 }
 
 {
@@ -168,11 +168,11 @@ assert.strictEqual(conversation.mailboxNameFor({ labelIds: ["SPAM"] }, "inbox", 
   // moves when the read answers.
   const drawn = conversation.stops(block, {}, "maaaaaf", "inbox", mailboxes)
   assert.strictEqual(drawn.length, 3)
-  assert.ok(drawn.every(s => !s.known), "every stop is a skeleton")
-  deepEqual(drawn.map(s => s.sender), ["", "", ""])
-  deepEqual(drawn.map(s => s.unread), [false, false, false],
+  assert.ok(drawn.every(stop => !stop.known), "every stop is a skeleton")
+  deepEqual(drawn.map(stop => stop.sender), ["", "", ""])
+  deepEqual(drawn.map(stop => stop.unread), [false, false, false],
     "an unknown member is never drawn unread")
-  deepEqual(drawn.map(s => s.open), [true, false, false],
+  deepEqual(drawn.map(stop => stop.open), [true, false, false],
     "and the open one is still marked")
 }
 
@@ -182,7 +182,7 @@ assert.strictEqual(conversation.mailboxNameFor({ labelIds: ["SPAM"] }, "inbox", 
     maaaaae: summary("maaaaae", { starred: true, labelIds: ["INBOX", "STARRED"] })
   })
   deepEqual(conversation.stops(block, flagged, "maaaaaf", "inbox", mailboxes)
-    .map(s => s.flagged), [false, true, false])
+    .map(stop => stop.flagged), [false, true, false])
 }
 
 deepEqual(conversation.stops(null, known, "", "inbox", mailboxes), [])

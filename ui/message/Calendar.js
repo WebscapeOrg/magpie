@@ -292,6 +292,7 @@ function parseOffsetMinutes(value) {
   var seconds = Number(match[4] || 0)
   if (hours > 23 || minutes > 59 || seconds > 59) return null
   var total = hours * 60 + minutes + seconds / 60
+  if (!isFinite(total)) return 0
   return match[1] === "-" ? -total : total
 }
 
@@ -632,6 +633,7 @@ function parseDuration(value) {
     + Number(match[4] || 0) * 3600000
     + Number(match[5] || 0) * 60000
     + Number(match[6] || 0) * 1000
+  if (!isFinite(total)) return 0
   return match[1] === "-" ? -total : total
 }
 

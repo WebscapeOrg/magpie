@@ -745,4 +745,11 @@ assert.strictEqual(feedEvents[1].start.allDay, true)
   }
 }
 
+for (const response of ["constructor", "__proto__"]) {
+  assert.strictEqual(calendar.normalizedResponse(response), "", "only declared RSVP answers are valid")
+  assert.strictEqual(calendar.buildReply(invite, me, response, 0), "", "an unknown answer cannot produce reply content")
+  assert.strictEqual(calendar.replyFields(invite, me, response, 0), null)
+  assert.strictEqual(calendar.withResponse(invite, me.email, response), invite, "an unknown answer cannot change attendance")
+}
+
 console.log("test_calendar.js ok")

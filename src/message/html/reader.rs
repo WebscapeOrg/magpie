@@ -216,17 +216,17 @@ fn image(node: &Node, state: &mut State, images: &mut Images<'_>) {
     let kind = if node.has("src") {
         image_kind(source)
     } else {
-        "none"
+        ImageSource::Absent
     };
-    let rendered = if kind == "remote" {
+    let rendered = if kind == ImageSource::Remote {
         images.prepared(source)
     } else {
         source.into()
     };
-    if (kind == "inline" || (kind == "remote" && images.allowed() && !rendered.is_empty()))
+    if (kind == ImageSource::Embedded || (kind == ImageSource::Remote && images.allowed() && !rendered.is_empty()))
         && images.admit(&rendered)
     {
-        if kind == "remote" {
+        if kind == ImageSource::Remote {
             images.kept += 1
         }
         state.space();
@@ -244,13 +244,13 @@ fn image(node: &Node, state: &mut State, images: &mut Images<'_>) {
         state.pending = false;
         return;
     }
-    if kind == "remote" && (!images.allowed() || rendered.is_empty()) {
+    if kind == ImageSource::Remote && (!images.allowed() || rendered.is_empty()) {
         images.blocked += 1
     }
     let alt = source_space(&tree::escape_text(&decode(node.attr("alt"))));
     if !alt.trim().is_empty() {
         state.text(alt.trim())
-    } else if kind == "remote" && node.has("src") && !node.has("alt") {
+    } else if kind == ImageSource::Remote && node.has("src") && !node.has("alt") {
         state.text("[image]")
     }
 }

@@ -310,14 +310,14 @@ impl<'a> Images<'a> {
         }
         let source = node.attr("src").to_owned();
         let kind = image_kind(&source);
-        if matches!(kind, "inline" | "remote") && tracking(node) {
+        if matches!(kind, ImageSource::Embedded | ImageSource::Remote) && tracking(node) {
             self.blocked += 1;
             return false;
         }
         match kind {
-            "inline" => self.admit(&source),
-            "none" => true,
-            "remote" => {
+            ImageSource::Embedded => self.admit(&source),
+            ImageSource::Absent => true,
+            ImageSource::Remote => {
                 if self.loadable < self.limit {
                     self.loadable += 1
                 }
@@ -333,7 +333,7 @@ impl<'a> Images<'a> {
                 self.kept += 1;
                 true
             }
-            _ => false,
+            ImageSource::Unsafe | ImageSource::Local => false,
         }
     }
 }
@@ -359,7 +359,7 @@ fn clean(node: &mut Node, images: &mut Images<'_>, colors: bool) {
         }
         if child.name == "img" && images.sources.len() < images.limit {
             let source = child.attr("src");
-            if image_kind(source) == "remote"
+            if image_kind(source) == ImageSource::Remote
                 && !tracking(&child)
                 && !images.sources.iter().any(|candidate| candidate == source)
             {

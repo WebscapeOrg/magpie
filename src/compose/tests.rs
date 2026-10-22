@@ -135,9 +135,11 @@ fn malformed_edit_history_never_writes_recovery() {
 
 #[test]
 fn meaningful_body_history_and_parked_identity_survive() {
-    assert!(!normalize(&saved("  ")).unwrap()["active"]
-        .as_bool()
-        .unwrap());
+    assert!(
+        !normalize(&saved("  ")).unwrap()["active"]
+            .as_bool()
+            .unwrap()
+    );
     let mut value = saved("\n\nSignature");
     value["draft"]["placedBody"] = json!("\n\nSignature");
     assert_eq!(normalize(&value).unwrap(), empty());
@@ -198,7 +200,7 @@ fn snapshots_are_private_atomic_and_stale_clear_cannot_erase_newer_draft() {
 #[cfg(unix)]
 #[test]
 fn links_never_read_write_or_modify_outside_target() {
-    use std::os::unix::fs::{symlink, PermissionsExt};
+    use std::os::unix::fs::{PermissionsExt, symlink};
     for name in ["compose.json", ".compose.lock"] {
         for hard in [false, true] {
             let temp = Temp::new();
@@ -212,12 +214,14 @@ fn links_never_read_write_or_modify_outside_target() {
             } else {
                 symlink(&outside, path).unwrap();
             }
-            assert!(call_at(
-                &temp.0,
-                "compose.recoverySave",
-                &json!({"record":saved("draft"),"expectedRevision":revision(&[])})
-            )
-            .is_err());
+            assert!(
+                call_at(
+                    &temp.0,
+                    "compose.recoverySave",
+                    &json!({"record":saved("draft"),"expectedRevision":revision(&[])})
+                )
+                .is_err()
+            );
             assert_eq!(std::fs::read(&outside).unwrap(), b"secret");
             assert_eq!(
                 std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777,
@@ -303,12 +307,14 @@ fn malformed_or_oversize_save_does_not_replace_existing_snapshot() {
         json!({"version":2,"active":false}),
         saved(&"x".repeat(MAX_BYTES)),
     ] {
-        assert!(call_at(
-            &temp.0,
-            "compose.recoverySave",
-            &json!({"record":value,"expectedRevision":first["revision"]})
-        )
-        .is_err());
+        assert!(
+            call_at(
+                &temp.0,
+                "compose.recoverySave",
+                &json!({"record":value,"expectedRevision":first["revision"]})
+            )
+            .is_err()
+        );
         assert_eq!(
             call_at(&temp.0, "compose.recoveryRead", &json!({})).unwrap(),
             first
@@ -319,9 +325,11 @@ fn malformed_or_oversize_save_does_not_replace_existing_snapshot() {
 #[test]
 fn delivery_receipts_survive_recovery_without_changing_legacy_empty_fields() {
     let mut value = saved("pending");
-    assert!(normalize(&value).unwrap()["draft"]
-        .get("pendingSendId")
-        .is_none());
+    assert!(
+        normalize(&value).unwrap()["draft"]
+            .get("pendingSendId")
+            .is_none()
+    );
     value["draft"]["pendingSendId"] = json!("send-one");
     value["draft"]["deliveryUnknown"] = json!(true);
     let record = normalize(&value).unwrap();

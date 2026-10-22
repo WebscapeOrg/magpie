@@ -1,5 +1,5 @@
 //! Invariant: Durable editor recovery. Stored attachment metadata never authorizes file IO.
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     io::Read,
@@ -117,10 +117,12 @@ fn draft(value: &Value) -> Result<Value> {
     if people.len() > 1024 {
         return Err("recovery_too_large");
     }
-    out["replyRecipients"] = json!(people
-        .iter()
-        .map(|v| json!({"email":text(&v["email"]),"display":text(&v["display"])}))
-        .collect::<Vec<_>>());
+    out["replyRecipients"] = json!(
+        people
+            .iter()
+            .map(|v| json!({"email":text(&v["email"]),"display":text(&v["display"])}))
+            .collect::<Vec<_>>()
+    );
     for key in [
         "originalAttachments",
         "forwardedAttachments",
@@ -247,10 +249,12 @@ fn attachment_state(value: &Value, out: &mut Value) -> Result<()> {
         out["forwardAttachmentsLoading"] = json!(loading.as_bool().ok_or("recovery_invalid")?);
     }
     if let Some(serial) = value.get("forwardLoadSerial") {
-        out["forwardLoadSerial"] = json!(serial
-            .as_u64()
-            .filter(|serial| *serial <= i32::MAX as u64)
-            .ok_or("recovery_invalid")?);
+        out["forwardLoadSerial"] = json!(
+            serial
+                .as_u64()
+                .filter(|serial| *serial <= i32::MAX as u64)
+                .ok_or("recovery_invalid")?
+        );
     }
     let source = out["attachmentSourceMessageId"].as_str().unwrap_or("");
     if out["forwardAttachmentsLoading"] == true && source.is_empty() {

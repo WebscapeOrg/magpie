@@ -1,7 +1,7 @@
 mod avatars;
 mod snooze;
 mod store;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 
@@ -281,7 +281,7 @@ mod overview_failure_tests {
 #[cfg(all(test, feature = "agent", unix))]
 mod overview_storage_tests {
     use super::{claim_overviews, finish_overviews};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn expired_overview_failure_accepts_the_full_persisted_timestamp_range() {

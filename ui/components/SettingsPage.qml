@@ -427,6 +427,7 @@ Column {
     ToggleSwitch {
       id: barIconSwitch
       objectName: "showBarIconSwitch"
+      Accessible.name: "Show the icon in the bar"
       anchors.right: parent.right
       anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
@@ -569,6 +570,8 @@ Column {
 
     ToggleSwitch {
       id: imagesSwitch
+      objectName: "imagesSwitch"
+      Accessible.name: "Always show remote images"
       anchors.right: parent.right
       anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
@@ -615,6 +618,8 @@ Column {
 
     ToggleSwitch {
       id: heavySwitch
+      objectName: "heavySwitch"
+      Accessible.name: "Always render heavy messages"
       anchors.right: parent.right
       anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
@@ -768,6 +773,7 @@ Column {
     ToggleSwitch {
       id: suggestSwitch
       objectName: "suggestEventsSwitch"
+      Accessible.name: "Suggest calendar events from mail"
       anchors.right: parent.right
       anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter
@@ -830,6 +836,8 @@ Column {
 
     ToggleSwitch {
       id: notifySwitch
+      objectName: "notifySwitch"
+      Accessible.name: "New mail notifications"
       anchors.right: parent.right
       anchors.rightMargin: MailStyle.space(10)
       anchors.verticalCenter: parent.verticalCenter

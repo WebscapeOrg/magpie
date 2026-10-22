@@ -51,12 +51,9 @@ for stray in sorted(root.glob("*.qml")):
 for stray in sorted(repo.glob("*.qml")):
     failures.append(f"{stray.name} sits at repository root; Qt sources belong in ui/")
 
-# The Makefile drives qmllint, so a file it does not list is a file nobody
-# checks. Components have their own check above; these are the rest.
+# Invariant: every production QML file must be included in the lint inputs.
 for path in qml_files:
     listed = path.relative_to(repo).as_posix()
-    if listed.startswith("components/"):
-        continue
     if listed not in makefile:
         failures.append(f"{listed} is missing from QML_FILES in the Makefile")
 

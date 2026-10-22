@@ -286,6 +286,42 @@ Item {
       compare(eventController.updateCalls,0)
     }
 
+    function test_save_controls_follow_transfer_state_data() {
+      return [{tag: "moving", refreshRequired: false},
+        {tag: "refresh-required", refreshRequired: true}]
+    }
+    function test_save_controls_follow_transfer_state(data) {
+      eventController.writableSourceGroups = [{providerLabel: "Google", accountLabel: "me@example.test", calendars: [
+        {id: "original", name: "Original", kind: "google", accountId: "me@example.test"},
+        {id: "destination", name: "Destination", kind: "google", accountId: "me@example.test"}]}]
+      composer.beginEdit("original", {googleId: "one", sourceId: "original", summary: "Planning", eventType: "default",
+        organizer: {self: true}, attendees: [{email: "guest@example.test"}],
+        start: {ms: new Date(2026, 9, 25, 9).getTime()}, end: {ms: new Date(2026, 9, 25, 10).getTime()}})
+      var selector = findChild(composer, "event-calendar-selector")
+      findChild(composer, "event-composer-scroll").contentY = 0
+      wait(0)
+      waitForRendering(selector)
+      mouseClick(selector, selector.width / 2, selector.height / 2)
+      tryCompare(selector.popup, "opened", true)
+      tryVerify(function() { return selector.popup.contentItem.itemAtIndex(1) !== null })
+      var option = selector.popup.contentItem.itemAtIndex(1)
+      mouseClick(option, option.width / 2, option.height - 8)
+      compare(composer.transferring, true)
+      if (data.refreshRequired) {
+        eventController.eventWriting = false
+        eventController.transferCallback(null, "The event moved. Refresh before making further changes.", true)
+        compare(composer.transferNeedsRefresh, true)
+      }
+      var save = findChild(composer, "event-save-button")
+      var saveWithoutEmail = save.parent.children.filter(function(child) { return child.text === "Save without email" })[0]
+      verify(saveWithoutEmail.visible)
+      mouseClick(save, save.width / 2, save.height / 2)
+      mouseClick(saveWithoutEmail, saveWithoutEmail.width / 2, saveWithoutEmail.height / 2)
+      compare(eventController.updateCalls, 0)
+      compare(saveWithoutEmail.enabled, false)
+      compare(save.enabled, false)
+    }
+
     function test_repeat_dropdown_sets_schedule_directly() {
       composer.begin()
       wait(0)

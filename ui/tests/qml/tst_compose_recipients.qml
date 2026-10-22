@@ -294,5 +294,29 @@ Item {
       compare(compose.ccVisible, true)
       compare(named(compose, "compose-cc-field").text, "Bob <bob@example.com>")
     }
+
+    function test_malformed_contact_cannot_add_a_recipient_to_the_dispatched_envelope() {
+      compose.begin("new", null, "", [])
+      named(compose, "compose-to-field").text = "intended@example.test"
+      var picker = named(compose, "compose-contacts-picker")
+      picker.contactChosen({ name: "Visible contact", email: "visible@example.test,hidden@example.test" }, "to")
+      var send = named(compose, "compose-send-button")
+      verify(send)
+      mouseClick(send, send.width / 2, send.height / 2)
+      verify(mailService.lastSent !== null)
+      compare(mailService.lastSent.to, "intended@example.test",
+        "A structured contact must not inject additional mailboxes into service.send")
+    }
+
+    function test_quoted_contact_remains_one_recipient_when_chosen_twice() {
+      compose.begin("new", null, "", [])
+      var picker = named(compose, "compose-contacts-picker")
+      var contact = { name: "Quoted contact", email: '"quoted,local"@example.test' }
+      picker.contactChosen(contact, "to")
+      picker.contactChosen(contact, "to")
+      var send = named(compose, "compose-send-button")
+      mouseClick(send, send.width / 2, send.height / 2)
+      compare(mailService.lastSent.to, 'Quoted contact <"quoted,local"@example.test>')
+    }
   }
 }

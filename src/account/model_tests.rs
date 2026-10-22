@@ -214,3 +214,18 @@ fn unified_large_list_account_collision_watermark_and_capabilities() {
     assert_eq!(snapshot["loaded"], true);
     assert_eq!(snapshot["totalUnread"], 7);
 }
+
+#[test]
+fn round2_rebase_refuses_nonobject_intent_entries() {
+    for invalid in [json!("not a record"), json!(true), json!(7), Value::Null] {
+        let entries = json!([{"token":1,"before":{"id":"message"}}, invalid]);
+        for request in [
+            json!({"operation":"rebaseIntents","args":[entries,1]}),
+            json!({"operation":"intentsSettled","args":[{"message":entries},"message",1,true,null]}),
+        ] {
+            let result = std::panic::catch_unwind(|| apply(&request));
+            assert!(result.is_ok(), "malformed intent records must not unwind the backend request");
+            assert_eq!(result.unwrap(), Err("model_invalid"));
+        }
+    }
+}

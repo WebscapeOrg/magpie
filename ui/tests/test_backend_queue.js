@@ -39,14 +39,14 @@ function bridge() {
 {
   const {backend, sent, errors, reply} = bridge()
   const results = []
-  for (let i=0; i<225; i++) backend.call('gmail.read', {accountId:`account-${i%9}`, id:i},
+  for (let requestIndex=0; requestIndex<225; requestIndex++) backend.call('gmail.read', {accountId:`account-${requestIndex%9}`, id:requestIndex},
     (value,error)=>results.push({value,error}))
   assert.strictEqual(errors.length, 0, 'a multi-account refresh must queue rather than report a pending-cap error')
   assert.strictEqual(sent.length, 64, 'keep the physical RPC window bounded')
-  for (let i=0; i<225; i++) {
-    assert.strictEqual(sent[i].params.id, i, 'queued requests retain FIFO order')
+  for (let requestIndex=0; requestIndex<225; requestIndex++) {
+    assert.strictEqual(sent[requestIndex].params.id, requestIndex, 'queued requests retain FIFO order')
     assert(Object.keys(backend.pending).length<=64)
-    reply(sent[i], i)
+    reply(sent[requestIndex], requestIndex)
   }
   assert.strictEqual(results.length, 225)
   assert(results.every(result=>!result.error))
@@ -57,26 +57,26 @@ function bridge() {
   const {backend, sent, errors, reply} = bridge()
   let completed=0, reserved=0, peak=0, nextId=0
   const uploads=new Map()
-  for(let i=0;i<24;i++) backend.parseMessage('Subject: burst\r\n\r\nbody-'+i, (result,error)=>{
+  for(let requestIndex=0;requestIndex<24;requestIndex++) backend.parseMessage('Subject: burst\r\n\r\nbody-'+requestIndex, (result,error)=>{
     assert(!error, JSON.stringify(error)); completed++
   })
   assert(sent.length<=8, 'only backend-capacity uploads may start together')
-  for(let i=0;i<sent.length;i++) {
-    const request=sent[i], p=request.params
+  for(let requestIndex=0;requestIndex<sent.length;requestIndex++) {
+    const request=sent[requestIndex], parameters=request.params
     if(request.method==='upload.begin') {
       assert(uploads.size<8, 'no ninth live reservation')
-      reserved+=p.size; peak=Math.max(peak,reserved)
-      const id='upload-'+(++nextId); uploads.set(id, {size:p.size, data:Buffer.alloc(0)})
+      reserved+=parameters.size; peak=Math.max(peak,reserved)
+      const id='upload-'+(++nextId); uploads.set(id, {size:parameters.size, data:Buffer.alloc(0)})
       reply(request,{upload:id,chunkSize:65536})
     } else if(request.method==='upload.append') {
-      const entry=uploads.get(p.upload)
-      assert.strictEqual(p.offset,entry.data.length)
-      entry.data=Buffer.concat([entry.data,Buffer.from(p.data,'base64url')])
+      const entry=uploads.get(parameters.upload)
+      assert.strictEqual(parameters.offset,entry.data.length)
+      entry.data=Buffer.concat([entry.data,Buffer.from(parameters.data,'base64url')])
       reply(request,{offset:entry.data.length})
     } else if(request.method==='message.parseUpload') {
-      const entry=uploads.get(p.upload)
+      const entry=uploads.get(parameters.upload)
       assert.strictEqual(entry.data.length,entry.size)
-      reserved-=entry.size;uploads.delete(p.upload);reply(request,{parsed:true})
+      reserved-=entry.size;uploads.delete(parameters.upload);reply(request,{parsed:true})
     } else assert.fail(request.method)
   }
   assert.strictEqual(completed,24)
@@ -90,20 +90,20 @@ function bridge() {
   let callbacks=0
   const handle=backend.call('cache.resourcePut',{text:'x'.repeat(210000)},()=>callbacks++)
   reply(sent[0],{upload:'cancel-commit',chunkSize:65536})
-  for(let i=1;i<=3;i++) reply(sent[i],{offset:i*65536})
+  for(let requestIndex=1;requestIndex<=3;requestIndex++) reply(sent[requestIndex],{offset:requestIndex*65536})
   const lastAppend=sent[4]
   assert.strictEqual(lastAppend.method,'upload.append')
-  for(let i=0;i<80;i++) backend.call('gmail.read',{id:i},()=>{})
+  for(let requestIndex=0;requestIndex<80;requestIndex++) backend.call('gmail.read',{id:requestIndex},()=>{})
   reply(lastAppend,{offset:210011})
-  assert(!sent.some(r=>r.method==='request.upload'))
+  assert(!sent.some(request=>request.method==='request.upload'))
   handle.cancel()
-  for(let i=5;i<sent.length;i++) {
-    const request=sent[i]
+  for(let requestIndex=5;requestIndex<sent.length;requestIndex++) {
+    const request=sent[requestIndex]
     assert.notStrictEqual(request.method,'request.upload','cancel must withdraw an unsent uploaded domain operation')
     reply(request,request.method==='upload.discard'?{discarded:true}:{ok:true})
   }
   assert.strictEqual(callbacks,0)
-  assert(sent.some(r=>r.method==='upload.discard'))
+  assert(sent.some(request=>request.method==='upload.discard'))
 }
 
 // Cancelling an ordinary queued call removes only that entry. An in-flight
@@ -112,7 +112,7 @@ function bridge() {
   const {backend,sent,reply}=bridge()
   let cancelledCallbacks=0
   const active=backend.call('gmail.read',{id:'active'},()=>cancelledCallbacks++)
-  for(let i=1;i<64;i++) backend.call('gmail.read',{id:i},()=>{})
+  for(let requestIndex=1;requestIndex<64;requestIndex++) backend.call('gmail.read',{id:requestIndex},()=>{})
   const queued=backend.call('gmail.read',{id:'cancelled'},()=>cancelledCallbacks++)
   backend.call('gmail.read',{id:'next'},()=>{})
   active.cancel();queued.cancel()
@@ -125,9 +125,9 @@ function bridge() {
 {
   const {backend,sent,reply}=bridge()
   backend.call('gmail.read',{id:0},()=>backend.call('gmail.read',{id:'reentrant'},()=>{}))
-  for(let i=1;i<80;i++) backend.call('gmail.read',{id:i},()=>{})
+  for(let requestIndex=1;requestIndex<80;requestIndex++) backend.call('gmail.read',{id:requestIndex},()=>{})
   reply(sent[0],{})
-  for(let i=1;i<80;i++) {assert.strictEqual(sent[i].params.id,i);reply(sent[i],{})}
+  for(let requestIndex=1;requestIndex<80;requestIndex++) {assert.strictEqual(sent[requestIndex].params.id,requestIndex);reply(sent[requestIndex],{})}
   assert.strictEqual(sent[80].params.id,'reentrant')
 }
 // Reset removes both queues and makes replies from the old process harmless.
@@ -135,8 +135,8 @@ function bridge() {
   const {backend,sent,reply}=bridge()
   let callbacks=0
   const done=(_value,error)=>{assert(error);callbacks++}
-  for(let i=0;i<80;i++) backend.call('gmail.read',{id:i},done)
-  for(let i=0;i<12;i++) backend.parseMessage('x',done)
+  for(let requestIndex=0;requestIndex<80;requestIndex++) backend.call('gmail.read',{id:requestIndex},done)
+  for(let requestIndex=0;requestIndex<12;requestIndex++) backend.parseMessage('x',done)
   backend.failPending('Backend stopped')
   assert.strictEqual(callbacks,92)
   assert.strictEqual(backend.queued.length,0)
@@ -167,20 +167,20 @@ for(const reason of ['cancel','append failure']) {
   const {backend,sent,reply}=bridge()
   let callbacks=0
   const handles=[]
-  for(let i=0;i<9;i++) handles.push(backend.parseMessage('x',(value,error)=>{callbacks++}))
+  for(let requestIndex=0;requestIndex<9;requestIndex++) handles.push(backend.parseMessage('x',(value,error)=>{callbacks++}))
   assert.strictEqual(sent.length,8)
   const begin=sent[0]
   reply(begin,{upload:'release-me',chunkSize:65536})
   const append=sent[8]
-  for(let i=0;i<70;i++) backend.call('gmail.read',{id:i},()=>{})
+  for(let requestIndex=0;requestIndex<70;requestIndex++) backend.call('gmail.read',{id:requestIndex},()=>{})
   if(reason==='cancel') handles[0].cancel()
   reply(append,null,{code:-1,message:'refused'})
   assert.strictEqual(backend.uploadQueue.active.length,8)
   assert.strictEqual(callbacks,0)
   // Drain ordinary reads until the queued discard is actually sent.
-  for(let cursor=9;!sent.some(r=>r.method==='upload.discard');cursor++) reply(sent[cursor],{})
-  const discard=sent.find(r=>r.method==='upload.discard')
-  assert.strictEqual(sent.filter(r=>r.method==='upload.begin').length,8)
+  for(let cursor=9;!sent.some(request=>request.method==='upload.discard');cursor++) reply(sent[cursor],{})
+  const discard=sent.find(request=>request.method==='upload.discard')
+  assert.strictEqual(sent.filter(request=>request.method==='upload.begin').length,8)
   reply(discard,{discarded:true})
   // Its newly admitted begin may itself still be waiting for an RPC slot.
   assert.strictEqual(backend.uploadQueue.waiting.length,0)
@@ -190,7 +190,7 @@ for(const reason of ['cancel','append failure']) {
   const {backend,sent,reply}=bridge()
   let callbacks=0
   const handles=[]
-  for(let i=0;i<10;i++) handles.push(backend.parseMessage('x',()=>callbacks++))
+  for(let requestIndex=0;requestIndex<10;requestIndex++) handles.push(backend.parseMessage('x',()=>callbacks++))
   handles[8].cancel()
   assert.strictEqual(backend.uploadQueue.waiting.length,1)
   handles[0].cancel()
@@ -203,29 +203,29 @@ for(const reason of ['cancel','append failure']) {
 {
   const {backend,sent,reply}=bridge()
   let callbacks=0
-  for(let i=0;i<10;i++) backend.parseMessage('x',()=>callbacks++)
+  for(let requestIndex=0;requestIndex<10;requestIndex++) backend.parseMessage('x',()=>callbacks++)
   reply(sent[0],{upload:'cleanup-failed',chunkSize:65536})
   reply(sent[8],null,{code:-1,message:'append refused'})
   reply(sent[9],null,{code:-1,message:'discard refused'})
   assert.strictEqual(backend.connected,false)
   assert.strictEqual(backend.child.running,false)
   assert.strictEqual(callbacks,10)
-  assert.strictEqual(sent.filter(r=>r.method==='upload.begin').length,8)
+  assert.strictEqual(sent.filter(request=>request.method==='upload.begin').length,8)
 }
 {
   const {backend,sent,reply}=bridge()
   let callbacks=0
-  for(let i=0;i<10;i++) backend.parseMessage('x',()=>callbacks++)
+  for(let requestIndex=0;requestIndex<10;requestIndex++) backend.parseMessage('x',()=>callbacks++)
   backend.shutdown(()=>{})
   assert.strictEqual(callbacks,10)
-  for(let i=0;i<8;i++) reply(sent[i],{upload:'late-'+i,chunkSize:65536})
+  for(let requestIndex=0;requestIndex<8;requestIndex++) reply(sent[requestIndex],{upload:'late-'+requestIndex,chunkSize:65536})
   assert.strictEqual(sent.length,9)
   assert.strictEqual(sent[8].method,'system.quit')
 }
 // Queueing preserves the old snapshot-at-call behavior for mutable models.
 {
   const {backend,sent,reply}=bridge()
-  for(let i=0;i<64;i++) backend.call('providers.list',{},()=>{})
+  for(let requestIndex=0;requestIndex<64;requestIndex++) backend.call('providers.list',{},()=>{})
   const params={accountId:'one@example.org',message:{subject:'original'}}
   backend.call('cache.resourcePut',params,()=>{})
   params.accountId='two@example.org';params.message.subject='changed'
@@ -251,22 +251,22 @@ for(const shutdown of [false,true]) {
   const {backend,sent,reply}=bridge()
   let completed=0, armed=false
   backend.shutdownDeadline.restart=()=>{armed=true}
-  for(let i=0;i<10;i++) backend.parseMessage('x',()=>{
-    completed++; if(i===8) throw new Error('destroyed receiver')
+  for(let requestIndex=0;requestIndex<10;requestIndex++) backend.parseMessage('x',()=>{
+    completed++; if(requestIndex===8) throw new Error('destroyed receiver')
   })
   assert.doesNotThrow(()=>shutdown?backend.shutdown(()=>{}):backend.stopForFailure('disconnected'))
   assert.strictEqual(completed,10)
   if(shutdown) {
     assert(armed)
-    for(let i=0;i<8;i++) reply(sent[i],{upload:'late-'+i,chunkSize:65536})
+    for(let requestIndex=0;requestIndex<8;requestIndex++) reply(sent[requestIndex],{upload:'late-'+requestIndex,chunkSize:65536})
     assert.strictEqual(sent[8].method,'system.quit')
   } else assert.strictEqual(backend.child.running,false)
 }
 {
   const {backend}=bridge()
   let completed=0
-  for(let i=0;i<80;i++) backend.call('gmail.read',{id:i},()=>{
-    completed++; if(i===0 || i===64) throw new Error('destroyed receiver')
+  for(let requestIndex=0;requestIndex<80;requestIndex++) backend.call('gmail.read',{id:requestIndex},()=>{
+    completed++; if(requestIndex===0 || requestIndex===64) throw new Error('destroyed receiver')
   })
   assert.doesNotThrow(()=>backend.stopForFailure('disconnected'))
   assert.strictEqual(completed,80)
@@ -331,17 +331,17 @@ if(process.argv[2]) {
     const info=await call('system.info',{})
     assert.strictEqual(info.name,'omamail')
     const work=[]
-    for(let i=0;i<225;i++) work.push(call('providers.list',{}))
+    for(let requestIndex=0;requestIndex<225;requestIndex++) work.push(call('providers.list',{}))
     const text='body \u00ff\r\n'.repeat(30000)
-    for(let i=0;i<24;i++) {
-      if(i%3===0) work.push(new Promise((resolve,reject)=>backend.parseMessage('Subject: Test\r\n\r\n'+text,(result,error)=>{
+    for(let requestIndex=0;requestIndex<24;requestIndex++) {
+      if(requestIndex%3===0) work.push(new Promise((resolve,reject)=>backend.parseMessage('Subject: Test\r\n\r\n'+text,(result,error)=>{
         if(error) return reject(error)
         try {assert.strictEqual(result.body.size,text.length);resolve()} catch(error) {reject(error)}
       })))
-      else if(i%3===1) work.push(new Promise((resolve,reject)=>backend.putBodyCache('test@example.org','body-'+i,{text},
-        (result,error)=>error?reject(error):resolve(result))).then(()=>call('cache.bodyRead',{accountId:'test@example.org',id:'body-'+i}))
+      else if(requestIndex%3===1) work.push(new Promise((resolve,reject)=>backend.putBodyCache('test@example.org','body-'+requestIndex,{text},
+        (result,error)=>error?reject(error):resolve(result))).then(()=>call('cache.bodyRead',{accountId:'test@example.org',id:'body-'+requestIndex}))
         .then(body=>assert.strictEqual(body.text,text)))
-      else work.push(call('cache.resourcePut',{accountId:'test@example.org',id:'resource-'+i,resource:{id:'resource-'+i,
+      else work.push(call('cache.resourcePut',{accountId:'test@example.org',id:'resource-'+requestIndex,resource:{id:'resource-'+requestIndex,
         payload:{mimeType:'text/plain',headers:[],body:{data:Buffer.from(text).toString('base64url')}}}}))
     }
     await Promise.all(work)

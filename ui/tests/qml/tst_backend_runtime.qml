@@ -60,8 +60,8 @@ Item {
 
     function make() { return createTemporaryObject(factory, parent) }
     function processOf(runtime) {
-      for (var i = 0; i < runtime.children.length; i++)
-        if (runtime.children[i].command) return runtime.children[i]
+      for (var childIndex = 0; childIndex < runtime.children.length; childIndex++)
+        if (runtime.children[childIndex].command) return runtime.children[childIndex]
       fail("Missing runtime process")
     }
     function reply(runtime, state, version, error, cliInstalled) {

@@ -100,8 +100,8 @@ Item {
     }
 
     function button() {
-      for (var i = 0; i < widget.children.length; i++)
-        if (widget.children[i].iconComponent) return widget.children[i]
+      for (var childIndex = 0; childIndex < widget.children.length; childIndex++)
+        if (widget.children[childIndex].iconComponent) return widget.children[childIndex]
       fail("bar button was not instantiated")
     }
 

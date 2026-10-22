@@ -16,7 +16,7 @@ for (const line of ["not json", "[]", "null", '{}',
 console.log("test_backend_wire.js ok")
 
 const upload = load("backend/Upload.js")
-const bytes = Array.from({ length: 256 }, (_, i) => String.fromCharCode(i)).join("")
+const bytes = Array.from({ length: 256 }, (_, byte) => String.fromCharCode(byte)).join("")
 assert.strictEqual(upload.chunk(bytes, 0, 256).data, Buffer.from(bytes, "latin1").toString("base64url"))
 assert.strictEqual(upload.chunk("\u0100", 0, 1), null)
 

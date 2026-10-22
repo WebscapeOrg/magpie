@@ -56,8 +56,8 @@ Item {
       backend.readDone(null,{message:"cache_unavailable"})
       compare(answer,null)
       compare(cache.writeQueue.length,0)
-      for (var i=0;i<cache.children.length;i++) {
-        var child=cache.children[i]
+      for (var childIndex=0;childIndex<cache.children.length;childIndex++) {
+        var child=cache.children[childIndex]
         if (child.running !== undefined) compare(child.running,false)
       }
     }

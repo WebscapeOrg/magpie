@@ -63,7 +63,7 @@ Item {
       reply(process,append,{offset:65536})
       all=requests(process)
       compare(all[all.length - 1].method,"upload.discard")
-      for (var i=0;i<all.length;i++) verify(all[i].method!=="request.upload")
+      for (var requestIndex=0;requestIndex<all.length;requestIndex++) verify(all[requestIndex].method!=="request.upload")
       compare(callbacks,0)
     }
 
@@ -72,18 +72,18 @@ Item {
       var process = makeReady(backend)
       var completed = 0
       var failed = 0
-      for (var i = 0; i < 225; i++) {
-        backend.call("gmail.read", { accountId: "account-" + Math.floor(i / 25), id: i }, function(result, error) {
+      for (var requestIndex = 0; requestIndex < 225; requestIndex++) {
+        backend.call("gmail.read", { accountId: "account-" + Math.floor(requestIndex / 25), id: requestIndex }, function(result, error) {
           if (error) failed++
           else completed++
         })
       }
       compare(failed, 0)
       compare(requests(process).length, 65, "64 physical requests after the handshake")
-      for (var j = 0; j < 225; j++) {
+      for (var replyIndex = 0; replyIndex < 225; replyIndex++) {
         verify(Object.keys(backend.pending).length <= 64)
-        var request = requests(process)[j + 1]
-        compare(request.params.id, j, "queued reads remain FIFO")
+        var request = requests(process)[replyIndex + 1]
+        compare(request.params.id, replyIndex, "queued reads remain FIFO")
         reply(process, request, { ok: true })
       }
       compare(completed, 225)
@@ -94,11 +94,11 @@ Item {
       var backend = makeBackend()
       var process = makeReady(backend)
       var completed = 0
-      for (var i = 0; i < 80; i++)
-        backend.call("gmail.read", { id: i }, function(result, error) { if (!error) completed++ })
+      for (var requestIndex = 0; requestIndex < 80; requestIndex++)
+        backend.call("gmail.read", { id: requestIndex }, function(result, error) { if (!error) completed++ })
       backend.shutdown(function() {})
-      for (var j = 0; j < 80; j++) {
-        var request = requests(process)[j + 1]
+      for (var replyIndex = 0; replyIndex < 80; replyIndex++) {
+        var request = requests(process)[replyIndex + 1]
         compare(request.method, "gmail.read")
         reply(process, request, { ok: true })
       }
@@ -116,10 +116,10 @@ Item {
       var failed = 0
       var uploads = ({})
       var nextUpload = 0
-      for (var i = 0; i < 24; i++) {
+      for (var uploadIndex = 0; uploadIndex < 24; uploadIndex++) {
         var callback = function(result, error) { if (error) failed++; else completed++ }
-        if (i % 3 === 0) backend.parseMessage("Subject: Test\r\n\r\nbody", callback)
-        else if (i % 3 === 1) backend.putBodyCache("test@example.org", "id-" + i, { text: "body" }, callback)
+        if (uploadIndex % 3 === 0) backend.parseMessage("Subject: Test\r\n\r\nbody", callback)
+        else if (uploadIndex % 3 === 1) backend.putBodyCache("test@example.org", "id-" + uploadIndex, { text: "body" }, callback)
         else backend.call("message.prepare", {text: "x".repeat(210000)}, callback)
       }
       compare(requests(process).length, 9, "only eight upload reservations may start")
@@ -152,11 +152,11 @@ Item {
       var callbacks = 0
       var handle = backend.call("cache.resourcePut", {text:"x".repeat(210000)}, function() { callbacks++ })
       reply(process, requests(process)[1], {upload:"cancel-commit",chunkSize:65536})
-      for (var i = 1; i <= 3; i++)
-        reply(process, requests(process)[i + 1], {offset:i * 65536})
+      for (var chunkIndex = 1; chunkIndex <= 3; chunkIndex++)
+        reply(process, requests(process)[chunkIndex + 1], {offset:chunkIndex * 65536})
       var lastAppend = requests(process)[5]
       compare(lastAppend.method, "upload.append")
-      for (var j = 0; j < 80; j++) backend.call("gmail.read", {id:j}, function() {})
+      for (var requestIndex = 0; requestIndex < 80; requestIndex++) backend.call("gmail.read", {id:requestIndex}, function() {})
       reply(process, lastAppend, {offset:210011})
       handle.cancel()
       var discarded = false
@@ -176,8 +176,8 @@ Item {
       var process = makeReady(backend)
       var callbacks = 0
       function done(result, error) { verify(error !== null); callbacks++ }
-      for (var i = 0; i < 80; i++) backend.call("gmail.read", {id:i}, done)
-      for (var j = 0; j < 12; j++) backend.parseMessage("body", done)
+      for (var requestIndex = 0; requestIndex < 80; requestIndex++) backend.call("gmail.read", {id:requestIndex}, done)
+      for (var uploadIndex = 0; uploadIndex < 12; uploadIndex++) backend.parseMessage("body", done)
       var before = requests(process)
       backend.stopForFailure("Backend stopped")
       compare(callbacks, 92)
@@ -193,7 +193,7 @@ Item {
     function test_queued_request_keeps_its_original_payload() {
       var backend = makeBackend()
       var process = makeReady(backend)
-      for (var i = 0; i < 64; i++) backend.call("providers.list", {}, function() {})
+      for (var requestIndex = 0; requestIndex < 64; requestIndex++) backend.call("providers.list", {}, function() {})
       var params = {accountId:"first@example.org", resource:{subject:"original"}}
       backend.call("cache.resourcePut", params, function() {})
       params.accountId = "second@example.org"
@@ -209,7 +209,7 @@ Item {
       var process = makeReady(backend)
       var callbacks = 0
       function done() { callbacks++ }
-      for (var i = 0; i < 8; i++) backend.parseMessage("body", done)
+      for (var uploadIndex = 0; uploadIndex < 8; uploadIndex++) backend.parseMessage("body", done)
       backend.parseMessage("body", function() { callbacks++; throw new Error("receiver gone") })
       backend.parseMessage("body", done)
       ignoreWarning("Backend upload callback failed")
@@ -228,8 +228,8 @@ Item {
     }
 
     function processOf(backend) {
-      for (var i = 0; i < backend.children.length; i++) {
-        var child = backend.children[i]
+      for (var childIndex = 0; childIndex < backend.children.length; childIndex++) {
+        var child = backend.children[childIndex]
         if (child.command && child.command.length === 2
             && child.command[1] === "serve") return child
       }
@@ -238,8 +238,8 @@ Item {
     }
 
     function deadlineOf(backend) {
-      for (var i = 0; i < backend.data.length; i++) {
-        var child = backend.data[i]
+      for (var childIndex = 0; childIndex < backend.data.length; childIndex++) {
+        var child = backend.data[childIndex]
         if (child.interval === 5000 && child.repeat === false) return child
       }
       fail("No backend shutdown deadline")
@@ -247,8 +247,8 @@ Item {
     }
 
     function stopConfirmationOf(backend) {
-      for (var i = 0; i < backend.data.length; i++) {
-        var child = backend.data[i]
+      for (var childIndex = 0; childIndex < backend.data.length; childIndex++) {
+        var child = backend.data[childIndex]
         if (child.interval === 1000 && child.repeat === false) return child
       }
       fail("No backend stop confirmation deadline")
@@ -258,8 +258,8 @@ Item {
     function requests(process) {
       var lines = process.written.split("\n")
       var result = []
-      for (var i = 0; i < lines.length; i++) {
-        if (lines[i] !== "") result.push(JSON.parse(lines[i]))
+      for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+        if (lines[lineIndex] !== "") result.push(JSON.parse(lines[lineIndex]))
       }
       return result
     }

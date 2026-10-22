@@ -42,7 +42,7 @@ Item {
       var answers = {}
       var methods = ["agent.jobStart", "agent.jobsList", "agent.jobShow", "agent.jobsProjection"]
       if (publishedApi >= 6) methods.push("agent.providerStatus")
-      for (var i = 0; i < methods.length; i++) answers[methods[i]] = forward
+      for (var methodIndex = 0; methodIndex < methods.length; methodIndex++) answers[methods[methodIndex]] = forward
       answers["agent.context"] = function(params) {
         return {payload:{accountId:owner,account:"ada@example.test",messageId:"1:INBOX",
           subject:"Thursday",message:"Can we meet Thursday at 10?",prompt:params.prompt}}
@@ -68,7 +68,7 @@ Item {
     function enabledButton(item, name) {
       var found = item.objectName === name && item.enabled && item.visible ? item : null
       var children = item.children || []
-      for (var i = 0; i < children.length; i++) found = enabledButton(children[i], name) || found
+      for (var childIndex = 0; childIndex < children.length; childIndex++) found = enabledButton(children[childIndex], name) || found
       return found
     }
     function awaitAnswer(panel, previous) {
@@ -106,12 +106,12 @@ Item {
       mouseClick(enabledButton(app.composeAgent, action))
       compare(editor.text, "Synthetic Claude reply")
       compare(to.text, "bob@example.test")
-      var starts = requests.filter(function(r) { return r.method === "agent.jobStart" })
+      var starts = requests.filter(function(request) { return request.method === "agent.jobStart" })
       compare(starts.length, 4)
-      for (var i = 0; i < starts.length; i++) {
-        compare(starts[i].params.provider, undefined)
-        compare(starts[i].params.model, undefined)
-        var payload = starts[i].params.payload
+      for (var requestIndex = 0; requestIndex < starts.length; requestIndex++) {
+        compare(starts[requestIndex].params.provider, undefined)
+        compare(starts[requestIndex].params.model, undefined)
+        var payload = starts[requestIndex].params.payload
         if (typeof payload === "string") payload = JSON.parse(payload)
         if (publishedApi < 6) {
           compare(payload.envelope, undefined)
@@ -119,10 +119,10 @@ Item {
           compare(payload.mailUpdate, undefined)
         }
       }
-      compare(fixture.requests.filter(function(r) {
-        return r.method === "outbox.enqueue" || r.method === "message.compose"
+      compare(fixture.requests.filter(function(request) {
+        return request.method === "outbox.enqueue" || request.method === "message.compose"
       }).length, 0, "Reading and inserting the answer must never send mail")
-      compare(fixture.requests.some(function(r) { return r.method === "agent.providerStatus" }), publishedApi >= 6)
+      compare(fixture.requests.some(function(request) { return request.method === "agent.providerStatus" }), publishedApi >= 6)
     }
   }
 }

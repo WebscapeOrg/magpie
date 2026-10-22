@@ -69,20 +69,20 @@ Item {
       memberSummaries = members
       if (selectedMessage && selectedMessage.id === id) selectedMessage = read(selectedMessage)
       var rows = JSON.parse(JSON.stringify(messages))
-      for (var i = 0; i < rows.length; i++) {
-        if (rows[i].id === id) rows[i] = read(rows[i])
-        var block = rows[i].thread
+      for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        if (rows[rowIndex].id === id) rows[rowIndex] = read(rows[rowIndex])
+        var block = rows[rowIndex].thread
         if (!block || (block.memberIds || []).indexOf(id) < 0) continue
         // By each member's own labels, as the intent recomputes it: a summary's
         // flag is the conversation's, and the row seeded into the store as its
         // own member carries the block's reading.
-        var unread = rows[i].labelIds.indexOf("UNREAD") >= 0
-        for (var m = 0; m < block.memberIds.length; m++) {
-          var member = members[block.memberIds[m]]
+        var unread = rows[rowIndex].labelIds.indexOf("UNREAD") >= 0
+        for (var memberIndex = 0; memberIndex < block.memberIds.length; memberIndex++) {
+          var member = members[block.memberIds[memberIndex]]
           if (member && (member.labelIds || []).indexOf("UNREAD") >= 0) unread = true
         }
         block.unread = unread
-        rows[i].unread = unread
+        rows[rowIndex].unread = unread
       }
       messages = rows
       return true
@@ -106,8 +106,8 @@ Item {
     }
     function onConversationOrganisationChanged() {
       var stops = account.conversationOrganisation ? account.conversationOrganisation.stops || [] : []
-      for (var i = 0; i < stops.length; i++)
-        if (stops[i].id === "reply" && stops[i].unread === true) fixture.unreadMoments.push("stop")
+      for (var stopIndex = 0; stopIndex < stops.length; stopIndex++)
+        if (stops[stopIndex].id === "reply" && stops[stopIndex].unread === true) fixture.unreadMoments.push("stop")
     }
   }
   TestCase {

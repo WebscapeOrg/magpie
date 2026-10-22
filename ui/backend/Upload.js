@@ -10,8 +10,8 @@ var MAX_CHUNK = 64 * 1024
 function chunk(raw, offset, size) {
   var bytes = []
   var end = Math.min(raw.length, offset + size)
-  for (var i = offset; i < end; i++) {
-    var byte = raw.charCodeAt(i)
+  for (var byteIndex = offset; byteIndex < end; byteIndex++) {
+    var byte = raw.charCodeAt(byteIndex)
     if (byte > 255) return null
     bytes.push(byte)
   }
@@ -75,8 +75,8 @@ function makeQueue(cleanupFailed) {
     queue.waiting = []
     queue.active = []
     queue.bytes = 0
-    for (var i = 0; i < tasks.length; i++) {
-      try { tasks[i].fail(error) }
+    for (var taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
+      try { tasks[taskIndex].fail(error) }
       catch (failure) { console.warn("Backend upload callback failed") }
     }
   }

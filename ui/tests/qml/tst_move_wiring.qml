@@ -40,8 +40,8 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var children = item.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = named(children[i], objectName)
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var found = named(children[childIndex], objectName)
         if (found) return found
       }
       return null
@@ -63,15 +63,15 @@ Item {
 
     function labelSlot(labelId) {
       var slots = app.sidebarSlots
-      for (var i = 0; i < slots.length; i++) {
-        if (slots[i].kind === "label" && slots[i].id === labelId) return i
+      for (var slotIndex = 0; slotIndex < slots.length; slotIndex++) {
+        if (slots[slotIndex].kind === "label" && slots[slotIndex].id === labelId) return slotIndex
       }
       return -1
     }
 
     function labelIds(labels) {
       var result = []
-      for (var i = 0; i < labels.length; i++) result.push(labels[i].id)
+      for (var labelIndex = 0; labelIndex < labels.length; labelIndex++) result.push(labels[labelIndex].id)
       return result
     }
 

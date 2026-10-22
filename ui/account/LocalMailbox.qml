@@ -34,10 +34,10 @@ Item {
       var labels=result.labels || []
       var oldLabels=root.account.labels || []
       var oldById=({})
-      for (var l=0;l<oldLabels.length;l++) oldById[String(oldLabels[l].id)]=oldLabels[l]
-      for (var n=0;n<labels.length;n++) {
-        var previous=oldById[String(labels[n].id)]
-        if (previous) {labels[n].total=previous.total;labels[n].unread=previous.unread}
+      for (var oldLabelIndex=0;oldLabelIndex<oldLabels.length;oldLabelIndex++) oldById[String(oldLabels[oldLabelIndex].id)]=oldLabels[oldLabelIndex]
+      for (var labelIndex=0;labelIndex<labels.length;labelIndex++) {
+        var previous=oldById[String(labels[labelIndex].id)]
+        if (previous) {labels[labelIndex].total=previous.total;labels[labelIndex].unread=previous.unread}
       }
       root.account.labels=labels
       if (result.profile && result.profile.email) root.account.profile=result.profile
@@ -102,7 +102,7 @@ Item {
       root.error = ""
       root.status = result.coverage || ({})
       var summaries = result.summaries || []
-      for (var i=0;i<summaries.length;i++) summaries[i] = root.account.hydrateSummary(summaries[i])
+      for (var summaryIndex=0;summaryIndex<summaries.length;summaryIndex++) summaries[summaryIndex] = root.account.hydrateSummary(summaries[summaryIndex])
       root.account.nextPageToken = String(result.nextPageToken || "")
       root.account.resultEstimate = (append ? root.account.messages.length : 0)+summaries.length
       root.account.applySummaries(summaries,append,

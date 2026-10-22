@@ -11,12 +11,12 @@ Item {
     var arrived = Object.create(null)
     return function(payloads) {
       if (serial !== root.account.listSerial) return
-      for (var i=0;i<payloads.length;i++) {
-        var summary=payloads[i].nativeSummary
+      for (var payloadIndex=0;payloadIndex<payloads.length;payloadIndex++) {
+        var summary=payloads[payloadIndex].nativeSummary
         if (summary && summary.id) arrived[String(summary.id)]=summary
       }
       var partial=[]
-      for (var j=0;j<ids.length;j++) if (arrived[String(ids[j])]) partial.push(arrived[String(ids[j])])
+      for (var messageIndex=0;messageIndex<ids.length;messageIndex++) if (arrived[String(ids[messageIndex])]) partial.push(arrived[String(ids[messageIndex])])
       if (partial.length) root.account.messages=base.concat(partial)
     }
   }
@@ -38,9 +38,9 @@ Item {
     var done = typeof callback === "function" ? callback : function() {}
     var id = String(messageId || "")
     var source = null
-    for (var i = 0; i < account.selectedAttachments.length; i++) {
-      if (attachment && account.selectedAttachments[i].attachmentId === attachment.attachmentId)
-        source = account.selectedAttachments[i]
+    for (var attachmentIndex = 0; attachmentIndex < account.selectedAttachments.length; attachmentIndex++) {
+      if (attachment && account.selectedAttachments[attachmentIndex].attachmentId === attachment.attachmentId)
+        source = account.selectedAttachments[attachmentIndex]
     }
     if (!account.ready || id !== account.selectedId || !source || !AttachmentPreview.supported(source)
         || !backend || !backend.ready || Number(backend.apiVersion) < 8) { done(""); return null }

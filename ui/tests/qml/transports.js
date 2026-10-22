@@ -34,8 +34,8 @@ function transports(client) {
 function newSince(client, before) {
   var now = transports(client)
   var out = []
-  for (var i = 0; i < now.length; i++) {
-    if (before.indexOf(now[i]) < 0) out.push(now[i])
+  for (var requestIndex = 0; requestIndex < now.length; requestIndex++) {
+    if (before.indexOf(now[requestIndex]) < 0) out.push(now[requestIndex])
   }
   return out
 }

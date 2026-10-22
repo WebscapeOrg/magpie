@@ -134,8 +134,8 @@ function splitUnifiedId(value) {
 function pageWatermark(sources) {
   var values = Array.isArray(sources) ? sources : []
   var watermark = 0
-  for (var i = 0; i < values.length; i++) {
-    var source = values[i] || ({})
+  for (var accountIndex = 0; accountIndex < values.length; accountIndex++) {
+    var source = values[accountIndex] || ({})
     var messages = Array.isArray(source.messages) ? source.messages : []
     if (messages.length === 0) continue
     // Complete sources cannot leave a gap, so they do not hold the list back.
@@ -159,8 +159,8 @@ function composeThread(accountId, thread) {
   var out = ({})
   for (var field in thread) out[field] = thread[field]
   var composed = []
-  for (var i = 0; i < thread.memberIds.length; i++) {
-    composed.push(unifiedId(accountId, thread.memberIds[i]))
+  for (var memberIndex = 0; memberIndex < thread.memberIds.length; memberIndex++) {
+    composed.push(unifiedId(accountId, thread.memberIds[memberIndex]))
   }
   out.memberIds = composed
   return out
@@ -191,13 +191,13 @@ function mergeMessages(sources) {
   var values = Array.isArray(sources) ? sources : []
   var out = []
   var seen = ({})
-  for (var i = 0; i < values.length; i++) {
-    var source = values[i] || ({})
+  for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
+    var source = values[sourceIndex] || ({})
     var accountId = String(source.id || "")
     if (accountId === "") continue
     var messages = Array.isArray(source.messages) ? source.messages : []
-    for (var j = 0; j < messages.length; j++) {
-      var item = messages[j]
+    for (var messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+      var item = messages[messageIndex]
       if (!item || String(item.id || "") === "") continue
       // An id is unique inside its own provider and nowhere else: a Gmail id
       // and an IMAP "42:INBOX" have no reason to collide, and two IMAP
@@ -226,9 +226,9 @@ function mergeMessages(sources) {
   // keeps everything.
   var floor = pageWatermark(values)
   var rows = []
-  for (var k = 0; k < out.length; k++) {
-    if (floor > 0 && out[k].at < floor) break
-    rows.push(out[k].row)
+  for (var resultIndex = 0; resultIndex < out.length; resultIndex++) {
+    if (floor > 0 && out[resultIndex].at < floor) break
+    rows.push(out[resultIndex].row)
   }
   return rows
 }
@@ -254,8 +254,8 @@ function groupByAccount(ids) {
   var values = Array.isArray(ids) ? ids : []
   var groups = []
   var at = ({})
-  for (var i = 0; i < values.length; i++) {
-    var parts = splitUnifiedId(values[i])
+  for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
+    var parts = splitUnifiedId(values[sourceIndex])
     if (parts.accountId === "") continue
     if (!(parts.accountId in at)) {
       at[parts.accountId] = groups.length
@@ -272,8 +272,8 @@ function rowOf(messages, id) {
   var values = Array.isArray(messages) ? messages : []
   var wanted = String(id === undefined || id === null ? "" : id)
   if (wanted === "") return null
-  for (var i = 0; i < values.length; i++) {
-    if (String(values[i] && values[i].id || "") === wanted) return values[i]
+  for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
+    if (String(values[sourceIndex] && values[sourceIndex].id || "") === wanted) return values[sourceIndex]
   }
   return null
 }
@@ -288,9 +288,9 @@ function cursorOffset(messages, cursorId, delta) {
   var step = Math.floor(Number(delta)) || 0
   var at = -1
   var wanted = String(cursorId === undefined || cursorId === null ? "" : cursorId)
-  for (var i = 0; i < values.length; i++) {
-    if (String(values[i] && values[i].id || "") === wanted) {
-      at = i
+  for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
+    if (String(values[sourceIndex] && values[sourceIndex].id || "") === wanted) {
+      at = sourceIndex
       break
     }
   }
@@ -322,8 +322,8 @@ function cursorOffset(messages, cursorId, delta) {
 function everyMailboxCan(abilities, capability) {
   var rows = Array.isArray(abilities) ? abilities : []
   if (rows.length === 0) return false
-  for (var i = 0; i < rows.length; i++) {
-    if (!rows[i] || rows[i][capability] !== true) return false
+  for (var sourceIndex = 0; sourceIndex < rows.length; sourceIndex++) {
+    if (!rows[sourceIndex] || rows[sourceIndex][capability] !== true) return false
   }
   return true
 }
@@ -336,17 +336,17 @@ function sharedMailboxRows(abilities) {
   if (rows.length === 0) return []
   var first = rowsOf(rows[0])
   var out = []
-  for (var i = 0; i < first.length; i++) {
-    var key = String(first[i].key || "")
+  for (var capabilityIndex = 0; capabilityIndex < first.length; capabilityIndex++) {
+    var key = String(first[capabilityIndex].key || "")
     if (key === "") continue
     var everyone = true
-    for (var j = 1; j < rows.length; j++) {
-      if (!holdsMailbox(rows[j], key)) {
+    for (var sourceIndex = 1; sourceIndex < rows.length; sourceIndex++) {
+      if (!holdsMailbox(rows[sourceIndex], key)) {
         everyone = false
         break
       }
     }
-    if (everyone) out.push(first[i])
+    if (everyone) out.push(first[capabilityIndex])
   }
   return out
 }
@@ -357,8 +357,8 @@ function rowsOf(row) {
 
 function holdsMailbox(row, key) {
   var list = rowsOf(row)
-  for (var i = 0; i < list.length; i++) {
-    if (String(list[i].key || "") === key) return true
+  for (var sourceIndex = 0; sourceIndex < list.length; sourceIndex++) {
+    if (String(list[sourceIndex].key || "") === key) return true
   }
   return false
 }
@@ -374,8 +374,8 @@ function holdsMailbox(row, key) {
 function totalUnread(summaries) {
   var values = Array.isArray(summaries) ? summaries : []
   var total = 0
-  for (var i = 0; i < values.length; i++) {
-    var count = Math.floor(Number(values[i] && values[i].unread))
+  for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
+    var count = Math.floor(Number(values[sourceIndex] && values[sourceIndex].unread))
     if (isFinite(count) && count > 0) total += count
   }
   return total
@@ -385,8 +385,8 @@ function totalUnread(summaries) {
 // loading however many have arrived.
 function anyLoading(states) {
   var values = Array.isArray(states) ? states : []
-  for (var i = 0; i < values.length; i++) {
-    if (values[i] && values[i].loading === true) return true
+  for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
+    if (values[sourceIndex] && values[sourceIndex].loading === true) return true
   }
   return false
 }
@@ -395,8 +395,8 @@ function anyLoading(states) {
 // server-side searches have settled.
 function anyServerSearchLoading(states) {
   var values = Array.isArray(states) ? states : []
-  for (var i = 0; i < values.length; i++) {
-    if (values[i] && values[i].serverSearchLoading === true) return true
+  for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
+    if (values[sourceIndex] && values[sourceIndex].serverSearchLoading === true) return true
   }
   return false
 }
@@ -422,8 +422,8 @@ function rowIsConversation(row) {
 function allLoaded(states) {
   var values = Array.isArray(states) ? states : []
   if (values.length === 0) return false
-  for (var i = 0; i < values.length; i++) {
-    var state = values[i]
+  for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
+    var state = values[sourceIndex]
     if (!state) return false
     if (state.loaded === true) continue
     if (state.loading !== true && String(state.error || "").trim() !== "") continue
@@ -436,8 +436,8 @@ function allLoaded(states) {
 // until every source is.
 function anyHasMore(states) {
   var values = Array.isArray(states) ? states : []
-  for (var i = 0; i < values.length; i++) {
-    if (values[i] && values[i].hasMore === true) return true
+  for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
+    if (values[sourceIndex] && values[sourceIndex].hasMore === true) return true
   }
   return false
 }
@@ -447,8 +447,8 @@ function anyHasMore(states) {
 // sentence about a server is not, once three servers are involved.
 function firstError(states) {
   var values = Array.isArray(states) ? states : []
-  for (var i = 0; i < values.length; i++) {
-    var state = values[i] || ({})
+  for (var sourceIndex = 0; sourceIndex < values.length; sourceIndex++) {
+    var state = values[sourceIndex] || ({})
     var text = String(state.error || "").trim()
     if (text === "") continue
     var label = String(state.label || "").trim()

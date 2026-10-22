@@ -51,13 +51,13 @@ function queryFromKey(key) {
 function dehydrate(summaries) {
   var list = Array.isArray(summaries) ? summaries : []
   var out = []
-  for (var i = 0; i < list.length; i++) {
+  for (var keyIndex = 0; keyIndex < list.length; keyIndex++) {
     var entry = {}
-    for (var key in list[i]) {
+    for (var key in list[keyIndex]) {
       if (key === "date") continue
-      entry[key] = list[i][key]
+      entry[key] = list[keyIndex][key]
     }
-    var at = list[i].date ? list[i].date.getTime() : NaN
+    var at = list[keyIndex].date ? list[keyIndex].date.getTime() : NaN
     entry.dateMs = isFinite(at) ? at : null
     out.push(entry)
   }
@@ -67,13 +67,13 @@ function dehydrate(summaries) {
 function hydrate(entries) {
   var list = Array.isArray(entries) ? entries : []
   var out = []
-  for (var i = 0; i < list.length; i++) {
+  for (var keyIndex = 0; keyIndex < list.length; keyIndex++) {
     var summary = {}
-    for (var key in list[i]) {
+    for (var key in list[keyIndex]) {
       if (key === "dateMs") continue
-      summary[key] = list[i][key]
+      summary[key] = list[keyIndex][key]
     }
-    var at = Number(list[i].dateMs)
+    var at = Number(list[keyIndex].dateMs)
     summary.date = isFinite(at) && at > 0 ? new Date(at) : null
     out.push(summary)
   }
@@ -142,8 +142,8 @@ function localSearchTerms(query) {
   var terms = []
   var current = ""
   var quoted = false
-  for (var i = 0; i < text.length; i++) {
-    var character = text.charAt(i)
+  for (var characterIndex = 0; characterIndex < text.length; characterIndex++) {
+    var character = text.charAt(characterIndex)
     if (character === '"') {
       quoted = !quoted
       continue
@@ -157,8 +157,8 @@ function localSearchTerms(query) {
   }
   if (current !== "") terms.push(current)
 
-  for (var j = 0; j < terms.length; j++) {
-    if (terms[j].charAt(0) === "-" || terms[j].indexOf(":") >= 0) return []
+  for (var termIndex = 0; termIndex < terms.length; termIndex++) {
+    if (terms[termIndex].charAt(0) === "-" || terms[termIndex].indexOf(":") >= 0) return []
   }
   return terms
 }
@@ -172,7 +172,7 @@ function addressSearchText(address) {
 function addressListSearchText(addresses) {
   var list = Array.isArray(addresses) ? addresses : []
   var text = ""
-  for (var i = 0; i < list.length; i++) text += " " + addressSearchText(list[i])
+  for (var addressIndex = 0; addressIndex < list.length; addressIndex++) text += " " + addressSearchText(list[addressIndex])
   return text
 }
 
@@ -189,8 +189,8 @@ function matchesLocalSearch(summary, terms) {
   var wanted = Array.isArray(terms) ? terms : []
   if (wanted.length === 0) return false
   var text = summarySearchText(summary)
-  for (var i = 0; i < wanted.length; i++) {
-    if (text.indexOf(wanted[i]) < 0) return false
+  for (var termIndex = 0; termIndex < wanted.length; termIndex++) {
+    if (text.indexOf(wanted[termIndex]) < 0) return false
   }
   return true
 }
@@ -207,19 +207,19 @@ function searchSummaries(store, query, includes) {
   var queries = source.queries || {}
   var keys = []
   for (var key in queries) keys.push(key)
-  keys.sort(function(a, b) {
-    return (Number(queries[b] && queries[b].at) || 0)
-      - (Number(queries[a] && queries[a].at) || 0)
+  keys.sort(function(left, right) {
+    return (Number(queries[right] && queries[right].at) || 0)
+      - (Number(queries[left] && queries[left].at) || 0)
   })
 
   var positions = {}
   var candidates = []
   var order = 0
-  for (var i = 0; i < keys.length; i++) {
-    var sourceQuery = queryFromKey(keys[i])
-    var rows = hydrate(queries[keys[i]] && queries[keys[i]].summaries)
-    for (var j = 0; j < rows.length; j++) {
-      var row = rows[j]
+  for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+    var sourceQuery = queryFromKey(keys[keyIndex])
+    var rows = hydrate(queries[keys[keyIndex]] && queries[keys[keyIndex]].summaries)
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      var row = rows[rowIndex]
       var id = String(row && row.id ? row.id : "")
       if (id === "") continue
       if (positions[id] === undefined) {
@@ -243,14 +243,14 @@ function searchSummaries(store, query, includes) {
   for (var candidate = 0; candidate < candidates.length; candidate++) {
     if (candidates[candidate].matched) found.push(candidates[candidate])
   }
-  found.sort(function(a, b) {
-    var aTime = a.row && a.row.date ? Number(a.row.date.getTime()) : 0
-    var bTime = b.row && b.row.date ? Number(b.row.date.getTime()) : 0
+  found.sort(function(left, right) {
+    var aTime = left.row && left.row.date ? Number(left.row.date.getTime()) : 0
+    var bTime = right.row && right.row.date ? Number(right.row.date.getTime()) : 0
     if (aTime !== bTime) return bTime - aTime
-    return a.order - b.order
+    return left.order - right.order
   })
   var out = []
-  for (var k = 0; k < found.length; k++) out.push(found[k].row)
+  for (var resultIndex = 0; resultIndex < found.length; resultIndex++) out.push(found[resultIndex].row)
   return out
 }
 
@@ -341,11 +341,11 @@ function keepNewest(bucket, limit) {
   var keys = []
   for (var key in bucket) keys.push(key)
   if (keys.length <= limit) return bucket
-  keys.sort(function(a, b) {
-    return (Number(bucket[b].at) || 0) - (Number(bucket[a].at) || 0)
+  keys.sort(function(left, right) {
+    return (Number(bucket[right].at) || 0) - (Number(bucket[left].at) || 0)
   })
   var kept = {}
-  for (var i = 0; i < limit; i++) kept[keys[i]] = bucket[keys[i]]
+  for (var keyIndex = 0; keyIndex < limit; keyIndex++) kept[keys[keyIndex]] = bucket[keys[keyIndex]]
   return kept
 }
 

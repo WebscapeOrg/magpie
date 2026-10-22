@@ -89,8 +89,8 @@ Item {
     function latestNotification(item) {
       if (item.command && item.command[1] === service.pluginDir + "/scripts/notify-mail.py") return item
       var children = item.data || []
-      for (var i = children.length - 1; i >= 0; i--) {
-        var process = latestNotification(children[i])
+      for (var childIndex = children.length - 1; childIndex >= 0; childIndex--) {
+        var process = latestNotification(children[childIndex])
         if (process) return process
       }
       return null

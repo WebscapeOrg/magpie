@@ -342,7 +342,7 @@ let recovered = accounts.load(damaged)
 recovered = accounts.add(recovered, account("bob@example.com"))
 const payload = accounts.savedOnly(recovered)
 assert.strictEqual(accounts.count(payload), 2, "adding one mailbox must not delete another")
-deepEqual(payload.accounts.map(a => a.email), ["ada@example.org", "bob@example.com"])
+deepEqual(payload.accounts.map(currentAccount => currentAccount.email), ["ada@example.org", "bob@example.com"])
 assert.strictEqual(accounts.dropsNamedMailbox(recovered, payload), false)
 
 // -------------------------------------------------------------- what is written
@@ -354,7 +354,7 @@ assert.strictEqual(accounts.dropsNamedMailbox(recovered, payload), false)
 const withDraft = accounts.savedOnly(saved)
 assert.strictEqual(accounts.count(saved), 3, "savedOnly leaves its input alone")
 assert.strictEqual(accounts.count(withDraft), 2, "the draft row is not written")
-deepEqual(withDraft.accounts.map(a => a.id), ["ada@example.com", "bob@example.com"])
+deepEqual(withDraft.accounts.map(currentAccount => currentAccount.id), ["ada@example.com", "bob@example.com"])
 assert.strictEqual(withDraft.activeId, "bob@example.com", "the selection is kept")
 assert.strictEqual(accounts.draftCount(saved), 1)
 

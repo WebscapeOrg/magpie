@@ -36,9 +36,9 @@ const unicodePiece = "€".repeat(21845)
 const unicodeParts = Array(1024).fill(unicodePiece).concat(["€"])
 let unicodeState = null
 let unicodeReply
-for (let i = 0; i < unicodeParts.length; i++) {
+for (let partIndex = 0; partIndex < unicodeParts.length; partIndex++) {
   unicodeReply = chunks.accept(unicodeState, JSON.stringify({jsonrpc:"2.0",method:"transport.chunk",params:{
-    transfer:"3",index:i,total:1025,size:21845*1024+1,data:unicodeParts[i]
+    transfer:"3",index:partIndex,total:1025,size:21845*1024+1,data:unicodeParts[partIndex]
   }}))
   assert(!unicodeReply.error)
   unicodeState = unicodeReply.state

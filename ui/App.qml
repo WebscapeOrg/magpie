@@ -379,11 +379,11 @@ Item {
       nav = Nav.pop(stack)
       return
     }
-    for (var i = stack.length - 1; i >= 0; i--) {
-      if (stack[i].kind !== kind) continue
-      var keep = typeof stack[i].returnTo === "number" ? stack[i].returnTo : i
+    for (var entryIndex = stack.length - 1; entryIndex >= 0; entryIndex--) {
+      if (stack[entryIndex].kind !== kind) continue
+      var keep = typeof stack[entryIndex].returnTo === "number" ? stack[entryIndex].returnTo : entryIndex
       navUntouched = false
-      nav = stack.slice(0, Math.max(1, Math.min(keep, i)))
+      nav = stack.slice(0, Math.max(1, Math.min(keep, entryIndex)))
       return
     }
   }
@@ -491,7 +491,7 @@ Item {
 
   function open(payloadJson) {
     var payload = ({})
-    try { payload = JSON.parse(String(payloadJson || "{}")) || ({}) } catch (e) {}
+    try { payload = JSON.parse(String(payloadJson || "{}")) || ({}) } catch (error) {}
     closingFromHost = false
     opened = true
     if (service) service.windowOpen = true
@@ -677,9 +677,9 @@ Item {
 
   // Recovery records whether closing the draft returns to a reader or the list.
   function composeReturnView() {
-    for (var i = nav.length - 1; i >= 0; i--) {
-      if (nav[i].kind !== "compose") continue
-      var keep = typeof nav[i].returnTo === "number" ? nav[i].returnTo : i
+    for (var entryIndex = nav.length - 1; entryIndex >= 0; entryIndex--) {
+      if (nav[entryIndex].kind !== "compose") continue
+      var keep = typeof nav[entryIndex].returnTo === "number" ? nav[entryIndex].returnTo : entryIndex
       return keep >= 2 && nav[keep - 1].kind === "reader" ? "reader" : "list"
     }
     return currentView === "reader" ? "reader" : "list"
@@ -1943,7 +1943,7 @@ Item {
               urgentColor: root.urgent
               onMessageActivated: function(id) { root.openMessage(id) }
               onAgentRequested: function(id, sceneX, sceneY) { root.openAgentFromRow(id, sceneX, sceneY) }
-              onSnoozeRequested: function(id,x,y) { snoozePicker.openAt(id,x,y) }
+              onSnoozeRequested: function(id,sceneX,sceneY) { snoozePicker.openAt(id,sceneX,sceneY) }
               snoozeId: snoozePicker.opened ? snoozePicker.messageId : ""
               onRowActionRequested: function(id, action) { root.actFromRow(id, action) }
               onCheckToggled: function(id) { root.toggleCheck(id) }
@@ -2035,7 +2035,7 @@ Item {
           onMemberMenuRequested: function(id, sceneX, sceneY) {
             rowMenu.openForMember(id, sceneX, sceneY)
           }
-          onSnoozeRequested: function(x,y) { snoozePicker.openAt(root.service.selectedId,x,y) }
+          onSnoozeRequested: function(sceneX,sceneY) { snoozePicker.openAt(root.service.selectedId,sceneX,sceneY) }
           onComposeRequested: function(mode) {
             if (mode === "draft" && root.service) root.editDraft(root.service.selectedId)
             else root.startCompose(mode)

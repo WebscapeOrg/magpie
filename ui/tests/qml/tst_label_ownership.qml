@@ -81,7 +81,7 @@ Item {
         record.deletes = record.deletes.concat([email + ":" + id])
         return later(function() { callback(null, "") })
       }
-      function abortRequest(h) { if (h) h.aborted = true }
+      function abortRequest(handle) { if (handle) handle.aborted = true }
     }
   }
 
@@ -117,15 +117,15 @@ Item {
 
     function seed(entries, activeId) {
       var list = Accounts.emptyList()
-      for (var i = 0; i < entries.length; i++) list = Accounts.add(list, entries[i])
+      for (var accountIndex = 0; accountIndex < entries.length; accountIndex++) list = Accounts.add(list, entries[accountIndex])
       list = Accounts.setActive(list, activeId)
       mailService.activeIndex = -1
       mailService.accountList = list
       mailService.accountsLoaded = true
       wait(0)
       mailService.refreshCurrent()
-      for (var h = 0; h < entries.length; h++) {
-        var account = mailService.accountAt(h)
+      for (var hostIndex = 0; hostIndex < entries.length; hostIndex++) {
+        var account = mailService.accountAt(hostIndex)
         verify(account !== null)
         account.clientOverride = controlledClient
         account.auth.toolsChecked = true
@@ -134,7 +134,7 @@ Item {
         account.auth.password = "test-password"
         tryCompare(account, "ready", true)
         // The stand-in says whose it is, so the record can tell the two apart.
-        account.api.email = entries[h].email
+        account.api.email = entries[hostIndex].email
         account.labels = [folder("Work"), folder("Work/2026"), folder("Receipts")]
       }
     }
@@ -143,7 +143,7 @@ Item {
       function find(item) {
         if (item.objectName === name) return item
         var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) { var f = find(kids[i]); if (f) return f }
+        for (var childIndex = 0; childIndex < kids.length; childIndex++) { var found = find(kids[childIndex]); if (found) return found }
         return null
       }
       return find(app)
@@ -176,7 +176,7 @@ Item {
       app.labelNamed("create", "Receipts", "2026", adaId)
       tryCompare(record, "creates", [ada + ":Receipts/2026"])
       compare(mailService.activeAccountId, bobId, "Bob stayed open throughout")
-      for (var i = 0; i < record.renames.length; i++) verify(record.renames[i].indexOf(bob) < 0)
+      for (var renameIndex = 0; renameIndex < record.renames.length; renameIndex++) verify(record.renames[renameIndex].indexOf(bob) < 0)
     }
 
     // The account the menu was about is gone: nothing is sent anywhere, and
@@ -276,7 +276,7 @@ Item {
       function find(item) {
         if (item.fullPath === path && item.selected !== undefined) return item
         var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) { var f = find(kids[i]); if (f) return f }
+        for (var childIndex = 0; childIndex < kids.length; childIndex++) { var found = find(kids[childIndex]); if (found) return found }
         return null
       }
       return find(app)

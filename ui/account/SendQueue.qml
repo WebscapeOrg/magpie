@@ -17,7 +17,7 @@ QtObject {
   property var deliveryStates: ({})
   function rememberDelivery(entries) {
     var states = Object.assign({}, deliveryStates)
-    for (var i = 0; i < entries.length; i++) states[String(entries[i].id)] = String(entries[i].state)
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) states[String(entries[entryIndex].id)] = String(entries[entryIndex].state)
     deliveryStates = states
   }
   function watchDelivery(id) {
@@ -50,11 +50,11 @@ QtObject {
     rememberDelivery(entries)
     if (partial) {
       var merged = serverEntries.slice()
-      for (var p = 0; p < entries.length; p++) {
+      for (var incomingIndex = 0; incomingIndex < entries.length; incomingIndex++) {
         var found = -1
-        for (var m = 0; m < merged.length; m++) if (merged[m].id === entries[p].id) { found = m; break }
-        if (found < 0) merged.push(entries[p])
-        else merged[found] = entries[p]
+        for (var mergedIndex = 0; mergedIndex < merged.length; mergedIndex++) if (merged[mergedIndex].id === entries[incomingIndex].id) { found = mergedIndex; break }
+        if (found < 0) merged.push(entries[incomingIndex])
+        else merged[found] = entries[incomingIndex]
       }
       entries = merged
     }
@@ -64,8 +64,8 @@ QtObject {
     var done = Object.assign({}, handled)
     var receipts = []
     var remaining = Object.assign({}, submitted)
-    for (var i = 0; i < entries.length; i++) {
-      var entry = entries[i]
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+      var entry = entries[entryIndex]
       var id = String(entry.id || "")
       delete remaining[id]
       if (entry.state === "queued" || entry.state === "waiting") waiting.push(entry)
@@ -85,13 +85,13 @@ QtObject {
       }
     }
     for (var key in remaining) waiting.push(remaining[key])
-    waiting.sort(function(a, b) { return Number(a.order) - Number(b.order) || Number(a.queuedAt) - Number(b.queuedAt) })
+    waiting.sort(function(left, right) { return Number(left.order) - Number(right.order) || Number(left.queuedAt) - Number(right.queuedAt) })
     submitted = remaining
     handled = done
     parked = waiting
     account.sending = busy
     arm()
-    for (var r = 0; r < receipts.length; r++) {
+    for (var receiptIndex = 0; receiptIndex < receipts.length; receiptIndex++) {
       (function(id) {
         Qt.callLater(function() {
           if (!queue || typeof queue.request !== "function" || queue.retired) return
@@ -99,7 +99,7 @@ QtObject {
             if (!error) queue.apply(result.snapshot)
           })
         })
-      })(receipts[r])
+      })(receipts[receiptIndex])
     }
   }
   function park(payload, id, order, nativeFields) {
@@ -217,10 +217,10 @@ QtObject {
       if (error) return
       queue.apply(result.snapshot)
       var entries = result.snapshot && Array.isArray(result.snapshot.entries) ? result.snapshot.entries : []
-      for (var i = 0; i < ids.length; i++) {
-        for (var e = 0; e < entries.length; e++) {
-          if (entries[e].id === ids[i] && entries[e].state === "cancelled") {
-            queue.account.reportSendFailure("Queued send cancelled. Your draft has been kept.", ids[i])
+      for (var receiptIndex = 0; receiptIndex < ids.length; receiptIndex++) {
+        for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+          if (entries[entryIndex].id === ids[receiptIndex] && entries[entryIndex].state === "cancelled") {
+            queue.account.reportSendFailure("Queued send cancelled. Your draft has been kept.", ids[receiptIndex])
             break
           }
         }

@@ -30,10 +30,10 @@ function conversation(params) {
     var additions = ({})
     var rows = (params.messages || []).concat(params.previewMessages || [])
     var ids = thread ? thread.memberIds : []
-    for (var i = 0; i < ids.length; i++) {
-      if (summaries[ids[i]]) continue
-      for (var j = 0; j < rows.length; j++) {
-        if (rows[j].id === ids[i]) { additions[ids[i]] = rows[j]; break }
+    for (var messageIndex = 0; messageIndex < ids.length; messageIndex++) {
+      if (summaries[ids[messageIndex]]) continue
+      for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        if (rows[rowIndex].id === ids[messageIndex]) { additions[ids[messageIndex]] = rows[rowIndex]; break }
       }
     }
     summaries = Conversation.mergedSummaries(summaries, additions, 500, ids)
@@ -41,10 +41,10 @@ function conversation(params) {
   var view = Conversation.viewedMailboxKey(params.mailboxKey, params.searching)
   var members = thread ? thread.memberIds : []
   var navigation = ({})
-  for (var k = 0; k < members.length; k++) navigation[members[k]] = {
-    previous: Conversation.memberStep(thread, members[k], -1),
-    next: Conversation.memberStep(thread, members[k], 1),
-    neighbor: Conversation.neighbourStop(thread, members[k])
+  for (var memberIndex = 0; memberIndex < members.length; memberIndex++) navigation[members[memberIndex]] = {
+    previous: Conversation.memberStep(thread, members[memberIndex], -1),
+    next: Conversation.memberStep(thread, members[memberIndex], 1),
+    neighbor: Conversation.neighbourStop(thread, members[memberIndex])
   }
   return { thread: thread, summaries: summaries, missing: Conversation.missingMemberIds(thread, summaries),
     showsRail: Conversation.drawsRail(params.conversations, thread), viewedMailboxKey: view,
@@ -72,7 +72,7 @@ function readerProjection(message, params) {
       calendars.push(part); return
     }
     var parts = part.parts || []
-    for (var i = 0; i < parts.length; i++) visit(parts[i])
+    for (var partIndex = 0; partIndex < parts.length; partIndex++) visit(parts[partIndex])
   }
   visit(message.payload)
   return {id: message.id, threadId: message.threadId || "", labelIds: message.labelIds || [],

@@ -24,8 +24,8 @@ QtObject {
     if (!service || pending.length === 0) return
     var checks = app.checkedIds.slice()
     var waiting = []
-    for (var i = 0; i < pending.length; i++) {
-      var id = pending[i]
+    for (var pendingIndex = 0; pendingIndex < pending.length; pendingIndex++) {
+      var id = pending[pendingIndex]
       if (Model.indexById(service.messages, id) < 0) waiting.push(id)
       else if (checks.indexOf(id) < 0) checks.push(id)
     }

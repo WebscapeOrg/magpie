@@ -199,7 +199,7 @@ Item {
     responseTransfer = null
     var callbacks = shutdownCallbacks
     shutdownCallbacks = []
-    for (var i = 0; i < callbacks.length; i++) callbacks[i](shutdownError)
+    for (var callbackIndex = 0; callbackIndex < callbacks.length; callbackIndex++) callbacks[callbackIndex](shutdownError)
     shutdownComplete(shutdownError)
   }
 
@@ -226,8 +226,8 @@ Item {
     uploadQueue.fail(error)
     for (var id in previous)
       failEntry(previous[id], error)
-    for (var i = 0; i < waiting.length; i++)
-      failEntry(waiting[i], error)
+    for (var requestIndex = 0; requestIndex < waiting.length; requestIndex++)
+      failEntry(waiting[requestIndex], error)
   }
 
   // A receiver may have disappeared while its request was waiting. One

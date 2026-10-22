@@ -43,8 +43,8 @@ Item {
       if (!node) return null
       if (node.objectName === objectName) return node
       var children = node.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = find(objectName, children[i])
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var found = find(objectName, children[childIndex])
         if (found) return found
       }
       return null

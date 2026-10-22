@@ -7,8 +7,8 @@
 function mailboxAfterAccountSwitch(currentKey, targetMailboxes) {
   var key = String(currentKey || "")
   var mailboxes = Array.isArray(targetMailboxes) ? targetMailboxes : []
-  for (var i = 0; i < mailboxes.length; i++) {
-    if (mailboxes[i] && String(mailboxes[i].key || "") === key) return key
+  for (var mailboxIndex = 0; mailboxIndex < mailboxes.length; mailboxIndex++) {
+    if (mailboxes[mailboxIndex] && String(mailboxes[mailboxIndex].key || "") === key) return key
   }
   return ""
 }
@@ -185,8 +185,8 @@ function rowIndexForMember(messages, id) {
   if (wanted === "") return -1
   var own = indexById(list, wanted)
   if (own >= 0) return own
-  for (var i = 0; i < list.length; i++) {
-    if (Conversation.holdsMember(list[i] ? list[i].thread : null, wanted)) return i
+  for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
+    if (Conversation.holdsMember(list[entryIndex] ? list[entryIndex].thread : null, wanted)) return entryIndex
   }
   return -1
 }
@@ -211,8 +211,8 @@ function threadAfterMemberChange(row, memberSummaries) {
   var unread = false
   var flagged = false
   var unknown = false
-  for (var i = 0; i < block.memberIds.length; i++) {
-    var summary = store[block.memberIds[i]]
+  for (var memberIndex = 0; memberIndex < block.memberIds.length; memberIndex++) {
+    var summary = store[block.memberIds[memberIndex]]
     if (!summary || typeof summary !== "object") {
       unknown = true
       continue
@@ -329,8 +329,8 @@ function survivesAction(mailboxKey, action, rawQuery, labels, sourceLabelId, row
 // an opposite action would turn read/unread/read into read/unread.
 function enqueueAction(requests, request) {
   var queued = requests.slice()
-  for (var i = queued.length - 1; i >= 0; i--) {
-    var previous = queued[i]
+  for (var actionIndex = queued.length - 1; actionIndex >= 0; actionIndex--) {
+    var previous = queued[actionIndex]
     if (previous.id !== request.id) continue
     if (previous.action === request.action && previous.cacheKey === request.cacheKey
         && previous.sourceLabelId === request.sourceLabelId
@@ -338,7 +338,7 @@ function enqueueAction(requests, request) {
         && (previous.quiet === true) === (request.quiet === true)) {
       // A true repeat keeps the first send and its rollback. A quiet press and
       // an explicit one differ in scope and note, so they queue in turn.
-      queued[i] = {
+      queued[actionIndex] = {
         id: request.id, action: request.action, cacheKey: request.cacheKey,
         sourceLabelId: request.sourceLabelId,
         memberOnly: request.memberOnly === true,
@@ -356,8 +356,8 @@ function enqueueAction(requests, request) {
 // Whether a queue still carries this send, or coalesced it into an earlier one.
 function holdsDispatch(requests, dispatch) {
   var queued = Array.isArray(requests) ? requests : []
-  for (var i = 0; i < queued.length; i++) {
-    if (queued[i] && queued[i].dispatch === dispatch) return true
+  for (var actionIndex = 0; actionIndex < queued.length; actionIndex++) {
+    if (queued[actionIndex] && queued[actionIndex].dispatch === dispatch) return true
   }
   return false
 }
@@ -414,37 +414,37 @@ function movableLabels(labels, query, currentLabelId) {
   var destinations = []
   if (typed === "") {
     var rows = labelTree(candidates, [])
-    for (var r = 0; r < rows.length; r++) {
-      if (!rows[r].selectable || rows[r].id === current) continue
-      var at = indexById(candidates, rows[r].id)
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      if (!rows[rowIndex].selectable || rows[rowIndex].id === current) continue
+      var at = indexById(candidates, rows[rowIndex].id)
       if (at < 0) continue
       var copy = {}
       for (var key in candidates[at]) copy[key] = candidates[at][key]
-      copy.depth = rows[r].depth
-      copy.leaf = rows[r].name
+      copy.depth = rows[rowIndex].depth
+      copy.leaf = rows[rowIndex].name
       destinations.push(copy)
     }
     return destinations
   }
-  for (var i = 0; i < candidates.length; i++) {
-    var label = candidates[i]
+  for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+    var label = candidates[candidateIndex]
     if (!label || label.system === true) continue
     if (String(label.id || "") === current) continue
     var labelName = String(label.name || "")
     var score = fuzzyScore(typed, labelName)
     if (score <= 0) continue
     var kept = {}
-    for (var k in label) kept[k] = label[k]
+    for (var field in label) kept[field] = label[field]
     kept.depth = 0
     kept.leaf = labelName
     kept.score = score
-    kept.sourceIndex = i
+    kept.sourceIndex = candidateIndex
     destinations.push(kept)
   }
   // Equal scores: the shorter path first, since the letters name a parent
   // as well as everything under it and the parent is the likelier answer.
-  destinations.sort(function(a, b) {
-    return b.score - a.score || a.leaf.length - b.leaf.length || a.sourceIndex - b.sourceIndex
+  destinations.sort(function(left, right) {
+    return right.score - left.score || left.leaf.length - right.leaf.length || left.sourceIndex - right.sourceIndex
   })
   return destinations
 }
@@ -474,9 +474,9 @@ function compareLabelNames(left, right) {
 function railLabels(labels) {
   var all = Array.isArray(labels) ? labels : []
   var out = []
-  for (var i = 0; i < all.length; i++) {
-    if (!all[i] || all[i].system === true) continue
-    out.push(all[i])
+  for (var labelIndex = 0; labelIndex < all.length; labelIndex++) {
+    if (!all[labelIndex] || all[labelIndex].system === true) continue
+    out.push(all[labelIndex])
   }
   out.sort(compareLabelNames)
   return out
@@ -556,8 +556,8 @@ function rowAfterMemberEdit(row, ownLabels, rowId, memberSummaries, targets, aft
   var nextMembers = {}
   for (var held in memberSummaries) nextMembers[held] = memberSummaries[held]
   var ids = Array.isArray(targets) ? targets : []
-  for (var i = 0; i < ids.length; i++) {
-    if (ids[i] !== rowId && memberSummaries[ids[i]]) nextMembers[ids[i]] = after(memberSummaries[ids[i]])
+  for (var messageIndex = 0; messageIndex < ids.length; messageIndex++) {
+    if (ids[messageIndex] !== rowId && memberSummaries[ids[messageIndex]]) nextMembers[ids[messageIndex]] = after(memberSummaries[ids[messageIndex]])
   }
   nextMembers[rowId] = ownLabels
   return rowWithThread(ownLabels, threadAfterMemberChange(row, nextMembers))
@@ -572,12 +572,12 @@ function applyLabelChange(summary, action, sourceLabelId, thread) {
   var change = labelChangesFor(action, sourceLabelId)
   if (!change) return summary
   var labels = Array.isArray(summary.labelIds) ? summary.labelIds.slice() : []
-  for (var i = 0; i < change.remove.length; i++) {
-    var at = labels.indexOf(change.remove[i])
+  for (var removalIndex = 0; removalIndex < change.remove.length; removalIndex++) {
+    var at = labels.indexOf(change.remove[removalIndex])
     if (at >= 0) labels.splice(at, 1)
   }
-  for (var j = 0; j < change.add.length; j++) {
-    if (labels.indexOf(change.add[j]) < 0) labels.push(change.add[j])
+  for (var additionIndex = 0; additionIndex < change.add.length; additionIndex++) {
+    if (labels.indexOf(change.add[additionIndex]) < 0) labels.push(change.add[additionIndex])
   }
   return rowWithThread(withLabels(summary, labels), thread)
 }
@@ -640,8 +640,8 @@ function paneWidth(value) {
 function stringList(value) {
   var list = Array.isArray(value) ? value : []
   var out = []
-  for (var i = 0; i < list.length; i++) {
-    var item = String(list[i] === undefined || list[i] === null ? "" : list[i])
+  for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
+    var item = String(list[entryIndex] === undefined || list[entryIndex] === null ? "" : list[entryIndex])
     if (item !== "" && out.indexOf(item) < 0) out.push(item)
   }
   return out
@@ -649,7 +649,7 @@ function stringList(value) {
 
 function windowPrefs(raw) {
   var parsed = null
-  try { parsed = JSON.parse(String(raw || "")) } catch (e) { parsed = null }
+  try { parsed = JSON.parse(String(raw || "")) } catch (error) { parsed = null }
   if (!parsed || typeof parsed !== "object") {
     return {
       sidebarCollapsed: false,
@@ -718,8 +718,8 @@ function sameSummaryValue(left, right, depth) {
   if (leftIsList !== Array.isArray(right)) return false
   if (leftIsList) {
     if (left.length !== right.length) return false
-    for (var i = 0; i < left.length; i++) {
-      if (!sameSummaryValue(left[i], right[i], depth - 1)) return false
+    for (var entryIndex = 0; entryIndex < left.length; entryIndex++) {
+      if (!sameSummaryValue(left[entryIndex], right[entryIndex], depth - 1)) return false
     }
     return true
   }
@@ -754,8 +754,8 @@ function sameSummaries(previous, next) {
   var after = Array.isArray(next) ? next : []
   if (before === after) return true
   if (before.length !== after.length) return false
-  for (var i = 0; i < after.length; i++) {
-    if (!sameSummaryValue(before[i], after[i], 4)) return false
+  for (var entryIndex = 0; entryIndex < after.length; entryIndex++) {
+    if (!sameSummaryValue(before[entryIndex], after[entryIndex], 4)) return false
   }
   return true
 }
@@ -763,9 +763,9 @@ function sameSummaries(previous, next) {
 function removeById(list, id) {
   var source = Array.isArray(list) ? list : []
   var out = []
-  for (var i = 0; i < source.length; i++) {
-    if (source[i] && source[i].id === id) continue
-    out.push(source[i])
+  for (var sourceIndex = 0; sourceIndex < source.length; sourceIndex++) {
+    if (source[sourceIndex] && source[sourceIndex].id === id) continue
+    out.push(source[sourceIndex])
   }
   return out
 }
@@ -826,9 +826,9 @@ function listAfterRestore(list, row, removed, stillRemoved, order, index) {
 function withoutIntent(entries, token) {
   var list = Array.isArray(entries) ? entries : []
   var out = []
-  for (var i = 0; i < list.length; i++) {
-    if (!list[i] || list[i].token === token) continue
-    out.push(list[i])
+  for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
+    if (!list[rowIndex] || list[rowIndex].token === token) continue
+    out.push(list[rowIndex])
   }
   return out
 }
@@ -838,15 +838,15 @@ function withoutIntent(entries, token) {
 function rebaseIntents(entries, token) {
   var list = Array.isArray(entries) ? entries : []
   var at = -1
-  for (var i = 0; i < list.length; i++) {
-    if (list[i] && list[i].token === token) { at = i; break }
+  for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
+    if (list[rowIndex] && list[rowIndex].token === token) { at = rowIndex; break }
   }
   if (at < 0) return null
   var out = list.slice(0, at)
   var summary = list[at].before
-  for (var j = at + 1; j < list.length; j++) {
+  for (var followingIndex = at + 1; followingIndex < list.length; followingIndex++) {
     var entry = {}
-    for (var key in list[j]) entry[key] = list[j][key]
+    for (var key in list[followingIndex]) entry[key] = list[followingIndex][key]
     entry.before = summary
     summary = typeof entry.apply === "function" ? entry.apply(summary) : summary
     out.push(entry)
@@ -880,8 +880,8 @@ function intentsSettled(intents, id, token, failed, fallback) {
 // a failure ahead of it puts the row back nowhere.
 function anyIntentRemoved(entries) {
   var list = Array.isArray(entries) ? entries : []
-  for (var i = 0; i < list.length; i++) {
-    if (list[i] && list[i].removed === true) return true
+  for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
+    if (list[rowIndex] && list[rowIndex].removed === true) return true
   }
   return false
 }
@@ -924,8 +924,8 @@ function previewAfterRestore(list, row, present, order, index) {
 function replaceById(list, summary) {
   var source = Array.isArray(list) ? list : []
   var out = []
-  for (var i = 0; i < source.length; i++) {
-    out.push(source[i] && summary && source[i].id === summary.id ? summary : source[i])
+  for (var rowIndex = 0; rowIndex < source.length; rowIndex++) {
+    out.push(source[rowIndex] && summary && source[rowIndex].id === summary.id ? summary : source[rowIndex])
   }
   return out
 }
@@ -939,9 +939,9 @@ function mergeSearchResults(cached, live) {
   var positions = {}
   var merged = []
   var order = 0
-  for (var l = 0; l < lists.length; l++) {
-    for (var i = 0; i < lists[l].length; i++) {
-      var row = lists[l][i]
+  for (var listIndex = 0; listIndex < lists.length; listIndex++) {
+    for (var rowIndex = 0; rowIndex < lists[listIndex].length; rowIndex++) {
+      var row = lists[listIndex][rowIndex]
       var id = String(row && row.id ? row.id : "")
       if (id === "") continue
       if (positions[id] !== undefined) {
@@ -953,16 +953,16 @@ function mergeSearchResults(cached, live) {
     }
   }
 
-  merged.sort(function(a, b) {
-    var aTime = a.row && a.row.date && typeof a.row.date.getTime === "function"
-      ? Number(a.row.date.getTime()) : 0
-    var bTime = b.row && b.row.date && typeof b.row.date.getTime === "function"
-      ? Number(b.row.date.getTime()) : 0
+  merged.sort(function(left, right) {
+    var aTime = left.row && left.row.date && typeof left.row.date.getTime === "function"
+      ? Number(left.row.date.getTime()) : 0
+    var bTime = right.row && right.row.date && typeof right.row.date.getTime === "function"
+      ? Number(right.row.date.getTime()) : 0
     if (aTime !== bTime) return bTime - aTime
-    return a.order - b.order
+    return left.order - right.order
   })
   var out = []
-  for (var j = 0; j < merged.length; j++) out.push(merged[j].row)
+  for (var mergedIndex = 0; mergedIndex < merged.length; mergedIndex++) out.push(merged[mergedIndex].row)
   return out
 }
 
@@ -974,17 +974,17 @@ function settledSearchResults(existing, preview, live, ids, append) {
   var known = {}
   var cached = Array.isArray(preview) ? preview : []
   var fresh = Array.isArray(live) ? live : []
-  for (var i = 0; i < cached.length; i++) {
-    if (cached[i] && cached[i].id) known[String(cached[i].id)] = cached[i]
+  for (var cachedIndex = 0; cachedIndex < cached.length; cachedIndex++) {
+    if (cached[cachedIndex] && cached[cachedIndex].id) known[String(cached[cachedIndex].id)] = cached[cachedIndex]
   }
-  for (var j = 0; j < fresh.length; j++) {
-    if (fresh[j] && fresh[j].id) known[String(fresh[j].id)] = fresh[j]
+  for (var freshIndex = 0; freshIndex < fresh.length; freshIndex++) {
+    if (fresh[freshIndex] && fresh[freshIndex].id) known[String(fresh[freshIndex].id)] = fresh[freshIndex]
   }
 
   var page = []
   var wanted = Array.isArray(ids) ? ids : []
-  for (var k = 0; k < wanted.length; k++) {
-    var id = String(wanted[k] || "")
+  for (var wantedIndex = 0; wantedIndex < wanted.length; wantedIndex++) {
+    var id = String(wanted[wantedIndex] || "")
     if (known[id]) page.push(known[id])
   }
   return append === true ? mergeSearchResults(existing, page) : page
@@ -997,13 +997,13 @@ function settledSearchResults(existing, preview, live, ids, append) {
 function missingSearchSummaryIds(summaries, ids) {
   var known = {}
   var rows = Array.isArray(summaries) ? summaries : []
-  for (var i = 0; i < rows.length; i++) {
-    if (rows[i] && rows[i].id) known[String(rows[i].id)] = true
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    if (rows[rowIndex] && rows[rowIndex].id) known[String(rows[rowIndex].id)] = true
   }
   var missing = []
   var wanted = Array.isArray(ids) ? ids : []
-  for (var j = 0; j < wanted.length; j++) {
-    var id = String(wanted[j] || "")
+  for (var wantedIndex = 0; wantedIndex < wanted.length; wantedIndex++) {
+    var id = String(wanted[wantedIndex] || "")
     if (id !== "" && !known[id]) missing.push(id)
   }
   return missing
@@ -1074,8 +1074,8 @@ function cachedDetailSummary(known, summary) {
 
 function indexById(list, id) {
   var source = Array.isArray(list) ? list : []
-  for (var i = 0; i < source.length; i++) {
-    if (source[i] && source[i].id === id) return i
+  for (var rowIndex = 0; rowIndex < source.length; rowIndex++) {
+    if (source[rowIndex] && source[rowIndex].id === id) return rowIndex
   }
   return -1
 }
@@ -1102,10 +1102,10 @@ function sidebarSlots(mailboxes, labels, limit) {
   var max = Math.max(0, Math.floor(Number(limit) || 0))
   var out = []
   var boxes = Array.isArray(mailboxes) ? mailboxes : []
-  for (var i = 0; i < boxes.length && out.length < max; i++) {
-    if (!boxes[i] || !boxes[i].key) continue
-    out.push({ kind: "mailbox", key: String(boxes[i].key), name: String(boxes[i].label || ""),
-      icon: String(boxes[i].icon || "mail") })
+  for (var mailboxIndex = 0; mailboxIndex < boxes.length && out.length < max; mailboxIndex++) {
+    if (!boxes[mailboxIndex] || !boxes[mailboxIndex].key) continue
+    out.push({ kind: "mailbox", key: String(boxes[mailboxIndex].key), name: String(boxes[mailboxIndex].label || ""),
+      icon: String(boxes[mailboxIndex].icon || "mail") })
   }
   // The labels in the order given, which is the order the rail draws them:
   // App hands over `visibleLabels`, the tree with its folded rows left out,
@@ -1114,10 +1114,10 @@ function sidebarSlots(mailboxes, labels, limit) {
   // rail draws them the other way round, and the digit beside a row would
   // open a different one. System labels are not rows and get no number.
   var all = Array.isArray(labels) ? labels : []
-  for (var j = 0; j < all.length && out.length < max; j++) {
-    if (!all[j] || all[j].system === true) continue
-    out.push({ kind: "label", id: String(all[j].id || ""),
-      name: String(all[j].rawName || all[j].name || "") })
+  for (var labelIndex = 0; labelIndex < all.length && out.length < max; labelIndex++) {
+    if (!all[labelIndex] || all[labelIndex].system === true) continue
+    out.push({ kind: "label", id: String(all[labelIndex].id || ""),
+      name: String(all[labelIndex].rawName || all[labelIndex].name || "") })
   }
   return out
 }
@@ -1126,10 +1126,10 @@ function sidebarSlots(mailboxes, labels, limit) {
 // the badge is read by a person rather than indexed by anything.
 function slotNumberOf(slots, kind, handle) {
   var list = Array.isArray(slots) ? slots : []
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].kind !== kind) continue
-    if (String(kind === "mailbox" ? list[i].key : list[i].id) !== String(handle)) continue
-    return i + 1
+  for (var slotIndex = 0; slotIndex < list.length; slotIndex++) {
+    if (list[slotIndex].kind !== kind) continue
+    if (String(kind === "mailbox" ? list[slotIndex].key : list[slotIndex].id) !== String(handle)) continue
+    return slotIndex + 1
   }
   return 0
 }
@@ -1202,15 +1202,15 @@ function contentYToReveal(contentY, viewportHeight, itemY, itemHeight,
                           contentHeight, margin, originY, topMargin, bottomMargin) {
   var top = Number(contentY) || 0
   var view = Number(viewportHeight) || 0
-  var y = Number(itemY) || 0
+  var itemTop = Number(itemY) || 0
   var height = Number(itemHeight) || 0
   var pad = Number(margin) || 0
   var next = top
   // A row that cannot fit shows its beginning. Aligning its bottom, which is
   // what the off-the-bottom rule would do, pushes the part being read away.
-  if (height + pad + pad > view) next = y - pad
-  else if (y - pad < top) next = y - pad
-  else if (y + height + pad > top + view) next = y + height + pad - view
+  if (height + pad + pad > view) next = itemTop - pad
+  else if (itemTop - pad < top) next = itemTop - pad
+  else if (itemTop + height + pad > top + view) next = itemTop + height + pad - view
   // The same range the wheel is held to. Callers that scroll a plain
   // Flickable pass no origin or margins and get the range they had.
   return clampContentY(next, contentYBounds(originY, contentHeight, view,
@@ -1220,8 +1220,8 @@ function contentYToReveal(contentY, viewportHeight, itemY, itemHeight,
 function unreadCount(list) {
   var source = Array.isArray(list) ? list : []
   var count = 0
-  for (var i = 0; i < source.length; i++) {
-    if (source[i] && source[i].unread) count++
+  for (var rowIndex = 0; rowIndex < source.length; rowIndex++) {
+    if (source[rowIndex] && source[rowIndex].unread) count++
   }
   return count
 }
@@ -1254,8 +1254,8 @@ function barTooltip(state, email, unread, provider, authKind) {
 function newestDate(summaries) {
   var list = Array.isArray(summaries) ? summaries : []
   var newest = 0
-  for (var i = 0; i < list.length; i++) {
-    var summary = list[i]
+  for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
+    var summary = list[rowIndex]
     if (!summary || !summary.date || typeof summary.date.getTime !== "function") continue
     var time = summary.date.getTime()
     if (isFinite(time) && time > newest) newest = time
@@ -1289,8 +1289,8 @@ function newArrivals(summaries, seenIds, primed, floorMs) {
   var seen = seenIds || {}
   var arrivals = []
   var floor = typeof floorMs === "number" && isFinite(floorMs) && floorMs > 0 ? floorMs : 0
-  for (var i = 0; i < list.length; i++) {
-    var summary = list[i]
+  for (var summaryIndex = 0; summaryIndex < list.length; summaryIndex++) {
+    var summary = list[summaryIndex]
     if (!summary || !summary.unread || !summary.inInbox) continue
     if (seen[summary.id]) continue
     if (floor > 0 && summary.date && typeof summary.date.getTime === "function") {
@@ -1348,8 +1348,8 @@ function markAllReadNote(rows, expanded) {
 // has been collapsed and the count on screen is of conversations.
 function listNoun(list) {
   var rows = Array.isArray(list) ? list : []
-  for (var i = 0; i < rows.length; i++) {
-    if (badgeCount(rows[i]) > 0) return "conversation"
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    if (badgeCount(rows[rowIndex]) > 0) return "conversation"
   }
   return "message"
 }
@@ -1517,13 +1517,13 @@ function truncate(text, limit) {
 function sortedSections(sections) {
   var values = Array.isArray(sections) ? sections.slice() : []
   var known = []
-  for (var i = 0; i < values.length; i++) {
-    var entry = values[i] || {}
-    var y = Number(entry.y)
-    if (!isFinite(y) || String(entry.key || "") === "") continue
-    known.push({ key: String(entry.key), y: y })
+  for (var sectionIndex = 0; sectionIndex < values.length; sectionIndex++) {
+    var entry = values[sectionIndex] || {}
+    var sectionY = Number(entry.y)
+    if (!isFinite(sectionY) || String(entry.key || "") === "") continue
+    known.push({ key: String(entry.key), y: sectionY })
   }
-  known.sort(function(a, b) { return a.y - b.y })
+  known.sort(function(left, right) { return left.y - right.y })
   return known
 }
 
@@ -1538,8 +1538,8 @@ function activeSettingsSection(sections, contentY) {
   if (known.length === 0) return ""
   var top = Number(contentY) || 0
   var active = known[0].key
-  for (var i = 0; i < known.length; i++) {
-    if (known[i].y <= top) active = known[i].key
+  for (var sectionIndex = 0; sectionIndex < known.length; sectionIndex++) {
+    if (known[sectionIndex].y <= top) active = known[sectionIndex].key
   }
   return active
 }
@@ -1662,12 +1662,12 @@ function wheelScrollTarget(contentY, angleDelta, contentHeight, viewportHeight,
 function settingsScrollTarget(sections, key, contentHeight, viewportHeight) {
   var known = sortedSections(sections)
   var wanted = String(key || "")
-  for (var i = 0; i < known.length; i++) {
-    if (known[i].key !== wanted) continue
+  for (var sectionIndex = 0; sectionIndex < known.length; sectionIndex++) {
+    if (known[sectionIndex].key !== wanted) continue
     var content = Number(contentHeight) || 0
     var viewport = Number(viewportHeight) || 0
     var limit = Math.max(0, content - viewport)
-    return Math.max(0, Math.min(known[i].y, limit))
+    return Math.max(0, Math.min(known[sectionIndex].y, limit))
   }
   return -1
 }
@@ -1738,8 +1738,8 @@ function idsBetween(list, fromId, toId) {
 function unionIds(ids, more) {
   var out = Array.isArray(ids) ? ids.slice() : []
   var extra = Array.isArray(more) ? more : []
-  for (var i = 0; i < extra.length; i++) {
-    if (out.indexOf(extra[i]) < 0) out.push(extra[i])
+  for (var labelIndex = 0; labelIndex < extra.length; labelIndex++) {
+    if (out.indexOf(extra[labelIndex]) < 0) out.push(extra[labelIndex])
   }
   return out
 }
@@ -1752,8 +1752,8 @@ function toggleRange(ids, list, fromId, toId) {
   var range = idsBetween(list, fromId, toId)
   if (checked.indexOf(toId) < 0) return unionIds(checked, range)
   var out = []
-  for (var i = 0; i < checked.length; i++) {
-    if (range.indexOf(checked[i]) < 0) out.push(checked[i])
+  for (var messageIndex = 0; messageIndex < checked.length; messageIndex++) {
+    if (range.indexOf(checked[messageIndex]) < 0) out.push(checked[messageIndex])
   }
   return out
 }
@@ -1765,8 +1765,8 @@ function retainIds(ids, list) {
   var source = Array.isArray(list) ? list : []
   var checked = Array.isArray(ids) ? ids : []
   var out = []
-  for (var i = 0; i < checked.length; i++) {
-    if (indexById(source, checked[i]) >= 0) out.push(checked[i])
+  for (var messageIndex = 0; messageIndex < checked.length; messageIndex++) {
+    if (indexById(source, checked[messageIndex]) >= 0) out.push(checked[messageIndex])
   }
   return out
 }
@@ -1774,7 +1774,7 @@ function retainIds(ids, list) {
 function allIds(list) {
   var source = Array.isArray(list) ? list : []
   var out = []
-  for (var i = 0; i < source.length; i++) out.push(source[i].id)
+  for (var rowIndex = 0; rowIndex < source.length; rowIndex++) out.push(source[rowIndex].id)
   return out
 }
 
@@ -1782,8 +1782,8 @@ function summariesById(list, ids) {
   var source = Array.isArray(list) ? list : []
   var checked = Array.isArray(ids) ? ids : []
   var out = []
-  for (var i = 0; i < checked.length; i++) {
-    var index = indexById(source, checked[i])
+  for (var messageIndex = 0; messageIndex < checked.length; messageIndex++) {
+    var index = indexById(source, checked[messageIndex])
     if (index >= 0) out.push(source[index])
   }
   return out
@@ -1797,12 +1797,12 @@ function cursorAfterRemovals(list, removedIds, cursorId) {
   var gone = Array.isArray(removedIds) ? removedIds : []
   var index = indexById(source, cursorId)
   if (index < 0) return ""
-  var i
-  for (i = index; i < source.length; i++) {
-    if (gone.indexOf(source[i].id) < 0) return source[i].id
+  var candidateIndex
+  for (candidateIndex = index; candidateIndex < source.length; candidateIndex++) {
+    if (gone.indexOf(source[candidateIndex].id) < 0) return source[candidateIndex].id
   }
-  for (i = index - 1; i >= 0; i--) {
-    if (gone.indexOf(source[i].id) < 0) return source[i].id
+  for (candidateIndex = index - 1; candidateIndex >= 0; candidateIndex--) {
+    if (gone.indexOf(source[candidateIndex].id) < 0) return source[candidateIndex].id
   }
   return ""
 }
@@ -1813,8 +1813,8 @@ function cursorAfterRemovals(list, removedIds, cursorId) {
 function starActionFor(summaries) {
   var rows = Array.isArray(summaries) ? summaries : []
   if (rows.length === 0) return "star"
-  for (var i = 0; i < rows.length; i++) {
-    if (!rows[i] || !rows[i].starred) return "star"
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    if (!rows[rowIndex] || !rows[rowIndex].starred) return "star"
   }
   return "unstar"
 }
@@ -1841,16 +1841,16 @@ function restoreRows(current, before, failedIds) {
   var now = Array.isArray(current) ? current.slice() : []
   var was = Array.isArray(before) ? before : []
   var ids = Array.isArray(failedIds) ? failedIds : []
-  for (var i = 0; i < was.length; i++) {
-    var row = was[i]
+  for (var rowIndex = 0; rowIndex < was.length; rowIndex++) {
+    var row = was[rowIndex]
     if (!row || ids.indexOf(String(row.id)) < 0) continue
     var at = indexById(now, row.id)
     if (at >= 0) { now[at] = row; continue }
     // The first later row of the old order that is still present decides
     // where this one goes back; none means the end.
     var insertAt = now.length
-    for (var j = i + 1; j < was.length; j++) {
-      var later = indexById(now, was[j].id)
+    for (var followingIndex = rowIndex + 1; followingIndex < was.length; followingIndex++) {
+      var later = indexById(now, was[followingIndex].id)
       if (later >= 0) { insertAt = later; break }
     }
     now.splice(insertAt, 0, row)
@@ -1956,13 +1956,13 @@ function visibleLabels(labels, collapsedPaths) {
   // One pass over the labels, not one per row: a rail of thousands of
   // folders is rebuilt on every fold.
   var byId = Object.create(null)
-  for (var l = 0; l < all.length; l++) {
-    if (all[l] && byId[String(all[l].id || "")] === undefined) byId[String(all[l].id || "")] = all[l]
+  for (var listIndex = 0; listIndex < all.length; listIndex++) {
+    if (all[listIndex] && byId[String(all[listIndex].id || "")] === undefined) byId[String(all[listIndex].id || "")] = all[listIndex]
   }
   var out = []
-  for (var i = 0; i < rows.length; i++) {
-    if (!rows[i].selectable) continue
-    var label = byId[rows[i].id]
+  for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    if (!rows[rowIndex].selectable) continue
+    var label = byId[rows[rowIndex].id]
     if (label !== undefined) out.push(label)
   }
   return out
@@ -1981,12 +1981,12 @@ function togglePath(paths, path) {
 }
 
 function activityStatus(counts) {
-  var c = counts || {}
+  var activityCounts = counts || {}
   function count(value) { return Math.max(0, Math.floor(Number(value)) || 0) }
-  var sending = count(c.sending)
-  var queuedSends = count(c.queuedSends)
-  var running = count(c.running)
-  var waiting = count(c.waiting)
+  var sending = count(activityCounts.sending)
+  var queuedSends = count(activityCounts.queuedSends)
+  var running = count(activityCounts.running)
+  var waiting = count(activityCounts.waiting)
   var parts = []
   if (sending > 0) parts.push(sending === 1 ? "Sending" : "Sending " + sending)
   if (queuedSends > 0) parts.push(queuedSends + " queued to send")
@@ -2053,8 +2053,8 @@ function labelMoveTargets(labels, movingPath, delimiter) {
   var out = [{ id: "", name: "Top level", path: "" }]
   // No hierarchy: the top level is the only place, and the label is there.
   if (sep === "") return out
-  for (var i = 0; i < all.length; i++) {
-    var label = all[i]
+  for (var accountIndex = 0; accountIndex < all.length; accountIndex++) {
+    var label = all[accountIndex]
     if (!label || label.system) continue
     var path = String(label.name || label.rawName || "")
     if (path === "" || path === moving) continue
@@ -2129,10 +2129,10 @@ function migrateMonitoredChanges(monitored, moves, after) {
 function monitoredNote(grown) {
   var list = Array.isArray(grown) ? grown.slice() : []
   if (list.length === 0) return ""
-  list.sort(function(a, b) { return Number(b.delta || 0) - Number(a.delta || 0) })
+  list.sort(function(left, right) { return Number(right.delta || 0) - Number(left.delta || 0) })
   var parts = []
-  for (var i = 0; i < list.length && i < 2; i++)
-    parts.push(Math.max(1, Math.floor(Number(list[i].delta) || 1)) + " new in " + String(list[i].name || ""))
+  for (var activityIndex = 0; activityIndex < list.length && activityIndex < 2; activityIndex++)
+    parts.push(Math.max(1, Math.floor(Number(list[activityIndex].delta) || 1)) + " new in " + String(list[activityIndex].name || ""))
   var more = list.length - parts.length
   return parts.join(", ") + (more > 0 ? " and " + more + " more" : "")
 }
@@ -2154,8 +2154,8 @@ function fuzzyScore(query, text) {
   var score = 0
   var from = 0
   var last = -2
-  for (var i = 0; i < needle.length; i++) {
-    var found = hay.indexOf(needle.charAt(i), from)
+  for (var characterIndex = 0; characterIndex < needle.length; characterIndex++) {
+    var found = hay.indexOf(needle.charAt(characterIndex), from)
     if (found < 0) return 0
     score += 10
     if (found === last + 1) score += 8
@@ -2176,18 +2176,18 @@ function filterRows(rows, query) {
   var list = Array.isArray(rows) ? rows : []
   var typed = String(query || "").trim()
   var out = []
-  for (var i = 0; i < list.length; i++) {
-    var row = list[i]
+  for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
+    var row = list[rowIndex]
     if (!row) continue
-    var text = [row.name, row.label, row.email].filter(function(v) { return v !== undefined && v !== null && String(v) !== "" }).join(" ")
+    var text = [row.name, row.label, row.email].filter(function(fieldValue) { return fieldValue !== undefined && fieldValue !== null && String(fieldValue) !== "" }).join(" ")
     var score = typed === "" ? 1 : fuzzyScore(typed, text)
     if (score <= 0) continue
     var kept = {}
     for (var key in row) kept[key] = row[key]
-    kept.sourceIndex = i
+    kept.sourceIndex = rowIndex
     kept.score = score
     out.push(kept)
   }
-  if (typed !== "") out.sort(function(a, b) { return b.score - a.score || a.sourceIndex - b.sourceIndex })
+  if (typed !== "") out.sort(function(left, right) { return right.score - left.score || left.sourceIndex - right.sourceIndex })
   return out
 }

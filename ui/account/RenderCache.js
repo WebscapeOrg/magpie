@@ -17,9 +17,9 @@ function keyOf(id) {
 }
 
 function removeFromOrder(cache, key) {
-  for (var i = 0; i < cache.order.length; i++) {
-    if (cache.order[i] !== key) continue
-    cache.order.splice(i, 1)
+  for (var entryIndex = 0; entryIndex < cache.order.length; entryIndex++) {
+    if (cache.order[entryIndex] !== key) continue
+    cache.order.splice(entryIndex, 1)
     return
   }
 }

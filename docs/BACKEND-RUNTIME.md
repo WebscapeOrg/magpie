@@ -44,16 +44,9 @@ Standalone builds derive their manifest from the plugin settings but use the sta
 
 ### Forcing a clean reconnect
 
-The running `omamail serve` process holds its Secret Service session, its
-account hosts and their sign-in state for the life of the Quickshell process
-that started it — a credential store that was locked at startup, an API a
-Cloud project only just enabled, or an OAuth grant that changed underneath it
-are not re-checked on their own. `omarchy plugin disable magpie` followed by
-`omarchy plugin enable magpie` reloads the plugin's QML context and opens a
-fresh backend connection without restarting the shell itself, which is enough
-to pick up a state change made outside the plugin's own knowledge. This is
-the fastest way to confirm whether a failure is a stale connection or a real
-one: if disable/enable clears it, it was the former.
+The running `omamail serve` process retains account and credential-session state. Credential operations retry invalid Secret Service sessions, and token refresh follows its cache policy; a locked store or rejected grant is not necessarily permanent for that process.
+
+When logs indicate that reconnecting is appropriate, `omarchy plugin disable magpie` followed by `omarchy plugin enable magpie` reloads the plugin's QML context and starts a fresh backend connection without restarting the shell. Record the original error before reconnecting. Recovery after reconnecting does not establish the cause: it can also coincide with a provider recovering or a configuration change taking effect.
 
 ## Standalone bundled backend
 

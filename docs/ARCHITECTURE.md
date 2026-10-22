@@ -24,7 +24,7 @@ The visual system is separate from all five layers. In the plugin, colors come f
 
 The Omarchy shell loads the QML entry points under `ui/`, as named by the root manifest:
 
-- `Service.qml` is the long-lived application and account host. The shell constructs it, so it declares no required properties beyond what the shell supplies. It owns state that must survive the window.
+- `Service.qml` is the long-lived application and account host. The shell constructs it, so it declares no required properties. The shell injects `shell`, `manifest`, `pluginRegistry`, and `barWidgetRegistry`; the bar widget supplies settings through `applySettings`. It owns state that must survive the window.
 - `BarWidget.qml` is the shell-facing trigger and settings bridge.
 - `App.qml` composes the application window. It owns visible navigation, action dispatch, focus context, non-popup surfaces, and the arrangement of the major panes.
 
@@ -303,7 +303,7 @@ Keep one architectural argument per commit where practical. A supporting fix bel
 
 ## Pull request design
 
-A pull request title follows the GPUI Component form `<scope>: <Imperative outcome>`. The lowercase scope names the stable module or subsystem that owns the result; use `app` for one application-level change that honestly spans several UI modules. The outcome describes what the complete change makes true rather than the work performed or the file touched.
+A pull request title follows the repository rules in [AGENTS.md](../AGENTS.md#repository-and-pull-requests): use `Fix ` for bugs, `Add ` for features, or another accurate imperative. Use one primary-outcome prefix where applicable: `ai: `, `docs: `, `website: `, or `chore: `. Name the concrete machinery and action; do not add a module prefix such as `app:` solely because the change spans UI files.
 
 Derive the title from the final `base...HEAD` diff, not from the first commit. Later review fixes can change the actual scope, and a title that remains attached to the opening implementation gives reviewers the wrong boundary.
 

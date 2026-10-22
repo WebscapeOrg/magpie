@@ -20,8 +20,8 @@ printf '%s %s %s\n' "$(b64 'https://calendar.example/dav/me/a.ics')" \
   | PATH="$work/bin:$PATH" "$project_dir/scripts/calendar-write.sh"
 grep -q 'request = "PUT"' "$work/config"
 test "$(cat "$work/event")" = 'BEGIN:VCALENDAR'
-# A decoded field becomes one quoted line of the curl config, so an address
-# carrying a line break is refused before curl is ever invoked.
+# Invariant: A decoded field becomes one quoted line of the curl config, so an address carrying a
+# line break is refused before curl is ever invoked.
 rm -f "$work/config"
 if printf '%s %s %s\n' "$(printf 'https://calendar.example/a.ics\noutput = "/tmp/x"' | base64 -w0)" \
   "$(b64 'me:secret')" "$(b64 'BEGIN:VCALENDAR')" \

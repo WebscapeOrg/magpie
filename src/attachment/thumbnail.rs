@@ -6,6 +6,7 @@ use std::io::Cursor;
 const MAX_INPUT: usize = 8 * 1024 * 1024;
 const MAX_OUTPUT: usize = 512 * 1024;
 const EDGE: u32 = 384;
+static WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
 fn raster(bytes: &[u8]) -> Result<String, &'static str> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
@@ -163,8 +164,7 @@ async fn pdf(_bytes: Vec<u8>) -> Result<Vec<u8>, &'static str> {
 }
 
 pub async fn prepare(params: &Value) -> Result<Value, &'static str> {
-    static WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
-    let _permit = WORKERS
+    let permit = WORKERS
         .try_acquire()
         .map_err(|_| "attachment_thumbnail_unavailable")?;
     let fields = params.as_object().ok_or("invalid_params")?;
@@ -190,9 +190,12 @@ pub async fn prepare(params: &Value) -> Result<Value, &'static str> {
     } else {
         return Err("attachment_thumbnail_unavailable");
     };
-    let data = tokio::task::spawn_blocking(move || raster(&bytes))
-        .await
-        .map_err(|_| "worker_failed")??;
+    let data = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        raster(&bytes)
+    })
+    .await
+    .map_err(|_| "worker_failed")??;
     Ok(json!({"data":data}))
 }
 
@@ -210,6 +213,46 @@ mod tests {
         let mut data = Cursor::new(Vec::new());
         image.write_to(&mut data, ImageFormat::Png).unwrap();
         data.into_inner()
+    }
+
+    #[test]
+    fn round2_cancelled_preview_keeps_worker_slot_until_rendering_stops() {
+        let _guard = LOCK.lock().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        let available = runtime.block_on(async {
+            let (release, wait) = std::sync::mpsc::channel::<()>();
+            let (started, ready) = tokio::sync::oneshot::channel();
+            let blocker = tokio::task::spawn_blocking(move || {
+                started.send(()).unwrap();
+                let _ = wait.recv();
+            });
+            ready.await.unwrap();
+            let input = params(&png(1, 1), "image/png");
+            let preview = tokio::spawn(async move { prepare(&input).await });
+            tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                while WORKERS.available_permits() == 2 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            preview.abort();
+            assert!(preview.await.unwrap_err().is_cancelled());
+            let available = WORKERS.available_permits();
+            drop(release);
+            blocker.await.unwrap();
+            available
+        });
+        runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+        assert_eq!(
+            available, 1,
+            "cancelling the waiter must not admit another renderer"
+        );
+        assert_eq!(WORKERS.available_permits(), 2);
     }
 
     #[tokio::test]

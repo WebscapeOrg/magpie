@@ -248,9 +248,10 @@ assert.strictEqual(oauth.byteLength(""), 0)
   assert.ok(normal.indexOf("CaskaydiaMono Nerd Font") > 0)
 }
 
-console.log("test_oauth.js ok")
 
 for (const field of ['refresh_token', 'access_token', 'client_secret', 'id_token', 'code_verifier']) {
   const raw = JSON.stringify({ [field]: 'synthetic"private-suffix\\secret' })
   assert.strictEqual(oauth.redact(raw), JSON.stringify({ [field]: "[redacted]" }))
 }
+
+console.log("test_oauth.js ok")

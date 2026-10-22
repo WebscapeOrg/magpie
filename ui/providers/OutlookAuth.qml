@@ -796,7 +796,6 @@ Item {
       return
     }
     sessionGeneration++
-    var oldLookup = lookupProcess
     lookupProcess = null
     // Invariant: Async credential callbacks compare this sentinel and the generation;
     // clearing it cancels their authority to update the session.

@@ -297,8 +297,10 @@ Item {
         } else {
           var message = "Microsoft Graph could not be checked: " + root.safeError(result.error) + ". Sending will ask again"
           root.finishGraphWaiters("", message)
+          if (!root.isCurrent(context) || !root.sessionEnabled) return
           root.graphRefused(message)
         }
+        if (!root.isCurrent(context) || !root.sessionEnabled) return
         root.graphRoundOfSignIn = false
         root.loginBusy = false
         root.loginSucceeded()
@@ -328,7 +330,9 @@ Item {
     loginBusy = false
     graphRoundBusy = false
     lastError = ""
+    var context = sessionContext()
     acceptGraphToken(result)
+    if (!isCurrent(context) || !sessionEnabled) return
     var afterSignIn = graphRoundOfSignIn
     graphRoundOfSignIn = false
     if (afterSignIn) loginSucceeded()
@@ -342,8 +346,11 @@ Item {
     loginBusy = false
     graphRoundBusy = false
     cancelDeviceLogin()
+    var context = sessionContext()
     finishGraphWaiters("", message)
+    if (!isCurrent(context) || !sessionEnabled) return
     graphRefused(message)
+    if (!isCurrent(context) || !sessionEnabled) return
     var afterSignIn = graphRoundOfSignIn
     graphRoundOfSignIn = false
     if (afterSignIn) loginSucceeded()
@@ -724,7 +731,9 @@ Item {
     clearPendingToken()
     sessionChecked = true
     acceptToken(result)
+    var context = sessionContext()
     finishWaiters(accessToken, "")
+    if (!isCurrent(context) || !sessionEnabled || !loggedIn) return
     if (configuredSend === "graph") {
       graphRoundOfSignIn = true
       probeGraphConsent(result.refreshToken)

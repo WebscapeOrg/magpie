@@ -222,6 +222,25 @@ emit({'type':'result','subtype':'success','result':'Final answer'})
             self.assertIn('Claude',error)
         self.assertFalse(list(self.store.glob('*/job.json')))
 
+    def test_system_preference_probe_stops_background_descendants(self):
+        marker = self.root / 'preference-descendant-write'
+        child = f"import time;from pathlib import Path;time.sleep(.8);Path({str(marker)!r}).touch()"
+        self.tool('omarchy-default-agent',
+                  f"import subprocess,sys;subprocess.Popen([sys.executable,'-c',{child!r}],"
+                  "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);print('claude')")
+        self.wait(self.new())
+        time.sleep(1)
+        self.assertFalse(marker.exists(), 'the preference probe left a child running')
+
+    def test_system_preference_output_limit_stops_the_helper_before_later_effects(self):
+        marker = self.root / 'oversized-preference-write'
+        self.tool('omarchy-default-agent',
+                  "import time\nfrom pathlib import Path\nprint('x'*8192,flush=True)\ntime.sleep(.8)\n"
+                  f"Path({str(marker)!r}).touch()")
+        self.call('new', value={'messageId': '1', 'prompt': 'synthetic'}, ok=False)
+        time.sleep(1)
+        self.assertFalse(marker.exists(), 'oversized preference output did not stop its producer')
+
     def test_stream_failure_boundaries(self):
         for body in ("print('{',flush=True)","sys.stdout.buffer.write(b'\\xff\\n')", "print('x'*524289,flush=True)", "emit({'type':'result','subtype':'success','result':'x'*65537})", "emit({'type':'result','subtype':'success','result':'bad\\x00'})", "emit({'type':'result','subtype':'error','is_error':True,'result':'SECRET-ERROR'})", "print('SECRET-STDERR',file=sys.stderr);raise SystemExit(3)", "sys.stderr.write('x'*(9*1024*1024))", "emit({'type':'system','session_id':'--bad'})", "pass"):
             self.agent(body)

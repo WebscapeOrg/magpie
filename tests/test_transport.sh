@@ -1,10 +1,6 @@
 #!/bin/sh
-# What mail-transport.sh would actually hand to curl.
-#
-# curl is replaced by a stub that prints the config it was given, so these
-# assert on the exact bytes that would have reached the server — which is the
-# only way to check the escaping of a password without having a server to try
-# it against.
+# Invariant: Controlled curl returns the exact configuration bytes, including credential escaping,
+# without contacting a mail server.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -58,8 +54,8 @@ b64() {
   printf '%s' "$1" | base64 | tr -d '\n'
 }
 
-# The script answers with three lines: the exit code, base64 stdout, base64
-# stderr. The stub echoes the config, so decoding line 2 is the config.
+# Algorithm: The script answers with three lines: the exit code, base64 stdout, base64 stderr. The
+# stub echoes the config, so decoding line 2 is the config.
 config_for() {
   printf '%s\n' "$1" | sh "$script" | sed -n '2p' | base64 -d
 }
@@ -108,7 +104,6 @@ refuses_without_curl() {
 
 printf 'mail-transport.sh\n'
 
-# ---------------------------------------------------------------- IMAP mode
 
 request="imap $(b64 'imaps://imap.example.org:993/INBOX') $(b64 'jane@example.org:hunter2') $(b64 'UID SEARCH UNSEEN')"
 config=$(config_for "$request")
@@ -117,7 +112,6 @@ check "the credentials reach curl" "$config" 'user = "jane@example.org:hunter2"'
 check "the command reaches curl" "$config" 'request = "UID SEARCH UNSEEN"'
 check "mail transport bypasses desktop HTTP/SOCKS proxies" "$config" 'noproxy = "*"'
 
-# ------------------------------------------------------------- Graph send
 
 graph="graph-send $(b64 'https://graph.microsoft.com/v1.0/me/sendMail') $(b64 'tok.en-value') $(b64 'Subject: via graph
 
@@ -140,8 +134,8 @@ refuses_without_curl "Graph rejects a decoded MIME prefix followed by invalid ba
 refuses_without_curl "SMTP cannot address Graph" \
   "smtp $(b64 'https://graph.microsoft.com/v1.0/me/sendMail') $(b64 'u:p') $(b64 'a@b') $(b64 'x') $(b64 'c@d')"
 
-# Graph answers with an HTTP status rather than a curl error. Only an explicit
-# 2xx is a sent message; a missing status line is a failure, not a pass.
+# Invariant: Graph answers with an HTTP status rather than a curl error. Only an explicit 2xx is a
+# sent message; a missing status line is a failure, not a pass.
 graph_reply() {
   printf '%s\n' "$graph" | CURL_STUB_HEADER="$1" sh "$script"
 }
@@ -169,9 +163,9 @@ check "OAuth keeps the username separate" "$oauth_config" 'user = "jane@hotmail.
 check "the bearer token reaches curl's OAuth option" "$oauth_config" 'oauth2-bearer = "access-token"'
 check_absent "OAuth does not turn the token into a password" "$oauth_config" 'user = "jane@hotmail.com:access-token"'
 
-# libcurl puts a custom multi-UID FETCH in its protocol-header callback rather
-# than stdout. The transport returns that channel when present, or the client
-# sees a successful request with an empty message list.
+# Algorithm: libcurl puts a custom multi-UID FETCH in its protocol-header callback rather than
+# stdout. The transport returns that channel when present, or the client sees a successful request
+# with an empty message list.
 header_reply='* 1 FETCH (UID 7 FLAGS ())'
 out=$(printf '%s\n' "$request" \
   | CURL_STUB_HEADER="$header_reply" \
@@ -184,8 +178,8 @@ else
   failures=$(( failures + 1 ))
 fi
 
-# A single BODY FETCH is recognised by libcurl: its complete RFC822 resource
-# is stdout while the protocol-header callback holds only a partial preamble.
+# Algorithm: A single BODY FETCH is recognised by libcurl: its complete RFC822 resource is stdout
+# while the protocol-header callback holds only a partial preamble.
 body_reply='* 1 FETCH (UID 7 BODY[] {4}
 mail'
 out=$(printf '%s\n' "$request" \
@@ -199,8 +193,8 @@ else
   failures=$(( failures + 1 ))
 fi
 
-# Several commands share one connection, which is what makes a list load one
-# TLS handshake rather than one per message.
+# Performance: Several commands share one connection, which is what makes a list load one TLS
+# handshake rather than one per message.
 multi="imap $(b64 'imaps://imap.example.org:993/INBOX') $(b64 'jane:pw') $(b64 'UID SEARCH UNSEEN') $(b64 'UID FETCH 1,2 (FLAGS)')"
 config=$(config_for "$multi")
 check "a second command is a --next section" "$config" 'next'
@@ -222,9 +216,9 @@ else
   failures=$(( failures + 1 ))
 fi
 
-# curl otherwise reports only the final transfer's status after --next. A
-# failed earlier SEARCH window must stop the run instead of returning a short,
-# apparently successful result assembled from the remaining windows.
+# Invariant: curl otherwise reports only the final transfer's status after --next. A failed earlier
+# SEARCH window must stop the run instead of returning a short, apparently successful result
+# assembled from the remaining windows.
 partial_reply='* SEARCH 1 2 3'
 out=$(printf '%s\n' "$multi" \
   | CURL_STUB_REQUIRE_FAIL_EARLY=1 CURL_STUB_STDOUT="$partial_reply" CURL_STUB_EXIT=21 \
@@ -238,10 +232,7 @@ else
   failures=$(( failures + 1 ))
 fi
 
-# --------------------------------------------------------------- escaping
-#
-# The reason the fields cross as base64 and the config is escaped on the way
-# out. A password is whatever the user's provider let them choose.
+# Invariant: Base64 framing and curl-config escaping must preserve every permitted password byte.
 
 awkward='he said "hi" \ and left'
 config=$(config_for "imap $(b64 'imaps://imap.example.org:993/INBOX') $(b64 "jane:$awkward") $(b64 'NOOP')")
@@ -249,14 +240,11 @@ check "a quote in a password is escaped for curl's config parser" "$config" 'he 
 check "a backslash is escaped too" "$config" '\\ and left'
 check_absent "the raw unescaped quote does not survive" "$config" 'said "hi" \ and'
 
-# A folder with a space in it is the everyday case — Sent Items, All Mail.
 config=$(config_for "imap $(b64 'imaps://imap.example.org:993/INBOX') $(b64 'jane:pw') $(b64 'UID COPY 4 "Sent Items"')")
 check "a quoted folder name survives into the command" "$config" 'UID COPY 4 \"Sent Items\"'
 
-# ------------------------------------------------------------ scheme guard
-#
-# The second gate. Imap.js validated the host; this is what stops a
-# hand-edited accounts.json from aiming an authenticated client somewhere else.
+# Invariant: The transport checks the scheme independently of client validation before sending
+# credentials.
 
 for bad in 'file:///etc/passwd' 'https://evil.example.com/' 'ftp://example.com/'; do
   refuses_without_curl "$bad is refused before curl" \
@@ -273,7 +261,6 @@ for good in 'imaps://a.example.org/INBOX' 'imap://127.0.0.1:1143/INBOX' 'smtps:/
   fi
 done
 
-# ---------------------------------------------------------------- SMTP mode
 
 send="smtp $(b64 'smtps://smtp.example.org:465') $(b64 'jane:pw') $(b64 'jane@example.org') $(b64 'Subject: hi
 
@@ -287,7 +274,6 @@ check_absent "SMTP does not emit --next sections" "$config" 'next'
 check "SMTP keeps its transfer deadline" "$config" 'max-time = 60'
 check "SMTP keeps its connection deadline" "$config" 'connect-timeout = 20'
 
-# --------------------------------------------------------- IMAP draft upload
 
 append="imap-append $(b64 'imaps://imap.example.org:993/Drafts') $(b64 'jane:pw') $(b64 'Subject: saved draft
 
@@ -298,11 +284,8 @@ check "a draft upload uses the RFC 5322 message file" "$config" 'upload-file = "
 check "an IMAP upload carries the draft flag" "$config" 'upload-flags = "draft"'
 check_absent "an IMAP draft is not sent as a custom request" "$config" 'request = '
 
-# ---------------------------------------------------------- IMAP sent upload
 
-# The copy the mailbox keeps is filed by the client, and it arrives seen:
-# its author has read it. A server that calls the folder "Sent Items" is the
-# everyday case, and the space crosses as anything else does.
+# Invariant: The sent copy arrives marked seen; encoded folder names must preserve spaces.
 sent="imap-append $(b64 'imaps://imap.example.org:993/Sent Items') $(b64 'jane:pw') $(b64 'Subject: filed copy
 
 body') $(b64 'seen')"
@@ -310,17 +293,16 @@ config=$(config_for "$sent")
 check "a sent copy is appended to its resolved mailbox" "$config" 'url = "imaps://imap.example.org:993/Sent Items"'
 check "a sent copy arrives seen" "$config" 'upload-flags = "seen"'
 
-# Which flags a copy arrives under is the caller's decision, so the request
-# carries them and the script has nothing to default to.
+# Invariant: Which flags a copy arrives under is the caller's decision, so the request carries them
+# and the script has nothing to default to.
 refuses_without_curl "an append without its flags is refused before curl" \
   "imap-append $(b64 'imaps://imap.example.org:993/Sent') $(b64 'jane:pw') $(b64 'Subject: filed copy
 
 body')"
 
-# ------------------------------------------------------------- the framing
 
-# The exit code is curl's own, so a transport failure is distinguishable from
-# a server that answered with NO.
+# Invariant: The exit code is curl's own, so a transport failure is distinguishable from a server
+# that answered with NO.
 out=$(printf '%s\n' "imap $(b64 'imaps://a.example.org/INBOX') $(b64 'j:p') $(b64 'NOOP')" \
   | CURL_STUB_EXIT=7 sh "$script")
 first=$(printf '%s' "$out" | sed -n '1p')
@@ -340,12 +322,9 @@ else
   failures=$(( failures + 1 ))
 fi
 
-# ------------------------------------------------------------- retrying
 
-# Retrying is safe only before anything has been sent. curl's own --retry-all-
-# errors cannot tell a handshake that never opened a session from a transfer
-# the server already took, so an SMTP send it retried would deliver the message
-# twice. The retry is the script's own, on the pre-transfer exit codes.
+# Invariant: Retry only pre-transfer curl failures. Repeating an SMTP transfer after an uncertain
+# response can deliver a second copy.
 attempts_for() {
   count="$work/attempts"
   rm -f "$count"
@@ -373,13 +352,11 @@ expect_attempts() {
 expect_attempts "a dropped TLS handshake is tried again" "$read_request" 35 3
 expect_attempts "a name that does not resolve is tried again" "$read_request" 6 3
 expect_attempts "a rejected password is not tried again" "$read_request" 67 1
-# The one that matters: 56 is a receive error, which happens after the message
-# has been handed over. Sending it a second time is a second copy delivered.
+# Invariant: Curl receive error 56 can follow accepted mail; it must not trigger a second send.
 expect_attempts "a send that failed mid-transfer is not repeated" "$send_request" 56 1
 expect_attempts "a send that timed out is not repeated" "$send_request" 28 1
 expect_attempts "a send is still retried before it has left" "$send_request" 7 3
 
-# A malformed request must fail rather than run curl with something guessed.
 refuses_without_curl "a malformed request is refused before curl" 'not-base64-at-all'
 
 if [ "$failures" -ne 0 ]; then

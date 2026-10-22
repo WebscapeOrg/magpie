@@ -381,15 +381,44 @@ def payload():
     return value
 
 
-def default_provider():
-    with subprocess.Popen(['omarchy-default-agent'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as probe:
+def system_preference():
+    probe = subprocess.Popen(['omarchy-default-agent'], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+    deadline = time.monotonic() + 5
+    selected = bytearray()
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(probe.stdout, selectors.EVENT_READ)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    raise ValueError('Could not read the system AI preference.')
+                chunk = os.read(probe.stdout.fileno(), 1025 - len(selected))
+                if not chunk:
+                    selector.unregister(probe.stdout)
+                    continue
+                selected.extend(chunk)
+                if len(selected) > 1024:
+                    raise ValueError('Could not read the system AI preference.')
+        while os.waitid(os.P_PID, probe.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+            if time.monotonic() >= deadline:
+                raise ValueError('Could not read the system AI preference.')
+            time.sleep(.01)
+    finally:
+        # Invariant: the leader stays unreaped until its process group is stopped.
         try:
-            selected, _ = probe.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            probe.kill()
-            probe.wait()
-            raise ValueError('Could not read the system AI preference.')
-    if probe.returncode or selected.strip() != b'claude':
+            os.killpg(probe.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        probe.wait()
+        probe.stdout.close()
+    if probe.returncode:
+        raise ValueError('Could not read the system AI preference.')
+    return selected.strip()
+
+
+def default_provider():
+    if system_preference() != b'claude':
         raise ValueError('Background AI currently supports Claude. Choose Claude in the system AI settings, then retry.')
     if not shutil.which('claude'):
         raise ValueError('Claude is not installed. Install and sign in to the system AI, then retry.')

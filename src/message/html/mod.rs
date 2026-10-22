@@ -3,10 +3,9 @@
 macro_rules! re {
     ($pattern:literal) => {{
         static VALUE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        #[allow(clippy::regex_creation_in_loops)] // Performance: OnceLock compiles once outside repeated work.
-        let pattern = VALUE
-            .get_or_init(|| regex::Regex::new($pattern).expect("constant HTML policy pattern"));
-        pattern
+        #[allow(clippy::regex_creation_in_loops)]
+        // Performance: OnceLock compiles once outside repeated work.
+        VALUE.get_or_init(|| regex::Regex::new($pattern).expect("constant HTML policy pattern"))
     }};
 }
 mod policy;

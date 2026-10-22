@@ -1,4 +1,5 @@
 import QtQuick
+import "../controls" as Widgets
 import "../settings"
 import qs.Commons
 import qs.Ui
@@ -39,8 +40,14 @@ Rectangle {
     width: parent.width - MailStyle.space(28)
     spacing: MailStyle.space(8)
 
-    Item {
+    Widgets.Button {
       objectName: "suggestionHeader"
+      focusable: true
+      foreground: root.textColor
+      accent: root.accentColor
+      Accessible.name: heading.text
+      Accessible.description: root.expanded ? "Expanded" : "Collapsed"
+      onClicked: root.expanded = !root.expanded
       width: parent.width
       implicitHeight: Math.max(heading.implicitHeight, Style.font.icon)
 
@@ -73,8 +80,6 @@ Rectangle {
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
       }
-      TapHandler { onTapped: root.expanded = !root.expanded }
-      HoverHandler { cursorShape: Qt.PointingHandCursor }
     }
 
     Repeater {

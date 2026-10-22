@@ -1,4 +1,5 @@
 import QtQuick
+import "../controls" as Widgets
 import "../settings"
 import qs.Commons
 import qs.Ui
@@ -46,7 +47,7 @@ Column {
     Repeater {
       model: Provider.ids()
 
-      Rectangle {
+      Widgets.Button {
         id: card
         required property var modelData
 
@@ -54,12 +55,16 @@ Column {
 
         width: root.width
         implicitHeight: Math.max(cardText.implicitHeight, cardMark.height) + MailStyle.space(24)
-        radius: Style.cornerRadius
-        color: card.connectable && hover.hovered
-          ? Style.hoverFillFor(root.textColor, root.accentColor)
-          : Style.normalFillFor(root.textColor, root.accentColor)
-        border.width: 1
-        border.color: Style.hoverBorderFor(root.textColor, root.accentColor)
+        focusable: true
+        enabled: card.connectable
+        bordered: true
+        foreground: root.textColor
+        accent: root.accentColor
+        background: Style.normalFillFor(root.textColor, root.accentColor)
+        Accessible.name: Provider.badge(card.modelData)
+        Accessible.description: card.connectable ? Provider.summary(card.modelData)
+          : Provider.unavailableReason(card.modelData)
+        onClicked: root.chosen(card.modelData)
         opacity: card.connectable ? 1.0 : 0.55
 
         ProviderLogo {
@@ -105,15 +110,6 @@ Column {
           }
         }
 
-        HoverHandler {
-          id: hover
-          enabled: card.connectable
-        }
-
-        TapHandler {
-          enabled: card.connectable
-          onTapped: root.chosen(card.modelData)
-        }
       }
     }
   }

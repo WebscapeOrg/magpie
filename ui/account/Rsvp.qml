@@ -4,10 +4,7 @@ import "../message/Calendar.js" as Calendar
 import "../providers/Registry.js" as Provider
 import "../calendar/Calendar.js" as Events
 
-// Native attendance is authoritative where the provider supports it. Other
-// providers send an RFC 5546 reply through their mail transport.
-// Beside the account rather than in it, which is at its size ceiling; the
-// state the reader draws (`rsvpSending`, `selectedResponse`) stays there.
+// Invariant: native provider attendance is authoritative; unsupported providers send an RFC 5546 reply.
 QtObject {
   id: rsvpAction
 
@@ -33,9 +30,7 @@ QtObject {
     onTriggered: { rsvpAction.reconciledKey = ""; rsvpAction.reconcile() }
   }
 
-  // The organizer travels with the UID because a UID alone is not proof: any
-  // sender can reuse one, and the backend refuses a calendar copy whose
-  // organizer is not the one this invitation names.
+  // Invariant: UID and organizer travel together so a forged UID cannot authorize attendance on another organizer’s event.
   function invitationParams(invited) {
     var organizer = Calendar.replyRecipient(invited)
     if (!organizer) return null
@@ -95,9 +90,7 @@ QtObject {
   }
 
 
-  // Not routed through `send`: that one is the compose window's, and finishing
-  // emits `replySent`, which closes it. This finishes with a card that has
-  // changed its mind.
+  // Invariant: RSVP completion updates the invitation without triggering compose replySent behavior.
   function run(response, mailOnly) {
     if (!account.ready || account.rsvpSending || !account.canRespondToInvite) return
     var answer = String(response || "")
@@ -107,8 +100,7 @@ QtObject {
       nativeAnswer(method, answer)
       return
     }
-    // The alias the invitation was addressed to, not the account's primary
-    // address: the ATTENDEE line has to name the person who was invited.
+    // Invariant: answer as the alias that received the invitation.
     var answeringAs = account.receivedAsAddress
     var answeringName = account.receivedAsName
     var fields = Calendar.replyFields(account.selectedInvite,
@@ -118,8 +110,7 @@ QtObject {
       return
     }
 
-    // The message the answer belongs to, held so a reply that lands after the
-    // reader has moved on does not mark a different message answered.
+    // Invariant: late completion updates only the invitation that owned the request.
     var messageId = account.selectedId
     var invited = account.selectedInvite
     var summary = account.selectedMessage
@@ -127,11 +118,7 @@ QtObject {
     account.clearNotice()
 
     account.api.sendMessage(Mail.buildSendPayload({
-      // The ATTENDEE line claims this address; the envelope has to agree, or a
-      // strict organiser drops the reply as somebody answering for a third
-      // party. Gmail fills a From in for itself, and the IMAP client puts the
-      // account on the envelope rather than in the headers — so neither of
-      // them would have written this one.
+      // Invariant: the outgoing envelope identity must match the calendar ATTENDEE.
       from: answeringAs,
       fromName: answeringName,
       accountAddress: account.ownAddress,
@@ -139,9 +126,7 @@ QtObject {
       subject: fields.subject,
       body: fields.body,
       calendar: fields.calendar,
-      // Threaded with the invitation it answers, the way a calendar's own
-      // reply is. An answer that starts a conversation of its own is one the
-      // organiser reads as a second, unrelated mail.
+      // Invariant: thread the response with its original invitation.
       inReplyTo: summary ? summary.messageId : "",
       threadId: summary ? summary.threadId : ""
     }), function(payload, error) {
@@ -194,13 +179,7 @@ QtObject {
     })
   }
 
-  // The answer, written back into the copy of the invitation on disk.
-  //
-  // The `text/calendar` part is the organiser's document and this does not
-  // rewrite it — but a message reopened tomorrow reading its own file would
-  // otherwise show its buttons unanswered, after the answer had been sent and
-  // had worked. Everything else in the row is what is already on screen, which
-  // is what was cached a moment ago.
+  // Invariant: cache the response separately because the organizer’s attachment remains unchanged.
   function rememberResponse(messageId, invited, answeringAs, answer) {
     var updated = Calendar.withResponse(invited, answeringAs, answer)
     cacheInvite(messageId, updated)

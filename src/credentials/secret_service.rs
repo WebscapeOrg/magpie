@@ -332,7 +332,8 @@ async fn execute(
                 if collection.is_locked().await.map_err(|_| Fault::Transport)? {
                     collection.unlock().await.map_err(|_| Fault::Transport)?;
                 }
-                // Invariant: Keep older grants intact until the current-scope item exists.
+                // Invariant: Replace only matching attributes, so concurrent first writes cannot
+                // create duplicates and older grant scopes remain intact.
                 collection
                     .create_item(
                         "Omamail",
@@ -341,7 +342,7 @@ async fn execute(
                             .map(|(name, value)| (name.as_str(), value.as_str()))
                             .collect(),
                         secret,
-                        false,
+                        true,
                         "application/octet-stream",
                     )
                     .await

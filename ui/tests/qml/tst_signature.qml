@@ -84,18 +84,18 @@ Item {
     function signatureFor(id) {
       var want = String(id || "")
       if (want === activeAccountId) return activeSignature
-      for (var i = 0; i < accountSignatures.length; i++)
-        if (accountSignatures[i].id === want)
-          return String(accountSignatures[i].signature || "")
+      for (var itemIndex = 0; itemIndex < accountSignatures.length; itemIndex++)
+        if (accountSignatures[itemIndex].id === want)
+          return String(accountSignatures[itemIndex].signature || "")
       return ""
     }
 
     function accountEmailFor(id) {
       var want = String(id || "")
       if (want === activeAccountId) return accountEmail
-      for (var i = 0; i < accountSignatures.length; i++)
-        if (accountSignatures[i].id === want)
-          return String(accountSignatures[i].email || "")
+      for (var itemIndex = 0; itemIndex < accountSignatures.length; itemIndex++)
+        if (accountSignatures[itemIndex].id === want)
+          return String(accountSignatures[itemIndex].email || "")
       return ""
     }
 
@@ -141,20 +141,20 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) {
+        var found = named(values[itemIndex], objectName)
         if (found) return found
       }
       return null
     }
 
     function namedAll(item, objectName, found) {
-      var out = found || []
-      if (!item) return out
-      if (item.objectName === objectName) out.push(item)
+      var matches = found || []
+      if (!item) return matches
+      if (item.objectName === objectName) matches.push(item)
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) namedAll(values[i], objectName, out)
-      return out
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) namedAll(values[itemIndex], objectName, matches)
+      return matches
     }
 
     function summary() {

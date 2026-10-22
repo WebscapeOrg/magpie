@@ -46,19 +46,19 @@ Item {
     // position: the order of a Column's children is not what is under test.
     function subjectItem() {
       var found = texts(row, [])
-      for (var i = 0; i < found.length; i++) {
-        if (found[i].text === row.summary.subject) return found[i]
+      for (var itemIndex = 0; itemIndex < found.length; itemIndex++) {
+        if (found[itemIndex].text === row.summary.subject) return found[itemIndex]
       }
       return null
     }
 
-    function texts(item, out) {
-      if (!item) return out
+    function texts(item, matches) {
+      if (!item) return matches
       if (item.toString().indexOf("QQuickText") === 0
-        && item.toString().indexOf("QQuickTextEdit") !== 0) out.push(item)
+        && item.toString().indexOf("QQuickTextEdit") !== 0) matches.push(item)
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) texts(values[i], out)
-      return out
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) texts(values[itemIndex], matches)
+      return matches
     }
 
     function init() {
@@ -134,8 +134,8 @@ Item {
       row.summary = summaryFor("Hello there", "محمد")
       var found = texts(row, [])
       var sender = null
-      for (var i = 0; i < found.length; i++) {
-        if (found[i].text === "محمد") sender = found[i]
+      for (var itemIndex = 0; itemIndex < found.length; itemIndex++) {
+        if (found[itemIndex].text === "محمد") sender = found[itemIndex]
       }
       verify(sender, "the row draws the sender it was given")
       compare(sender.effectiveHorizontalAlignment, Text.AlignRight)

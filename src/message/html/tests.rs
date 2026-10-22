@@ -7,6 +7,45 @@ fn smoke() {
 }
 
 #[test]
+fn reader_hidden_content_never_reaches_list_pre_or_table_output() {
+    for (source, expected) in [
+        (
+            "<ul><li hidden>SECRET</li><li>Visible</li></ul>",
+            "<ul><li>Visible</li></ul>",
+        ),
+        (
+            "<ul><div style='display:none'><li>SECRET</li></div><li>Visible</li></ul>",
+            "<ul><li>Visible</li></ul>",
+        ),
+        (
+            "<pre>A<span style='visibility:hidden'>SECRET</span>B</pre>",
+            "<pre>AB</pre>",
+        ),
+        (
+            "<table><tr><td hidden>SECRET</td><td>Visible</td></tr><tr><td>A</td><td>B</td></tr></table>",
+            "<table><tr><td></td><td>Visible</td></tr><tr><td>A</td><td>B</td></tr></table>",
+        ),
+        (
+            "<table><tr hidden><td>SECRET</td><td>SECRET</td></tr><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>",
+            "<table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>",
+        ),
+        (
+            "<table><tbody hidden><tr><td>SECRET</td><td>SECRET</td></tr></tbody><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>",
+            "<table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>",
+        ),
+    ] {
+        let result = sanitize(source, &json!({"withReader":true})).unwrap();
+        assert_eq!(result["reader"]["html"], expected, "{source}");
+        assert!(
+            !result["reader"]["html"]
+                .as_str()
+                .unwrap()
+                .contains("SECRET")
+        );
+    }
+}
+
+#[test]
 fn actual_javascript_sanitizer_and_reader_corpus_matches() {
     let output = std::process::Command::new("node")
         .arg(concat!(
@@ -399,6 +438,19 @@ fn rendered_remote_image_bytes_have_an_aggregate_budget() {
 fn image_policy_hidden_images_are_not_offered_for_fetch_or_rendered() {
     let source = "https://cdn.example.com/hidden.png";
     let prepared = sized_png_data(3, 3);
+    let hidden_parent = sanitize(
+        &format!("<p>Visible body</p><div hidden><img src='{source}'></div>"),
+        &json!({"withReader":true,"allowRemoteImages":true,"remoteImageData":{source:prepared}}),
+    )
+    .unwrap();
+    assert_eq!(
+        hidden_parent["remoteImageSources"],
+        json!([]),
+        "a hidden ancestor cannot offer a fetch"
+    );
+    for document in [&hidden_parent, &hidden_parent["reader"]] {
+        assert!(!document["html"].as_str().unwrap().contains("<img"));
+    }
     for attributes in [
         "hidden",
         "hidden='false'",

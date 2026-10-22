@@ -4,7 +4,7 @@ import "../.." as Omamail
 import "BackendFixture.js" as BackendFixture
 import "../../account/Accounts.js" as Accounts
 
-// Which mailbox the setup page is actually working on.
+// Invariant: Which mailbox the setup page is actually working on.
 //
 // `activeId` names the mailbox on screen; `activeIndex` overrides it for a row
 // that has no id yet, because a draft cannot be named. Add account leaves both
@@ -77,8 +77,7 @@ Item {
     }
 
     function dialog() {
-      // The dialog carries the request it was opened for; find it by shape,
-      // since it has no object name of its own.
+
       function walk(item) {
         if (!item) return null
         if (item.hasOwnProperty("request") && item.hasOwnProperty("opened")
@@ -100,10 +99,9 @@ Item {
       return addresses
     }
 
-    // The bug this file exists for.
     function test_remove_on_a_new_mailbox_page_spares_the_mailbox_behind_it() {
       seed([ada], adaId)
-      app.chooseProvider("imap")           // Add a mailbox... -> IMAP
+      app.chooseProvider("imap")
       compare(mailService.accountCount, 2)
       compare(mailService.editingIndex(), 1, "the page is editing the new row")
 
@@ -115,12 +113,12 @@ Item {
       compare(mailService.accountCount, 1, "the draft is discarded instead")
     }
 
-    // The same divergence, reached the other way: `switchToIndex` used to
+    // Invariant: The same divergence, reached the other way: `switchToIndex` used to
     // return early without clearing `activeIndex`, so Edit opened whatever
     // draft happened to be open rather than the mailbox that was clicked.
     function test_edit_opens_the_mailbox_that_was_clicked_not_an_open_draft() {
       seed([ada, bob], adaId)
-      app.chooseProvider("imap")           // draft is row 2
+      app.chooseProvider("imap")
       compare(mailService.editingIndex(), 2)
 
       app.editAccount(0)
@@ -146,7 +144,7 @@ Item {
       compare(emails(), [ada])
     }
 
-    // A persisted mailbox whose address cannot be repaired has no id too, but
+    // Invariant: A persisted mailbox whose address cannot be repaired has no id too, but
     // it is not the form's pending draft. Remove must not silently discard it
     // and leave its editor merely because no confirmation request can name it.
     function test_remove_does_not_discard_an_unrepairable_mailbox_as_a_draft() {
@@ -162,7 +160,7 @@ Item {
       verify(app.showSetup, "the editor stays open so its address can be corrected")
     }
 
-    // An address that is not an address derives no account id, which leaves a
+    // Invariant: An address that is not an address derives no account id, which leaves a
     // row that reads as saved and behaves like a draft: unselectable,
     // uneditable and unremovable. `validateSettings` cannot catch it —
     // `setupSettings` folds the address into `username` and passes no address
@@ -177,7 +175,7 @@ Item {
       var error = named(page.item, "imap-error")
       verify(field !== null && error !== null)
 
-      // The message has to be the address's own. Without the check the server
+      // Invariant: The message has to be the address's own. Without the check the server
       // fields — which a junk address cannot fill in either — reject the form
       // one field later, so "something was refused" would pass either way and
       // test nothing.
@@ -198,7 +196,7 @@ Item {
       compare(mailService.accountSummaries[1].id, "imap:carol@example.com")
     }
 
-    // The form is not the only way an address reaches the list: an account
+    // Invariant: The form is not the only way an address reaches the list: an account
     // reports its own on its first profile read. A provider that answers with
     // something that is not an address — an IMAP username, say — must not be
     // able to rename a working mailbox into one that addresses nothing.
@@ -208,12 +206,11 @@ Item {
       compare(mailService.accountSummaries[0].email, ada, "the address is kept")
       compare(mailService.accountSummaries[0].id, adaId, "and so is the id")
 
-      // A real address still renames.
       mailService.nameAccount(0, "carol@example.com")
       compare(mailService.accountSummaries[0].id, "imap:carol@example.com")
     }
 
-    // `accountAddress` is a binding that now reaches `activeIndex` through a
+    // Invariant: `accountAddress` is a binding that now reaches `activeIndex` through a
     // function call. QML captures property reads made inside the callee, so it
     // still re-evaluates — but silently going stale here would put the wrong
     // mailbox in the editor, so it is pinned down rather than assumed.
@@ -228,7 +225,7 @@ Item {
       compare(mailService.accountAddress, ada)
     }
 
-    // A draft is the form's working state. It used to ride along on whatever
+    // Invariant: A draft is the form's working state. It used to ride along on whatever
     // save happened next, leaving a "New mailbox" on disk that nothing could
     // select and nothing could remove.
     function test_a_draft_is_never_part_of_what_is_written() {
@@ -236,7 +233,6 @@ Item {
       app.chooseProvider("imap")
       compare(mailService.accountCount, 2)
 
-      // Something unrelated to the draft saves the list.
       mailService.accountsWritePayload = ""
       mailService.setAccountSignature(adaId, "signed")
       verify(mailService.accountsWritePayload !== "", "the list was written")

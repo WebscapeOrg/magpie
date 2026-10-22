@@ -8,9 +8,6 @@ import "components"
 import "bar"
 import "bar/Bridge.js" as BarBridge
 
-// The bar's job is one number and one click. Everything the widget knows comes
-// from the shared service, which keeps running whether or not the window is
-// open — that is the whole reason the unread count can be trusted.
 BarWidget {
   id: root
 
@@ -28,7 +25,7 @@ BarWidget {
     var api = BarBridge.current()
     var state = api ? api.snapshot() : null
     var serialized = JSON.stringify(state)
-    // Leave preview delegates in place when their contents have not changed.
+    // Performance: Preserve preview delegate identity when its contents are unchanged.
     if (serialized !== bridgeStateText) {
       bridgeStateText = serialized
       bridgeState = state
@@ -36,8 +33,7 @@ BarWidget {
     bridgeApi = api
   }
 
-  // A replacement bar gets the same preview and actions without a reference
-  // to the service, its authentication managers, or its account models.
+  // Invariant: The bar bridge exposes presentation data and actions without account or authentication objects.
   QtObject {
     id: bridgedStatus
     readonly property bool ready: !!root.bridgeState && root.bridgeState.ready
@@ -59,8 +55,7 @@ BarWidget {
     }
   }
 
-  // JS library registration is not a QML property. A small poll discovers
-  // service startup/replacement and reads only three mail rows and two events.
+  // Invariant: JS library registration is not reactive; polling discovers service replacement.
   Timer {
     interval: 1000
     running: !root.directService
@@ -69,9 +64,7 @@ BarWidget {
     onTriggered: root.syncBridge()
   }
 
-  // `barForeground` belongs to qs.Ui.Panel, not to BarWidget: reading it here
-  // yields undefined, and assigning undefined to a colour leaves the icon
-  // unpainted. The bar itself is the source.
+  // Invariant: barForeground belongs to qs.Ui.Panel; the BarWidget receives its foreground through bar.
   readonly property color foreground: bar ? bar.barForeground : Commons.Color.foreground
   property bool previewOpen: false
   property bool popoutSwitchClosing: false
@@ -83,9 +76,7 @@ BarWidget {
     Qt.callLater(function() { root.popoutSwitchClosing = false })
   }
 
-  // The service is a singleton shared with the window, and the shell hands
-  // plugin settings to the bar widget rather than to the service, so the
-  // widget is what pushes them across.
+  // Docs: The shell injects settings into the bar widget, which forwards them to the shared Service.
   function pushSettings() {
     if (gmail && typeof gmail.applySettings === "function") gmail.applySettings(settings)
   }
@@ -129,14 +120,7 @@ BarWidget {
     else if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie", payload)
   }
 
-  // Whether this draws anything. The widget itself stays: it is the only thing
-  // that hands plugin settings to the service, so a widget removed from the
-  // bar layout instead of hidden here would leave the service running on
-  // defaults — the refresh interval, the notification and every other stored
-  // answer quietly replaced by the one in the manifest.
-  //
-  // Off, it is not merely invisible but takes no width either, so the bar
-  // closes over the gap rather than leaving a hole where the envelope was.
+  // Invariant: Hiding the icon must retain this widget because it supplies persisted settings to Service.
   readonly property bool drawsIcon: !gmail || gmail.showBarIcon
 
   visible: drawsIcon
@@ -150,13 +134,8 @@ BarWidget {
     bar: root.bar
     tooltipText: root.gmail ? root.gmail.barTooltip : "Magpie"
 
-    // Read from inside `iconComponent`. Both BarIconButton and GmailIcon name
-    // their own root object `root`, so nothing inside a Component declared
-    // here refers to `root` — it would be ambiguous about which one it meant.
+    // Invariant: Component children resolve their own root identifiers; capture bar properties outside iconComponent.
     readonly property bool connected: !!root.gmail && root.gmail.ready
-    // A trigger holds a selected style for as long as what it opened is on
-    // screen, which is what answers "which of these opened that window". The
-    // service is what knows: it outlives the window and is told either way.
     readonly property bool windowOpen: root.previewOpen
       || (!!root.gmail && root.gmail.windowOpen)
     readonly property bool hasUnread: !!root.gmail && root.gmail.unreadTotal > 0
@@ -196,9 +175,6 @@ BarWidget {
     }
 
     onPressed: function(buttonCode) {
-      // The primary action stays opening Magpie. The preview is an extra view,
-      // so it lives on the secondary button instead of replacing the only way
-      // to reach the application window. Middle-click still checks for mail.
       if (buttonCode === Qt.LeftButton) {
         root.openWindow()
         return
@@ -211,9 +187,6 @@ BarWidget {
     }
   }
 
-  // The shell draws this same accent line for its own open popouts. Magpie's
-  // application window is routed separately, so the widget mirrors that mark
-  // at the bar's inner edge instead of inventing a different selected shape.
   Rectangle {
     id: openIndicator
     readonly property bool vertical: !!root.bar && root.bar.vertical

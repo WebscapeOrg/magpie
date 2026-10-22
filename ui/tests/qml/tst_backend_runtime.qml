@@ -35,8 +35,6 @@ Item {
   }
   TestCase {
     name: "PrivateRuntime"
-    // `make app-run` bundles the backend this checkout builds, which answers
-    // with the unreleased step; a release bundle answers with the pin.
     function test_bundle_accepts_the_pin_and_one_step_past_it() {
       var runtime = createTemporaryObject(bundledFactory, parent)
       runtime.refresh()

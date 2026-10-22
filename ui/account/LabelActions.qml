@@ -2,33 +2,20 @@ import QtQuick
 import "Model.js" as Model
 import "../providers/Registry.js" as Provider
 
-// Changes to the label list — create beside or beneath a label, rename it,
-// move it under another, delete it — and the counts of the labels watched
-// for new mail. Every change goes to the provider first and reads the list
-// back from the server after: a label is the server's fact, not this
-// window's, and a Gmail label's id is only known once Gmail has made it.
-// Beside the account rather than in it, which is at its size ceiling.
+// Invariant: Reload labels after server mutation because the server assigns their identities.
 QtObject {
   id: labelActions
 
   required property var account
 
-  // The account.labels watched for new mail, by id: set from the account entry, and
-  // counted on every refresh the way the inbox is. A count that grew says so
-  // on the status line; the rail's row carries the number either way.
-  //
-  // A few requests at a time, not one per watched label at once: a dozen
-  // watched folders on a slow IMAP server would otherwise open a dozen
-  // connections on every poll. The handles are kept so the account can
-  // drop the lot when it signs out or goes away.
+  // Performance: Bound watched-label requests to avoid opening one connection per folder at every refresh.
   property bool monitoredLoading: false
   readonly property int monitorConcurrency: 3
   property var monitorHandles: []
   property var monitorQueue: []
   property var monitorGrown: []
   property int monitorRemaining: 0
-  // Which poll a count belongs to: one abandoned by `abortMonitored` may
-  // still answer, and its answer must not be taken off the next poll's tally.
+  // Invariant: Late replies from an abandoned poll cannot reduce the next poll's outstanding count.
   property int monitorSerial: 0
 
   function refreshMonitored() {
@@ -55,8 +42,7 @@ QtObject {
       if (!error && counts) recordMonitorCount(labelId, counts)
       monitorCountDone()
     })
-    // A provider that answered before returning, or that made no request
-    // at all, leaves nothing to keep; the rest are held for `abortMonitored`.
+    // Invariant: A synchronous provider reply may finish before a request handle is returned.
     if (!handle && !answered) { answered = true; monitorCountDone(); return }
     if (handle && !answered) monitorHandles = monitorHandles.concat([handle])
   }
@@ -88,8 +74,6 @@ QtObject {
     monitoredSeen = seen
   }
 
-  // Every count still in flight, dropped, and the queue with it: what a
-  // sign-out or the account's end does with a poll that is half done.
   function abortMonitored() {
     var handles = monitorHandles
     monitorSerial++
@@ -101,20 +85,13 @@ QtObject {
     for (var handleIndex = 0; handleIndex < handles.length; handleIndex++) account.abortRequest(handles[handleIndex])
   }
 
-  // A sign-out drops the counts in flight along with everything else.
   readonly property bool ready: !!account && account.ready
   onReadyChanged: if (!ready) abortMonitored()
   Component.onDestruction: abortMonitored()
 
-  // The last count each watched label was seen at, so a refresh knows growth
-  // from the first read. Not persisted: a restart reads once and says nothing.
+  // Invariant: The initial watched-label read establishes counts without announcing historical mail.
   property var monitoredSeen: Object.create(null)
 
-  // Whether the label list can be changed from here, and the four changes:
-  // create beside or beneath a label, rename it, move it under another,
-  // delete it. Every one goes to the provider first and reloads the list
-  // from the server after — a label is the server's fact, not this window's,
-  // and a Gmail label's id is only known once Gmail has made it.
   readonly property bool canManageLabels: Provider.can(account.providerId, "manageLabels")
 
   function labelById(id) {
@@ -122,9 +99,7 @@ QtObject {
     return index >= 0 ? account.labels[index] : null
   }
 
-  // The path as a person reads it: the decoded name, which on IMAP is what
-  // LIST's modified-UTF-7 spelled and on Gmail is the name itself. The wire
-  // name — the id — is what goes back to the server for a folder it has.
+  // Invariant: Display paths are decoded; existing IMAP folders are addressed with their original wire ids.
   function labelPathOf(label) {
     return label ? String(label.name || label.rawName || "") : ""
   }
@@ -134,10 +109,7 @@ QtObject {
     return null
   }
 
-  // A name the list already has is refused before it reaches the server:
-  // a server that accepted it would leave two rows reading the same, and
-  // the one the window follows or watches after the change is found by
-  // its path, which would then name the wrong row.
+  // Invariant: Duplicate display paths would make the post-mutation identity lookup ambiguous.
   function takenProblem(name) {
     return labelByPath(name) ? "There is already a label named " + name : ""
   }
@@ -210,8 +182,6 @@ QtObject {
       if (!labelActions) return
       if (error) { account.fail("Could not delete " + path + ": " + String(error)); return }
       account.note("Deleted " + path)
-      // The list this window was looking at may have been the label just
-      // deleted; the inbox is the honest place to stand then.
       if (account.rawLabelId === String(label.id)) account.selectMailbox("inbox")
       migrations = migrations.concat([{ before: before, oldPath: path, newPath: "", delimiter: Model.labelDelimiter(label) }])
       reloadLabels()
@@ -219,17 +189,7 @@ QtObject {
     return true
   }
 
-  // The label on screen follows its own rename. Its new wire name is the
-  // server's to spell, so the list is read again first and the label is
-  // found by the name it now has; a rename of a label not on screen only
-  // reloads. The watched ids follow the same way, once the fresh listing
-  // says what the moved folders are called now.
-  //
-  // The moves waiting on a listing are a queue, not a slot: two changes
-  // made before the first listing lands are applied in order, and a listing
-  // that fails leaves them waiting for the next one rather than dropping
-  // them — a watch that did not follow its folder would poll a name the
-  // server no longer has.
+  // Invariant: Queue path migrations until a successful listing supplies new wire ids; failed reads cannot discard watched-folder moves.
   property string followLabelPath: ""
   property var migrations: []
   property bool reloadRetried: false
@@ -251,16 +211,14 @@ QtObject {
     account.api.getLabels(function(result, error) {
       if (!labelActions) return
       reloading = false
-      // A later mutation requested a newer listing. Keep its migrations until
-      // a read started after that mutation returns, even if this read failed.
+      // Invariant: A listing begun before a later mutation cannot settle that mutation's migrations.
       if (reloadQueued) {
         reloadQueued = false
         reloadLabels()
         return
       }
       if (error) {
-        // The change went through; the listing did not. One more try, and
-        // after that the moves wait for the next listing a change brings.
+        // Invariant: Retry a failed post-mutation listing once, then retain migrations for a later refresh.
         followLabelPath = ""
         account.fail("Could not read the labels back: " + String(error))
         if (!reloadRetried) { reloadRetried = true; Qt.callLater(reloadLabels) }

@@ -1,39 +1,13 @@
 .pragma library
 
-// The send-as addresses a mailbox may write from, as the settings page shows
-// them and as the account file stores them.
-//
-// This is one module rather than a copy in `Accounts.js` and another in
-// `ImapProtocol.js` because the two ends have to agree exactly: the setup page
-// parses what the user typed, the account file stores what came back, and an
-// alias the first accepts and the second drops disappears between a save and
-// the next start with nothing said. There is one parser, so there is one
-// answer.
-//
-// It is also neither of those files' subject. An alias is not a string sent to
-// a server, and it is not the shape of the account list — it is a small format
-// the user types, which is why it has a file.
-
-// ------------------------------------------------------------------ parsing
-
-// Deliberately not the address grammar: this is the gate on what may become an
-// envelope sender, so it wants a name, a dot and a plausible TLD rather than
-// everything RFC 5321 permits.
+// Invariant: Settings and persisted aliases use one parser so reopening the form cannot silently drop accepted identities.
 var EMAIL_PATTERN = /^[^\s@]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/
 
 function trimmed(value) {
   return String(value === undefined || value === null ? "" : value).trim()
 }
 
-// Entries are comma- or newline-separated, but a display name may hold a comma
-// of its own — `"Lee, Jason" <j@example.com>` is one alias, not two. So the
-// split is a scan rather than a `split()`: a separator inside quotes or inside
-// angle brackets is part of the value.
-//
-// Splitting on the comma regardless is what used to happen, and because the
-// setup page re-formats the list every time it opens, the halves were written
-// back apart — the name lost everything before its comma, permanently, without
-// the user having touched the field.
+// Invariant: Commas inside quoted display names or angle brackets belong to one alias; splitting them loses names on save.
 function splitEntries(text) {
   var result = []
   var current = ""
@@ -42,7 +16,6 @@ function splitEntries(text) {
   for (var characterIndex = 0; characterIndex < text.length; characterIndex++) {
     var character = text.charAt(characterIndex)
     if (quoted) {
-      // A backslash escapes the next character, including the closing quote.
       if (character === "\\" && characterIndex + 1 < text.length) {
         current += character + text.charAt(characterIndex + 1)
         characterIndex++
@@ -70,8 +43,6 @@ function splitEntries(text) {
   return result
 }
 
-// `"Lee, Jason"` is the quoted form; anything else is taken as written. The
-// escapes are the two a quoted string can carry.
 function unquoted(value) {
   var text = trimmed(value)
   if (text.length < 2 || text.charAt(0) !== "\"" || text.charAt(text.length - 1) !== "\"")
@@ -79,9 +50,7 @@ function unquoted(value) {
   return text.substring(1, text.length - 1).replace(/\\([\\"])/g, "$1")
 }
 
-// The default marker, in the spellings the settings field offers and the one
-// `format` writes back. Only at an end, so a name that says "(default)" in the
-// middle of itself is a name.
+// Invariant: A default marker is recognized only at an edge; the same text inside a display name remains literal.
 function withoutDefaultMarker(text) {
   var value = trimmed(text)
   var match = value.match(/^(.*?)\s*(?:\(default\)|\[default\])$/i)
@@ -113,11 +82,6 @@ function fromObject(item) {
   }
 }
 
-// One list, whether it arrives as the settings field's text or as the array
-// the account file holds. Invalid addresses and repeats are dropped rather
-// than reported: this runs on every load, and a mailbox that refused to open
-// because one of its aliases has a typo in it would be worse than the alias
-// being missing from the menu.
 function parse(value) {
   if (!value) return []
   var raw = []
@@ -136,9 +100,7 @@ function parse(value) {
     if (!parsed.email || !EMAIL_PATTERN.test(parsed.email)) continue
     if (seen[parsed.email]) continue
     seen[parsed.email] = true
-    // The first marked one wins. Two defaults is not a state the composer can
-    // act on, and silently keeping the earlier is what the settings field
-    // shows back to the user.
+    // Invariant: At most one alias is the default; the first marked entry wins.
     var isDefault = parsed.isDefault && !haveDefault
     if (isDefault) haveDefault = true
     result.push({
@@ -151,12 +113,7 @@ function parse(value) {
   return result
 }
 
-// ---------------------------------------------------------------- formatting
-
-// A name carrying either of the two characters the split reads is quoted, so
-// what `format` writes is what `parse` reads back. Everything else is left as
-// the user typed it, because a field full of quotation marks nobody asked for
-// reads as the client having mangled the value.
+// Invariant: Formatting must round-trip quoted separators and escapes through the same parser.
 function quotedName(name) {
   var text = trimmed(name)
   if (text === "") return ""
@@ -178,18 +135,7 @@ function format(aliases) {
   return entries.join(", ")
 }
 
-// ------------------------------------------------------------- send-as list
-
-// The identities a mailbox may write from, in the shape the composer reads —
-// the same one Gmail's send-as settings arrive in, so nothing above the
-// provider boundary has to know which kind of account it is looking at.
-//
-// The mailbox's own address is always first and is the primary one. It is also
-// the default unless an alias claimed that, which is what makes "default" mean
-// the address the composer opens on rather than merely a marked row.
-//
-// Here rather than in `ImapClient.qml` because it is a decision, and a
-// decision in QML is one the node tests cannot reach.
+// Invariant: The mailbox address leads the sender list and is primary; an explicit alias default changes only the initial selection.
 function sendAsList(address, aliases) {
   var primary = trimmed(address)
   var list = []
@@ -225,10 +171,7 @@ function sendAsList(address, aliases) {
   return list
 }
 
-// The same list with the mailbox's own address under the account's sender
-// name, which is what the backend writes into the From header for it. Only
-// the primary row: an alias was given its own name, or none, where it was
-// typed. A copy, so a list a provider handed over is not edited in place.
+// Invariant: Applying the mailbox sender name preserves alias-specific names and does not mutate provider records.
 function withSenderName(rows, name) {
   var list = Array.isArray(rows) ? rows : []
   var wanted = trimmed(name)

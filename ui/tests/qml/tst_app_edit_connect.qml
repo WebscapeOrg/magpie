@@ -4,15 +4,6 @@ import "transports.js" as Transports
 import "../.." as Omamail
 import "BackendFixture.js" as BackendFixture
 
-// Connect on an edited mailbox signs *that* mailbox in.
-//
-// Two saved rows: an IMAP one that is signed in and on screen, and a JMAP one
-// with a typed server that has never been signed in. Settings, Edit on the
-// JMAP row, the app password, Connect. The secret has to reach the JMAP
-// account and the page has to stay on it. What the user saw instead was the
-// window snapping to the IMAP mailbox's own setup page with the JMAP row
-// untouched — so this runs the real window, service and hosts over the
-// stubbed transport, the way `tst_jmap_sign_in.qml` does.
 Item {
   width: 900
   height: 600
@@ -94,8 +85,6 @@ Item {
       tryVerify(function() { return !!imap.auth && !!imap.api && !!jmap.auth && !!jmap.api },
         1000, "and each host its provider pair")
 
-      // The IMAP mailbox is signed in: its password comes back from the typed
-      // credential RPC installed above.
       tryVerify(function() { return imap.ready }, 1000, "the IMAP mailbox is ready")
       compare(jmap.ready, false, "the JMAP one is not: it has no account id yet")
       tryCompare(app, "anyReady", true)

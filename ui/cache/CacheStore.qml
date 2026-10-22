@@ -1,7 +1,5 @@
 import QtQuick
 
-// Rust owns cached pages, matching, expiry, eviction and persistence. This
-// object holds only the small profile/label snapshot displayed by the UI.
 Item {
   id: root
   visible: false
@@ -55,7 +53,7 @@ Item {
       ttlMs: ttlMs }, callback)
   }
 
-  // Dates are an interface type: serialize them once at the process boundary.
+  // Invariant: Dates cross the process boundary only after serialization.
   function serializablePage(page) {
     var summaries = page && Array.isArray(page.summaries) ? page.summaries : []
     var rows = []

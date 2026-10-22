@@ -2,8 +2,7 @@
 .import "../../account/Unified.js" as Unified
 .import "BackendFixture.js" as BackendFixture
 
-// The old pure JS rules are the oracle at the RPC boundary. Native parity
-// tests exercise the Rust implementation; this fixture tests Service wiring.
+// Invariant: The independent JS oracle models Service wiring; native parity tests separately verify Rust behavior.
 function unified(parameters) {
   var capabilities = {}
   var names = ["archive", "spam", "star", "labels", "web", "move", "conversations"]

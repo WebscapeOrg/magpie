@@ -1,8 +1,6 @@
 import QtQuick
 
-// The popout a bar widget opens. The real one is a PanelWindow — a Wayland
-// layer surface — which cannot be created offscreen, so this is an Item that
-// accepts the same properties and holds the same children.
+// Docs: The offscreen shim accepts the shell panel contract without creating a Wayland layer surface.
 Item {
   property Item anchorItem: null
   property var owner: null

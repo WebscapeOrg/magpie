@@ -21,7 +21,7 @@ function responseValue(value) {
   return value
 }
 
-// Only the backend's declared event channel may bypass request correlation.
+// Invariant: Only declared backend events bypass request correlation.
 function notification(line) {
   var value
   try { value = JSON.parse(line) } catch (error) { return null }

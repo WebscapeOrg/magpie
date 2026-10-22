@@ -5,9 +5,6 @@ import qs.Commons
 import qs.Commons as Commons
 import "../../components" as Mail
 
-// The next page comes as the list is scrolled to its foot: once per foot,
-// never while a page is on its way, and not at all when there is no more.
-// The button stays for the page that did not come.
 Item {
   width: 400
   height: MailStyle.space(300)
@@ -51,7 +48,7 @@ Item {
     }
 
     function init() {
-      // Settle every deferred ask from the last case before counting.
+      // Invariant: Settle deferred load requests before starting the next test's counters.
       fakeService.hasMore = false
       fakeService.listLoading = false
       var rows = []
@@ -69,14 +66,10 @@ Item {
       compare(fakeService.loads, 0)
       list.positionViewAtEnd()
       tryCompare(fakeService, "loads", 1, 1000, "reaching the foot asks for the page")
-      // Staying at the foot, or wobbling on it, does not ask again while
-      // the page is on its way.
       list.contentY = list.contentY - 1
       list.positionViewAtEnd()
       wait(20)
       compare(fakeService.loads, 1)
-      // The page lands: the list grows, the foot moves away, and reaching
-      // it again asks for the next.
       fakeService.listLoading = false
       var more = fakeService.messages.slice()
       for (var rowIndex = 13; rowIndex <= 24; rowIndex++) more.push(row(rowIndex + ":INBOX"))
@@ -87,11 +80,7 @@ Item {
       tryCompare(fakeService, "loads", 2, 1000)
     }
 
-    // A page that lands and still leaves the foot in view is followed by
-    // the next once the list settles, until there is no more.
     function test_a_short_page_is_followed_until_the_foot_is_out_of_view() {
-      // A first page shorter than the view: the foot is in view at rest,
-      // and the next page is asked for a moment after the list settles.
       fakeService.hasMore = false
       fakeService.messages = []
       fakeService.listLoading = true
@@ -102,13 +91,10 @@ Item {
       fakeService.listLoading = false
       tryCompare(fakeService, "loads", 1, 1000, "the page that settled short is followed")
       compare(fakeService.listLoading, true, "and that ask is on its way")
-      // The next page lands, still short, with more: followed again.
       fakeService.messages = [row("1:INBOX"), row("2:INBOX"), row("3:INBOX")]
       wait(30)
       fakeService.listLoading = false
       tryCompare(fakeService, "loads", 2, 1000, "and the next, until the foot leaves the view")
-      // The page after lands with no more: the foot is still in view, and
-      // nothing is asked for.
       fakeService.hasMore = false
       fakeService.listLoading = false
       wait(30)
@@ -145,8 +131,7 @@ Item {
       list.positionViewAtEnd()
       tryCompare(fakeService, "loads", 1, 1000)
 
-      // A failure ends the load without adding messages. Remaining at the
-      // foot must not turn that failure into an unbounded retry loop.
+      // Invariant: A failed page at the visible foot must not trigger an unbounded automatic retry loop.
       fakeService.listLoading = false
       wait(60)
       compare(fakeService.loads, 1)

@@ -47,8 +47,6 @@ Item {
     }
     function test_conversation_change_clears_navigation_and_rejects_old_reply() {
       service.conversationProjection = { showsRail: true, stops: [{id:"old"}], navigation: { old: {next:"other"} } }
-      // Nothing has been projected yet, so what is in hand is not this
-      // source's and goes.
       service.projectedRail = "never"
       service.scheduleConversationProjection()
       compare(service.conversationProjection.showsRail, false)
@@ -64,10 +62,6 @@ Item {
       wait(1)
       compare(service.conversationProjection.stops[0].id, "new")
     }
-    // The rail stays up while the same thread is projected again: a member
-    // merge, a mark-read or a list refresh asks for a fresh projection, and
-    // the one in hand is drawn until it lands. Only the ways along it go: the
-    // navigation, and the ends `n` and `p` fall back to without it.
     function test_same_thread_keeps_the_rail_while_a_projection_is_in_flight() {
       service.projectedRail = "never"
       service.scheduleConversationProjection()
@@ -88,9 +82,6 @@ Item {
       BackendFixture.respond(service, pending("account.conversation")[1], landed)
       tryCompare(service, "conversationProjection", landed)
     }
-    // A source that reads the same as the last one asked for — a new object
-    // with nothing different in it, which is what every unified snapshot and
-    // composed thread produces — asks for nothing.
     function test_an_unchanged_source_does_not_ask_again() {
       service.projectedRail = "never"
       service.scheduleConversationProjection()

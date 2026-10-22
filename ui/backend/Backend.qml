@@ -10,9 +10,7 @@ Item {
   required property string executable
   required property string expectedVersion
   property int expectedApiVersion: 0
-  // The step the checkout is ahead of the pin by, if any: `needsUpdate` says
-  // the connected binary lacks it, and a call to one of its methods is
-  // refused here rather than sent to a binary that never heard of it.
+  // Invariant: Unsupported unreleased methods fail locally before the pinned backend can interpret them.
   property int latestApiVersion: 0
   property var unreleasedMethods: []
   property string expectedContractHash: ""
@@ -71,7 +69,7 @@ Item {
   function call(method, parameters, callback) {
     if (operationRefusal(method, parameters) !== null)
       return request(method, parameters, callback, false)
-    // Keep each physical frame small even for Unicode-heavy MIME/JSON data.
+    // Invariant: Physical frames remain bounded even when Unicode makes serialized MIME expand.
     if (JSON.stringify(parameters).length > 200000) {
       return Upload.request(method, parameters, function(nextMethod, nextParams, done) {
         return root.request(nextMethod, nextParams, done, false)
@@ -104,8 +102,7 @@ Item {
       return
     }
     var id = "qml-" + (++sequence)
-    // Snapshot the payload now, just as an immediately written request did.
-    // The caller may reuse or mutate its model while this frame is waiting.
+    // Invariant: Capture request parameters before queueing; callers may mutate their model while the request waits.
     var entry = { id: id, frame: Wire.request(id, method, parameters),
       callback: done, operation: operation, cancelled: false }
     queued.push(entry)
@@ -123,9 +120,7 @@ Item {
     return handle
   }
 
-  // Only sent frames occupy a slot or start their request deadline. New work
-  // joins the tail even from a response callback, so a busy account cannot
-  // repeatedly jump ahead of the other accounts already waiting.
+  // Invariant: Only dispatched frames consume slots or deadlines; callback-submitted work joins the FIFO tail.
   function drainRequests() {
     if (draining || !connected) return
     draining = true
@@ -134,11 +129,7 @@ Item {
         var entry = queued.shift()
         var next = Object.assign({}, pending)
         var timeout = entry.operation === "agent.context" || entry.operation === "inbox.avatar" || entry.operation === "inbox.snooze" || entry.operation === "inbox.tick" || entry.operation === "inbox.wake" ? 65000 : 30000
-        // An IMAP frame is a whole conversation — connect, login, SELECT, then
-        // one command per 4 096-UID window — on a server that charges about
-        // half a second per command, so it outlives the backend's own call
-        // budget (CALL_BUDGET in src/providers/imap/mod.rs) instead of killing
-        // the process while the server is still answering.
+        // Invariant: IMAP deadlines exceed the backend call budget because one frame may perform many sequential server commands.
         if (entry.operation.indexOf("imap.") === 0) timeout = 180000
         entry.deadline = Date.now() + timeout
         next[entry.id] = entry
@@ -164,8 +155,7 @@ Item {
     shutdownDeadline.restart()
     uploadQueue.fail({ code: -32010, message: "Backend is shutting down" })
     if (!connected) {
-      // A configured process may be between construction and onStarted. Let
-      // that signal enter the internal quit path; the deadline still bounds it.
+      // Invariant: A process starting during shutdown must still enter the bounded quit path.
       if (child.running) return
       finishShutdown(null)
       return
@@ -176,9 +166,7 @@ Item {
   function maybeRequestQuit() {
     var count = Object.keys(pending).length + queued.length
     if (!Compatibility.shouldRequestQuit(stopping, count, quitRequested)) return
-    // A failure may have disconnected the process while the response callback
-    // was running. onExited (or the confirmation deadline) owns that result;
-    // this drain tail must never turn it into a clean shutdown.
+    // Invariant: A disconnect during a response callback cannot be reclassified as a clean shutdown by the drain tail.
     if (!connected) return
     quitRequested = true
     request("system.quit", {}, function(result, error) {
@@ -230,8 +218,7 @@ Item {
       failEntry(waiting[requestIndex], error)
   }
 
-  // A receiver may have disappeared while its request was waiting. One
-  // callback must not strand the remaining queue or interrupt process stop.
+  // Invariant: A failed or destroyed receiver cannot strand the remaining callbacks or prevent process shutdown.
   function failEntry(entry, error) {
     if (entry.cancelled) return
     try { entry.callback(null, error) }

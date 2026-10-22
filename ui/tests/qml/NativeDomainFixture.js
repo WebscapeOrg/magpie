@@ -7,8 +7,7 @@
 .import "../../../benchmarks/mail/baseline/ui/message/Direction.js" as Direction
 .import "../../../benchmarks/mail/baseline/ui/message/Html.js" as Html
 
-// Pure JavaScript oracles verify the UI RPC contract. Rust golden tests verify
-// the native implementation independently; this helper never sends mail.
+// Invariant: UI contract fixtures use independent pure JS oracles and never send mail.
 function summary(message, now) {
   var value = Mail.summarize(message, now)
   value.subjectDirection = Direction.resolveSubject(value.subject, Direction.AUTO)
@@ -53,8 +52,7 @@ function conversation(parameters) {
     first: members.length ? members[members.length - 1] : "", last: members.length ? members[0] : "" }
 }
 
-// Match the native reader boundary: sender HTML and ordinary MIME bytes stay
-// behind the backend; only prepared display data and calendar locators cross.
+// Invariant: Fixtures expose prepared display data and calendar locators; raw sender HTML and MIME remain behind the native boundary.
 function readerProjection(message, parameters) {
   var prepared = {summary: summary(message, new Date(parameters.now || Date.now())),
     body: body(message.payload), attachments: Mail.attachments(message.payload)}
@@ -91,7 +89,6 @@ function answer(method, parameters) {
   if (method === "reader.open" && parameters.cacheOnly) return null
   if (method === "account.conversation") return conversation(parameters)
   if (method === "account.identities") return { identities: Senders.identities(parameters.mailboxes) }
-  // Default to a cache miss; cache-hit tests supply an explicit resource.
   if (method === "cache.resourceRead" || method === "message.prepareCached") return null
   if (method === "cache.resourcePut") return { stored: true }
   var now = new Date(parameters.now === undefined ? Date.now() : parameters.now)

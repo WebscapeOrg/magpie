@@ -4,13 +4,6 @@ import "../.." as Omamail
 import "BackendFixture.js" as BackendFixture
 import "../../account/Accounts.js" as Accounts
 
-// A label change goes to the account whose menu asked for it. Ada and Bob
-// both have a folder named Work — an IMAP id is a folder name, unique in one
-// account and no further — so a rename or a delete confirmed after the
-// window switched to Bob must still reach Ada's server and never Bob's, and
-// a switch closes the popups that were about Ada. The watched ids follow a
-// renamed folder to its new name, on to disk, and a deleted folder's watch
-// goes with it. The counts a poll asks for are bounded.
 Item {
   width: 900
   height: 600
@@ -133,7 +126,6 @@ Item {
         account.auth.passwordChecked = true
         account.auth.password = "test-password"
         tryCompare(account, "ready", true)
-        // The stand-in says whose it is, so the record can tell the two apart.
         account.api.email = entries[hostIndex].email
         account.labels = [folder("Work"), folder("Work/2026"), folder("Receipts")]
       }
@@ -156,10 +148,6 @@ Item {
 
     function init() { record.reset(); app.resetNavigation() }
 
-    // The menu opens for Ada. The window switches to Bob — straight through
-    // the service, as a key would — and the popups close. The answers the
-    // prompt and the confirmation would have given still name Ada, and
-    // reach Ada's server alone.
     function test_a_change_goes_to_the_account_whose_menu_asked() {
       seed([entry(ada), entry(bob)], adaId)
       var menu = popup("label-menu")
@@ -179,8 +167,6 @@ Item {
       for (var renameIndex = 0; renameIndex < record.renames.length; renameIndex++) verify(record.renames[renameIndex].indexOf(bob) < 0)
     }
 
-    // The account the menu was about is gone: nothing is sent anywhere, and
-    // the open account says why.
     function test_a_change_for_a_removed_account_goes_nowhere() {
       seed([entry(ada), entry(bob)], bobId)
       compare(mailService.renameLabel("Work", "Jobs", "imap:gone@example.com"), false)
@@ -191,8 +177,6 @@ Item {
       verify(mailService.accountAt(1).lastError.indexOf("no longer set up") >= 0, mailService.accountAt(1).lastError)
     }
 
-    // A watch on Work/2026 follows the rename of Work to Jobs, into the
-    // account's entry and the file; a watch on a deleted folder is dropped.
     function test_watched_ids_follow_a_rename_and_leave_with_a_delete() {
       seed([entry(ada, ["Work/2026", "Receipts"])], adaId)
       deepEqualIds(mailService.monitoredLabelIds, ["Work/2026", "Receipts"])
@@ -212,7 +196,6 @@ Item {
       deepEqualIds(mailService.monitoredLabelIds, ["Jobs/2026"])
     }
 
-    // A name the list already has is refused before it reaches the server.
     function test_a_name_already_taken_is_refused() {
       seed([entry(ada)], adaId)
       compare(mailService.renameLabel("Receipts", "Work", adaId), false)
@@ -225,9 +208,6 @@ Item {
         || mailService.accountAt(0).lastError === "", mailService.accountAt(0).lastError)
     }
 
-    // The listing after a rename fails once: the watch waits, and follows
-    // with the listing that does land. Two changes before a listing are
-    // both applied.
     function test_a_failed_listing_keeps_the_watch_waiting() {
       seed([entry(ada, ["Work/2026", "Receipts"])], adaId)
       record.listing[ada] = [folder("Jobs"), folder("Jobs/2026"), folder("Receipts")]
@@ -246,7 +226,6 @@ Item {
       deepEqualIds(mailService.monitoredLabelIds, ["Tasks/2026"])
     }
 
-    // A signed-out owner changes nothing, and says so.
     function test_a_signed_out_owner_changes_nothing() {
       seed([entry(ada), entry(bob)], adaId)
       var bobs = mailService.accountAt(1)
@@ -260,7 +239,6 @@ Item {
       verify(bobs.lastError.indexOf("signed out") >= 0, bobs.lastError)
     }
 
-    // Five watched folders are counted three at a time, and all five are.
     function test_the_counts_a_poll_asks_for_are_bounded() {
       seed([entry(ada, ["a", "b", "c", "d", "e"])], adaId)
       var account = mailService.accountAt(0)

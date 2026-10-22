@@ -1,7 +1,6 @@
 import QtQuick
 import "Unified.js" as Unified
 
-// Account-local transactions report one result for the user's whole selection.
 QtObject {
   id: root
   required property var service
@@ -33,7 +32,7 @@ QtObject {
         answered = true
         var reportedFailures = result && Array.isArray(result.failedIds) ? result.failedIds : group.ids
         var localFailures = []
-        // A reply cannot name another account or a row outside this request.
+        // Invariant: A reply cannot name another account or a row outside the submitted request.
         for (var failureIndex = 0; failureIndex < reportedFailures.length; failureIndex++) {
           var id = reportedFailures[failureIndex]
           if (group.ids.indexOf(id) >= 0 && localFailures.indexOf(id) < 0) {

@@ -1,7 +1,5 @@
 .pragma library
 
-// Record the actual backend RPC boundary. The production client is unchanged;
-// tests control only the backend response and can inspect exact request params.
 function install(client) {
   if (!client.backend || !client.backend.testCalls) {
     var backend = {
@@ -20,8 +18,7 @@ function install(client) {
 
 function transports(client) {
   if (!client) return []
-  // These tests count mail requests; cancellation and stream supervision are
-  // separate RPCs, covered by the native cancellation/lifetime tests.
+  // Invariant: Mail request counts exclude cancellation and stream supervision, which have separate lifetime tests.
   return install(client).testCalls.filter(function(request) {
     return (request.method.indexOf("jmap.") === 0
       && request.method !== "jmap.cancel" && request.method !== "jmap.invalidate"

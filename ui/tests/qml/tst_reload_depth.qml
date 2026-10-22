@@ -4,13 +4,6 @@ import "transports.js" as Transports
 import "NativeIntentFixture.js" as NativeIntentFixture
 import "../../account" as Account
 
-// A reload asks for the rows the view had been paged to, not for page one.
-//
-// `Model.reloadLimit` decides the number and has its own node test; this
-// proves the number reaches the request. The account is a real `MailAccount`
-// on the real `JmapClient`, and the client's backend is the recording stub in
-// `transports.js`, so the `jmap.list` request the reload sends can be read
-// back with the `maxResults` it asked for.
 Item {
   width: 400
   height: 300
@@ -81,9 +74,7 @@ Item {
       return result
     }
 
-    // The list requests the account sent since `before`, with the count each
-    // asked for. The unread count asks `jmap.list` too, for three rows, and
-    // is not a reload.
+    // Invariant: Three-row unread-count requests are not reloads and must be excluded from this oracle.
     function listAsks(before) {
       var result = []
       var sent = Transports.newSince(account.api, before)
@@ -104,7 +95,6 @@ Item {
         "a configured mailbox with a secret in memory is ready")
       settleNative()
 
-      // Two pages of fifty on screen, the way scrolling to the foot leaves them.
       account.messages = rows(100)
       account.loadedDepth = 100
       account.listLoaded = true
@@ -115,7 +105,6 @@ Item {
       settleNative()
       compare(listAsks(before), [100], "a reload asks for the hundred rows the view reached")
 
-      // Rows trashed since do not round the depth down to a page.
       account.listLoading = false
       account.loadedDepth = 63
       before = Transports.transports(account.api)
@@ -123,7 +112,6 @@ Item {
       settleNative()
       compare(listAsks(before), [63])
 
-      // Another mailbox is a new view and starts with one page.
       account.listLoading = false
       before = Transports.transports(account.api)
       account.selectMailbox("archive")

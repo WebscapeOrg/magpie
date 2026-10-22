@@ -5,8 +5,7 @@ var MAX_MESSAGE = 16 * 1024 * 1024
 var MAX_REQUEST = 64 * 1024 * 1024
 var MAX_CHUNK = 64 * 1024
 
-// RFC 822 transports supply a byte-string, not Unicode text. Encoding it as
-// UTF-8 would change attachment bytes and legacy charset bodies.
+// Invariant: RFC822 input is a byte string; UTF-8 encoding would alter binary attachments and legacy charsets.
 function chunk(raw, offset, size) {
   var bytes = []
   var end = Math.min(raw.length, offset + size)
@@ -40,9 +39,7 @@ function putBody(accountId, id, body, call, connected, callback, queue) {
   }, callback, MAX_MESSAGE, queue)
 }
 
-// The limits are those of the pinned backend. Reserve declared bytes as well
-// as slots; eight valid 64 MiB requests still cannot fit its 128 MiB store.
-// This state belongs to one Backend instance, never to the shared JS library.
+// Invariant: Reserve both upload slots and declared bytes per Backend instance; individually valid uploads can exceed aggregate storage.
 function makeQueue(cleanupFailed) {
   var queue = { waiting: [], active: [], bytes: 0, pumping: false }
   queue.pump = function() {
@@ -100,8 +97,7 @@ function transfer(raw, call, connected, complete, callback, maximum, queue) {
       if (!cancelled && typeof callback === "function") callback(result, error)
     }
     if (error && upload && connected()) {
-      // Keep the reservation until cleanup answers, even when the transport
-      // queue is full. A refused discard must not open another upload slot.
+      // Invariant: Keep upload reservations until cleanup answers, even while the RPC queue is saturated.
       call("upload.discard", { upload: upload }, function(reply, failure) {
         if (failure && connected() && failure.message !== "upload_not_found" && queue
             && typeof queue.cleanupFailed === "function") queue.cleanupFailed()
@@ -168,7 +164,6 @@ function transfer(raw, call, connected, complete, callback, maximum, queue) {
     cancelled = true
     if (!started || (current && current.withdraw && current.withdraw()))
       finish(null, { code: -32010, message: "Request cancelled" })
-    // An in-flight begin may still return its ID. Its callback owns cleanup;
-    // do not detach it or release a reservation the backend still holds.
+    // Invariant: An in-flight begin still owns its eventual upload id and reservation; its callback must remain available for cleanup.
   } }
 }

@@ -2,20 +2,10 @@
 
 .import "Aliases.js" as Aliases
 
-// The list of Gmail accounts and which one the window is showing. One account
-// was the original design; several is a list plus a selection, and every rule
-// about what that selection may point at lives here so the QML only has to
-// paint rows and call one of these functions.
-//
-// Everything is pure and every mutator returns a new list: the QML side owns
-// the file and the keyring, and a list handed to a view must not change under
-// it after it has been rendered.
+// Invariant: Account changes return fresh records so QML bindings observe them.
 
 var VERSION = 1
 
-// Not RFC 5322 — that is unimplementable and the wrong question anyway. This
-// only has to separate "an address Google could have given us" from a blank
-// field or a typed-in fragment, so a domain with a dot in it is the test.
 var EMAIL_PATTERN = /^[^\s@]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/
 
 function emptyList() {
@@ -39,10 +29,7 @@ function parseJson(text, fallback) {
   }
 }
 
-// Whether text is an accounts file rather than a failed or half-finished read.
-// `load` deliberately turns either into an empty list for first run; a service
-// that already has accounts needs the distinction so a transient FileView
-// failure cannot replace them with the first-run placeholder.
+// Invariant: A failed read must remain distinguishable from an empty account file before replacing live accounts.
 function isSerializedList(text) {
   var raw = parseJson(text, null)
   return isObject(raw) && Number(raw.version) === VERSION
@@ -66,19 +53,7 @@ function calendarProvider(raw) {
     ? "icloud" : ""
 }
 
-// Addresses are case-insensitive in practice and a server echoes the address
-// back in whatever case it was typed, so it is normalised once here and
-// everything downstream compares ids rather than emails.
-//
-// One address can also legitimately be two mailboxes: a Gmail account reached
-// through Google's API, and the same address reached over IMAP with an app
-// password. Keyed on the address alone they would be one entry, each sign-in
-// overwriting the other's.
-//
-// A Gmail account keeps the bare address as its id, so nothing already on disk
-// — its cache directory, its keyring entry, the activeId in accounts.json —
-// has to be migrated. Only the providers that did not exist before carry a
-// prefix.
+// Invariant: Gmail keeps its historical bare-address id; other providers need prefixes so one address can name separate mailboxes.
 function accountId(email, provider) {
   if (!isValidEmail(email)) return ""
   var address = trimmed(email).toLowerCase()
@@ -86,10 +61,7 @@ function accountId(email, provider) {
   return kind === DEFAULT_PROVIDER ? address : kind + ":" + address
 }
 
-// Which service this mailbox is. Anything unrecognised — and, importantly,
-// anything written before providers existed — is Gmail: that is what every
-// account in an upgraded install actually is, and defaulting to it is what
-// stops an upgrade from presenting a working mailbox as unconfigured.
+// Invariant: Accounts written before provider selection existed are Gmail accounts.
 var PROVIDERS = ["gmail", "outlook", "hey", "imap", "jmap"]
 var DEFAULT_PROVIDER = "gmail"
 
@@ -101,16 +73,7 @@ function normalizeProvider(value) {
   return DEFAULT_PROVIDER
 }
 
-// The server settings an IMAP account needs. Kept on the account rather than
-// in the credentials file because none of it is secret — the password is the
-// secret, and that lives in the keyring. A host here is not trusted: `Imap.js`
-// validates it again before it can reach a URL.
-// A port out of range falls back to the default rather than being clamped into
-// range. Clamping turns 999999 into 65535 — a port that is valid, reachable and
-// not the one anybody meant, which fails as a connection nobody can explain.
-// The same rule as `Imap.normalizedPort`, deliberately: two normalisers that
-// disagree about the same field is a bug waiting for the one caller that uses
-// the other one.
+// Invariant: Persist only non-secret server settings. Invalid ports use defaults; clamping would silently select an unintended endpoint.
 function portOr(value, fallback) {
   var port = Math.floor(Number(value))
   if (!isFinite(port) || port < 1 || port > 65535) return fallback
@@ -127,28 +90,12 @@ function makeImapSettings(raw) {
     username: trimmed(values.username),
     aliases: Aliases.parse(values.aliases),
     insecure: values.insecure === true,
-    // An Outlook mailbox's tenant and how it sends; neither is a secret and
-    // both are empty for every other kind of mailbox.
     tenant: trimmed(values.tenant),
     send: trimmed(values.send)
   }
 }
 
-// The server settings a JMAP account needs, none of them secret either — the
-// app password or API token is the secret, and it lives in the keyring under
-// `Credentials.jmapKeyringAttributes`.
-//
-// Four fields, and every one of them is something sign-in *learned* rather
-// than something a user typed: the session URL is whichever address finally
-// answered with a session object, after discovery and its one redirect hop;
-// the scheme is whichever of Basic and Bearer the server accepted; the account
-// id is `primaryAccounts` for the mail capability, which every later request
-// names. Only the username is typed, and only when it is not the address.
-//
-// Nothing else from the session is kept here. Its URLs, its limits and its
-// state are cached beside the query cache and refetched when the server says
-// its state changed, because they are the server's answer rather than the
-// account's settings.
+// Invariant: Persist learned JMAP identity fields, not credentials or mutable session URLs and capabilities.
 function makeJmapSettings(raw) {
   var values = raw || {}
   return {
@@ -159,14 +106,7 @@ function makeJmapSettings(raw) {
   }
 }
 
-// The settings after a sign-in, which is the one event that changes three of
-// the four. Sign-in *learns* the URL that answered, the scheme the server
-// accepted and the account id its session named, and none of those is
-// anything the page could have written down before it ran: a typed host
-// becomes the URL discovery ended on, and an account id was never typed at
-// all. The username is the one typed field and is kept as it was. Whatever
-// the check did not report is kept too, so a result that is short a field
-// cannot blank a value that was already right.
+// Invariant: A partial sign-in result must not erase a previously learned field or the typed username.
 function jmapSettingsAfterSignIn(settings, result) {
   var current = makeJmapSettings(settings)
   var learned = result || {}
@@ -178,27 +118,13 @@ function jmapSettingsAfterSignIn(settings, result) {
   })
 }
 
-// Basic or Bearer, and nothing else reaches an account: `none` is discovery's
-// unauthenticated well-known GET, which is not a way of signing in to
-// anything. Anything unrecognised — an empty field on an account that has not
-// signed in yet, a hand edit — is Basic, which is the scheme sign-in tries
-// first anyway.
-//
-// The names are `JmapProtocol.AUTH_BASIC` and `AUTH_BEARER`, written out here
-// rather than imported the way the port fallback above repeats
-// `Imap.normalizedPort`'s rule: the account list does not reach into a provider
-// for a constant. The transport script refuses any other scheme before curl
-// runs, so this is the first of two gates rather than the only one.
+// Invariant: Discovery mode none is not an account authentication scheme.
 function jmapScheme(value) {
   var name = trimmed(value).toLowerCase()
   return name === "bearer" ? "bearer" : "basic"
 }
 
-// The address arrives with the first successful sign-in for Gmail, and is
-// typed by hand for IMAP, so an account exists for a while with no id at all.
-// Such an entry is kept — it holds the OAuth client or the server settings the
-// sign-in needs — but it is not addressable, and the guard in indexOfId is what
-// keeps it out of every lookup.
+// Invariant: Pending setup retains its settings without acquiring an addressable account id.
 function makeAccount(account) {
   var raw = account || {}
   var email = trimmed(raw.email)
@@ -212,46 +138,17 @@ function makeAccount(account) {
     imap: makeImapSettings(raw.imap),
     jmap: makeJmapSettings(raw.jmap),
     label: trimmed(raw.label),
-    // The name recipients see beside this mailbox's own address. Only the
-    // mailboxes `namesSender` admits read it; the others take theirs from
-    // the server.
     senderName: senderNameText(raw.senderName),
     signature: trimmed(raw.signature),
-    // The signature as markup, imported from a file and rebuilt by
-    // `Signature.js` before it is stored: never the file's own bytes. Sent as
-    // the HTML alternative under the plain signature above.
+    // Invariant: Stored signature markup has passed through Signature.js sanitization; raw file bytes are never persisted here.
     signatureHtml: trimmed(raw.signatureHtml),
-    // The labels watched for new mail, by id. A fact about the mailbox, so
-    // it lives beside its name rather than in the window's file.
     monitored: idList(raw.monitored),
-    // Whether this row is the setup form's working state rather than a
-    // mailbox. It used to be inferred from the id being empty, and that read
-    // a mailbox whose address had been corrupted as a draft and dropped it at
-    // the write boundary — which is how a working account was deleted by the
-    // act of adding an unrelated one.
-    //
-    // Self-maintaining, so no caller has to remember to clear it: a row that
-    // has a real address is not something being typed into, whatever the flag
-    // says. `configureAccount` copies every key of the row it edits, so a flag
-    // that had to be cleared by hand would have survived setup forever.
+    // Invariant: A damaged saved address is not a setup draft; a valid address clears pending status automatically.
     pending: raw.pending === true && !isValidEmail(email)
   }
 }
 
-// A mailbox whose address was overwritten by something that is not one — a
-// username typed into the address field, which the setup form used to save
-// without checking. Everything else about the row survived: its server
-// settings, its keyring entry, its cache directory. And the address itself
-// survived too, in `imap.username`, because `setupSettings` folds the address
-// into the username when no separate one was given.
-//
-// So the row is repairable, and repairing it is the difference between a
-// mailbox that comes back and one that is silently dropped the next time the
-// list is written.
-//
-// Done here rather than in `makeAccount`, which also builds the row the setup
-// form is being typed into: adopting a username there would drop an address
-// into the field before anyone had typed one.
+// Invariant: Repair legacy IMAP addresses only on load; adopting usernames while editing would change the address field unexpectedly.
 function repairedAddress(entry) {
   var raw = entry || {}
   if (isValidEmail(raw.email)) return raw
@@ -274,9 +171,7 @@ function copyList(list) {
   }
 }
 
-// An empty id matches nothing, deliberately: it is what every pending account
-// carries, and letting it match would make find, setActive and remove all act
-// on an arbitrary one of them.
+// Invariant: Empty ids must not select an arbitrary pending account.
 function indexOfId(accounts, id) {
   var key = trimmed(id)
   if (!key) return -1
@@ -301,18 +196,7 @@ function count(list) {
   return Array.isArray(source.accounts) ? source.accounts.length : 0
 }
 
-// A pending row is implementation detail, not an account. In particular this
-// must not be inferred from whether a host is signed in: sessions are restored
-// asynchronously, and signed-out accounts still exist and must never be
-// overwritten by Add account.
-//
-// An address that is merely non-empty is not enough to call a row saved. A row
-// carrying something that is not an address — a username typed into the address
-// field — gets the empty id from `accountId`, so it is a draft to every lookup
-// here while still reading as a real account to this guard. That combination
-// disarmed the write guard in `Service.saveAccounts` and let a working mailbox
-// be replaced on disk by a row nothing could select or remove. The same
-// predicate that derives the id decides this.
+// Invariant: Session readiness is not account existence; asynchronous restore must never make Add overwrite a saved mailbox.
 function hasSavedAccounts(list) {
   var source = list || {}
   var values = Array.isArray(source.accounts) ? source.accounts : []
@@ -323,8 +207,6 @@ function hasSavedAccounts(list) {
   return false
 }
 
-// Shown in the switcher. A pending account has neither a label nor an address
-// yet and still needs a name, or its row is an empty strip nobody can aim at.
 function label(account) {
   var raw = account || {}
   var name = trimmed(raw.label)
@@ -333,29 +215,19 @@ function label(account) {
   return local || "New account"
 }
 
-// ------------------------------------------------------------------ edits
-
-// Re-adding an address is how a wrong client id or a new label gets corrected,
-// so it replaces the entry where it already sits. Appending instead would show
-// the same mailbox twice, and moving it to the end would lose the order the
-// user put their accounts in.
+// Invariant: Re-adding an existing identity preserves its list position instead of creating a duplicate.
 function add(list, account) {
   var next = copyList(list)
   var entry = makeAccount(account)
   var at = indexOfId(next.accounts, entry.id)
   if (at >= 0) next.accounts[at] = entry
   else next.accounts.push(entry)
-  // Nothing is on screen until the first account with a real address arrives;
-  // once one has, adding another must not yank the view away from it.
+  // Invariant: Adding another mailbox must not replace an existing active selection.
   if (entry.id && indexOfId(next.accounts, next.activeId) < 0) next.activeId = entry.id
   return next
 }
 
-// The id `account` would take at `index`, if another row already holds it.
-// Empty means the write is safe: a new address, or the same row keeping its
-// own id. The setup form used to rebuild the list with `add`, which treats a
-// colliding id as "replace that other mailbox" and drops the row being
-// edited — so re-authing Proton while iCloud was on screen deleted iCloud.
+// Invariant: Editing a row into another mailbox identity must refuse the collision instead of deleting either mailbox.
 function collidingId(list, index, account) {
   var entry = makeAccount(account)
   if (!entry.id) return ""
@@ -365,9 +237,6 @@ function collidingId(list, index, account) {
   return ""
 }
 
-// Put `account` at `index` and nowhere else. Unlike `add`, a colliding id is
-// a no-op rather than a silent merge, so a save cannot delete a mailbox that
-// was not the one being edited.
 function replaceAt(list, index, account) {
   var next = copyList(list)
   var at = Math.floor(Number(index))
@@ -390,8 +259,6 @@ function namedIds(list) {
   return ids
 }
 
-// The persisted set less one id: the one a row gave up when its address was
-// corrected, released on purpose rather than lost.
 function withoutId(ids, id) {
   var kept = []
   var values = Array.isArray(ids) ? ids : []
@@ -414,9 +281,6 @@ function dropsAnyId(ids, payload) {
   return false
 }
 
-// The neighbour that slides into the removed row is the least surprising
-// replacement, and the scan wraps so removing the last row falls back up the
-// list. Pending accounts are skipped: the window cannot show one.
 function nextActiveId(accounts, from) {
   for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
     var entry = accounts[(from + accountIndex) % accounts.length]
@@ -435,12 +299,7 @@ function remove(list, id) {
   return next
 }
 
-// An id that is not in the list means the caller is acting on a list that has
-// moved on. Leaving the previous account on screen is better than blanking the
-// window, so an unknown id — "" included — changes nothing.
-// A row that has no id cannot be removed by name. Removing by position is the
-// only handle the window has on one, so callers must decide separately whether
-// it is pending setup or a persisted mailbox with a damaged address.
+// Invariant: Missing ids are stale requests, not permission to remove an arbitrary pending row.
 function removeAt(list, index) {
   var source = copyList(list)
   var at = Math.floor(Number(index))
@@ -452,9 +311,7 @@ function removeAt(list, index) {
   return source
 }
 
-// The request is an immutable description of the row the user saw. Keeping
-// both its id and position lets confirmation reject a stale request instead of
-// deleting whichever account later moved into the same row.
+// Invariant: Confirmation retains both identity and position so a changed list cannot redirect removal.
 function removalRequest(list, index) {
   var values = Array.isArray((list || {}).accounts) ? list.accounts : []
   if (values.length <= 1) return null
@@ -479,9 +336,7 @@ function discardDraftAt(list, index) {
   var source = copyList(list)
   var at = Math.floor(Number(index))
   if (!isFinite(at) || at < 0 || at >= source.accounts.length) return source
-  // A missing id does not make a draft: a persisted mailbox whose damaged
-  // address cannot be repaired has no id either. Only the setup row explicitly
-  // marked as working state may be discarded without confirmation.
+  // Invariant: Only explicitly pending setup may be discarded without confirmation; a damaged saved mailbox may also lack an id.
   if (source.accounts[at].pending !== true) return source
   return removeAt(source, at)
 }
@@ -496,8 +351,6 @@ function idList(value) {
   return result
 }
 
-// The watched list replaced whole: what a rename or a move leaves it as,
-// once the ids it held have followed the folders they named.
 function setMonitored(list, id, labelIds) {
   var next = copyList(list)
   var at = indexOfId(next.accounts, id)
@@ -508,7 +361,6 @@ function setMonitored(list, id, labelIds) {
   return next
 }
 
-// A label watched, or no longer: the id toggled in the account's list.
 function toggleMonitored(list, id, labelId) {
   var next = copyList(list)
   var at = indexOfId(next.accounts, id)
@@ -527,25 +379,19 @@ function setLabel(list, id, text) {
   var next = copyList(list)
   var at = indexOfId(next.accounts, id)
   if (at < 0) return next
-  // Rebuilt rather than patched, so an entry that reached the list before a
-  // field existed comes out of a write with the same shape as every other.
   var entry = makeAccount(next.accounts[at])
   entry.label = trimmed(text)
   next.accounts[at] = entry
   return next
 }
 
-// Whether this mailbox's sender name is ours to set. IMAP and Outlook have no
-// server that names the sender, so the account entry is the only place a name
-// can come from; Gmail, JMAP and HEY report their own identities with names.
-// The backend makes the same distinction when it builds the From header.
+// Invariant: IMAP and Outlook use the local sender name; the other providers own their sender identities.
 function namesSender(provider) {
   var id = String(provider || "")
   return id === "imap" || id === "outlook"
 }
 
-// One header line, so a pasted line break or tab becomes a space instead of a
-// name the send would refuse.
+// Invariant: A sender name is one header value; pasted control whitespace cannot introduce a header.
 function senderNameText(value) {
   return trimmed(String(value === undefined || value === null ? "" : value)
     .replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/ {2,}/g, " "))
@@ -576,8 +422,6 @@ function setSignature(list, id, text) {
   var next = copyList(list)
   var at = indexOfId(next.accounts, id)
   if (at < 0) return next
-  // Rebuilt rather than patched, so an entry that reached the list before this
-  // field existed comes out of a write with the same shape as every other.
   var entry = makeAccount(next.accounts[at])
   entry.signature = trimmed(text)
   next.accounts[at] = entry
@@ -591,11 +435,7 @@ function setActive(list, id) {
   return next
 }
 
-// ------------------------------------------------------------ persistence
-
-// Anything unreadable becomes an empty list rather than an error. A user with
-// a corrupt file has to be able to add an account again from the UI; a startup
-// failure leaves them with nothing to do it from.
+// Invariant: Unreadable startup data must still allow first-run setup; live replacement has a separate validation gate.
 function load(text) {
   var raw = parseJson(text, null)
   if (!isSerializedList(text)) return emptyList()
@@ -605,9 +445,7 @@ function load(text) {
   for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
     if (!isObject(entries[entryIndex])) continue
     var entry = makeAccount(repairedAddress(entries[entryIndex]))
-    // The id is recomputed rather than trusted, so a hand-edited file cannot
-    // introduce two entries the rest of the code believes are different
-    // accounts while Gmail treats them as one.
+    // Invariant: Derive identities from validated addresses so persisted ids cannot create aliases for the same account.
     if (entry.id && indexOfId(next.accounts, entry.id) >= 0) continue
     next.accounts.push(entry)
   }
@@ -617,25 +455,7 @@ function load(text) {
   return next
 }
 
-// What belongs in the file. `add` creates a row before the user has typed
-// anything into it, and that row is the setup form's working state rather than
-// a mailbox — the comment on `Service.addAccount` says as much, but nothing
-// enforced it at the write boundary, so any later save carried the draft along
-// and left a "New mailbox" behind that nothing could select and nothing could
-// remove. The drafts live in memory for as long as the form is open, which is
-// all the life they were meant to have.
-//
-// A draft says so — `pending` — rather than being inferred from having no id.
-// The two are not the same thing: a mailbox whose address was corrupted also
-// has no id, and reading it as a draft is what deleted a working account here.
-// Whether a row holds anything its owner would miss. An addressable mailbox
-// obviously does. So does one whose address is unusable but whose server
-// settings were typed in and whose password is in the keyring — that is a
-// mailbox with a broken name, not an empty row.
-//
-// A row with none of it is the leftover of an Add that was never filled in.
-// Those did reach the file before drafts were marked as such, and there is
-// nothing in one to preserve.
+// Invariant: Persist saved mailboxes, including damaged but configured rows; discard only explicit drafts and empty legacy placeholders.
 function carriesData(entry) {
   var raw = entry || {}
   if (trimmed(raw.id) !== "") return true
@@ -647,10 +467,7 @@ function carriesData(entry) {
     || trimmed(raw.clientId) !== "" || trimmed(raw.clientSecret) !== ""
 }
 
-// Whether a payload would drop a mailbox the list could name. Nothing in the
-// UI removes an account by writing a list that quietly omits it — removal goes
-// through `remove` or `removeAt` first — so a missing id at the write boundary
-// is a bug upstream, and refusing the write is what keeps it off the disk.
+// Invariant: A write cannot silently omit a persisted mailbox; explicit removal must update the permitted identity set first.
 function dropsNamedMailbox(list, payload) {
   var source = Array.isArray((list || {}).accounts) ? list.accounts : []
   var kept = Array.isArray((payload || {}).accounts) ? payload.accounts : []
@@ -674,10 +491,7 @@ function savedOnly(list) {
   var next = copyList(list)
   var kept = []
   for (var accountIndex = 0; accountIndex < next.accounts.length; accountIndex++) {
-    // Drafts, and nothing else. A row with no id that is not a draft is a
-    // mailbox whose address `repairedAddress` could not recover — unusable
-    // until someone corrects it, but its settings and its keyring entry are
-    // still there, and deleting it is not this function's decision to make.
+    // Invariant: An unrepaired saved mailbox retains its settings; missing identity alone does not authorize deletion.
     var entry = next.accounts[accountIndex]
     if (entry && entry.pending !== true && carriesData(entry)) kept.push(entry)
   }
@@ -686,9 +500,7 @@ function savedOnly(list) {
   return next
 }
 
-// Compact rather than indented: this crosses a line-oriented pipe on the way
-// to disk, so a newline in the middle of it truncates the account list. JSON
-// escapes the newlines a label could contain, which is the other half of that.
+// Invariant: Compact JSON keeps the line-oriented persistence frame intact, including escaped newlines in labels.
 function serialize(list) {
   return JSON.stringify(copyList(list))
 }

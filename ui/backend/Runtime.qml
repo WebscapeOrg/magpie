@@ -5,9 +5,7 @@ import "Runtime.js" as Rules
 Item {
   id: root
   required property string pluginDir
-  // A standalone bundle already contains the exact backend it will run. Its
-  // path is supplied by the native host and never goes through the plugin's
-  // downloader or PATH probing.
+  // Invariant: Standalone uses its host-supplied exact backend path, never PATH discovery or the plugin downloader.
   property string bundledExecutable: ""
   property string bundledVersion: ""
   property int bundledApiVersion: 0
@@ -17,8 +15,6 @@ Item {
   state: "checking"
   property string requiredVersion: ""
   property int requiredApiVersion: 0
-  // One step past the pin, when the checkout has one, and the methods only
-  // that step has. The handshake does not read these; `Backend` does.
   property int latestApiVersion: 0
   property var unreleasedMethods: []
   property string contractHash: ""
@@ -40,10 +36,7 @@ Item {
     if (bundled) {
       requiredVersion = bundledVersion
       requiredApiVersion = bundledApiVersion
-      // The same one step past the pin the plugin accepts. A release bundle
-      // carries the released backend; `make app-run` builds this checkout's,
-      // which answers with the unreleased step and was refused as incompatible.
-      // Features still gate on the API the connected binary reports.
+      // Invariant: Development bundles may use the declared unreleased step; individual features still gate on the connected API.
       latestApiVersion = Number(bundledContract.apiVersion || bundledApiVersion)
       unreleasedMethods = bundledContract.unreleasedMethods || []
       contractHash = String(bundledContract.contractHash || "")
@@ -69,8 +62,7 @@ Item {
     received = false
     timedOut = false
     error = ""
-    // A local check must not interrupt requests using the validated runtime.
-    // Its answer can revoke that validation, but starting the probe cannot.
+    // Invariant: Starting a runtime probe must not interrupt requests using the currently validated binary.
     if (command === "install" || (command === "status" && state !== "ready")) {
       executable = ""
       state = command === "install" ? "installing" : "checking"
@@ -83,7 +75,6 @@ Item {
   function applyResult(result, exitCode) {
     requiredVersion = result.requiredVersion
     requiredApiVersion = result.requiredApiVersion
-    // A status from before the step was reported, or a harness's, has no step.
     latestApiVersion = typeof result.latestApiVersion === "number" ? result.latestApiVersion : result.requiredApiVersion
     unreleasedMethods = Array.isArray(result.unreleasedMethods) ? result.unreleasedMethods : []
     contractHash = String(result.contractHash || "")
@@ -141,8 +132,7 @@ Item {
       if (root.state === "ready" && result.state === "ready" && exitCode === 0
           && (root.requiredVersion !== result.requiredVersion || root.requiredApiVersion !== result.requiredApiVersion
               || root.executable !== result.executable)) {
-        // Let the backend stop before publishing a different validated runtime,
-        // so its replacement must perform a new exact-version handshake.
+        // Invariant: Stop the old backend before publishing a replacement path so the new process must perform its own exact-version handshake.
         root.state = "checking"
         root.executable = ""
         Qt.callLater(function() { root.applyResult(result, exitCode) })

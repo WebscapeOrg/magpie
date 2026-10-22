@@ -24,14 +24,12 @@ assert(chunks.accept(first(), '{"jsonrpc":"2.0","id":"other","result":null}').er
 assert(chunks.accept(null, "x".repeat(1048576)).error)
 assert.strictEqual(chunks.accept(null, '{"jsonrpc":"2.0","id":"other","result":null}').state, null)
 
-// Large valid MIME replies can exceed the old 32 MiB ceiling.
 const large = { ...frames[0], params: { ...frames[0].params, size: 40 * 1024 * 1024, total: 640 } }
 assert(!chunks.accept(null, JSON.stringify(large)).error)
 const oversized = { ...large, params: { ...large.params, size: 67108865 } }
 assert(chunks.accept(null, JSON.stringify(oversized)).error)
 
-// Exercise the exact Unicode boundary shape produced by Rust: 65535-byte
-// chunks of three-byte scalars need one extra chunk near the byte ceiling.
+// Invariant: Rust emits 65535-byte chunks for three-byte scalars, requiring one extra chunk near the 64 MiB limit.
 const unicodePiece = "€".repeat(21845)
 const unicodeParts = Array(1024).fill(unicodePiece).concat(["€"])
 let unicodeState = null

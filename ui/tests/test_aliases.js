@@ -20,8 +20,6 @@ deepEqual(aliases.parse(["alias@me.com", "not an email", "duplicate@me.com", "du
   { email: "duplicate@me.com", displayName: "", isPrimary: false, isDefault: false }
 ])
 
-// One default. A list naming two is not a state the composer can act on, so
-// the first is kept and the rest read as ordinary aliases.
 deepEqual(
   aliases.parse("a@me.com (default), b@me.com (default)").map(row => row.isDefault),
   [true, false])
@@ -35,11 +33,7 @@ assert.strictEqual(aliases.format([
   { email: "b@icloud.com", displayName: "Work" }
 ]), "a@icloud.com (default), Work <b@icloud.com>")
 
-// ----------------------------------------------------------- the round trip
-
-// The settings page re-formats this list every time it opens and writes back
-// what it shows, so anything `format` produces that `parse` reads differently
-// is a value the user loses without touching the field.
+// Invariant: Opening settings reformats aliases; parse/format disagreement would lose an untouched display name.
 function roundTrip(text) {
   return aliases.format(aliases.parse(text))
 }
@@ -54,21 +48,17 @@ assert.strictEqual(roundTrip(commaName), commaName,
 assert.strictEqual(roundTrip(roundTrip(commaName)), commaName,
   "and survives it a second time")
 
-// A quotation mark in a name is escaped rather than ending the name early.
 const quotedName = "\"Jay \\\"JJ\\\" Lee\" <jj@icloud.com>"
 deepEqual(aliases.parse(quotedName), [
   { email: "jj@icloud.com", displayName: "Jay \"JJ\" Lee", isPrimary: false, isDefault: false }
 ])
 assert.strictEqual(roundTrip(quotedName), quotedName)
 
-// A name with nothing to escape is left as the user typed it.
 assert.strictEqual(roundTrip("Work <b@icloud.com>"), "Work <b@icloud.com>")
 
-// Newlines separate too, so a field that was pasted into keeps its entries.
 deepEqual(aliases.parse("a@me.com\nb@me.com").map(row => row.email),
   ["a@me.com", "b@me.com"])
 
-// A name that says "(default)" in the middle of itself is a name.
 deepEqual(aliases.parse("\"Not (default) really\" <c@me.com>"), [
   { email: "c@me.com", displayName: "Not (default) really", isPrimary: false, isDefault: false }
 ])
@@ -77,37 +67,25 @@ assert.strictEqual(aliases.format(""), "")
 deepEqual(aliases.parse(null), [])
 deepEqual(aliases.parse(42), [])
 
-// ------------------------------------------------------------- send-as list
-
-// The mailbox's own address leads and is primary. Nothing else may claim that.
 deepEqual(aliases.sendAsList("me@icloud.com", "work@icloud.com"), [
   { email: "me@icloud.com", displayName: "", isPrimary: true, isDefault: true },
   { email: "work@icloud.com", displayName: "", isPrimary: false, isDefault: false }
 ])
 
-// An alias marked default takes it from the mailbox address, which is what
-// makes the marker mean "the address the composer opens on".
 deepEqual(aliases.sendAsList("me@icloud.com", "work@icloud.com (default)"), [
   { email: "me@icloud.com", displayName: "", isPrimary: true, isDefault: false },
   { email: "work@icloud.com", displayName: "", isPrimary: false, isDefault: true }
 ])
 
-// An alias that repeats the mailbox address is the mailbox address.
 deepEqual(aliases.sendAsList("me@icloud.com", "ME@icloud.com, other@icloud.com")
   .map(row => row.email), ["me@icloud.com", "other@icloud.com"])
 
-// No address at all is an account still being set up, not a list with a blank
-// row in it.
 deepEqual(aliases.sendAsList("", ""), [])
 deepEqual(aliases.sendAsList("", "work@icloud.com").map(row => row.email), ["work@icloud.com"])
 deepEqual(aliases.sendAsList("me@icloud.com", null), [
   { email: "me@icloud.com", displayName: "", isPrimary: true, isDefault: true }
 ])
 
-// ------------------------------------------------------------ sender name
-
-// The account's sender name goes on the mailbox's own address and nowhere
-// else: an alias keeps the name it was typed with, or none.
 {
   const rows = aliases.sendAsList("me@icloud.com", '"Work Desk" <work@icloud.com>, other@icloud.com')
   const before = JSON.stringify(rows)
@@ -117,7 +95,6 @@ deepEqual(aliases.sendAsList("me@icloud.com", null), [
     { email: "other@icloud.com", displayName: "", isPrimary: false, isDefault: false }
   ])
   assert.strictEqual(JSON.stringify(rows), before, "the provider's list is not edited in place")
-  // No name is the list as it was: the address goes out alone.
   assert.strictEqual(aliases.withSenderName(rows, "   "), rows)
   deepEqual(aliases.withSenderName(null, "Jane"), [])
 }

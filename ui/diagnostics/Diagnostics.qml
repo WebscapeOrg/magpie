@@ -1,8 +1,7 @@
 import QtQuick
 import Quickshell.Io
 
-// This helper remains usable when the mail backend cannot start. Only error
-// envelopes cross stdin; Python allowlists them before writing anything.
+// Invariant: Diagnostics must work without the backend; Python allowlists error envelopes before writing them.
 Item {
   id: root
   required property string pluginDir

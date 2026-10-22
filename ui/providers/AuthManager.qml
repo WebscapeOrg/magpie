@@ -5,16 +5,7 @@ import Quickshell.Io
 import "OAuth.js" as OAuth
 import "Credentials.js" as Credentials
 
-// Google sign-in and token storage. Nothing else in the plugin needs to know
-// what a refresh token looks like: callers ask for `withAccessToken` and get a
-// live bearer token or an error string.
-//
-// Where each secret lives, and why:
-//   - the access token stays in this process and is never written anywhere
-//   - the refresh token crosses the process boundary over stdin and is kept by
-//     GNOME Keyring, keyed by client id so two Cloud projects cannot collide
-//   - the OAuth client id and secret live in a 0600 file under ~/.config,
-//     because shell.json — where plugin settings go — is world-readable
+// Invariant: Access tokens stay in memory; native refresh tokens and private client configuration never enter world-readable plugin settings.
 Item {
   id: root
 
@@ -28,10 +19,7 @@ Item {
   property int oauthPort: OAuth.DEFAULT_PORT
   property var scopes: OAuth.SCOPES
 
-  // Which mailbox this manager signs in. An OAuth client belongs to a Cloud
-  // project rather than to a mailbox, so two accounts may share one — the
-  // keyring entry has to be keyed on both or they overwrite each other and one
-  // gets signed out at random.
+  // Invariant: The credential key includes mailbox and client because several mailboxes may share one OAuth client.
   property string accountId: ""
 
   readonly property string home: Quickshell.env("HOME") || ""
@@ -50,9 +38,7 @@ Item {
   property string grantedScope: ""
   property bool loggedIn: false
   property bool sessionChecked: false
-  // True after the keyring yielded a refresh token, even while a temporary
-  // network failure prevents it from becoming an access token. This is not a
-  // signed-out account: the saved grant is still the route back to ready.
+  // Invariant: A saved refresh grant remains a session during transient network failures.
   property bool savedSessionPresent: false
   readonly property bool recoveringSession: savedSessionPresent && !loggedIn
   property int refreshRetryAttempt: 0
@@ -61,7 +47,6 @@ Item {
   readonly property bool sessionBusy: refreshBusy || lookupRunning
   property string lastError: ""
 
-  // Everything the sign-in needs that Omarchy does not guarantee is present.
   readonly property var requiredTools: []
   property var missingTools: []
   property bool toolsChecked: true
@@ -70,11 +55,8 @@ Item {
   property var tokenWaiters: []
   property string lookupPurpose: ""
   property bool lookupHandled: false
-  // One lookup at a time, whichever of the two processes is carrying it.
   property bool credentialLookupBusy: false
-  // The OAuth client file and the refresh-token keyring are two independent
-  // stores. Keep their writes separate: saving credentials.json must not use
-  // the token write's busy state (and the setup page observes this one).
+  // Invariant: Client configuration and refresh-token writes have independent busy state because they target separate stores.
   property bool credentialsWriteBusy: false
   property bool credentialWriteBusy: false
   readonly property bool lookupRunning: credentialLookupBusy
@@ -134,14 +116,11 @@ Item {
       var current = currentSession()
       try { pending[waiterIndex](current ? token || "" : "",
         current ? safeError(error) : "The sign-in session changed") }
-      catch (error) { /* consumers own their callback errors */ }
+      catch (error) { /* Invariant: A consumer callback failure cannot prevent delivery to the remaining token waiters. */ }
     }
     return currentSession()
   }
 
-  // The only entry point the API transport uses. A refresh already in flight
-  // is joined rather than duplicated, so a burst of requests after the token
-  // expires produces one token call, not twenty.
   function withAccessToken(callback) {
     if (typeof callback !== "function") return
     if (tokenIsFresh()) {
@@ -175,7 +154,6 @@ Item {
     startSecretLookup()
   }
 
-  // ------------------------------------------------------------ credentials
 
   function saveCredentials(text) {
     var result = Credentials.parse(text)
@@ -208,9 +186,6 @@ Item {
     return true
   }
 
-  // The user's own client file wins; a client shipped with the plugin is the
-  // fallback. Today nothing is shipped, so this resolves to the file or to
-  // nothing at all — see Credentials.BUILTIN for why.
   function applyCredentials(raw) {
     var loaded = Credentials.effective(raw, accountId)
     usingBuiltinClient = Credentials.usingBuiltin(raw, accountId)
@@ -218,8 +193,6 @@ Item {
     credentials = loaded
     credentialsChecked = true
     if (changed) {
-      // A different client means a different keyring entry and a different
-      // grant; whatever is in memory belongs to the old one.
       cancelLogin()
       resetMemorySession()
       savedSessionPresent = false
@@ -231,17 +204,11 @@ Item {
     }
   }
 
-  // -------------------------------------------------------- credential store
-
-  // Kept for account migration compatibility. Native credential APIs accept
-  // only fully typed current keys, so no wildcard legacy lookup is attempted.
+  // Invariant: Native credential RPC accepts typed current keys; migration cannot issue a wildcard legacy lookup.
   property bool mayAdoptLegacyToken: true
 
   function startSecretLookup() {
-    // Existing accounts are restored wholly inside the backend: the native
-    // store returns the refresh token directly to the OAuth client and QML
-    // receives only the resulting access token. The typed credential RPC is
-    // for provider paths that still need the secret as request input.
+    // Invariant: Backend session restore returns only the access token to QML; the refresh grant stays inside native storage and OAuth.
     if (accountId !== "" && backend) {
       savedSessionPresent = true
       refreshWithToken("", lookupPurpose)
@@ -282,14 +249,7 @@ Item {
     refreshWithToken(token, purpose)
   }
 
-  // Held only until this mailbox learns its own address, which the profile
-  // fetch settles a second or two after signing in.
-  //
-  // Writing it immediately meant writing it under a name-less key, and any
-  // other mailbox sharing the client could then find it — which is how a newly
-  // added mailbox ended up restoring the session of one that already existed
-  // and reporting itself as that address. Waiting costs a second and leaves the
-  // keyring with nothing ambiguous in it.
+  // Invariant: Persist a new grant only after the profile supplies its mailbox identity; a nameless shared-client key can restore another mailbox.
   property string unnamedRefreshToken: ""
 
   onAccountIdChanged: {
@@ -347,9 +307,6 @@ Item {
     platform.credentialDelete("google-refresh-token", owner.accountId, owner.clientId)
   }
 
-  // ---------------------------------------------------------------- tokens
-
-  // Native requests have a bounded deadline in the backend.
   function postTokenRequest(previousRefreshToken, callback) {
     var serial = ++tokenRequestSerial
     var request = { abort: function() { root.tokenRequestSerial++ } }
@@ -382,14 +339,10 @@ Item {
         root.resetMemorySession()
         root.lastError = root.safeError(result.error)
         if (OAuth.refreshFailureDisposition(result) === "signed_out") {
-          // A revoked or expired grant is never coming back. Dropping it here
-          // means the panel offers "Sign in" instead of retrying forever.
           root.savedSessionPresent = false
           refreshRetry.stop()
           root.clearStoredToken()
         } else {
-          // The keyring token is still valid evidence of a saved session. Keep
-          // it and retry until the network can exchange it for an access token.
           root.scheduleRefreshRetry()
         }
         if (purpose === "request") root.finishWaiters("", root.lastError)
@@ -413,7 +366,6 @@ Item {
     if (result.refreshToken) storeRefreshToken(result.refreshToken)
   }
 
-  // ---------------------------------------------------------------- login
 
   function beginLogin() {
     if (loginBusy || refreshBusy) return
@@ -496,9 +448,7 @@ Item {
         root.sessionUnavailable(root.lastError)
         return
       }
-      // A user can untick individual permissions on Google's consent screen.
-      // The resulting token works for reading and fails at the first archive,
-      // which is a far worse experience than saying so now.
+      // Invariant: Google consent may omit individually unticked permissions; reject that grant before the first destructive mail action.
       var missing = OAuth.missingScopes(result.scope, OAuth.requiredScopes(root.scopes))
       if (missing.length > 0) {
         root.resetMemorySession()
@@ -554,7 +504,6 @@ Item {
     loggedOut()
   }
 
-  // ------------------------------------------------------------- processes
 
   FileView {
     id: credentialsFile
@@ -563,8 +512,6 @@ Item {
     printErrors: false
     onLoaded: root.applyCredentials(text())
     onFileChanged: reload()
-    // No file is the normal first-run state, not an error: fall through to
-    // whatever client is built in.
     onLoadFailed: root.applyCredentials("")
   }
 

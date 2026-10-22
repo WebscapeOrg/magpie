@@ -1,7 +1,7 @@
 import QtQuick
 import "Model.js" as Model
 
-// Rollback may reach the merged list after the account's completion callback.
+// Invariant: Account completion can precede the merged list's rollback projection.
 QtObject {
   id: root
   required property var app

@@ -91,26 +91,14 @@ Item {
     name: "SettingsName"
     when: windowShown
 
-    function find(objectName, item) {
-      var node = item === undefined ? page : item
-      if (!node) return null
-      if (node.objectName === objectName) return node
-      var children = node.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = find(objectName, children[i])
-        if (found) return found
-      }
-      return null
-    }
-
     function nameField() {
-      return find("settings-name-editor")
+      return findChild(page, "settings-name-editor")
     }
 
     // Laid out before it is clicked: switching mailboxes in `init` can show
     // or hide the field, and the column places it on the next polish.
     function senderField() {
-      var field = find("settings-sender-name-editor")
+      var field = findChild(page, "settings-sender-name-editor")
       if (field && field.visible) waitForPolish(field.parent)
       return field
     }

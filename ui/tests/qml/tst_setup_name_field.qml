@@ -126,35 +126,9 @@ Item {
     name: "SetupNameField"
     when: windowShown
 
-    function field(name) {
-      function find(item) {
-        if (item.objectName === name) return item
-        var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) { var f = find(kids[i]); if (f) return f }
-        return null
-      }
-      return find(page)
-    }
-
-    function outlookField(name) {
-      function find(item) {
-        if (item.objectName === name) return item
-        var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) { var f = find(kids[i]); if (f) return f }
-        return null
-      }
-      return find(outlookPage)
-    }
-
-    function gmailField(name) {
-      function find(item) {
-        if (item.objectName === name) return item
-        var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) { var f = find(kids[i]); if (f) return f }
-        return null
-      }
-      return find(gmailPage)
-    }
+    function field(name) { return findChild(page, name) }
+    function outlookField(name) { return findChild(outlookPage, name) }
+    function gmailField(name) { return findChild(gmailPage, name) }
 
     // Gmail: the field stands above the steps, so a second mailbox — whose
     // client step is folded away — still gets one; the name goes with a

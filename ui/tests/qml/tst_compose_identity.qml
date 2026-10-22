@@ -124,7 +124,7 @@ Item {
       var snapshot = compose.snapshotDraft()
       var key = compose.currentFields().draftKey
       compose.replaceBody("AI replacement")
-      var editor = named(compose, "compose-body-editor")
+      var editor = findChild(compose, "compose-body-editor")
       verify(editor.canUndo)
       editor.undo()
       if (editor.text === "") editor.undo()
@@ -243,19 +243,8 @@ Item {
       compare(compose.currentFields().envelope.replyQuote, quote)
     }
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
-    function bodyText() { return named(compose, "compose-body-editor").text }
-    function ccText() { return named(compose, "compose-cc-field").text.toLowerCase() }
+    function bodyText() { return findChild(compose, "compose-body-editor").text }
+    function ccText() { return findChild(compose, "compose-cc-field").text.toLowerCase() }
 
     // A message addressed to both mailboxes, from somebody else.
     function incoming() {
@@ -278,7 +267,7 @@ Item {
       mailService.pendingNativeText = []
       mailService.composeAccountId = bobId
       compose.begin("reply", incoming(), "Original body", [])
-      var field = named(compose, "compose-body-editor")
+      var field = findChild(compose, "compose-body-editor")
       verify(field !== null)
       field.text = "Text entered while the backend was preparing the quote"
       for (var i = 0; i < mailService.pendingNativeText.length; i++) {

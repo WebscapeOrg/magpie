@@ -44,8 +44,7 @@ assert.strictEqual(parsed.draft.draftAttachments[0].data, "",
 assert.strictEqual(recovery.hasMeaningfulDraft({ subject: " Plan " }), true)
 assert.strictEqual(recovery.hasMeaningfulDraft({ body: "\n\n" }), false)
 
-// A body still exactly as the compose window placed it is a window nobody
-// wrote in. Recovering one would offer back a draft the user never started.
+// Invariant: an unchanged placed body is an untouched composer, not a user-authored draft to recover.
 assert.strictEqual(recovery.hasMeaningfulDraft({
   body: "\n\nMaarten", placedBody: "\n\nMaarten"
 }), false, "an untouched signed compose is not a draft")
@@ -56,12 +55,9 @@ assert.strictEqual(recovery.hasMeaningfulDraft({
   body: "\n\nMaarten", placedBody: "\n\nMaarten", bodyWasEdited: true
 }), true, "typing and deleting back to the sign-off is still an edit")
 
-// A row written before placedBody existed has none, so any body at all differs
-// from it and the draft is still offered back.
+// Invariant: legacy records lack placedBody and must retain their body as recoverable work.
 assert.strictEqual(recovery.hasMeaningfulDraft({ body: "\n\nMaarten" }), true)
-// Kept verbatim rather than trimmed: what was placed begins with the blank
-// lines the user types into, and a trimmed copy would never equal the body it
-// is compared against.
+// Invariant: compare placedBody verbatim; trimming its leading editing space would manufacture a user edit.
 assert.strictEqual(recovery.draft({ placedBody: "\n\nMaarten" }).placedBody, "\n\nMaarten")
 assert.strictEqual(recovery.hasMeaningfulDraft({
   draftAttachments: [{ filename: "plan.txt" }]
@@ -75,7 +71,6 @@ const cleaned = recovery.parse(JSON.stringify(unsafe))
 assert.strictEqual(cleaned.draft.extra, undefined)
 assert.strictEqual(cleaned.draft.draftAttachments[0].extra, undefined)
 
-// ------------------------------------------------------- several parked sends
 
 {
   const withParked = recovery.parse(recovery.serialize("reader", draft, [draft, { to: "" }]))

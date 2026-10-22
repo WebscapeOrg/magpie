@@ -8,13 +8,7 @@ import "../../account/Accounts.js" as Accounts
 import "BackendFixture.js" as BackendFixture
 import "NativeIntentFixture.js" as NativeIntentFixture
 
-// A message opened with the setting on and a date in its text is handed to
-// the agent once, in the background; what the agent finds is the card, and
-// the card hands Add to the calendar's composer. Every gate is asserted:
-// the setting, a date, one look per message, the owning account. The read
-// goes through the service's own backend (`agent.context`), the start is
-// recorded at the runner's RPC boundary, and the projection that says what
-// a look is runs in the real native implementation.
+// Invariant: projections use native code; mail-context reads and model starts remain controlled at their RPC boundaries.
 Item {
   width: 900
   height: 600
@@ -31,8 +25,6 @@ Item {
     manifest: ({ id: "omamail", __sourceDir: "/tmp/omamail-test" })
   }
 
-  // The runner's backend: the real projection, a listing the test sets, and
-  // every start recorded rather than run.
   QtObject {
     id: bridge
     property bool ready: true
@@ -126,8 +118,6 @@ Item {
     function initTestCase() {
       BackendFixture.markReady(mailService, 2)
       listener = BackendFixture.install(mailService)
-      // The read: Rust would fetch the message inside its account; here the
-      // payload is built from what was asked, and the ask is recorded.
       listener.answers["agent.context"] = function(params) {
         contexts = contexts.concat([params])
         var row = params.summaries[0]
@@ -192,7 +182,6 @@ Item {
       compare(bridge.starts.length, 0, "off is off")
       compare(contexts.length, 0, "and nothing is even read")
 
-      // Turning it on looks at the message already open, once.
       mailService.settings = ({ suggestEvents: true })
       var first = lastStart()
       compare(first.messageId, "42:INBOX", "on looks at what is open")
@@ -213,15 +202,11 @@ Item {
       compare(lastStart().messageId, "44:INBOX")
       tryCompare(agent, "starting", false)
 
-      // A date in the subject alone is a date.
       bridge.starts = []
       open(adas, "46:INBOX", "Dinner Thursday at 7pm at Luigi's", "see you there")
       compare(lastStart().messageId, "46:INBOX", "the subject counts")
       tryCompare(agent, "starting", false)
 
-      // Mail from a machine, a Gmail category, or a list is not asked
-      // about, however many dates it carries: the filter comes before the
-      // model, and these cost nothing.
       bridge.starts = []
       open(adas, "47:INBOX", "Run failed: nightly", "Run failed at 14:30 on Sep 12", "notifications@github.com")
       open(adas, "48:INBOX", "Sale ends Sep 30", "Only until Sep 30 at 23:59!", "bob@example.com", ["INBOX", "CATEGORY_PROMOTIONS"])
@@ -232,19 +217,16 @@ Item {
       compare(bridge.starts.length, 0, "no look at a notification, a promotion or a list")
       compare(contexts.length, 3, "and none of them was read either")
 
-      // The look is on the list now; opening the message again asks nothing.
       setJobs([look("look-44", ada, "44:INBOX", "running")])
       bridge.starts = []
       open(adas, "44:INBOX", "Dinner?", "Dinner on Thursday at 7pm?")
       wait(20)
       compare(bridge.starts.length, 0, "one look per message")
 
-      // Two looks running is the ceiling.
       setJobs([look("look-1", ada, "1:INBOX", "running"), look("look-2", ada, "2:INBOX", "queued")])
       open(adas, "45:INBOX", "Lunch?", "Lunch tomorrow at noon, 12:30?")
       wait(20)
       compare(bridge.starts.length, 0, "no third look while two run")
-      // One finishing frees the slot, and the waiting look starts.
       setJobs([look("look-1", ada, "1:INBOX", "done"), look("look-2", ada, "2:INBOX", "queued")])
       compare(lastStart().messageId, "45:INBOX")
     }
@@ -279,8 +261,7 @@ Item {
       adas.selectedMessage = summary("45:INBOX", "Other")
       tryVerify(function() { return mailService.eventSuggestions.length === 0 }, 1000, "another message, nothing found for it")
 
-      // Bob's look at the same id is Bob's: on his account it shows, and
-      // Ada's dismissal does not reach it.
+      // Invariant: a dismissal belongs to one account even when another account has the same message ID.
       mailService.switchToIndex(1)
       tryCompare(mailService, "activeAccountId", bob)
       var bobs = mailService.accountAt(1)
@@ -291,8 +272,6 @@ Item {
       mailService.switchToIndex(0)
       tryCompare(mailService, "activeAccountId", ada)
 
-      // Add hands the composer the fields; a written event waves the
-      // suggestion away, a refused write does not.
       adas.selectedId = "44:INBOX"
       adas.selectedMessage = summary("44:INBOX", "Dinner?")
       tryVerify(function() { return mailService.eventSuggestions.length === 1 }, 1000)
@@ -316,9 +295,6 @@ Item {
       tryVerify(function() { return mailService.eventSuggestions.length === 0 }, 1000, "a written event is no longer a suggestion")
     }
 
-    // A look the runner cannot start yet — a start already in flight —
-    // waits, and starts when the runner is free; a body that arrives twice
-    // asks once.
     function test_a_look_waits_for_the_runner_and_asks_once() {
       var agent = seed(ada)
       var adas = mailService.accountAt(0)
@@ -337,15 +313,12 @@ Item {
       compare(bridge.starts[1].messageId, "51:INBOX")
       bridge.release()
       tryCompare(agent, "starting", false)
-      // The body arrives again before the listing carries the look.
+      // Invariant: a second body arrival before projection refresh must not start the same message twice.
       adas.selectedBody = ({ text: "Coffee Friday at 9am? (live)", source: "" })
       wait(20)
       compare(bridge.starts.length, 2, "asked once")
     }
 
-    // Add is refused, with a word, while the composer holds another event
-    // or when there is no calendar to write to; closing the composer
-    // without writing forgets the suggestion it was opened on.
     function test_add_respects_the_composer_and_the_calendars() {
       var agent = seed(ada)
       var adas = mailService.accountAt(0)
@@ -376,9 +349,7 @@ Item {
       compare(mailService.eventSuggestions.length, 1, "an event written after the composer closed is not this one")
     }
 
-    // The system AI is Codex, say: Rust refuses the look with a word, the
-    // status line stays quiet, and no other message is asked about until
-    // the setting is turned off and on again.
+    // Invariant: an unsupported system agent suppresses background checks until the selection is reset.
     function test_another_default_agent_refuses_once_and_quietly() {
       var agent = seed(ada)
       var adas = mailService.accountAt(0)
@@ -400,8 +371,7 @@ Item {
       compare(bridge.starts[1].messageId, "61:INBOX")
     }
 
-    // API 2 is a fixed feature requirement. Moving the release labels or
-    // adding API 3 does not change what an API 2 backend can do.
+    // Invariant: API2 is the fixed suggestion feature floor; later release labels cannot raise it.
     function test_event_suggestions_require_api_two_across_releases() {
       var agent = seed(ada)
       var adas = mailService.accountAt(0)
@@ -431,7 +401,6 @@ Item {
         { key: "j:1", jobId: "j", index: 1, title: "Offsite", startMs: start, endMs: start + 86400000, allDay: true, location: "", notes: "" }
       ]
       tryCompare(card, "visible", true)
-      // Folded until asked: the heading says how many, the rows wait.
       compare(named(card, "suggestionHeading", [])[0].text, "The agent found 2 events in this message")
       compare(named(card, "suggestionTitle", []).length, 0, "a guess is a line above the message, not a panel over it")
       compare(card.expanded, false)
@@ -455,7 +424,6 @@ Item {
       mouseClick(dismisses[0])
       compare(dismissed.count, 1)
       compare(dismissed.signalArguments[0][0], "j:0")
-      // Another look's findings fold again; the same look's do not.
       card.suggestions = [{ key: "j:1", jobId: "j", index: 1, title: "Offsite", startMs: start, endMs: start + 3600000, location: "", notes: "" }]
       compare(card.expanded, true, "one dismissed is still the same look")
       card.suggestions = [{ key: "k:0", jobId: "k", index: 0, title: "Other", startMs: start, endMs: start + 3600000, location: "", notes: "" }]

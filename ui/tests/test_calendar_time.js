@@ -10,8 +10,7 @@ const formats = {
   "HH.mm": new Intl.DateTimeFormat("fi-FI", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
 }
 
-// Supply only Qt's formatting boundary. The module must pass the locale's
-// format through intact; Intl supplies real locale clocks without a Qt host.
+// Invariant: stub only Qt formatting; Intl supplies real locale clocks and the locale pattern passes through unchanged.
 calendar.Qt = {
   locale() { return locale },
   formatTime(date, suppliedLocale, format) {
@@ -32,7 +31,7 @@ calendar.Qt = {
     return labels[format]
   }
 }
-// QML extends Date with a (locale, format) overload absent from Node.
+// Invariant: QML provides a Date(locale, format) formatting overload that Node lacks.
 vm.runInContext("Date.prototype.toLocaleTimeString = function(locale, format) { return Qt.formatTime(this, locale, format) }", calendar)
 function at(hour, minute = 0, day = 1) {
   return new Date(2026, 9, day, hour, minute).getTime()

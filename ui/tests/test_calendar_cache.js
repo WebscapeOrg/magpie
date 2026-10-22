@@ -31,10 +31,7 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(cache.load("not json"))),
 assert.deepStrictEqual(JSON.parse(JSON.stringify(cache.load(cache.serialize(store)))),
   JSON.parse(JSON.stringify(store)))
 
-// Version 1 calendar ranges predate googleId. Restoring one would make every
-// cached Google event look unwritable until a refresh happened to replace it,
-// so the schema change invalidates those ranges instead of drawing a calendar
-// whose Edit... and Delete... controls silently disappear.
+// Invariant: caches predating Google item IDs must be refreshed before offering writes.
 const versionOne = JSON.stringify({ version: 1, ranges: {
   old: { events: [{ uid: "legacy", sourceId: "google:a@example.com" }] }
 } })

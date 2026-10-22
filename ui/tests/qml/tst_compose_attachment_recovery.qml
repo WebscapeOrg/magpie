@@ -163,7 +163,7 @@ Item {
       compare(compose.draftAttachments.length, 1, "The attachment remains available to send")
     }
     function test_preview_metadata_shares_a_bounded_draft_budget() {
-      // Test coverage: metadata-only PNG headers exercise admission without allocating their pixels.
+      // Invariant: synthetic PNG metadata exercises admission without allocating the declared pixels.
       var large = {mimeType: "image/png",
         data: "iVBORw0KGgoAAAANSUhEUgAAEAAAAAYACAIAAAB5zxq0AAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}
       var oversized = {mimeType: "image/png",

@@ -5,11 +5,7 @@ import "../../account/Accounts.js" as Accounts
 import "BackendFixture.js" as BackendFixture
 import "NativeIntentFixture.js" as NativeIntentFixture
 
-// A job belongs to the account that asked. Ada and Bob both hold 42:INBOX;
-// with Ada's job running, Bob's row must show no job, glow for nothing, and
-// a cancel from Bob's row must reach no runner — however the switch reached
-// the service. Projections use the actual native implementation; lifecycle
-// requests are recorded at the RPC boundary and never launch or cancel AI.
+// Invariant: native projections retain account ownership; controlled RPC observers must see no cross-account model start or cancellation.
 Item {
   width: 900
   height: 600
@@ -57,7 +53,6 @@ Item {
       }
     }
 
-    // The runner is the service child that presents native jobs.
     function runner() {
       var children = mailService.children
       for (var childIndex = 0; childIndex < children.length; childIndex++) {
@@ -161,10 +156,6 @@ Item {
       compare(mailService.agentBusy, true, "the pane still counts Ada's running job")
     }
 
-    // The popup opened on Ada's row stays Ada's: after the window moves to
-    // Bob, the ask it sends names Ada's account and message, the cancel
-    // reaches Ada's job, and Bob's composer is offered none of Ada's
-    // draft answers.
     function test_a_popup_opened_on_ada_asks_and_cancels_for_ada() {
       var agent = seed(ada)
       tryCompare(mailService, "hasAgent", true)
@@ -187,8 +178,7 @@ Item {
       seed(ada)
       compare(mailService.agentJobs["42:INBOX"].id, "synthetic-A-job")
       compare(mailService.agentAttentionByMessage["7:INBOX"], true)
-      // The switch straight through the service, not the window: the tick
-      // of ownership follows `current`, wherever the change came from.
+      // Invariant: ownership follows service selection even when no window-navigation handler runs.
       mailService.accountList = Accounts.setActive(mailService.accountList, bob)
       tryCompare(mailService, "activeAccountId", bob)
       verify(mailService.agentJobs["42:INBOX"] === undefined)

@@ -28,8 +28,6 @@ assert.strictEqual(
   recipients.accept("other@example.com, ja", contacts[0]),
   "other@example.com, Jane Doe <jane@example.com>"
 )
-// A contact with no name is its address, which is the branch `address()` takes
-// when there is no phrase to put in front of one.
 assert.strictEqual(
   recipients.accept("ja", { name: "", email: "jane@example.com" }),
   "jane@example.com"
@@ -77,7 +75,6 @@ deepEqual(recipients.replyFields({from: own[0], to: own, cc: own}, "replyAll", o
   to: "", cc: "", outgoing: true
 })
 deepEqual(recipients.replyFields(null, "reply", own), {to: "", cc: "", outgoing: false})
-// Header controls cannot create a second outgoing header from reply fields.
 const hostile = recipients.replyFields({from: {email: "sender@example.com"},
   to: [{email: "me@example.com"}], cc: [{email: "copy@example.com\r\nBcc: hidden@example.com"}]
 }, "replyAll", own)

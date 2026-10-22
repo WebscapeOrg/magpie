@@ -32,7 +32,6 @@ var BINDINGS = [
     group: "Moving", label: "Open the selected message" },
   { id: "backToList", keys: ["u", "Left"], contexts: ["reader"],
     group: "Moving", label: "Back to the list" },
-  // Invariant: conversation movement uses chords so bare letters remain available for message actions.
   { id: "nextMember", keys: ["n"], contexts: ["reader"],
     group: "Moving", label: "Next message in the conversation" },
   { id: "previousMember", keys: ["p"], contexts: ["reader"],
@@ -252,7 +251,6 @@ function sequencesFor(context) {
   return output
 }
 
-// Docs: Qt chord syntax uses commas; keycap labels display consecutive keys separated by spaces.
 function readableSequence(sequence) {
   var text = String(sequence || "")
   if (text.charAt(text.length - 1) === ",") return text

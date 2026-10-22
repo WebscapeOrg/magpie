@@ -3,12 +3,9 @@ const { load, deepEqual } = require("./load")
 
 const keymap = load("keys/Keymap.js")
 
-// ---------------------------------------------------------------- the table
 
 assert.ok(keymap.BINDINGS.length > 20, "the table describes the whole keyboard")
 
-// Anything that renders a binding needs all of these, so a row missing one
-// would reach the help sheet as a blank line.
 keymap.BINDINGS.forEach(function (binding) {
   assert.ok(binding.id, "every binding has an id")
   assert.ok(binding.group, binding.id + " needs a group for the help sheet")
@@ -23,22 +20,16 @@ keymap.BINDINGS.forEach(function (binding) {
 const ids = keymap.BINDINGS.map(function (binding) { return binding.id })
 assert.strictEqual(new Set(ids).size, ids.length, "ids are unique")
 
-// ------------------------------------------------------------ no collisions
 
-// Two bindings claiming one sequence in one context is a bug the table finds by
-// itself. Sequences compare whole, so `s` and `g,s` are different keys.
 deepEqual(keymap.conflicts(), [],
   "no sequence is bound twice within one context")
 
-// ------------------------------------------------------------ every context
 
 function byId(id) {
   return keymap.BINDINGS.filter(function (binding) { return binding.id === id })[0]
 }
 
-// Context is the only thing that decides what is live. A text-entry context
-// binds no bare keys, so there is no "are they typing" question to get wrong:
-// the field is on screen and Qt gives it its own keys first.
+// Invariant: text-entry contexts bind no bare keys; Qt gives those keys to the active field.
 ;["search", "compose", "page"].forEach(function (context) {
   keymap.bindingsFor(context).forEach(function (binding) {
     binding.keys.forEach(function (key) {
@@ -79,7 +70,6 @@ assert.strictEqual(keymap.contextFor({
   currentView: "list"
 }), "list", "a delayed send must not replace the list's keyboard context")
 
-// ------------------------------------------------------------------ enabling
 
 const archive = byId("archive")
 assert.strictEqual(keymap.isEnabled(archive, "list", false), true)
@@ -105,7 +95,6 @@ const help = byId("help")
 assert.strictEqual(keymap.isEnabled(help, "list", true), true,
   "the sheet's own key has to close the sheet")
 
-// A bare question mark belongs to mailbox navigation, never text entry.
 deepEqual(help.keys, ["?"])
 assert.strictEqual(keymap.isSequenceEnabled(help, "?", "compose", false), false,
   "a question mark remains text inside a draft")
@@ -128,13 +117,10 @@ assert.strictEqual(keymap.isEnabled(settings, "calendar", false), true,
 assert.strictEqual(keymap.isEnabled(settings, "page", false), true,
   "the settings route is available from every screen")
 
-// Checking for mail answers to the browser's reload chord as well as its key.
-// Ctrl+R is a modified sequence, so it is live while a query or a draft is
-// being typed, where a bare `r` is a letter and stays reply's.
+// Invariant: modified refresh remains available during text entry while bare letters remain text.
 deepEqual(byId("refresh").keys, ["F5", "Ctrl+R"],
   "F5 and Ctrl+R both check for mail")
-// Through the table the router instantiates from, not `isSequenceEnabled`,
-// which answers for any sequence whether or not the row binds it.
+// Invariant: exercise the router table itself; arbitrary-sequence eligibility cannot prove that the sequence is bound.
 keymap.CONTEXTS.forEach(function (context) {
   var live = keymap.sequencesFor(context).some(function (entry) {
     return entry.id === "refresh" && entry.sequence === "Ctrl+R"
@@ -147,7 +133,6 @@ assert.strictEqual(keymap.isEnabled(zoomIn, "reader", false), true)
 assert.strictEqual(keymap.isEnabled(zoomIn, "page", false), false,
   "there is no message body to size on a form")
 
-// ------------------------------------------------------------ what renders
 
 const groups = keymap.helpGroups()
 const rowCount = groups.reduce(function (n, group) { return n + group.rows.length }, 0)
@@ -161,14 +146,12 @@ groups.forEach(function (group) {
   })
 })
 
-// The sheet enumerates and the status bar hints; one field could not do both.
-// Enumerating put "j / k  Move down" on the sheet, which is true of neither.
+// Invariant: help lists actions separately while status hints may combine opposite movement keys.
 assert.strictEqual(keymap.displayFor(byId("cursorUp")), "k, Up",
   "the sheet names every key that works")
 assert.strictEqual(keymap.displayFor(byId("cursorDown")), "j, Down")
 assert.strictEqual(keymap.displayFor(byId("help")), "?")
 
-// Qt's sequence syntax is not the UI's.
 assert.strictEqual(keymap.readableSequence("g,i"), "g then i",
   "a chord reads as a chord, not as Qt's comma")
 assert.strictEqual(keymap.readableSequence("Escape"), "Esc")
@@ -184,7 +167,6 @@ assert.strictEqual(keymap.slotFor("goAccount", "Alt+1"), 0)
 assert.strictEqual(keymap.slotFor("goAccount", "Alt+9"), 8)
 assert.strictEqual(keymap.slotFor("goAccount", "Alt+0"), 9)
 
-// Which key of the row fired, read off the row's own list rather than parsed.
 assert.strictEqual(keymap.slotFor("goMailbox", "Ctrl+1"), 0)
 assert.strictEqual(keymap.slotFor("goMailbox", "Ctrl+9"), 8)
 assert.strictEqual(keymap.slotFor("goMailbox", "Ctrl+0"), -1,
@@ -204,7 +186,6 @@ assert.strictEqual(keymap.displayFor(byId("switchAccount")), "Alt+A")
   assert.strictEqual(sheet.keys, "Alt+A")
 }
 
-// Only these, and only for the sheet they scroll.
 assert.strictEqual(keymap.isEnabled(byId("cursorDown"), "list", true), true)
 assert.strictEqual(keymap.isEnabled(byId("cursorUp"), "list", true), true)
 assert.strictEqual(keymap.isEnabled(byId("scrollDown"), "reader", true), true)
@@ -286,9 +267,7 @@ deepEqual(keymap.hintsFor("page").map(function (hint) { return hint.label }),
   ["back"],
   "a form's whole keyboard contract is leaving it")
 
-// ------------------------------------------------- one entry per sequence
 
-// A Shortcut binds one sequence, so the router needs the table flattened.
 const listSequences = keymap.sequencesFor("list")
 const expectedCount = keymap.bindingsFor("list").reduce(
   function (n, binding) { return n + binding.keys.length }, 0)
@@ -302,11 +281,8 @@ assert.strictEqual(keymap.sequencesFor("compose").filter(function (row) {
   return row.id === "help"
 }).length, 0, "Help stays out of text-entry contexts")
 
-// -------------------------------------------------- the doc cannot drift
 
-// docs/KEYS.md carries the table for people rather than for the engine. Three
-// hand-written copies of this list used to exist and had already drifted apart,
-// so this one is asserted against the source rather than trusted.
+// Invariant: the documentation table is checked against the binding source because independent copies previously drifted.
 {
   const fs = require("fs")
   const path = require("path")
@@ -336,10 +312,6 @@ assert.strictEqual(keymap.sequencesFor("compose").filter(function (row) {
   })
 }
 
-// A hint row must not offer what the provider refuses: that is the promise the
-// button rule exists to stop, made one line lower down. The table itself stays
-// whole — what a key means is a property of the application, and only whether
-// it is on offer depends on which mailbox is open.
 const offered = keymap.hintsFor("list")
 const withoutBoth = keymap.hintsFor("list", ["archive", "star"])
 assert.ok(offered.length > withoutBoth.length, "two hints go")
@@ -349,11 +321,7 @@ assert.ok(!withoutBoth.some(hint => hint.label === "star"))
 deepEqual(keymap.hintsFor("list", []), offered, "nothing missing changes nothing")
 deepEqual(keymap.hintsFor("list", null), offered)
 
-// ------------------------------------------------------------ the sheet
-//
-// The reference sheet is laid out in columns because one column was taller than
-// a short window — and the Flickable that answered that put a scrollbar down
-// the middle of the screen, since it was only as wide as the column.
+// Invariant: help columns prevent the prior single-column overflow and misplaced central scrollbar.
 
 const all = keymap.helpGroups().map(group => group.name)
 const weight = group => group.rows.length + 1
@@ -368,37 +336,27 @@ for (const count of [1, 2, 3, 4]) {
   const columns = keymap.helpColumns(count)
   assert.strictEqual(columns.length, Math.min(count, all.length),
     count + ": one list per column")
-  // In order, and every group exactly once: a reader who knows the sheet finds
-  // a group where it has always been, and none of them may go missing.
   deepEqual([].concat(...columns).map(group => group.name), all,
     count + ": the declared order survives the split")
   for (const column of columns) {
     assert.ok(column.length > 0, count + ": no column is left empty")
   }
-  // Balanced enough to look like columns rather than a list with an appendix.
-  // A heading counts as a line, which is what `helpWeight` exists to say.
   const heaviest = Math.max(...columns.map(column => column.reduce((sum, group) => sum + weight(group), 0)))
   assert.ok(heaviest <= Math.ceil(totalWeight / count) + 6,
     count + ": no column runs away with the sheet (" + heaviest + ")")
 }
 
-// `v` is Gmail's own move key, which is what issue #58 asks these to match.
-// `m` mutes there, so a move on `m` would be the one binding somebody arriving
-// from Gmail has to unlearn -- pinned here because "it was free" is exactly the
-// reasoning that would put it back.
+// Invariant: move uses Gmail's v binding; reusing m would force incoming Gmail users to unlearn mute (issue58).
 const move = keymap.BINDINGS.filter(binding => binding.id === "moveToLabel")
 assert.strictEqual(move.length, 1, "one move row")
 deepEqual(move[0].keys, ["v"], "Gmail moves with v")
 assert.ok(keymap.BINDINGS.every(binding => binding.keys.indexOf("m") < 0 || binding.contexts.indexOf("calendar") >= 0),
   "m stays out of the mailbox, where Gmail means mute by it")
 
-// Bound where a message is, and nowhere else: the calendar has no message to
-// move, and a row added to the wrong context list would bind it there silently.
 deepEqual(keymap.bindingsFor("list").filter(binding => binding.id === "moveToLabel").length, 1)
 deepEqual(keymap.bindingsFor("reader").filter(binding => binding.id === "moveToLabel").length, 1)
 deepEqual(keymap.bindingsFor("calendar").filter(binding => binding.id === "moveToLabel").length, 0)
 
-// A count that is not a count still has to draw something.
 deepEqual(keymap.helpColumns(0), [keymap.helpGroups()])
 deepEqual(keymap.helpColumns(-3), [keymap.helpGroups()])
 deepEqual(keymap.helpColumns(99).length, all.length, "never more columns than groups")

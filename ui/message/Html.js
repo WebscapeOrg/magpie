@@ -1370,7 +1370,7 @@ function sanitize(html, options) {
       // Performance: hidden-state and attribute filtering reuse the original style declaration
       // parse.
       var declarations = sourceDeclarations(child)
-      if (child.name === "img" && attributeOf(child, "hidden") !== null) continue
+      if (attributeOf(child, "hidden") !== null) continue
       if (declarations !== null && (VOID_ELEMENTS[child.name] !== true || child.name === "img")
         && isHiddenBy(declarations)) continue
 

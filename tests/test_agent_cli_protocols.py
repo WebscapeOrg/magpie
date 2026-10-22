@@ -229,7 +229,6 @@ args = [{json.dumps(str(forbidden))}]
                 settings=root/'.claude'; settings.mkdir()
                 (settings/'settings.json').write_text(json.dumps({'hooks':{'SessionStart':[{'hooks':[{'type':'command','command':'touch '+str(forbidden)}]}]}}))
                 (root/'.claude.json').write_text(json.dumps({'mcpServers':{'unrelated':{'command':'/usr/bin/touch','args':[str(forbidden)]}}}))
-            broker = None
             def call(method, params):
                 if sys.platform == 'darwin' and method == 'agent.jobStart' and not params.get('payload',{}).get('parent'):
                     params = dict(params, provider=provider)
@@ -245,7 +244,6 @@ args = [{json.dumps(str(forbidden))}]
                         if result['job']['state'] != 'done':
                             if provider == 'claude': print('SYNTHETIC CLAUDE REQUESTS',server.requests[-2:])
                             for log in root.glob('synthetic-cli-*.log'): print(log.name,log.read_text()[-4000:])
-                            if broker and broker.poll() is not None: print('BROKER ERROR',broker.stderr.read().decode())
                             for log in root.rglob('opencode.log'):
                                 print('SYNTHETIC LOG', log.read_text()[-8000:])
                             for log in codex.rglob('*.jsonl'):
@@ -386,9 +384,6 @@ args = [{json.dumps(str(forbidden))}]
             finally:
                 call('agent.jobCancel',{'id':first})
                 agent_broker_fixture.shutdown(root)
-                if broker:
-                    broker.wait(timeout=10)
-                    broker.stderr.close()
 
     @unittest.skipUnless(os.environ.get('OMAMAIL_TEST_OPENCODE'), 'set OMAMAIL_TEST_OPENCODE for isolated V2 CLI fixture')
     def test_opencode(self):

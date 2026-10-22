@@ -4,7 +4,7 @@ import "../.." as Omamail
 import "BackendFixture.js" as BackendFixture
 import "../../account/Accounts.js" as Accounts
 
-// Delivery failures cross two ownership boundaries: a MailAccount reports the
+// Invariant: Delivery failures cross two ownership boundaries: a MailAccount reports the
 // result to Service, and Service tells the one composer shared by every
 // account. These tests keep those real boundaries in place. A mock handed
 // straight to App would miss both the relay and the global send guard.
@@ -33,7 +33,7 @@ Item {
     property int apiVersion: 6
     function call(method, params, callback) {
       if (method === "agent.providerStatus") callback({available:true,provider:"claude"}, "")
-      // Tests inject completed jobs/proposals; no agent process is started.
+      // Invariant: Tests inject completed jobs/proposals; no agent process is started.
     }
   }
 
@@ -49,7 +49,7 @@ Item {
 
     function initTestCase() {
       var fixture = BackendFixture.install(mailService)
-      // Repeated API/account setup must not fill the bounded RPC queue with
+      // Invariant: Repeated API/account setup must not fill the bounded RPC queue with
       // unanswered background cache reads and starve the send under test.
       fixture.answers = {"cache.calendarRead":null, "cache.queryRestore":null}
       BackendFixture.markReady(mailService)
@@ -75,14 +75,14 @@ Item {
 
     function seed(entries, activeId) {
       var list = Accounts.emptyList()
-      for (var i = 0; i < entries.length; i++) list = Accounts.add(list, entries[i])
+      for (var itemIndex = 0; itemIndex < entries.length; itemIndex++) list = Accounts.add(list, entries[itemIndex])
       list = Accounts.setActive(list, activeId)
       mailService.activeIndex = -1
       mailService.accountList = list
       mailService.accountsLoaded = true
       wait(0)
       mailService.refreshCurrent()
-      for (var h = 0; h < entries.length; h++) readyAccount(mailService.accountAt(h))
+      for (var accountIndex = 0; accountIndex < entries.length; accountIndex++) readyAccount(mailService.accountAt(accountIndex))
     }
 
     function readyAccount(account) {
@@ -99,8 +99,8 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) {
+        var found = named(values[itemIndex], objectName)
         if (found) return found
       }
       return null
@@ -126,8 +126,8 @@ Item {
     property int outboxRevision: 1
     function pending(method, accountId) {
       var fixture = BackendFixture.install(mailService)
-      for (var i = fixture.requests.length - 1; i >= 0; i--) {
-        var request = fixture.requests[i]
+      for (var itemIndex = fixture.requests.length - 1; itemIndex >= 0; itemIndex--) {
+        var request = fixture.requests[itemIndex]
         if (request.method === method && (!accountId || request.params.accountId === accountId) && !request.answered) return request
       }
       return null
@@ -143,8 +143,8 @@ Item {
       return entry
     }
     function stopSends() {
-      for (var i = 0; i < mailService.accountCount; i++) {
-        var account = mailService.accountAt(i)
+      for (var itemIndex = 0; itemIndex < mailService.accountCount; itemIndex++) {
+        var account = mailService.accountAt(itemIndex)
         if (account) {
           account.sendQueue.parked = []
           account.sendQueue.submitted = ({})
@@ -206,8 +206,8 @@ Item {
       var queued = answerQueued(adaId)
       compare(queued.id, sendId)
       var composed = null
-      for (var i = start; i < fixture.requests.length; i++)
-        if (fixture.requests[i].method === "message.compose") composed = fixture.requests[i].params.fields
+      for (var itemIndex = start; itemIndex < fixture.requests.length; itemIndex++)
+        if (fixture.requests[itemIndex].method === "message.compose") composed = fixture.requests[itemIndex].params.fields
       verify(composed !== null)
       compare(composed.body, displayed)
       compare(composed.signature, "")
@@ -230,9 +230,9 @@ Item {
     function test_proposal_routing_edits_block_card_dispatch_data() {
       var rows = []
       var fields = ["to", "cc", "bcc", "replyTo", "from"]
-      for (var i = 0; i < fields.length; i++) {
-        rows.push({tag:fields[i]+"-pending", field:fields[i], pending:true})
-        rows.push({tag:fields[i]+"-displayed", field:fields[i], pending:false})
+      for (var itemIndex = 0; itemIndex < fields.length; itemIndex++) {
+        rows.push({tag:fields[itemIndex]+"-pending", field:fields[itemIndex], pending:true})
+        rows.push({tag:fields[itemIndex]+"-displayed", field:fields[itemIndex], pending:false})
       }
       return rows
     }
@@ -273,8 +273,8 @@ Item {
       verify(!compose.sendProposal(envelope, card.id, job.id), "Composer rechecks at dispatch")
       mouseClick(send)
       wait(0)
-      compare(fixture.requests.slice(start).filter(function(r) {
-        return r.method === "message.compose" || r.method === "outbox.enqueue"
+      compare(fixture.requests.slice(start).filter(function(request) {
+        return request.method === "message.compose" || request.method === "outbox.enqueue"
       }).length, 0, "No MIME construction or outbox enqueue for the old destination")
       compare(compose.parkedDrafts.length, 0)
       verify(!send.enabled)
@@ -290,7 +290,7 @@ Item {
         compare(named(compose, "compose-body-editor").text, card.body)
         compose.submit()
         answerQueued(adaId)
-        var composed = fixture.requests.slice(start).filter(function(r) { return r.method === "message.compose" })
+        var composed = fixture.requests.slice(start).filter(function(request) { return request.method === "message.compose" })
         compare(composed.length, 1)
         compare(composed[0].params.fields.to, "corrected@example.test")
         compare(composed[0].params.fields.body, card.body)
@@ -372,7 +372,7 @@ Item {
       request.answered = true
       compare(request.params.provider, "imap")
       compare(request.params.delaySeconds, 0)
-      // Rust's authoritative failure must cross account and Service boundaries;
+      // Invariant: Rust's authoritative failure must cross account and Service boundaries;
       // the UI does not issue an imap.send or replay the uncertain delivery.
       BackendFixture.respond(mailService, request, {snapshot:{accountId:adaId,
         revision:++outboxRevision,entries:[{id:request.params.sendId,state:data.state}]}})
@@ -382,8 +382,8 @@ Item {
       tryCompare(app.composeRecovery, "active", true)
       compare(app.composeRecovery.draft.body, "Keep every word")
       var requests = BackendFixture.install(mailService).requests
-      for (var i = 0; i < requests.length; i++)
-        verify(requests[i].method !== "imap.send", "UI cannot send or retry mail after a backend result")
+      for (var itemIndex = 0; itemIndex < requests.length; itemIndex++)
+        verify(requests[itemIndex].method !== "imap.send", "UI cannot send or retry mail after a backend result")
     }
 
     function test_a_second_send_parks_behind_the_first_and_undo_takes_back_the_newest() {

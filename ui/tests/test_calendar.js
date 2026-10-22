@@ -766,3 +766,52 @@ console.log("test_calendar.js ok")
   assert.strictEqual(parsed.end, null, "an unrepresentable duration cannot create an infinite endpoint")
   assert.strictEqual(calendar.parseDuration("PT90M"), 5400000)
 }
+
+
+for (const organizer of [
+  "first@example.test,second@example.test", "first@example.test;second@example.test",
+  "Display <first@example.test>", "\"line\rbreak\"@example.test"
+]) {
+  const malformed = {...invite, organizer: {email: organizer}}
+  assert.strictEqual(calendar.replyRecipient(malformed), "", "one bare organiser mailbox is required")
+  assert.strictEqual(calendar.canRespond(malformed, me.email), false)
+  assert.strictEqual(calendar.replyFields(malformed, me, "accepted", 0), null)
+  assert.strictEqual(calendar.buildReply(malformed, me, "accepted", 0), "")
+}
+for (const organizer of ["organizer@example.test", "\"one,two\"@example.test"]) {
+  const valid = {...invite, organizer: {email: organizer}}
+  assert.strictEqual(calendar.replyFields(valid, me, "accepted", 0).to, organizer)
+}
+
+{
+  const parsed = calendar.invitationFrom([
+    "BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:finite-duration",
+    "DTSTART:20261022T120000Z", "DURATION:P999999999D",
+    "END:VEVENT", "END:VCALENDAR"
+  ].join("\r\n"))
+  assert.ok(parsed.start)
+  assert.strictEqual(parsed.end, null, "a finite duration must produce a representable date")
+}
+
+{
+  const previousTimezone = process.env.TZ
+  process.env.TZ = "Europe/Dublin"
+  try {
+    for (const [start, end, expected] of [
+      ["20261025", "20261026", "Sun, Oct 25, 2026 · all day"],
+      ["20261024", "20261026", "Sat, Oct 24, 2026 – Sun, Oct 25, 2026"],
+      ["20260329", "20260330", "Sun, Mar 29, 2026 · all day"],
+      ["20260328", "20260330", "Sat, Mar 28, 2026 – Sun, Mar 29, 2026"]
+    ]) {
+      const parsed = calendar.invitationFrom([
+        "BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:civil-day",
+        "DTSTART;VALUE=DATE:" + start, "DTEND;VALUE=DATE:" + end,
+        "END:VEVENT", "END:VCALENDAR"
+      ].join("\r\n"))
+      assert.strictEqual(calendar.formatWhen(parsed), expected)
+    }
+  } finally {
+    if (previousTimezone === undefined) delete process.env.TZ
+    else process.env.TZ = previousTimezone
+  }
+}

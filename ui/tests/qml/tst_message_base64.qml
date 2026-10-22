@@ -21,6 +21,11 @@ Item {
     property string selectedId: "invitation"
     property string accountId: "invitee@example.test"
     property string receivedAsAddress: "invitee@example.test"
+    property string receivedAsName: "Invitee"
+    property string ownAddress: receivedAsAddress
+    property var selectedMessage: ({messageId: "synthetic", threadId: "synthetic"})
+    property int mailCalls: 0
+    property var api: ({sendMessage: function(payload, callback) { inviteAccount.mailCalls++ }})
     property string providerId: "imap"
     property var backend: backend
     property var selectedInvite: ({uid: "synthetic", organizer: {email: "organizer@example.test"}})
@@ -43,6 +48,33 @@ Item {
       compare(backend.calls, 1)
       inviteAccount.rsvpSending = false
       inviteAccount.providerId = "imap"
+    }
+
+    function test_malformed_organizer_cannot_dispatch_a_reply_data() {
+      return [{tag: "native attendance", provider: "gmail"}, {tag: "reply mail", provider: "imap"}]
+    }
+
+    function test_malformed_organizer_cannot_dispatch_a_reply(data) {
+      var original = inviteAccount.selectedInvite
+      try {
+        inviteAccount.providerId = data.provider
+        backend.calls = 0
+        inviteAccount.mailCalls = 0
+        inviteAccount.selectedInvite = {uid: "synthetic", organizer: {
+          email: "first@example.test,second@example.test"
+        }}
+        attendance.run("accepted", false)
+        compare(backend.calls, 0)
+        compare(inviteAccount.mailCalls, 0)
+        compare(inviteAccount.rsvpSending, false)
+        inviteAccount.selectedInvite = original
+        attendance.run("accepted", false)
+        compare(backend.calls + inviteAccount.mailCalls, 1)
+      } finally {
+        inviteAccount.selectedInvite = original
+        inviteAccount.providerId = "imap"
+        inviteAccount.rsvpSending = false
+      }
     }
 
     function test_qt_atob_result_is_not_decoded_a_second_time() {

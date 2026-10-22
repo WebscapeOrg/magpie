@@ -824,7 +824,9 @@ function eventFromComponent(calendar, event, fallbackMethod) {
   var end = resolveTime(property(event, "DTEND"), calendar)
   if (!end && start) {
     var span = parseDuration(textOf(event, "DURATION"))
-    if (span > 0) end = { ms: start.ms + span, allDay: start.allDay, tzid: start.tzid, resolved: start.resolved }
+    var endpoint = new Date(start.ms + span).getTime()
+    if (span > 0 && isFinite(endpoint))
+      end = { ms: endpoint, allDay: start.allDay, tzid: start.tzid, resolved: start.resolved }
   }
 
   var attendees = []
@@ -953,8 +955,11 @@ function formatWhen(invite) {
 
   if (start.allDay) {
     // Invariant: all-day DTEND is exclusive, so display the preceding day.
-    if (end && end.ms - start.ms > 86400000) {
-      return dayOf(start.ms) + " – " + dayOf(end.ms - 86400000)
+    if (end) {
+      var lastDay = new Date(end.ms)
+      lastDay.setDate(lastDay.getDate() - 1)
+      if (lastDay.getTime() > start.ms)
+        return dayOf(start.ms) + " – " + dayOf(lastDay.getTime())
     }
     return dayOf(start.ms) + " · all day"
   }
@@ -1095,6 +1100,8 @@ function icsTimestamp(milliseconds) {
 function buildReply(invite, me, response, nowMilliseconds) {
   var answer = normalizedResponse(response)
   if (!invite || answer === "") return ""
+  var organizer = replyRecipient(invite)
+  if (organizer === "") return ""
   var address = addressOf(me)
   if (address === "") return ""
   var name = displayNameOf(me)
@@ -1108,8 +1115,7 @@ function buildReply(invite, me, response, nowMilliseconds) {
   lines.push("UID:" + escapeText(invite.uid))
   lines.push("SEQUENCE:" + Math.max(0, Math.floor(Number(invite.sequence) || 0)))
   lines.push("DTSTAMP:" + icsTimestamp(nowMilliseconds === undefined ? Date.now() : nowMilliseconds))
-  if (invite.organizer && invite.organizer.email !== "")
-    lines.push("ORGANIZER:mailto:" + invite.organizer.email)
+  lines.push("ORGANIZER:mailto:" + organizer)
   lines.push("ATTENDEE;PARTSTAT=" + PARTSTATS[answer]
     + (name !== "" ? ";CN=" + quoteParam(name) : "")
     + ":mailto:" + address)
@@ -1139,7 +1145,9 @@ function quoteParam(value) {
 
 // Invariant: an RSVP addresses only the organiser.
 function replyRecipient(invite) {
-  return invite && invite.organizer ? String(invite.organizer.email || "") : ""
+  var address = invite && invite.organizer ? String(invite.organizer.email || "").trim() : ""
+  if (/[\u0000-\u001f\u007f]/.test(address)) return ""
+  return Mail.parseAddress(address).email === address ? address : ""
 }
 
 function replySubject(invite, response) {

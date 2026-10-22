@@ -223,6 +223,7 @@ Column {
       ToggleSwitch {
         id: workSwitch
         objectName: "outlook-work-switch"
+        Accessible.name: "Work or school account (Microsoft 365)"
         anchors.verticalCenter: parent.verticalCenter
         foreground: root.textColor
         accent: root.accentColor
@@ -254,6 +255,7 @@ Column {
       ToggleSwitch {
         id: graphSwitch
         objectName: "outlook-graph-switch"
+        Accessible.name: "Send through Microsoft Graph"
         anchors.verticalCenter: parent.verticalCenter
         foreground: root.textColor
         accent: root.accentColor

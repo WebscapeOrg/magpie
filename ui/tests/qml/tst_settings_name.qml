@@ -129,6 +129,21 @@ Item {
       fakeService.senderNameWrites = 0
     }
 
+    function test_switches_expose_the_setting_name_data() {
+      return [
+        {tag: "bar", name: "showBarIconSwitch", label: "Show the icon in the bar"},
+        {tag: "images", name: "imagesSwitch", label: "Always show remote images"},
+        {tag: "heavy", name: "heavySwitch", label: "Always render heavy messages"},
+        {tag: "suggestions", name: "suggestEventsSwitch", label: "Suggest calendar events from mail"},
+        {tag: "notifications", name: "notifySwitch", label: "New mail notifications"}
+      ]
+    }
+    function test_switches_expose_the_setting_name(data) {
+      var toggle = findChild(page, data.name)
+      verify(toggle)
+      compare(toggle.Accessible.name, data.label)
+    }
+
     function test_signature_import_waits_for_native_result_and_keeps_original_account() {
       fakeService.signatureHtml = ""
       page.selectedSignatureAccountId = "a@example.org"

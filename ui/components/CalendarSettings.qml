@@ -308,6 +308,7 @@ Column {
         }
         ToggleSwitch {
           objectName: "calendar-source-toggle"
+          Accessible.name: "Show " + String(calendarRow.source.name || calendarRow.source.id)
           anchors.verticalCenter: parent.verticalCenter
           checked: calendarRow.source.enabled !== false
           interactive: !!root.controller && !root.controller.savingSource
@@ -602,6 +603,7 @@ Column {
         detail: modelData.readOnly === true ? "Read-only" : ""
         ToggleSwitch {
           objectName: "calendar-discovered-toggle"
+          Accessible.name: "Show " + String(modelData.name || modelData.id)
           checked: modelData.enabled === true
           foreground: root.textColor
           accent: root.accentColor
@@ -741,6 +743,7 @@ Column {
     ToggleSwitch {
       id: unifiedSwitch
       objectName: "unifiedCalendarSwitch"
+      Accessible.name: "Unified calendar view"
       checked: !!root.service && root.service.unifiedCalendarView === true
       foreground: root.textColor
       accent: root.accentColor
@@ -806,6 +809,7 @@ Column {
       detail: "Shown while Magpie is running, even with its window closed. Google calendars only."
       ToggleSwitch {
         objectName: "calendar-reminders-enabled"
+        Accessible.name: "Desktop reminders"
         checked: !!root.service && root.service.calendarRemindersEnabled === true
         foreground: root.textColor
         accent: root.accentColor

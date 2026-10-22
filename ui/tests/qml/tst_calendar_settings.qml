@@ -107,6 +107,19 @@ Item {
       wait(1)
     }
 
+    function test_switches_expose_the_setting_or_calendar_name() {
+      calendarController.sourceList = {version: 1, sources: [{id: "calendar-a", kind: "caldav",
+        name: "Personal", enabled: true, colorKey: "accent"}]}
+      calendarController.discoveryChoiceAccount = "owner"
+      calendarController.discoveryChoices = {sources: [{id: "calendar-b", accountId: "owner",
+        kind: "google", name: "Work", enabled: false}]}
+      wait(1)
+      compare(findChild(settings, "calendar-source-toggle").Accessible.name, "Show Personal")
+      compare(findChild(settings, "calendar-discovered-toggle").Accessible.name, "Show Work")
+      compare(findChild(settings, "unifiedCalendarSwitch").Accessible.name, "Unified calendar view")
+      compare(findChild(settings, "calendar-reminders-enabled").Accessible.name, "Desktop reminders")
+    }
+
     function test_unified_view_switch_updates_the_persistent_setting() {
       var toggle = findChild(settings, "unifiedCalendarSwitch")
       verify(toggle !== null)

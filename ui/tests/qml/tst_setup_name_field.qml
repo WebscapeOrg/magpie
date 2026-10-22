@@ -252,6 +252,11 @@ Item {
       page.syncFromStore()
     }
 
+    function test_outlook_switches_expose_the_setting_name() {
+      compare(outlookField("outlook-work-switch").Accessible.name, "Work or school account (Microsoft 365)")
+      compare(outlookField("outlook-graph-switch").Accessible.name, "Send through Microsoft Graph")
+    }
+
     function test_outlook_setup_names_the_sender() {
       var sender = outlookField("sender-name-field")
       verify(sender !== null)

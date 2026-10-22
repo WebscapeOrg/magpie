@@ -113,6 +113,72 @@ pub(super) fn applies_to_action(action: &str, roles: &Value, membership: Option<
         _ => true,
     }
 }
+fn update_results(
+    result: &Value,
+) -> Result<(Option<&Map<String, Value>>, Option<&Map<String, Value>>), &'static str> {
+    let updated = match &result["updated"] {
+        Value::Null => None,
+        Value::Object(updated) => Some(updated),
+        _ => return Err("jmap_invalid_response"),
+    };
+    let failed = match &result["notUpdated"] {
+        Value::Null => None,
+        Value::Object(failed) => Some(failed),
+        _ => return Err("jmap_invalid_response"),
+    };
+    Ok((updated, failed))
+}
+
+fn updated_ids(result: &Value, expected: &[String]) -> Result<Vec<String>, &'static str> {
+    let (updated, failed) = update_results(result)?;
+    let mut seen = std::collections::HashSet::new();
+    for id in updated
+        .into_iter()
+        .chain(failed)
+        .flat_map(|results| results.keys())
+    {
+        if !expected.contains(id) || !seen.insert(id) {
+            return Err("jmap_invalid_response");
+        }
+    }
+    if seen.len() != expected.len() {
+        return Err("jmap_invalid_response");
+    }
+    Ok(expected
+        .iter()
+        .filter(|id| updated.is_some_and(|results| results.contains_key(*id)))
+        .cloned()
+        .collect())
+}
+
+fn destroyed(result: &Value, expected: &str) -> Result<(), &'static str> {
+    let accepted = match &result["destroyed"] {
+        Value::Null => &[][..],
+        Value::Array(accepted) => accepted.as_slice(),
+        _ => return Err("jmap_cleanup_failed"),
+    };
+    let failed = match &result["notDestroyed"] {
+        Value::Null => None,
+        Value::Object(failed) => Some(failed),
+        _ => return Err("jmap_cleanup_failed"),
+    };
+    if accepted.len() + failed.map_or(0, Map::len) != 1 {
+        return Err("jmap_cleanup_failed");
+    }
+    if accepted
+        .first()
+        .is_some_and(|id| id.as_str() == Some(expected))
+        || failed.is_some_and(|failed| {
+            failed
+                .get(expected)
+                .is_some_and(|error| error["type"] == "notFound")
+        })
+    {
+        return Ok(());
+    }
+    Err("jmap_cleanup_failed")
+}
+
 impl Session {
     /// Internal mail executor: targets were already expanded and filtered by
     /// the reviewed action plan. Never consult mutable membership caches here.
@@ -164,32 +230,7 @@ impl Session {
                     )
                     .await?;
                 let result = argument(&reply, "0", "Email/set")?;
-                let updated = match &result["updated"] {
-                    Value::Null => None,
-                    Value::Object(map) => Some(map),
-                    _ => return Err("jmap_invalid_response"),
-                };
-                let failed = match &result["notUpdated"] {
-                    Value::Null => None,
-                    Value::Object(map) => Some(map),
-                    _ => return Err("jmap_invalid_response"),
-                };
-                let mut seen = std::collections::HashSet::new();
-                for id in updated.into_iter().chain(failed).flat_map(|m| m.keys()) {
-                    if !chunk.contains(id) || !seen.insert(id) {
-                        return Err("jmap_invalid_response");
-                    }
-                }
-                if seen.len() != chunk.len() {
-                    return Err("jmap_invalid_response");
-                }
-                Ok::<_, &'static str>(
-                    chunk
-                        .iter()
-                        .filter(|id| updated.is_some_and(|m| m.contains_key(*id)))
-                        .cloned()
-                        .collect::<Vec<_>>(),
-                )
+                updated_ids(result, chunk)
             }
             .await;
             match result {
@@ -265,6 +306,8 @@ impl Session {
                     let update: Map<String, Value> = chunk.iter().cloned().collect();
                     let reply=self.api(context,snapshot,json!([["Email/set",{"accountId":snapshot.account,"update":update},"0"]]),false).await?;
                     let result = argument(&reply, "0", "Email/set")?;
+                    let expected: Vec<_> = chunk.iter().map(|(id, _)| id.clone()).collect();
+                    updated_ids(result, &expected)?;
                     if let Some(errors) = result["notUpdated"].as_object() {
                         for error in errors.values() {
                             if !(targets.len() > 1 && error["type"] == "notFound") {
@@ -440,12 +483,17 @@ impl Session {
         )?;
         mailbox::active(context)?;
         let retired = context.retired.clone();
+        let rejected = context.rejected.clone();
+        let expected = id.to_owned();
         let client = self.client.as_ref().map_err(|e| *e)?.clone();
         let slots = snapshot.slots.clone();
         tokio::spawn(async move {
             let _slot = slots.acquire().await.map_err(|_| "session_failed")?;
             if retired.load(std::sync::atomic::Ordering::Acquire) {
                 return Err("jmap_cancelled");
+            }
+            if rejected.load(std::sync::atomic::Ordering::Acquire) {
+                return Err("jmap_unauthorized");
             }
             let reply = execute(&client, request).await?;
             if reply["status"] != 200 {
@@ -454,13 +502,7 @@ impl Session {
             let result: Value =
                 serde_json::from_str(string(&reply["body"])).map_err(|_| "jmap_cleanup_failed")?;
             let args = argument(&result, "0", "Email/set")?;
-            if args["notDestroyed"]
-                .as_object()
-                .is_some_and(|errors| errors.values().any(|v| v["type"] != "notFound"))
-            {
-                return Err("jmap_cleanup_failed");
-            }
-            Ok(())
+            destroyed(args, &expected)
         })
         .await
         .map_err(|_| "worker_failed")?

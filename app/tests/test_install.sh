@@ -92,7 +92,7 @@ entries = {
     "share/applications/omamail.desktop": b"[Desktop Entry]\nType=Application\nName=Synthetic app\nExec=omamail\nIcon=omamail\n",
     "share/icons/hicolor/scalable/apps/omamail.svg": b"<svg/>",
     "release.json": json.dumps({
-        "schemaVersion": 1, "version": metadata_version,
+        "schemaVersion": {"schema-bool": True, "schema-float": 1.0}.get(kind, 1), "version": metadata_version,
         "name": "omamail", "target": target, "topLevel": top,
     }, separators=(",", ":")).encode(),
     "marker": kind.encode(),
@@ -180,7 +180,7 @@ valid_sums=$(write_sums "$valid")
 install_archive "$valid" "$valid_sums" 0.10.1
 assert_old_install
 
-for kind in traversal absolute symlink special duplicate missing top-level target version linux-mailto wrong-binary-arch; do
+for kind in traversal absolute symlink special duplicate missing top-level target version linux-mailto wrong-binary-arch schema-bool schema-float; do
   archive="$temp/fixtures/$kind.tar.gz"
   make_archive "$archive" "$kind" 0.10.1
   sums=$(write_sums "$archive")

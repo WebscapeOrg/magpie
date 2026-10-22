@@ -48,11 +48,82 @@ Item {
     }
   }
 
+  Component {
+    id: configWriterFactory
+    QtObject {
+      property var capabilities: ({agent:false,tray:false,mailto:false,notifications:false})
+      property var callbacks: []
+      property bool accepts: true
+      function writeConfig(name, text, callback) {
+        callbacks = callbacks.concat([callback])
+        return accepts
+      }
+    }
+  }
+
   TestCase {
     name: "ServiceSettings"
 
     function init() {
       shellStore.rejectUpdates = false
+    }
+
+    function test_restart_waits_for_all_config_writes_and_observes_failure() {
+      var service = inactiveService()
+      var writer = createTemporaryObject(configWriterFactory, root)
+      service.platform = writer
+      service.writeConfig("window.json", "{}", function() {})
+      service.writeConfig("calendars.json", "{}", function() {})
+      compare(service.configWrites, 2)
+      verify(service.persistencePending)
+      writer.callbacks[0](true, "")
+      compare(service.configWrites, 1)
+      verify(service.persistencePending)
+      var revision = service.persistenceFailureRevision
+      writer.callbacks[1](false, "Synthetic refused write")
+      compare(service.configWrites, 0)
+      compare(service.persistenceFailureRevision, revision + 1)
+      writer.callbacks[1](false, "Repeated completion")
+      compare(service.configWrites, 0)
+      compare(service.persistenceFailureRevision, revision + 1)
+    }
+
+    function test_refused_config_write_finishes_once_without_stranding_restart() {
+      var service = inactiveService()
+      var writer = createTemporaryObject(configWriterFactory, root)
+      service.platform = writer
+      writer.accepts = false
+      var completed = 0
+      var revision = service.persistenceFailureRevision
+      compare(service.writeConfig("window.json", "{}", function(ok) {
+        compare(ok, false)
+        completed++
+      }), false)
+      compare(service.configWrites, 0)
+      compare(service.persistenceFailureRevision, revision + 1)
+      compare(completed, 1)
+      writer.callbacks[0](false, "Delayed failure")
+      compare(completed, 1)
+    }
+
+    function test_config_helper_start_failure_releases_restart_save_gate() {
+      var service = inactiveService()
+      var completed = 0
+      service.writeConfig("window.json", "{}", function(ok) {
+        compare(ok, false)
+        completed++
+      })
+      compare(service.configWrites, 1)
+      var writer = findChild(service, "configuration-writer")
+      verify(writer)
+      var deadline = findChild(writer, "config-write-start-deadline")
+      verify(deadline)
+      deadline.triggered()
+      compare(writer.running, false)
+      compare(service.configWrites, 0)
+      compare(completed, 1)
+      writer.exited(1)
+      compare(completed, 1)
     }
 
     function test_rejected_setting_save_preserves_preferences_and_reports_failure() {

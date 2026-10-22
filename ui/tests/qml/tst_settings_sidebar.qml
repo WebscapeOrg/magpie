@@ -220,7 +220,7 @@ Item {
       verify(rail && rail.visible, "a wide window has a rail")
       var page = findChild(app, "settings-page")
       var keys = page.sections.map(function(section) { return section.key })
-      compare(keys.join(","), "display,backend,bar,reading,notifications,writing,mailboxes,calendars,oauth")
+      compare(keys.join(","), "restart,display,backend,bar,reading,notifications,writing,mailboxes,calendars,oauth")
       for (var index = 1; index < page.sections.length; index++)
         verify(page.sections[index].y > page.sections[index - 1].y, "sections are laid out top to bottom")
       for (var keyIndex = 0; keyIndex < keys.length; keyIndex++)
@@ -233,7 +233,7 @@ Item {
       var view = settingsScroller()
       verify(view, "the page scrolls inside a Flickable")
       compare(view.contentY, 0)
-      compare(rail.activeKey, "display",
+      compare(rail.activeKey, "restart",
         "the top of the page is the first section, whichever that is")
       compare(app.navKinds.join(","), "list,settings")
 
@@ -259,7 +259,7 @@ Item {
       tryCompare(rail, "activeKey", "oauth")
 
       view.contentY = 0
-      tryCompare(rail, "activeKey", "display")
+      tryCompare(rail, "activeKey", "restart")
       view.contentY = sectionY(page, "mailboxes") + 5
       tryCompare(rail, "activeKey", "mailboxes")
     }

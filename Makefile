@@ -103,6 +103,7 @@ QML_FILES += ui/tests/qml/tst_label_move_picker.qml
 QML_FILES += ui/tests/qml/tst_mail_account_lifecycle.qml
 QML_FILES += ui/tests/qml/tst_service_attachment_owner.qml
 QML_FILES += ui/tests/qml/tst_compose_recovery_attachment_gate.qml
+QML_FILES += ui/backend/RestartController.qml ui/tests/qml/tst_restart_controller.qml
 APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml app/tests/qml/tst_calendar_palette_bindings.qml
 APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)

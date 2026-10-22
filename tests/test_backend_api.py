@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import subprocess
 import signal
+import sqlite3
 import sys
 import tempfile
 
@@ -434,6 +435,11 @@ def main():
              'imap': {'username': 'named@example.org'}},
             {'provider': 'hey', 'email': 'sender@example.org'},
             {'provider': 'outlook', 'email': 'sender@example.org'}]
+        gmail_status_cases = [case for case in contract['contractCases']
+                              if case['name'].startswith('Gmail request status: ')
+                              and (not args.released or case['name'] not in contract['unreleased']['cases'])]
+        accounts.extend({'provider': 'gmail', 'email': case['params']['accountId']}
+                        for case in gmail_status_cases)
         registry.write_text(json.dumps({'version': 1, 'activeId': 'contract@example.org',
                                         'accounts': accounts}))
         registry.chmod(0o600)
@@ -444,6 +450,18 @@ def main():
                 sentinel.parent.chmod(0o700)
             sentinel.write_bytes(b'preserve existing user state\n')
         import hashlib
+        for case in gmail_status_cases:
+            account = case['params']['accountId']
+            folder = state_root / 'omamail/mail' / hashlib.sha256(account.encode()).hexdigest()
+            folder.mkdir(parents=True, mode=0o700)
+            folder.parent.chmod(0o700)
+            database = folder / 'mail.sqlite'
+            with sqlite3.connect(database) as connection:
+                connection.executescript((ROOT / 'src/local_mail/schema.sql').read_text())
+                connection.execute('INSERT INTO state VALUES(?,?)', ('error', case['equals']['error']))
+                connection.execute('INSERT INTO jobs(id,error) VALUES(?,?)', ('synthetic-pending', case['equals']['error']))
+            connection.close()
+            database.chmod(0o600)
         digest = hashlib.sha256()
         for part in ('overviews', 'contract@example.org'):
             encoded = part.encode()

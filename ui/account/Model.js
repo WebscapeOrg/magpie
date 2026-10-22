@@ -806,6 +806,23 @@ function messageById(primary, fallback, id) {
   return index >= 0 ? second[index] : null
 }
 
+function currentFolderName(view) {
+  if (!view) return "Inbox"
+  var labelId = String(view.rawLabelId || "")
+  var labels = view.labels || []
+  for (var labelIndex = 0; labelId !== "" && labelIndex < labels.length; labelIndex++) {
+    if (String(labels[labelIndex].id || "") === labelId)
+      return String(labels[labelIndex].name || labels[labelIndex].rawName || "Mail")
+  }
+  if (view.searchQuery || view.rawQuery) return "Search results"
+  var mailboxes = view.mailboxes || []
+  var key = String(view.mailboxKey || "inbox")
+  for (var mailboxIndex = 0; mailboxIndex < mailboxes.length; mailboxIndex++) {
+    if (mailboxes[mailboxIndex].key === key) return String(mailboxes[mailboxIndex].label)
+  }
+  return key === "inbox" ? "Inbox" : "Mail"
+}
+
 // Invariant: Sidebar badges and digit shortcuts share one displayed order; Ctrl+0 remains reserved for zoom reset.
 function sidebarSlots(mailboxes, labels, limit) {
   var maximum = Math.max(0, Math.floor(Number(limit) || 0))

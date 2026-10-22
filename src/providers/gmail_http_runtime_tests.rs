@@ -1190,9 +1190,16 @@ async fn contract_distinguishes_local_admission_server_refusal_and_cooldown_with
     let fixture =
         crate::mail::tests::account_fixture(serde_json::json!({"version":1,"accounts":[]}));
     let contract: Value = serde_json::from_str(include_str!("../../backend-api.json")).unwrap();
-    let cases = contract["unreleased"]["gmailErrorCases"]
+    let cases: Vec<_> = contract["contractCases"]
         .as_array()
-        .unwrap();
+        .unwrap()
+        .iter()
+        .filter(|case| {
+            case["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("Gmail request status: "))
+        })
+        .collect();
     assert_eq!(cases.len(), 3);
     let body = r#"{"error":{"errors":[{"domain":"usageLimits","reason":"userRateLimitExceeded","message":"synthetic-private-server-detail"}]}}"#;
     let peer = server(
@@ -1219,7 +1226,10 @@ async fn contract_distinguishes_local_admission_server_refusal_and_cooldown_with
     diagnostics::ENABLED
         .scope((), async {
             let outcome = execute(&client, request.clone(), Duration::from_secs(1)).await;
-            assert_eq!(outcome.unwrap_err(), cases[0]["error"].as_str().unwrap());
+            assert_eq!(
+                outcome.unwrap_err(),
+                cases[0]["equals"]["error"].as_str().unwrap()
+            );
             assert_eq!(
                 peer.connections.load(Ordering::SeqCst),
                 0,
@@ -1228,9 +1238,15 @@ async fn contract_distinguishes_local_admission_server_refusal_and_cooldown_with
             drop(held);
             request.budget = Some((Arc::clone(&budget), Lane::Interactive));
             let outcome = execute(&client, request.clone(), Duration::from_secs(1)).await;
-            assert_eq!(outcome.unwrap_err(), cases[1]["error"].as_str().unwrap());
+            assert_eq!(
+                outcome.unwrap_err(),
+                cases[1]["equals"]["error"].as_str().unwrap()
+            );
             let outcome = execute(&client, request, Duration::from_secs(1)).await;
-            assert_eq!(outcome.unwrap_err(), cases[2]["error"].as_str().unwrap());
+            assert_eq!(
+                outcome.unwrap_err(),
+                cases[2]["equals"]["error"].as_str().unwrap()
+            );
         })
         .await;
     assert_eq!(
@@ -1252,10 +1268,19 @@ async fn contract_distinguishes_local_admission_server_refusal_and_cooldown_with
     }
     let rows: Value = serde_json::from_str(&saved).unwrap();
     assert_eq!(rows.as_array().unwrap().len(), cases.len());
-    for (row, case) in rows.as_array().unwrap().iter().zip(cases) {
-        assert_eq!(row["reason"], case["reason"]);
-        assert_eq!(row["status"], case["status"]);
-        assert_eq!(row["outcome"], case["error"]);
-        assert_eq!(case["retryable"], true);
+    for (index, (row, case)) in rows.as_array().unwrap().iter().zip(cases).enumerate() {
+        assert_eq!(
+            row["reason"],
+            ["localBudget", "userRateLimitExceeded", "serverCooldown"][index]
+        );
+        assert_eq!(
+            row["status"],
+            if index == 1 {
+                serde_json::json!(403)
+            } else {
+                Value::Null
+            }
+        );
+        assert_eq!(row["outcome"], case["equals"]["error"]);
     }
 }

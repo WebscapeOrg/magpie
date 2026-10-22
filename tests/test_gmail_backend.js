@@ -187,13 +187,13 @@ for (const [info,expected] of [
 }
 console.log('Gmail deletion uses only the confirmed API contract and preserves error reasons')
 
-const gmailErrors = JSON.parse(fs.readFileSync(require("path").join(__dirname,"../backend-api.json"),"utf8")).unreleased.gmailErrorCases
+const gmailErrors = JSON.parse(fs.readFileSync(require("path").join(__dirname,"../backend-api.json"),"utf8")).contractCases.filter(fixture => fixture.name.startsWith("Gmail request status: "))
 context.backend.apiVersion = 8
 for (const fixture of gmailErrors) {
-  const text = context.backendError({message:fixture.error}, "gmail.get")
-  assert(text.includes(fixture.error === "gmail_request_deferred" ? "Magpie is spacing out" : "Gmail is limiting"))
+  const text = context.backendError({message:fixture.equals.error}, "gmail.get")
+  assert(text.includes(fixture.equals.error === "gmail_request_deferred" ? "Magpie is spacing out" : "Gmail is limiting"))
 }
 assert(!context.backendError({message:"gmail_rate_limited"},"gmail.get").includes("Gmail"), "ambiguous legacy errors do not blame Gmail")
 context.backend.apiVersion = 7
 for (const fixture of gmailErrors)
-  assert.strictEqual(context.backendError({message:fixture.error}, "gmail.get"), "Gmail backend could not complete this request", "new classification requires API 8")
+  assert.strictEqual(context.backendError({message:fixture.equals.error}, "gmail.get"), "Gmail backend could not complete this request", "new classification requires API 8")

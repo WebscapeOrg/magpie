@@ -10,6 +10,8 @@ BorderSurface {
   property string text: ""
   property string iconText: ""
   property string tooltipText: ""
+  property real tooltipMaximumWidth: 0
+  property bool tooltipBelow: false
 
   property bool selected: false
   property bool active: false
@@ -114,9 +116,17 @@ BorderSurface {
   Behavior on color { ColorAnimation { duration: 120 } }
 
   ToolTip {
+    id: buttonTooltip
     visible: root.tooltipText !== "" && (mouseArea.containsMouse || root.activeFocus)
     text: root.tooltipText
+    width: root.tooltipMaximumWidth > 0 ? Math.min(implicitWidth, root.tooltipMaximumWidth) : implicitWidth
     delay: 400
+    Binding {
+      target: buttonTooltip
+      property: "y"
+      when: root.tooltipBelow
+      value: root.height + MailStyle.space(4)
+    }
     padding: 0
     background: BorderSurface {
       color: root.tooltipBackground
@@ -129,6 +139,7 @@ BorderSurface {
       color: root.tooltipForeground
       font.family: root.fontFamily
       font.pixelSize: MailStyle.bodySmall
+      wrapMode: root.tooltipMaximumWidth > 0 ? Text.Wrap : Text.NoWrap
       leftPadding: Border.left(root._tooltipBorderSpec) + Style.spacing.controlPaddingX
       rightPadding: Border.right(root._tooltipBorderSpec) + Style.spacing.controlPaddingX
       topPadding: Border.top(root._tooltipBorderSpec) + Style.spacing.controlPaddingY

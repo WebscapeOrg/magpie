@@ -133,7 +133,7 @@ Search includes aggregate All Mail destinations and excludes Trash/Junk membersh
 
 The unreleased API 8 contract also includes `local.*` replica/watch/intent methods, `reader.prefetch`, account-scoped attachment import/preview/download/retain, `outbox.compose`, `draft.compose`, `calendar.read` and `calendar.parse`. Current QML gates these dependencies on revision 8; the pinned release continues to use its existing paths. `calendar-shared` is a separate cache namespace. See [local mail](LOCAL-MAIL.md) for durable-data and retry semantics. These changes do not update `backend-version` or install a development binary.
 
-API 8 distinguishes `gmail_request_deferred` (Magpie deferred a request before HTTP) from `gmail_server_rate_limited` (Google refused a request, or an active cooldown follows that refusal). Both are retryable within the existing bounded queue and sync schedules. API-7 `gmail_rate_limited` and persisted earlier API-8 values remain ambiguous, so the UI describes those without attributing the limit to Gmail. The named `unreleased.gmailErrorCases` fixtures are exercised by the Gmail transport and QML error tests; these semantics do not change the released binary pin.
+API 8 distinguishes `gmail_request_deferred` (Magpie deferred a request before HTTP) from `gmail_server_rate_limited` (Google refused a request, or an active cooldown follows that refusal). Both are retryable within the existing bounded queue and sync schedules. API-7 `gmail_rate_limited` and persisted earlier API-8 values remain ambiguous, so the UI describes those without attributing the limit to Gmail. The named `Gmail request status` contract cases are listed under `unreleased.cases` and exercised by the private-replica API gate, Gmail transport and QML error tests; these semantics do not change the released binary pin.
 
 
 ## Released and unreleased: one step ahead of the pin
@@ -266,6 +266,8 @@ The native standalone job runs this platform gate before its archive can become 
 Current integrated-checkout audit on 2026-09-14: macOS arm64, Linux x86_64, and Windows x64 are **NOT VERIFIED** until the corresponding `release/**` native jobs complete for this exact commit. Local macOS results may establish part of the boundary evidence, but they do not exercise Linux Secret Service/DBus, Windows Credential Manager/named pipes/ACLs, or clean hosted-runner install and notification activation on those systems. Do not treat this documentation commit or the presence of workflow definitions as a hosted-runner result.
 
 ## Local verification
+
+Settings → Restart saves pending draft, account and window changes, stops the mail engine, verifies the installed executable and starts it again. The existing Magpie window stays open on the same workspace with its size, layout and draft intact. Installation hot-reloads interface updates separately; Restart does not restart Quickshell or other desktop plugins. If saving or validation fails, the window stays open with a message explaining why the restart stopped.
 
 For the standalone host, run `make app-build` to build and `make app-run` to launch from source resources. Linux and macOS builds include the native AI feature; Windows continues to omit its runtime capability. `make test-app-qml` builds the host and runs its composition test. A fuller local native check is:
 

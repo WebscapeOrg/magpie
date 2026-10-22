@@ -20,6 +20,7 @@ class SettingsTest : public QObject {
 private slots:
     void initTestCase();
     void atomicSettingsRoundTrip();
+    void sharedPreferencesSurviveHostReload();
     void invalidJsonIsPreserved();
     void rejectsCredentialAndUnknownFields();
     void fileStoreReadsWritesAndWatches();
@@ -62,6 +63,38 @@ void SettingsTest::atomicSettingsRoundTrip()
     QVERIFY(!permissions.testFlag(QFileDevice::ReadGroup));
     QVERIFY(!permissions.testFlag(QFileDevice::ReadOther));
 #endif
+}
+
+void SettingsTest::sharedPreferencesSurviveHostReload()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("settings.json"));
+    const QString manifest = QDir(QStringLiteral(OMAMAIL_SOURCE_ROOT))
+                                 .filePath(QStringLiteral("manifest.json"));
+    ApplicationHost host(manifest, {}, path);
+    QVariantMap preferences = host.settings();
+    QVERIFY(preferences.contains(QStringLiteral("refreshIntervalSec")));
+    preferences.insert(QStringLiteral("appearance"), QStringLiteral("Dark"));
+    preferences.insert(QStringLiteral("calendarRemindersEnabled"), false);
+    preferences.insert(QStringLiteral("calendarSnoozeMinutes"), 15);
+    preferences.insert(QStringLiteral("aiAgent"), QStringLiteral("Codex"));
+    preferences.insert(QStringLiteral("aiModel"), QStringLiteral("synthetic-model"));
+    preferences.insert(QStringLiteral("aiChatResetAt"), qint64(1792616400000));
+    QSignalSpy changed(&host, &ApplicationHost::settingsChanged);
+    QVERIFY(host.updateSettings(preferences));
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(host.settings(), preferences);
+    ApplicationHost reloaded(manifest, {}, path);
+    QCOMPARE(reloaded.settings(), preferences);
+
+    QVariantMap forbidden = preferences;
+    forbidden.insert(QStringLiteral("refreshToken"), QStringLiteral("synthetic-secret"));
+    QVERIFY(!host.updateSettings(forbidden));
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(host.settings(), preferences);
+    SettingsStore store(path);
+    QCOMPARE(store.load(), preferences);
 }
 
 void SettingsTest::invalidJsonIsPreserved()

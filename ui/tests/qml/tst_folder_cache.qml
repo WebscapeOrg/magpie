@@ -1,4 +1,4 @@
-// Real IMAP cache and label migration, with only backend RPC stubbed.
+
 import QtQuick
 import QtTest
 import "transports.js" as Transports

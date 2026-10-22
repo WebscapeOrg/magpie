@@ -3,7 +3,7 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
 
-// First run has no mailbox to fall back to, so a setup form is the whole
+// Invariant: First run has no mailbox to fall back to, so a setup form is the whole
 // window. The one place behind it is the question it answered — which kind of
 // mailbox — and that has to stay reachable: a sole account that was saved but
 // never signed in (a Gmail address on the IMAP form, say) used to trap the
@@ -100,7 +100,6 @@ Item {
     property var selectedBody: null
     property var selectedMessage: null
 
-    // What the window asked of the account list, in order.
     property var log: []
     property string lastAddedProvider: ""
     property var lastConfigured: null
@@ -189,9 +188,6 @@ Item {
       return !!item && typeof item.currentSettings === "function"
     }
 
-    // The JMAP form, told apart from the IMAP one by the function only it has:
-    // discovery is what makes its server field optional, and it is the one
-    // page that plans a server before it saves anything.
     function isJmapForm(item) {
       return !!item && typeof item.plannedServer === "function"
     }
@@ -211,8 +207,7 @@ Item {
     }
 
     function test_saved_but_unsigned_sole_account_can_go_back_to_the_chooser() {
-      // A saved IMAP row with a valid server is "setup underway": its form
-      // opens directly, not the chooser.
+
       verify(isImapForm(page()), "the IMAP form opens for the saved row")
 
       var back = named(app, "page-back")
@@ -253,7 +248,7 @@ Item {
       verify(isPicker(page()), "and the question is asked again, not the IMAP form")
     }
 
-    // The address that got the user here in the first place. Google refuses
+    // Invariant: The address that got the user here in the first place. Google refuses
     // the account password over IMAP, so the form has to say so as soon as a
     // Gmail address is typed, and hand over the page that explains what to
     // make instead.
@@ -275,10 +270,6 @@ Item {
       verify(/^https:\/\/support\.google\.com\//.test(guide.tooltipText), "opening Google's own page")
     }
 
-    // A JMAP mailbox is added the same way every other kind is, and the page
-    // it opens has to keep the two ways out: Back to the chooser, and Remove
-    // for a row that was saved but never signed in. A sole account trapped on
-    // its own form with neither is the defect this whole test exists for.
     function test_jmap_kind_opens_its_own_page_and_keeps_back_and_remove() {
       mailService.hasSavedAccounts = false
       fakeAuth.credentialsPresent = false
@@ -295,8 +286,6 @@ Item {
       verify(isJmapForm(page()), "the JMAP form opens, not the IMAP one")
       verify(!isImapForm(page()))
 
-      // Two fields and a disclosure: the address and the secret are all it
-      // asks for, and the server lives behind "Server settings".
       verify(named(app, "jmap-address-field"), "the page asks for an address")
       verify(named(app, "jmap-secret-field"), "and for one secret")
       var server = named(app, "jmap-server-field")
@@ -310,9 +299,6 @@ Item {
       verify(isPicker(page()), "Back leads to the provider chooser")
     }
 
-    // Remove is the other way out, and it is drawn by the page rather than by
-    // the window — a JMAP row that was saved and never signed in must not be
-    // the one page with no way off it.
     function test_jmap_page_offers_remove_beside_another_mailbox() {
       named(app, "page-back").activated()
       page().chosen("jmap")
@@ -335,13 +321,13 @@ Item {
     }
 
     function test_first_run_draft_switches_kind_in_place() {
-      // Nothing saved yet: the first-run row only needs its kind.
+
       mailService.hasSavedAccounts = false
       fakeAuth.credentialsPresent = false
       mailService.providerId = "gmail"
       waitForRendering(app)
       verify(isPicker(page()), "first run opens on the chooser")
-      // `visible` reads effective visibility, so this fails if the page
+      // Invariant: `visible` reads effective visibility, so this fails if the page
       // holding the chooser is hidden — a chooser that exists but is not
       // drawn is a blank window.
       verify(page().visible, "and the chooser is actually drawn")

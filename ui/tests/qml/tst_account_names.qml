@@ -2,13 +2,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Omamail
 
-// A named mailbox in the switcher.
-//
-// The address was the only thing here, deliberately: the only name available
-// was the local part, and two mailboxes easily share one across different
-// domains. A name somebody typed is the opposite case — it exists precisely to
-// tell them apart — so it leads, and the address moves below rather than being
-// lost.
 Item {
   width: 600
   height: 400
@@ -69,7 +62,6 @@ Item {
         "the address moves down rather than being lost")
     }
 
-    // An empty name is not a name, so nothing changes for that mailbox.
     function test_an_unnamed_mailbox_is_unchanged() {
       var all = rows()
       compare(all[1].named, false)
@@ -78,7 +70,7 @@ Item {
         "it has already said everything its address says")
     }
 
-    // A name never hides a reason the mailbox cannot be used: the second line
+    // Invariant: A name never hides a reason the mailbox cannot be used: the second line
     // is that reason first and the address only when there is nothing wrong.
     function test_a_reason_it_cannot_be_used_beats_the_address() {
       var all = rows()
@@ -90,7 +82,7 @@ Item {
       compare(all[3].secondaryText, "the server refused that")
     }
 
-    // The avatar follows the name, because an initial taken from the address
+    // Invariant: The avatar follows the name, because an initial taken from the address
     // would not match the word above it.
     function test_the_initial_follows_the_name() {
       var all = rows()

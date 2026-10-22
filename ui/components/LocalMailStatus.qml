@@ -8,6 +8,7 @@ Column {
   required property color textColor
   required property color dimColor
   required property string panelFontFamily
+  property bool searchActive: false
   readonly property var status: mailbox ? mailbox.status : ({})
   visible: !!mailbox && mailbox.available
     && (mailbox.error !== "" || !!status.error || status.paused === true || !status.complete || Number(status.pendingEdits || 0) > 0
@@ -56,7 +57,7 @@ Column {
     Accessible.role: Accessible.StaticText
     Accessible.name: text
     width: parent.width
-    visible: !!root.mailbox && !root.status.complete
+    visible: !root.searchActive && !!root.mailbox && !root.status.complete
     textFormat: Text.PlainText
     text: "Local search covers downloaded text. Files download when opened."
     color: root.dimColor
@@ -90,6 +91,7 @@ Column {
     }
     Widgets.Button {
       text: "Search online"
+      visible: !root.searchActive
       focusable: true
       foreground: root.textColor
       fontSize: MailStyle.caption

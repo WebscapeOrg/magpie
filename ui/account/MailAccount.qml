@@ -9,6 +9,7 @@ import "../message/Calendar.js" as Calendar
 import "../message/Unsubscribe.js" as Unsub
 import "../message/Outbox.js" as Outbox
 import "Model.js" as Model
+import "SearchState.js" as SearchState
 import "Accounts.js" as Accounts
 import "Aliases.js" as Aliases
 import "../providers/Registry.js" as Provider
@@ -20,6 +21,13 @@ Item {
   id: root
   readonly property var local: localMailbox
   LocalMailbox { id: localMailbox; account: root }
+  readonly property var submittedSearch: submittedSearchSession
+  property bool legacySearchStopped: false
+  readonly property var searchStatus: submittedSearchSession.active || submittedSearchSession.phase !== ""
+    ? submittedSearchSession.status : searchQuery !== "" && rawQuery === ""
+    ? SearchState.status(legacySearchStopped ? "stopped" : listLoading ? "checking" : lastError ? "failed" : "complete", lastError, "", 0)
+    : SearchState.status("", "", "", 0)
+  SubmittedSearch { id: submittedSearchSession; account: root }
   AccountResources { id: resources; account: root }
 
   visible: false
@@ -362,8 +370,9 @@ Item {
     : Provider.mailboxFor(providerId, mailboxKey).query
   readonly property bool hasMore: nextPageToken !== ""
   // Invariant: Cached search rows may be visible while the server continues extending the result.
-  readonly property bool serverSearchLoading: searchQuery !== ""
-    && rawQuery === "" && listLoading
+  readonly property bool serverSearchLoading: submittedSearchSession.active
+    ? submittedSearchSession.phase === "checking"
+    : searchQuery !== "" && rawQuery === "" && listLoading && !localMailbox.available
   readonly property string resultSummary: Model.resultSummary(messages, resultEstimate, hasMore)
   readonly property string barTooltip: Model.barTooltip(setupState, accountEmail, inboxUnread,
     Provider.badge(providerId), Provider.authKind(providerId))
@@ -417,8 +426,13 @@ Item {
     actionStatus = ""
   }
 
-  function refresh() {
+  function refresh(explicitSearch) {
     if (!ready) return
+    if (explicitSearch === true) legacySearchStopped = false
+    if (submittedSearchSession.active && explicitSearch === true) {
+      submittedSearchSession.start(effectiveQuery)
+      return
+    }
     refreshCounts()
     labelActions.refreshMonitored()
     if (active && (windowOpen || !listLoaded)) loadMessages(false)
@@ -668,6 +682,11 @@ Item {
   }
 
   function loadMessages(append, skipCache, preservedError) {
+    if (submittedSearchSession.active) {
+      if (append) submittedSearchSession.loadMore()
+      else submittedSearchSession.refreshSaved()
+      return
+    }
     // Invariant: Pending optimistic edits defer same-query refreshes; navigation to another cache key may still load.
     if (!ready) return
     if (rawQuery === "" && searchRaw === "" && providerQueryNeedsResolution
@@ -2133,6 +2152,7 @@ Item {
   function selectMailbox(key) {
     providerLabelSerial++
     providerQuerySerial++
+    submittedSearchSession.clear()
     if (mailboxKey === key && searchQuery === "" && rawQuery === "") return
     mailboxKey = String(key || "inbox")
     searchQuery = ""
@@ -2148,38 +2168,83 @@ Item {
   }
 
   // Invariant: App-built raw queries bypass typed-search conversion.
-  function search(text, raw) {
-    providerLabelSerial++
-    var serial = ++providerQuerySerial
+  function search(text, raw, reference) {
+    var referenceTime = Number(reference) || Date.now()
     var query = String(text || "").trim()
     var built = String(raw || "").trim()
-    if (query === searchQuery && built === searchRaw && rawQuery === "") return
+    if (submittedSearchSession.available && query !== "" && built === "") {
+      if (query === submittedSearchSession.requestedQuery && (submittedSearchSession.phase === "local"
+          || submittedSearchSession.phase === "checking" || submittedSearchSession.phase === "preparing")) return
+      submittedSearchSession.prepare(query, referenceTime)
+    } else if (query === searchQuery && built === searchRaw && rawQuery === ""
+        && submittedSearchSession.phase === "") return
+    providerLabelSerial++
+    var serial = ++providerQuerySerial
     if (query !== "" && built === "") {
       if (!backend || !backend.ready) return
       var boundAccount = accountId
       var input = providerQueryInput
-      backend.call("providers.resolve", {provider: providerId, operation: "query", mailbox: mailboxKey,
-        search: query, defaultQuery: defaultQuery}, function(result, error) {
-        if (serial !== root.providerQuerySerial || boundAccount !== root.accountId
+      var parameters = {provider: providerId, operation: "query", mailbox: mailboxKey,
+        search: query, defaultQuery: defaultQuery}
+      if (submittedSearchSession.available) { parameters.accountId = accountId; parameters.asOf = referenceTime }
+      backend.call("providers.resolve", parameters, function(result, error) {
+        if (!root || serial !== root.providerQuerySerial || boundAccount !== root.accountId
             || input !== root.providerQueryInput) return
-        if (error) { root.note("Could not prepare this search"); return }
-        root.applySearch(query, String((result || {}).value || ""))
+        if (error) {
+          if (root.submittedSearch.available) root.submittedSearch.reject("Could not prepare this search. Try again.")
+          else root.note("Could not prepare this search")
+          return
+        }
+        if (root.submittedSearch.available && result && result.search && result.search.valid === false) {
+          root.submittedSearch.reject(String(result.search.message || "Check quotes, groups and filter values, then try again."))
+          return
+        }
+        root.applySearch(query, String((result || {}).value || ""), referenceTime)
       })
       return
     }
-    applySearch(query, built)
+    applySearch(query, built, referenceTime)
   }
 
-  function applySearch(query, built) {
+  signal searchStarted()
+
+  function applySearch(query, built, reference) {
+    searchStarted()
+    legacySearchStopped = false
+    var changed = query !== searchQuery || built !== searchRaw || rawQuery !== ""
+    submittedSearchSession.clear()
     searchQuery = query
     searchRaw = built
     rawQuery = ""
     rawLabelId = ""
-    clearSelection()
-    messages = []
-    loadedDepth = 0
-    listLoaded = false
+    if (changed) {
+      clearSelection()
+      messages = []
+      loadedDepth = 0
+      listLoaded = false
+    }
+    if (query !== "" && submittedSearchSession.available) {
+      submittedSearchSession.start(effectiveQuery, reference)
+      return
+    }
     loadMessages(false)
+  }
+
+  function stopSearch() {
+    if (submittedSearchSession.active || submittedSearchSession.phase !== "") { submittedSearchSession.stop(); return }
+    if (!searchQuery || rawQuery) return
+    providerQuerySerial++
+    listSerial++
+    abortRequest(listHandle)
+    listHandle = null
+    listLoading = false
+    legacySearchStopped = true
+  }
+  function retrySearch() {
+    if (submittedSearchSession.active || submittedSearchSession.phase !== "") { submittedSearchSession.retry(); return }
+    if (!searchQuery || rawQuery || listLoading) return
+    legacySearchStopped = false
+    loadMessages(false, true)
   }
 
   function selectLabel(name, labelId) {
@@ -2193,6 +2258,7 @@ Item {
       var query = String((result || {}).value || "")
       var id = String(labelId || "")
       if (query === "" || (query === root.rawQuery && id === root.rawLabelId)) return
+      root.submittedSearch.clear()
       root.searchQuery = ""
       root.searchRaw = ""
       root.rawQuery = query

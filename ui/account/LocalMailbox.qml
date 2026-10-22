@@ -79,6 +79,7 @@ Item {
     })
   }
   function searchOnline() {
+    if (account.submittedSearch.active) { account.retrySearch(); return }
     onlineSearch = true
     onlineQuery = account.effectiveQuery
     account.loadMessages(false,true)
@@ -150,10 +151,13 @@ Item {
       root.status = parameters.status || ({})
       if (parameters.changed) root.refreshOverview(false)
       if (previous.pendingEdits !== root.status.pendingEdits) root.refreshEdits()
-      if (root.account.active && root.account.windowOpen && !root.account.listLoading
+      if (root.account.active && root.account.windowOpen && (!root.account.listLoading || root.account.submittedSearch.active)
           && (previous.stored !== root.status.stored || previous.pendingEdits !== root.status.pendingEdits
             || parameters.changed === true)) refreshList.start()
     }
   }
-  Timer { id: refreshList; interval: 150; onTriggered: root.account.loadMessages(false,true) }
+  Timer { id: refreshList; interval: 150; onTriggered: {
+    if (root.account.submittedSearch.active) root.account.submittedSearch.refreshSaved()
+    else root.account.loadMessages(false,true)
+  } }
 }

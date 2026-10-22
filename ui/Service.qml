@@ -16,6 +16,7 @@ import "agent/Agent.js" as Agent
 import "account/Accounts.js" as Accounts
 import "account/Model.js" as Model
 import "account/Unified.js" as Unified
+import "account/SearchState.js" as SearchState
 import "providers/Registry.js" as Provider
 import "providers/Credentials.js" as CredentialKeys
 import "providers/Secrets.js" as SecretText
@@ -758,7 +759,12 @@ Item {
       : findAccount(activeAccountId)
     // Invariant: Setup must still resolve a host before its account has an ID.
     if (!next && accountHosts.count > 0) next = accountHosts.objectAt(0)
-    if (next !== current) current = next
+    if (next !== current) {
+      searchPreparationSerial++
+      searchPreparation = null
+      if (!unified && current && current.submittedSearch.active) current.stopSearch()
+      current = next
+    }
     applyLiveHosts()
   }
 
@@ -776,7 +782,18 @@ Item {
   }
 
   // Invariant: Unified mode changes active hosts without changing the current account.
-  onUnifiedChanged: { applyLiveHosts(); scheduleUnifiedSnapshot() }
+  onUnifiedChanged: {
+    searchPreparationSerial++
+    searchPreparation = null
+    submittedUnifiedQuery = ""
+    searchParticipantIds = null
+    searchGmailOnly = false
+    eachHost(function(host) {
+      host.stopSearch()
+      if (root.unified || host === root.current) host.selectMailbox(root.unified ? root.unifiedMailboxKey : host.mailboxKey)
+    })
+    applyLiveHosts(); scheduleUnifiedSnapshot()
+  }
 
   // Invariant: Account caches and queued sends survive visible-account switches.
   function switchTo(id) {
@@ -1293,6 +1310,7 @@ Item {
     for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
       if (!accounts[accountIndex].id) continue
       var host = accountHosts.objectAt(accountIndex)
+      if (!searchParticipant(host)) continue
       result.push({
         id: accounts[accountIndex].id,
         label: Accounts.label(accounts[accountIndex]),
@@ -1312,6 +1330,7 @@ Item {
     for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
       if (!accounts[accountIndex].id) continue
       var host = accountHosts.objectAt(accountIndex)
+      if (!searchParticipant(host)) continue
       result.push({
         label: Accounts.label(accounts[accountIndex]),
         loading: !!(host && host.listLoading),
@@ -1333,6 +1352,7 @@ Item {
     for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
       if (!accounts[accountIndex].id) continue
       var host = accountHosts.objectAt(accountIndex)
+      if (!searchParticipant(host)) continue
       result.push({
         archive: !!(host && host.canArchive),
         spam: !!(host && host.canReportSpam),
@@ -1635,9 +1655,84 @@ Item {
       root.conversationProjection = result
     })
   }
-  // Invariant: Unified searches forward the same text to every account; the visible account supplies the displayed query.
-  readonly property string searchQuery: current ? current.searchQuery : ""
-  readonly property string rawQuery: current ? current.rawQuery : ""
+  property int searchGeneration: 0
+  property int searchPreparationSerial: 0
+  property var searchPreparation: null
+  property string preparingSearchQuery: ""
+  property string submittedUnifiedQuery: ""
+  property var searchParticipantIds: null
+  property bool searchGmailOnly: false
+  readonly property string searchQuery: unified ? submittedUnifiedQuery : current ? current.searchQuery : ""
+  readonly property bool searchActive: searchQuery !== ""
+  readonly property bool searchAssistanceAvailable: {
+    if (!backend || !backend.ready || Number(backend.apiVersion) < 8) return false
+    if (!unified) return !!current && current.providerId === "gmail"
+    var accounts = accountList ? accountList.accounts : []
+    for (var index = 0; index < accounts.length; index++) if (accounts[index].provider === "gmail") return true
+    return false
+  }
+  readonly property var searchOperators: searchAssistanceAvailable ? Provider.get("gmail").searchOperators : []
+  readonly property var searchLabels: {
+    var observed = listEpoch
+    var seen = Object.create(null)
+    var result = []
+    eachHost(function(host) {
+      if ((!root.unified && host !== root.current) || host.providerId !== "gmail") return
+      var labels = host.labels || []
+      for (var index = 0; index < labels.length; index++) {
+        var name = String(labels[index].name || labels[index].id || "")
+        if (!name || seen[name]) continue
+        seen[name] = true
+        result.push({name:name})
+      }
+    })
+    return result
+  }
+  function searchParticipant(host) {
+    return !!host && (!unified || searchParticipantIds === null
+      || searchParticipantIds.indexOf(String(host.accountId || "")) >= 0)
+  }
+  readonly property var searchStatus: {
+    if (searchPreparation) return searchPreparation
+    if (!unified) return current ? current.searchStatus : SearchState.status("", "", "", 0)
+    var observed = listEpoch
+    if (!submittedUnifiedQuery) return SearchState.status("", "", "", 0)
+    var states = [], total = 0
+    eachHost(function(host) {
+      if (!host.accountId) return
+      total++
+      if (!root.searchParticipant(host)) return
+      var state = Object.assign({}, host.searchStatus)
+      state.label = host.accountEmail || host.accountId
+      states.push(state)
+    })
+    var scope = searchGmailOnly
+      ? "Gmail accounts · " + states.length + " of " + total + " accounts searched"
+      : "All accounts · " + states.length + " accounts searched"
+    var result = SearchState.aggregate(states, scope)
+    if (!searchGmailOnly && result.phase === "complete") result.text = "Search complete." + SearchState.pendingText(result.pendingCount)
+    if (!searchGmailOnly && result.phase === "checking") result.text = "Searching accounts…" + SearchState.pendingText(result.pendingCount)
+    return result
+  }
+  function stopSearch() {
+    searchPreparationSerial++
+    if (searchPreparation && searchPreparation.phase === "preparing")
+      searchPreparation = SearchState.status("stopped", "", "", 0)
+    if (!unified) { if (current) current.stopSearch(); return }
+    eachHost(function(host) { if (root.searchParticipant(host)) host.stopSearch() })
+  }
+  function retrySearch() {
+    if (searchPreparation && searchPreparation.phase === "stopped" && preparingSearchQuery) {
+      var pendingQuery = preparingSearchQuery
+      searchPreparation = null
+      search(pendingQuery)
+      return
+    }
+    searchPreparation = null
+    if (!unified) { if (current) current.retrySearch(); return }
+    eachHost(function(host) { if (root.searchParticipant(host) && host.searchStatus.canRetry) host.retrySearch() })
+  }
+  readonly property string rawQuery: unified || !current ? "" : current.rawQuery
   readonly property string rawLabelId: unified || !current ? "" : current.rawLabelId
   readonly property bool listLoading: unified
     ? !!unifiedSnapshot.loading : (!!current && current.listLoading)
@@ -1652,7 +1747,13 @@ Item {
     ? !!unifiedSnapshot.hasMore : (!!current && current.hasMore)
   readonly property bool selectionIsPreview: !!reading && reading.selectionIsPreview
 
-  readonly property string resultSummary: current ? current.resultSummary : ""
+  readonly property string resultSummary: {
+    if (!unified) return current ? current.resultSummary : ""
+    var observed = listEpoch
+    var estimate = 0
+    eachHost(function(host) { if (root.searchParticipant(host)) estimate += Number(host.resultEstimate || 0) })
+    return Model.resultSummary(unifiedMessages, estimate, hasMore)
+  }
   // Invariant: reading owns all message details, independently of which account supplies the visible list.
   readonly property var reading: unified ? selectionHost : current
 
@@ -1778,11 +1879,12 @@ Item {
   readonly property string syncedLabel: current ? current.syncedLabel : ""
 
   function refresh() {
+    if (searchActive) searchGeneration++
     if (!unified) {
-      if (current) current.refresh()
+      if (current) current.refresh(true)
       return
     }
-    eachHost(function(host) { host.refresh() })
+    eachHost(function(host) { if (root.searchParticipant(host)) host.refresh(true) })
   }
   // Invariant: Extend every incomplete source before merging beyond the oldest visible row of the shortest source.
   function loadMore() {
@@ -1790,7 +1892,7 @@ Item {
       if (current) current.loadMore()
       return
     }
-    eachHost(function(host) { if (host.hasMore) host.loadMore() })
+    eachHost(function(host) { if (root.searchParticipant(host) && host.hasMore) host.loadMore() })
   }
   function select(id, previewOnly) {
     if (!unified) {
@@ -1834,6 +1936,12 @@ Item {
     return current ? current.cursorOffset(cursorId, delta) : ""
   }
   function selectMailbox(key) {
+    searchPreparationSerial++
+    searchPreparation = null
+    submittedUnifiedQuery = ""
+    searchParticipantIds = null
+    searchGmailOnly = false
+    searchGeneration++
     if (!unified) {
       if (current) current.selectMailbox(key)
       return
@@ -1843,12 +1951,51 @@ Item {
     eachHost(function(host) { host.selectMailbox(key) })
   }
   function search(text) {
+    var query = String(text || "").trim()
     if (!unified) {
-      if (current) current.search(text)
+      searchPreparation = null
+      if (current) current.search(query)
       return
     }
-    eachHost(function(host) { host.search(text) })
+    if ((query === submittedUnifiedQuery && searchStatus.canStop)
+        || (query === preparingSearchQuery && searchPreparation && searchPreparation.phase === "preparing")) return
+    var serial = ++searchPreparationSerial
+    if (!query || !searchAssistanceAvailable) {
+      submitUnifiedSearch(query, false)
+      return
+    }
+    preparingSearchQuery = query
+    var reference = Date.now()
+    searchPreparation = SearchState.status("preparing", "", "", 0)
+    backend.call("providers.resolve", {provider:"gmail",operation:"query",mailbox:"inbox",search:query,asOf:reference}, function(result, failure) {
+      if (!root || !root.unified || serial !== root.searchPreparationSerial) return
+      if (failure || !result) {
+        root.searchPreparation = SearchState.status("invalid", "Could not prepare this search. Try again.", "", 0)
+        return
+      }
+      var preparation = result.search || {}
+      if (preparation.valid === false) {
+        root.searchPreparation = SearchState.status("invalid", String(preparation.message || "Check quotes, groups and filter values, then try again."), "local_search_invalid", 0)
+        return
+      }
+      root.submitUnifiedSearch(query, preparation.structured === true, reference)
+    })
   }
+  function submitUnifiedSearch(query, gmailOnly, reference) {
+    searchPreparation = null
+    searchGeneration++
+    submittedUnifiedQuery = query
+    var ids = []
+    eachHost(function(host) { if ((!gmailOnly || host.providerId === "gmail") && host.accountId) ids.push(String(host.accountId)) })
+    searchGmailOnly = gmailOnly
+    searchParticipantIds = query ? ids : null
+    eachHost(function(host) {
+      if (root.searchParticipant(host)) host.search(query, "", reference)
+      else host.stopSearch()
+    })
+    bumpListEpoch()
+  }
+
   readonly property bool canManageLabels: !!current && current.labelActions.canManageLabels
 
   // Invariant: Deferred label actions retain the opening account ID because IMAP folder IDs can collide. Only an omitted account ID resolves to current.
@@ -1900,6 +2047,9 @@ Item {
   }
   // Invariant: Label selection retains both display name and provider ID and requires a single-account view.
   function selectLabel(name, labelId) {
+    searchPreparationSerial++
+    searchPreparation = null
+    searchGeneration++
     if (current && !unified) current.selectLabel(name, labelId)
   }
   // Invariant: Capability refusals come from the row's owning provider, not the visible account.
@@ -2317,6 +2467,9 @@ Item {
       onMonitoredMigrated: function(ids) { root.setMonitoredIds(index, ids) }
 
       // Performance: List updates invalidate unified projections without rebuilding sender identities.
+      onSearchStarted: { if (!root.unified) root.searchGeneration++ }
+      onSearchStatusChanged: root.bumpListEpoch()
+      onLabelsChanged: root.bumpListEpoch()
       onMessagesChanged: root.bumpListEpoch()
       onListLoadingChanged: root.bumpListEpoch()
       onListLoadedChanged: root.bumpListEpoch()

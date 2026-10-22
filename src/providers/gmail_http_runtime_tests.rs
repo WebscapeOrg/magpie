@@ -100,6 +100,137 @@ fn get_request() -> Request {
 }
 
 #[tokio::test]
+async fn gmail_search_keeps_query_bytes_and_only_includes_explicit_spam_or_trash() {
+    use crate::mail::tests::{account_fixture, fixture_tree, isolated};
+    use serde_json::json;
+    if isolated() {
+        return;
+    }
+    let fixture = account_fixture(json!({"version":1,"activeId":"search@example.org",
+        "accounts":[{"provider":"gmail","email":"search@example.org"}]}));
+    let directory = crate::platform::private_fs::directories(
+        &fixture.config,
+        &[crate::platform::dirs::APP_DIRECTORY],
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    crate::platform::private_fs::atomic_replace(
+        &directory,
+        "credentials.json",
+        json!({"installed":{"client_id":"123-search.apps.googleusercontent.com",
+            "client_secret":"synthetic-client-secret"}})
+        .to_string()
+        .as_bytes(),
+    )
+    .unwrap();
+    let _credential =
+        crate::credentials::tests::isolated_store(crate::credentials::tests::SingleCredential {
+            key: crate::credentials::CredentialKey {
+                provider: "gmail".into(),
+                account_id: "search@example.org".into(),
+                kind: crate::credentials::CredentialKind::GoogleRefreshToken {
+                    client_id: "123-search.apps.googleusercontent.com".into(),
+                },
+            },
+            secret: crate::credentials::Secret::new(b"synthetic-refresh-token".to_vec()).unwrap(),
+        });
+    let queries = [
+        ("invoice", false),
+        ("in:anywhere invoice", true),
+        ("in:spam", true),
+        ("in:trash", true),
+        ("-in:spam", false),
+        (r#"subject:"in:anywhere""#, false),
+        (r#"label:"Work (2026)" OR in:trash"#, true),
+        (
+            r#"label:"é\"\\folder" subject:"$()`echo ignored` & x=1#fragment""#,
+            false,
+        ),
+    ];
+    let body = json!({"access_token":"synthetic-access-token","expires_in":3600,
+        "messages":[{"id":"confirmed","threadId":"thread"}]})
+    .to_string();
+    let peer = server(
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes(),
+        Duration::ZERO,
+    )
+    .await;
+    let transport = client_builder().https_only(false).build().unwrap();
+    let origin = peer.url.strip_suffix("/messages/abc").unwrap().to_owned();
+    let before = fixture_tree(&fixture.root);
+    with_test_transport(transport, origin, async {
+        let session = crate::providers::gmail::Session::default();
+        for suffix in ["\r", "\n", "\r\n", "\0", "\t", "\u{7f}"] {
+            assert_eq!(
+                session
+                    .call(
+                        "gmail.list",
+                        &json!({"accountId":"search@example.org",
+                "query":format!("from:me{suffix}")})
+                    )
+                    .await,
+                Err("invalid_params")
+            );
+        }
+        assert!(
+            peer.requests.lock().unwrap().is_empty(),
+            "invalid queries must not refresh credentials or issue a list request"
+        );
+        assert_eq!(fixture_tree(&fixture.root), before);
+        for (query, _) in queries {
+            let response = session
+                .call(
+                    "gmail.list",
+                    &json!({"accountId":"search@example.org",
+                "query":query,"pageSize":25,"pageToken":"token&not=a-parameter"}),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response["ids"], json!(["confirmed"]));
+        }
+    })
+    .await;
+    let requests = peer.requests.lock().unwrap();
+    assert_eq!(
+        requests.len(),
+        queries.len() + 1,
+        "one credential refresh and one request per submitted query"
+    );
+    for ((query, include), request) in queries.iter().zip(requests.iter().skip(1)) {
+        let target = request.lines().next().unwrap().split(' ').nth(1).unwrap();
+        let url = reqwest::Url::parse(&format!("http://controlled.invalid{target}")).unwrap();
+        assert_eq!(url.path(), "/gmail/v1/users/me/messages");
+        let params: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(params.get("q").map(String::as_str), Some(*query));
+        assert_eq!(
+            params.get("pageToken").map(String::as_str),
+            Some("token&not=a-parameter")
+        );
+        assert_eq!(
+            params.get("includeSpamTrash").map(String::as_str),
+            include.then_some("true")
+        );
+        assert_eq!(params.len(), if *include { 4 } else { 3 });
+        assert!(request.contains("\r\nauthorization: Bearer synthetic-access-token\r\n"));
+        assert!(
+            !request.contains("synthetic-client-secret")
+                && !request.contains("synthetic-refresh-token")
+        );
+        assert!(request.ends_with("\r\n\r\n"));
+    }
+    assert_eq!(
+        fixture_tree(&fixture.root),
+        before,
+        "search must not write mailbox or credential state"
+    );
+}
+
+#[tokio::test]
 async fn mail_send_preview_reads_google_identity_without_mutation_or_local_writes() {
     use crate::mail::tests::{account_fixture, fixture_tree, isolated};
     use serde_json::json;

@@ -462,6 +462,31 @@ def main():
                 connection.execute('INSERT INTO jobs(id,error) VALUES(?,?)', ('synthetic-pending', case['equals']['error']))
             connection.close()
             database.chmod(0o600)
+        summary_cases = [case for case in contract['contractCases']
+                         if case['name'] == 'Local summaries return cached effective labels and query matches'
+                         and (not args.released or case['name'] not in contract['unreleased']['cases'])]
+        if summary_cases:
+            folder = state_root / 'omamail/mail' / hashlib.sha256(b'contract@example.org').hexdigest()
+            folder.mkdir(parents=True, mode=0o700)
+            folder.parent.chmod(0o700)
+            database = folder / 'mail.sqlite'
+            summary = {'id': 'search-cached', 'threadId': 'search-thread',
+                       'subject': 'Synthetic invoice', 'unread': True,
+                       'labelIds': ['INBOX', 'UNREAD']}
+            with sqlite3.connect(database) as connection:
+                connection.executescript((ROOT / 'src/local_mail/schema.sql').read_text())
+                connection.execute('INSERT INTO messages(id,thread_id,date,summary,blob,server_labels,sender,recipients,copied,subject,filenames,has_attachment,text_complete) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                                   ('search-cached', 'search-thread', 1792662000000, json.dumps(summary),
+                                    '0' * 64, '["INBOX","UNREAD"]', 'sender@example.org',
+                                    'contract@example.org', '', 'Synthetic invoice', '', 0, 1))
+                connection.execute('INSERT INTO labels VALUES(?,?)', ('search-cached', 'INBOX'))
+                connection.execute('INSERT INTO edits(ticket,id,additions,removals,before_labels) VALUES(?,?,?,?,?)',
+                                   ('contract-search-edit', 'search-cached', '[]', '["UNREAD"]', '["INBOX","UNREAD"]'))
+                connection.execute('INSERT INTO search(id,subject,sender,recipients,copied,filenames,body) VALUES(?,?,?,?,?,?,?)',
+                                   ('search-cached', 'Synthetic invoice', 'sender@example.org',
+                                    'contract@example.org', '', '', 'Synthetic saved message'))
+            connection.close()
+            database.chmod(0o600)
         digest = hashlib.sha256()
         for part in ('overviews', 'contract@example.org'):
             encoded = part.encode()

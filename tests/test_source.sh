@@ -698,7 +698,7 @@ awk '
   || fail "ordinary metadata reads must detect holes and close paging"
 grep -Fq 'let (mut matches, dates) = scan?;' ../src/providers/imap/read.rs \
   || fail "an IMAP failure before SEARCH answers must keep the cached preview"
-grep -q 'callback(ordered, firstError)' providers/GmailApiClient.qml \
+grep -Fq 'callback(ordered, firstError, firstDetail)' providers/GmailApiClient.qml \
   || fail "Gmail must report partial metadata failures"
 grep -q 'Some messages could not be loaded' providers/ImapClient.qml \
   || fail "native IMAP partial metadata failures must reach the UI"

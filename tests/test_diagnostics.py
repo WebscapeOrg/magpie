@@ -57,7 +57,8 @@ class Diagnostics(unittest.TestCase):
 
     def test_backend_provider_identifiers_survive_redaction(self):
         codes = ['gmail_http_failed', 'calendar_auth_refused', 'upload_capacity_exceeded',
-                 'invalid_upload_encoding', 'gmail_request_deferred', 'gmail_server_rate_limited']
+                 'invalid_upload_encoding', 'gmail_request_deferred', 'gmail_server_rate_limited',
+                 'local_search_invalid', 'local_search_unsupported', 'local_search_too_long']
         self.call('record', [self.event(code) for code in codes])
         data = (self.folder / 'errors.json').read_text()
         for code in codes:

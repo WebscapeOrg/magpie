@@ -209,7 +209,7 @@
       "operation": "labelQuery",
       "value": " Old Mail "
     },
-    "expected": "label:Old Mail"
+    "expected": "label:\"Old Mail\""
   },
   {
     "params": {
@@ -233,7 +233,7 @@
       "operation": "labelQuery",
       "value": "é\"\\folder"
     },
-    "expected": "label:é\"\\folder"
+    "expected": "label:\"é\\\"\\\\folder\""
   },
   {
     "params": {
@@ -257,7 +257,7 @@
       "operation": "labelQuery",
       "value": "123:456"
     },
-    "expected": "label:123:456"
+    "expected": "label:\"123:456\""
   },
   {
     "params": {

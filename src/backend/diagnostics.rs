@@ -52,6 +52,9 @@ fn error_code(error: &str) -> &str {
         | "local_owner_unavailable"
         | "local_edit_id_conflict"
         | "local_edit_already_started"
+        | "local_search_unsupported"
+        | "local_search_invalid"
+        | "local_search_too_long"
         | "cache_unsafe_path"
         | "cache_unavailable"
         | "private_fs_busy"
@@ -210,6 +213,17 @@ mod tests {
         let value = serde_json::to_value(&event).unwrap();
         assert_eq!(value.as_object().unwrap().len(), 9);
         assert_eq!(error_code("local_disk_full"), "local_disk_full");
+        for code in [
+            "local_search_unsupported",
+            "local_search_invalid",
+            "local_search_too_long",
+        ] {
+            assert_eq!(error_code(code), code);
+            assert_eq!(
+                error_code(&format!("{code}: from:private@example.org")),
+                "unknown_error"
+            );
+        }
         assert_eq!(
             error_code("secret@example.org\nBearer private"),
             "unknown_error"

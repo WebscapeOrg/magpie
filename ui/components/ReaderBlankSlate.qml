@@ -5,6 +5,7 @@ import qs.Ui
 import "../account/Model.js" as Model
 import "../providers/Registry.js" as Provider
 import "../keys/Keymap.js" as Keymap
+import "../search/Presentation.js" as SearchPresentation
 
 Item {
   id: root
@@ -74,14 +75,16 @@ Item {
     }
 
     Text {
+      objectName: "reader-empty-status"
       width: parent.width
       horizontalAlignment: Text.AlignHCenter
       text: {
         if (!root.service) return ""
-        if (root.service.listLoading && root.service.messages.length === 0) return "Fetching the mailbox"
-        if (root.empty) return root.searching ? "Nothing matches that search" : "Nothing here"
+        if (root.service.messages.length === 0) return SearchPresentation.emptyText(
+          root.service.searchStatus, root.service.listLoading, root.service.listLoaded, root.searching)
         return "Pick a message to read it"
       }
+      textFormat: Text.PlainText
       color: root.dimColor
       font.family: root.panelFontFamily
       font.pixelSize: MailStyle.bodySmall

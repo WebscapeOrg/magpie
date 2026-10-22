@@ -5,6 +5,8 @@ mod provider_tests;
 #[cfg(test)]
 mod recovery_tests;
 mod search;
+#[cfg(test)]
+mod search_api_tests;
 mod store;
 mod sync;
 #[cfg(test)]
@@ -22,6 +24,37 @@ use store::Store;
 
 pub(crate) fn text_complete(resource: &Value) -> bool {
     content::extract(resource).complete
+}
+
+pub(crate) fn search_metadata(input: &str, email: &str, as_of: i64) -> Value {
+    if input.len() > 8192 {
+        return json!({"valid":false,"localSupported":false,"structured":search::is_structured(input),"error":"local_search_too_long","message":"Use a shorter search (up to 8,192 bytes)."});
+    }
+    let result = search::parse_with_context(input, email, as_of);
+    let error = result.as_ref().err().copied();
+    json!({
+        "valid": error != Some("local_search_invalid"),
+        "localSupported": result.is_ok(),
+        "structured": search::is_structured(input),
+        "error": error.filter(|error| *error != "local_search_unsupported"),
+        "message": search::diagnostic(input, email, as_of).unwrap_or("")
+    })
+}
+
+pub(crate) fn include_spam_trash(input: &str) -> bool {
+    search::include_spam_trash(input)
+}
+
+fn search_time(params: &Value) -> Result<Option<i64>, &'static str> {
+    params
+        .get("asOf")
+        .map(|value| {
+            value
+                .as_i64()
+                .filter(|value| (0..=9_007_199_254_740_991).contains(value))
+                .ok_or("invalid_params")
+        })
+        .transpose()
 }
 
 #[derive(Default)]
@@ -302,7 +335,15 @@ fn strings(params: &Value, key: &str, limit: usize) -> Result<Vec<String>, &'sta
 
 fn validate(method: &str, params: &Value, internal: bool) -> Result<(), &'static str> {
     let allowed: &[&str] = match method {
-        "local.list" => &["accountId", "query", "limit", "pageToken"],
+        "local.list" => &["accountId", "query", "limit", "pageToken", "asOf"],
+        "local.summaries" => &[
+            "accountId",
+            "ids",
+            "query",
+            "asOf",
+            "includePending",
+            "pendingPageToken",
+        ],
         "local.status" | "local.edits" | "local.overview" => &["accountId"],
         "local.labelCounts" => &["accountId", "id"],
         "local.pause" => &["accountId", "paused"],
@@ -324,8 +365,41 @@ fn validate(method: &str, params: &Value, internal: bool) -> Result<(), &'static
         return Err("invalid_params");
     }
     field(params, "accountId")?;
-    if method == "local.list" {
-        super::local_mail::search::parse(params["query"].as_str().ok_or("invalid_params")?)?;
+    if method == "local.list" || method == "local.summaries" {
+        let as_of = search_time(params)?.unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let query = if method == "local.list" {
+            params["query"].as_str().ok_or("invalid_params")?
+        } else {
+            params
+                .get("query")
+                .map_or(Some(""), Value::as_str)
+                .ok_or("invalid_params")?
+        };
+        match search::parse_with_context(query, field(params, "accountId")?, as_of) {
+            Err("local_search_unsupported") if method == "local.summaries" => (),
+            result => {
+                result?;
+            }
+        }
+    }
+    if method == "local.summaries" {
+        let ids = strings(params, "ids", 100)?;
+        if ids.iter().collect::<std::collections::HashSet<_>>().len() != ids.len() {
+            return Err("invalid_params");
+        }
+        let include_pending = params
+            .get("includePending")
+            .map_or(Some(false), Value::as_bool)
+            .ok_or("invalid_params")?;
+        if let Some(token) = params.get("pendingPageToken") {
+            let token = token
+                .as_str()
+                .filter(|token| token.len() <= 4096)
+                .ok_or("invalid_params")?;
+            if !include_pending && !token.is_empty() {
+                return Err("invalid_params");
+            }
+        }
     }
     if method == "local.pause" && !params["paused"].is_boolean() {
         return Err("invalid_params");
@@ -371,8 +445,22 @@ fn execute(store: &Store, method: &str, params: &Value) -> Result<Value, &'stati
                 .get("pageToken")
                 .map_or(Some(""), Value::as_str)
                 .ok_or("invalid_params")?;
-            store.list(query, limit, cursor)
+            store.list_at(
+                query,
+                limit,
+                cursor,
+                field(params, "accountId")?,
+                search_time(params)?,
+            )
         }
+        "local.summaries" => store.summaries(
+            field(params, "accountId")?,
+            &strings(params, "ids", 100)?,
+            params.get("query").and_then(Value::as_str),
+            search_time(params)?,
+            params["includePending"].as_bool().unwrap_or(false),
+            params["pendingPageToken"].as_str().unwrap_or(""),
+        ),
         "local.resource" => Ok(store
             .complete_resource(field(params, "id")?)?
             .unwrap_or(Value::Null)),

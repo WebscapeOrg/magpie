@@ -193,6 +193,7 @@
     "jmap.stream.close",
     "reader.prefetch",
     "local.list",
+    "local.summaries",
     "local.status",
     "local.overview",
     "local.edits",
@@ -2145,6 +2146,238 @@
         "pending": 1,
         "failed": 1
       }
+    },
+    {
+      "name": "Gmail search advertises its operator catalogue",
+      "method": "providers.snapshot",
+      "params": {},
+      "equals": {
+        "gmail.searchSyntax": "gmail",
+        "gmail.searchOperators.0.operator": "from",
+        "gmail.searchOperators.0.primary": true,
+        "gmail.searchOperators.10.operator": "newer_than",
+        "gmail.searchOperators.10.primary": false
+      },
+      "types": {
+        "gmail.searchOperators": "array"
+      }
+    },
+    {
+      "name": "Gmail query preparation recognizes supported structured search",
+      "method": "providers.resolve",
+      "params": {
+        "provider": "gmail",
+        "operation": "query",
+        "accountId": "reader@example.org",
+        "asOf": 1792665600000,
+        "search": "from:me (is:unread OR subject:invoice) newer_than:7d"
+      },
+      "equals": {
+        "value": "from:me (is:unread OR subject:invoice) newer_than:7d",
+        "search.valid": true,
+        "search.localSupported": true,
+        "search.structured": true,
+        "search.error": null
+      }
+    },
+    {
+      "name": "Gmail query preparation sends valid unsupported syntax online",
+      "method": "providers.resolve",
+      "params": {
+        "provider": "gmail",
+        "search": "larger:1M"
+      },
+      "equals": {
+        "value": "larger:1M",
+        "search.valid": true,
+        "search.localSupported": false,
+        "search.structured": true,
+        "search.error": null
+      }
+    },
+    {
+      "name": "Gmail query preparation identifies plain text search",
+      "method": "providers.resolve",
+      "params": {
+        "provider": "gmail",
+        "search": "invoice"
+      },
+      "equals": {
+        "value": "invoice",
+        "search.valid": true,
+        "search.localSupported": true,
+        "search.structured": false
+      }
+    },
+    {
+      "name": "Gmail query preparation reports malformed supported syntax",
+      "method": "providers.resolve",
+      "params": {
+        "provider": "gmail",
+        "search": "from:"
+      },
+      "equals": {
+        "value": "from:",
+        "search.valid": false,
+        "search.localSupported": false
+      },
+      "types": {
+        "search.error": "string"
+      }
+    },
+    {
+      "name": "Gmail query preparation rejects untyped reference time",
+      "method": "providers.resolve",
+      "params": {
+        "provider": "gmail",
+        "search": "newer_than:7d",
+        "asOf": "today"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Gmail label query quotes spaces and query punctuation",
+      "method": "providers.resolve",
+      "params": {
+        "provider": "gmail",
+        "operation": "labelQuery",
+        "value": "Work (2026)"
+      },
+      "equals": {
+        "value": "label:\"Work (2026)\""
+      }
+    },
+    {
+      "name": "Local summaries reject duplicated IDs before storage",
+      "method": "local.summaries",
+      "params": {
+        "accountId": "missing@example.org",
+        "ids": [
+          "same",
+          "same"
+        ]
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Local summaries reject untyped pending selection before storage",
+      "method": "local.summaries",
+      "params": {
+        "accountId": "missing@example.org",
+        "ids": [],
+        "includePending": "yes"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Local summaries reject unsafe reference time before storage",
+      "method": "local.summaries",
+      "params": {
+        "accountId": "missing@example.org",
+        "ids": [],
+        "asOf": 9007199254740992
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Local summaries reject foreign account paths before storage",
+      "method": "local.summaries",
+      "params": {
+        "accountId": "../foreign@example.org",
+        "ids": [
+          "one"
+        ]
+      },
+      "errorCode": -32000,
+      "equals": {
+        "message": "local_account_unknown"
+      }
+    },
+    {
+      "name": "Local summaries return cached effective labels and query matches",
+      "method": "local.summaries",
+      "params": {
+        "accountId": "contract@example.org",
+        "ids": [
+          "search-cached",
+          "search-missing"
+        ],
+        "query": "is:read",
+        "asOf": 1792665600000,
+        "includePending": true
+      },
+      "equals": {
+        "summaries.0.id": "search-cached",
+        "summaries.0.subject": "Synthetic invoice",
+        "summaries.0.labelIds": [
+          "INBOX"
+        ],
+        "summaries.0.unread": false,
+        "summaries.0.pendingEdit": true,
+        "summaries.0.matchesQuery": true,
+        "missingIds": [
+          "search-missing"
+        ],
+        "asOf": 1792665600000,
+        "pendingNextPageToken": "",
+        "summaries.0.pendingLabelMatch": true
+      }
+    },
+    {
+      "name": "Local list anchors relative searches and returns effective labels",
+      "method": "local.list",
+      "params": {
+        "accountId": "contract@example.org",
+        "query": "newer_than:1d is:read",
+        "asOf": 1792665600000,
+        "limit": 25
+      },
+      "equals": {
+        "summaries.0.id": "search-cached",
+        "summaries.0.unread": false,
+        "summaries.0.pendingEdit": true,
+        "nextPageToken": "",
+        "asOf": 1792665600000
+      }
+    },
+    {
+      "name": "Local summaries preserve unknown query matches for online syntax",
+      "method": "local.summaries",
+      "params": {
+        "accountId": "contract@example.org",
+        "ids": [
+          "search-cached"
+        ],
+        "query": "larger:1M",
+        "asOf": 1792665600000
+      },
+      "equals": {
+        "summaries.0.id": "search-cached",
+        "summaries.0.pendingEdit": true,
+        "summaries.0.matchesQuery": null,
+        "missingIds": [],
+        "pendingNextPageToken": "",
+        "summaries.0.pendingLabelMatch": null
+      }
+    },
+    {
+      "name": "Local summaries include active edits omitted by the server snapshot",
+      "method": "local.summaries",
+      "params": {
+        "accountId": "contract@example.org",
+        "ids": [],
+        "query": "is:read",
+        "asOf": 1792665600000,
+        "includePending": true
+      },
+      "equals": {
+        "summaries.0.id": "search-cached",
+        "summaries.0.pendingEdit": true,
+        "summaries.0.matchesQuery": true,
+        "missingIds": [],
+        "pendingNextPageToken": "",
+        "summaries.0.pendingLabelMatch": true
+      }
     }
   ],
   "unreleased": {
@@ -2158,6 +2391,7 @@
       "attachment.thumbnail",
       "reader.prefetch",
       "local.list",
+      "local.summaries",
       "local.status",
       "local.overview",
       "local.edits",
@@ -2221,7 +2455,22 @@
       "Attachment recovery rejects an oversized pending queue",
       "Gmail request status: local admission",
       "Gmail request status: server refusal",
-      "Gmail request status: server cooldown"
+      "Gmail request status: server cooldown",
+      "Gmail search advertises its operator catalogue",
+      "Gmail query preparation recognizes supported structured search",
+      "Gmail query preparation sends valid unsupported syntax online",
+      "Gmail query preparation identifies plain text search",
+      "Gmail query preparation reports malformed supported syntax",
+      "Gmail query preparation rejects untyped reference time",
+      "Gmail label query quotes spaces and query punctuation",
+      "Local summaries reject duplicated IDs before storage",
+      "Local summaries reject untyped pending selection before storage",
+      "Local summaries reject unsafe reference time before storage",
+      "Local summaries reject foreign account paths before storage",
+      "Local summaries return cached effective labels and query matches",
+      "Local list anchors relative searches and returns effective labels",
+      "Local summaries preserve unknown query matches for online syntax",
+      "Local summaries include active edits omitted by the server snapshot"
     ]
   }
 }

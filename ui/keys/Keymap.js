@@ -3,7 +3,7 @@
 // Invariant: this table is the shared authority for shortcut dispatch, help and status hints.
 
 // Invariant: one active context determines bindings; stale hidden focus must not enable shortcuts.
-var CONTEXTS = ["list", "reader", "search", "compose", "eventCompose", "eventGuests", "page", "calendar", "assistant", "assistantCommands"]
+var CONTEXTS = ["list", "reader", "search", "searchSuggestions", "compose", "eventCompose", "eventGuests", "page", "calendar", "assistant", "assistantCommands"]
 
 var MAIL = ["list", "reader"]
 var ANY = ["*"]
@@ -133,6 +133,11 @@ var BINDINGS = [
 
   { id: "askAgent", keys: ["Alt+G"], contexts: ["list", "reader", "compose"],
     group: "Acting", label: "Ask AI about the message or draft" },
+  { id: "searchSuggestionNext", keys: ["Down"], contexts: ["searchSuggestions"], group: "Search", label: "Next search suggestion" },
+  { id: "searchSuggestionPrevious", keys: ["Up"], contexts: ["searchSuggestions"], group: "Search", label: "Previous search suggestion" },
+  { id: "searchSuggestionComplete", keys: ["Tab"], contexts: ["searchSuggestions"], group: "Search", label: "Complete the search suggestion" },
+  { id: "searchSuggestionAccept", keys: ["Return", "Enter"], contexts: ["searchSuggestions"], group: "Search", label: "Complete the selected suggestion or search" },
+
   { id: "assistantSend", keys: ["Return", "Enter", "Ctrl+Return", "Ctrl+Enter"], contexts: ["assistant", "assistantCommands"],
     sequenceContexts: { "Return": ["assistant"], "Enter": ["assistant"] },
     group: "AI", label: "Send the AI message" },
@@ -179,7 +184,7 @@ function contextFor(state) {
   if (value.showPage) return "page"
   if (value.eventComposing) return value.guestSuggestions ? "eventGuests" : "eventCompose"
   if (value.composing) return "compose"
-  if (value.searchFocused) return "search"
+  if (value.searchFocused) return value.searchSuggestions ? "searchSuggestions" : "search"
   if (value.calendarVisible) return "calendar"
   if (value.currentView === "reader") return "reader"
   return "list"

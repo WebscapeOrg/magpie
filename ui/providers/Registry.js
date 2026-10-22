@@ -72,6 +72,8 @@ function define(source) {
     unavailable: String(raw.UNAVAILABLE || ""),
     capabilities: capabilities(facts.capabilities),
     addressSearch: facts.addressSearch === true,
+    searchSyntax: String(facts.searchSyntax || ""),
+    searchOperators: Array.isArray(facts.searchOperators) ? facts.searchOperators : [],
     inheritedDefault: String(facts.inheritedDefault || ""),
     mailboxes: boxes,
     webHomeUrl: function() { return String(facts.webHomeUrl || "") },

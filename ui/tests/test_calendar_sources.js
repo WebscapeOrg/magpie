@@ -40,7 +40,7 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(sources.keyringAttributes("next
 ])
 assert.strictEqual(
   sources.sourceId({ kind: "caldav", url: "https://nextcloud.example/dav/me/personal/" }),
-  "caldav:nextcloud-example-dav-me-personal")
+  'caldav:["https://nextcloud.example/dav/me/personal",""]')
 assert.strictEqual(sources.sourceId({ kind: "google", accountId: "me@gmail.com" }),
   "google:me@gmail.com")
 

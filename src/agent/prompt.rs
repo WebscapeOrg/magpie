@@ -37,7 +37,7 @@ pub(super) fn turn(
                 }
             }
         } else {
-            // An explicitly removed comparison record must not erase refreshed
+            // Invariant: An explicitly removed comparison record must not erase refreshed
             // context. This is a context update, never a replay of chat history.
             for key in [
                 "draft",

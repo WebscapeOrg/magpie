@@ -107,7 +107,7 @@ pub(super) fn private_descriptor() -> Result<LocalAllocation> {
 }
 
 fn trusted(sid: PSID, user: &[u32]) -> bool {
-    // Windows servicing owns some volume/system ancestors as TrustedInstaller.
+    // Invariant: Windows servicing owns some volume/system ancestors as TrustedInstaller.
     let installer: Vec<_> = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
         .encode_utf16()
         .chain(Some(0))
@@ -173,7 +173,7 @@ pub(super) fn validate(handle: HANDLE, private: bool) -> Result<()> {
             return Err("cache_unsafe_path");
         }
         let header = unsafe { &*ace.cast::<ACE_HEADER>() };
-        // Unknown/callback/object ACEs are refused, never interpreted as harmless.
+        // Invariant: Unknown/callback/object ACEs are refused, never interpreted as harmless.
         if header.AceType != 0 /* ACCESS_ALLOWED_ACE_TYPE */ && header.AceType != 1
         /* ACCESS_DENIED_ACE_TYPE */
         {

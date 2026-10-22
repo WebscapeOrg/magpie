@@ -93,7 +93,7 @@ fn collect(store: &super::storage::Store, id: &str, history: bool) -> Result<Val
             .as_array()
             .filter(|a| a.len() <= MAX_PROPOSALS)
             .ok_or("agent_invalid_proposal")?;
-        // Traverse newest turns first, but reverse proposals within each turn
+        // Invariant: Traverse newest turns first, but reverse proposals within each turn
         // too: the final reversal must preserve tool invocation order.
         for (index, proposal) in list.iter().enumerate().rev() {
             validate(&json!({"subject":proposal["subject"],"body":proposal["body"]}))?;
@@ -111,7 +111,7 @@ fn collect(store: &super::storage::Store, id: &str, history: bool) -> Result<Val
                 envelope(saved, &job["accountId"], &job["draftKey"])?;
                 item["envelope"] = saved.clone();
             }
-            // The projection includes app-owned attachments, so account for the
+            // Invariant: The projection includes app-owned attachments, so account for the
             // complete item, not just the model's small subject/body record.
             budget += serde_json::to_vec(&item)
                 .map_err(|_| "agent_invalid_proposal")?

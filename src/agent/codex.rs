@@ -3,7 +3,7 @@
 use std::{fs::File, io::Read, path::PathBuf};
 pub struct Profile(toml_edit::DocumentMut);
 
-// Rebuild primitives rather than formatting source values: toml_edit preserves
+// Invariant: Rebuild primitives rather than formatting source values: toml_edit preserves
 // comments and whitespace, which must never be copied from config into argv.
 fn setting(key: &str, item: &toml_edit::Item) -> Result<toml_edit::Value, &'static str> {
     match key {
@@ -105,7 +105,7 @@ fn configure_provider(
 impl Profile {
     pub fn configure(&self, command: &mut std::process::Command) -> Result<(), &'static str> {
         let source = &self.0;
-        // --ignore-user-config also ignores named profiles in current Codex.
+        // Invariant: --ignore-user-config also ignores named profiles in current Codex.
         // Only these non-secret scalar choices can safely cross argv.
         for key in [
             "model",
@@ -180,7 +180,7 @@ impl Profile {
                 selected[key] = value.clone();
             }
         }
-        // Transport formatting is not authority and is needed by local providers.
+        // Invariant: Transport formatting is not authority and is needed by local providers.
         if let Some(value) = source
             .get("features")
             .and_then(|features| features.get("enable_request_compression"))

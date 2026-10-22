@@ -169,7 +169,7 @@ fn call_at(root: &Path, params: &Value) -> Result<Value> {
         }
     } else {
         let id = params["key"].as_str().unwrap();
-        // One action owns one reminder, including entries from an older ledger
+        // Invariant: One action owns one reminder, including entries from an older ledger
         // that grouped unrelated events under relatedKeys.
         let record = entries.get_mut(id).ok_or("calendar_reminder_not_found")?;
         record["pending"] = json!(params["operation"] != "dismiss");
@@ -195,7 +195,7 @@ mod tests {
     use super::*;
 
     fn fixture_root(name: &str) -> std::path::PathBuf {
-        // macOS exposes its temporary directory through /var, a symlink to
+        // Invariant: macOS exposes its temporary directory through /var, a symlink to
         // /private/var. Resolve the trusted fixture parent before exercising
         // the production no-symlink storage boundary.
         let root = std::env::temp_dir()
@@ -206,7 +206,7 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            // CI may use a group-writable umask; the fixture itself must obey
+            // Invariant: CI may use a group-writable umask; the fixture itself must obey
             // the same private-directory policy as the real config root.
             std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
@@ -260,7 +260,7 @@ mod tests {
                 .is_empty()
         );
 
-        // An older ledger may still carry a bundled action target. It must not
+        // Invariant: An older ledger may still carry a bundled action target. It must not
         // let dismissing one event overwrite the other event's later snooze.
         let path = root.join("omamail/calendar-reminders.json");
         let mut ledger: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();

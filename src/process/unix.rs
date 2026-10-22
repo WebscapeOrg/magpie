@@ -49,7 +49,7 @@ pub fn run(
                     Err(_) => return Err("process_input_failed"),
                 }
             }
-            // One bounded read per stream per iteration: continuous output must
+            // Performance: One bounded read per stream per iteration: continuous output must
             // not starve input, stderr draining, or the deadline check.
             for (pipe, done, capture) in [
                 (&mut stdout as &mut dyn Read, &mut out_done, true),
@@ -101,12 +101,11 @@ pub fn run(
             }
         }
     })();
-    // Closing our nonblocking handles needs no worker join. Even a descendant
+    // Invariant: Closing our nonblocking handles needs no worker join. Even a descendant
     // that escaped the process group cannot retain a reader past the deadline.
     drop(stdin);
     drop(stdout);
     drop(stderr);
-    // ManagedChild also kills descendants after a successful parent exit.
     drop(child);
     result
 }
@@ -187,7 +186,7 @@ mod unix_tests {
             1024,
         );
         assert_eq!(result, Err("process_timed_out"));
-        // The escaped synthetic child exits by itself; our deadline must not
+        // Invariant: The escaped synthetic child exits by itself; our deadline must not
         // wait for that exit (the old scoped readers waited all 1.5 seconds).
         assert!(start.elapsed() < Duration::from_secs(1));
     }
@@ -248,7 +247,7 @@ impl Tree {
         if !self.active.get() {
             return child.try_wait();
         }
-        // Reaping would let this PID identify an unrelated process group before cleanup.
+        // Invariant: Reaping would let this PID identify an unrelated process group before cleanup.
         let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
         if unsafe {
             libc::waitid(

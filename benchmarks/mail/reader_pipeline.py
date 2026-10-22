@@ -41,7 +41,7 @@ Scope {
  }
  function nextCase() {
   if(index>=cases.length){backend.shutdown(function(error){if(error)root.fail(error);else{console.log("READER_DONE");Qt.quit()}});return}
-  // Seeding is outside every timer. Both engines parse and persist identical bytes.
+  // Performance: Seeding is outside every timer. Both engines parse and persist identical bytes.
   var item=cases[index]
   var raw=Message.bytesToLatin1(Message.base64ToBytes(item.raw))
   backend.parseMessage(raw,function(payload,error){
@@ -120,7 +120,7 @@ Scope {
 def canonical(value):
     result = dict(value)
     rendered = html_semantics(value['render'])
-    # The serialized HTML is a duplicate of the validated document tree. New
+    # Invariant: The serialized HTML is a duplicate of the validated document tree. New
     # projections may omit it; compare every document node/attribute instead.
     rendered.pop('html', None)
     rendered.pop('revision', None)
@@ -201,7 +201,7 @@ def main():
             child=subprocess.Popen([shutil.which('qs'),'--no-color','--path',str(temp/'shell.qml')],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True)
             try:output,_=child.communicate(timeout=920)
             except subprocess.TimeoutExpired:
-                # communicate() has not reaped the timed-out leader: its group
+                # Invariant: communicate() has not reaped the timed-out leader: its group
                 # identity is still reserved. Never signal a successfully reaped PID.
                 try:os.killpg(child.pid,signal.SIGKILL)
                 except ProcessLookupError:pass

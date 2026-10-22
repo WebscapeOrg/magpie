@@ -162,7 +162,7 @@ pub fn validate_payload(value: &Value) -> Result<Value> {
             "messages" => validate_messages(v, 20)?,
             "threadMessages" => validate_messages(v, 100)?,
             "draft" => validate_draft(v)?,
-            // A look for calendar events: one message, the fixed ask, no draft
+            // Invariant: A look for calendar events: one message, the fixed ask, no draft
             // and no continuation — a look answers once and is not talked to.
             "events" => {
                 if v != true
@@ -242,7 +242,7 @@ fn draft_fingerprint(draft: &Value) -> Result<String> {
         .map(|key| draft[key].as_str().unwrap_or(""))
         .collect();
     let serialized = serde_json::to_string(&fields).map_err(|_| "agent_invalid_draft")?;
-    // Match the existing UI-only change indicator, including JavaScript f64 multiplication.
+    // Algorithm: Match the existing UI-only change indicator, including JavaScript f64 multiplication.
     let mut hash = 2166136261u32;
     for code in serialized.encode_utf16() {
         let signed = (hash ^ code as u32) as i32;
@@ -399,7 +399,7 @@ pub(super) fn read_context(store: &Store, job: &Value) -> Result<Value> {
 pub fn saved_display(store: &Store, id: &str) -> Result<Value> {
     let v = store
         .read_json(id, "display.json", 512 * 1024)?
-        // Older cancelled jobs have no display record. Missing output is an
+        // Invariant: Older cancelled jobs have no display record. Missing output is an
         // empty, incomplete answer; malformed or unsafe existing files still fail.
         .unwrap_or_else(|| json!({"transcript":[],"output":"","complete":false,"sessionId":""}));
     let o = v
@@ -465,7 +465,7 @@ fn process_handle(v: &Value) -> Option<OwnedFd> {
     }
     Some(fd)
 }
-// Upgrade compatibility only: recognize an already-running worker from this
+// Invariant: Upgrade compatibility only: recognize an already-running worker from this
 // checkout or this installed plugin. Never launch Python and never accept an
 // executable/script path supplied by job metadata.
 fn legacy_worker_args(args: &[u8], executable: &std::path::Path, id: &str) -> bool {
@@ -509,7 +509,7 @@ pub(super) fn refresh(store: &Store, id: &str) -> Result<Value> {
         || (job["state"] == "running" && process_handle(&job).is_none())
     {
         if job["state"] == "running" {
-            // A crashed worker cannot attest that its CLI stopped, and the
+            // Invariant: A crashed worker cannot attest that its CLI stopped, and the
             // OpenCode broker revokes its lease asynchronously. No successor
             // may race either process in the same native session.
             job["stopUnconfirmed"] = json!(true);
@@ -543,7 +543,7 @@ struct HeadIndex {
 static HEADS: std::sync::Mutex<Option<HeadIndex>> = std::sync::Mutex::new(None);
 
 fn list(store: &Store) -> Result<Vec<Value>> {
-    // The store lock serializes index reads with turn creation/deletion. Keep
+    // Performance: The store lock serializes index reads with turn creation/deletion. Keep
     // only metadata in memory; a restart rebuilds it from the durable records.
     // Active heads are refreshed each poll, terminal displays only when paged.
     let revision = store.revision()?;
@@ -609,7 +609,7 @@ async fn default_provider() -> Result<Provider> {
         4096,
     )
     .await?;
-    // Retain the legacy refusal identifier for older event-suggestion clients.
+    // Invariant: Retain the legacy refusal identifier for older event-suggestion clients.
     if !out.success {
         return Err("agent_choose_claude");
     }
@@ -655,7 +655,7 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
             return Err("agent_parent_not_ready");
         }
         let display = saved_display(&store, &parent)?;
-        // A stopped turn can have a native session without a complete answer.
+        // Invariant: A stopped turn can have a native session without a complete answer.
         // If it stopped before creating one, start with the retained context
         // and transcript instead of silently dropping the interrupted request.
         resume = display["sessionId"]
@@ -665,7 +665,7 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
             .unwrap_or("")
             .to_owned();
         conversation = job["conversationId"].as_str().unwrap_or(&parent).to_owned();
-        // A native session owns the history and compaction. Until one exists,
+        // Invariant: A native session owns the history and compaction. Until one exists,
         // retain earlier attempts as well as the parent's own display turn.
         if resume.is_empty() {
             if job["displayVersion"] == 2 {
@@ -673,7 +673,7 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
                     bootstrap = previous.as_array().ok_or("agent_invalid_record")?.clone();
                 }
             }
-            // Legacy displays already contain their cumulative history.
+            // Invariant: Legacy displays already contain their cumulative history.
             bootstrap.extend(display["transcript"].as_array().unwrap().iter().cloned());
             super::stream::transcript_check(&bootstrap)?;
         }
@@ -700,7 +700,7 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
             }
         }
         if let Some(update) = context.get("draftUpdate") {
-            // A follow-up can refresh content, never redirect its ownership.
+            // Invariant: A follow-up can refresh content, never redirect its ownership.
             let attaching = previous["messageId"]
                 .as_str()
                 .is_some_and(|s| !s.is_empty())
@@ -940,7 +940,7 @@ pub async fn call(method: &str, params: &Value) -> Result<Value> {
                         check_id(text(id)?)?;
                     }
                 }
-                // Paging history must not hide live work or its terminal update
+                // Invariant: Paging history must not hide live work or its terminal update
                 // from cancellation controls and pending-message dispatch.
                 for job in &jobs {
                     if (active(job) || watch.is_some_and(|ids| ids.contains(&job["id"])))
@@ -966,7 +966,7 @@ pub async fn call(method: &str, params: &Value) -> Result<Value> {
             ),
             "agent.jobCancel" => {
                 if active(&job) {
-                    // Revoke proposal authority under the same lock used by MCP
+                    // Invariant: Revoke proposal authority under the same lock used by MCP
                     // before delivering an asynchronous process signal.
                     store.write_json(id, "cancel.json", &json!(true))?;
                     if let Some(fd) = process_handle(&job) {
@@ -1079,7 +1079,7 @@ fn bounded_projection_jobs(jobs: &[Value]) -> Result<()> {
         if size > 32 * 1024 {
             return Err("agent_invalid_jobs");
         }
-        // Each row may occur in two message maps, a selected scope, its history,
+        // Performance: Each row may occur in two message maps, a selected scope, its history,
         // its turn list, and the completion list. Reserve all copies before any
         // projection clone; never let an RPC-sized input multiply into memory.
         let ids = job["messageIds"].as_array().map_or(0, Vec::len)
@@ -1137,7 +1137,7 @@ pub fn projection(params: &Value) -> Result<Value> {
             && !seen.contains(&j["id"])
             && (j["resultReady"] == true || matches!(j["state"].as_str(), Some("done" | "failed")))
     };
-    // A look answers to the message it read, inside its account: the one
+    // Invariant: A look answers to the message it read, inside its account: the one
     // running, else the newest that finished. A look that failed or was
     // cancelled answered nothing and is not here, so the message may be
     // looked at again.
@@ -1364,7 +1364,6 @@ mod tests {
         store.remove(&independent).unwrap();
         assert_eq!(list(&store).unwrap().len(), 1);
 
-        // Cached metadata never bypasses validation of the displayed page.
         let head = format!("{:032x}", 319);
         store
             .write_json(&head, "job.json", &json!({"id":"forged"}))
@@ -1525,7 +1524,7 @@ mod tests {
             let output = child.wait_with_output().unwrap();
             assert!(output.status.success());
             let mut expected: Value = serde_json::from_slice(&output.stdout).unwrap();
-            // The historical oracle predates recipient-complete draft snapshots.
+            // Invariant: The historical oracle predates recipient-complete draft snapshots.
             expected["draft"]["cc"] = json!("");
             expected["draft"]["bcc"] = json!("");
             assert_eq!(draft_payload(&input).unwrap(), expected);
@@ -1608,7 +1607,6 @@ mod tests {
             ask
         ]);
         let p = projection(&json!({"jobs":jobs,"accountId":"a","seenIds":[]})).unwrap();
-        // The row's job is the ask, never the look, and only the ask glows.
         assert_eq!(p["byMessage"]["42"]["id"], "ask");
         assert_eq!(p["byMessage"].get("43"), None);
         assert_eq!(p["attentionIds"], json!(["ask"]));
@@ -1616,23 +1614,17 @@ mod tests {
             p["scopesByAccount"]["a"].get("[\"43\"]").is_none(),
             "a look has no scope"
         );
-        // But it is polled while it runs, and it is counted.
         assert_eq!(p["anyActive"], true);
         assert_eq!(p["activeIds"], json!(["run"]));
         assert_eq!(p["activeEventLooks"], 1);
-        // The newest finished look at a message, in its own account; a failed
-        // or cancelled one answered nothing and leaves the message open.
         assert_eq!(p["eventLooks"]["a"]["42"]["id"], "new");
         assert_eq!(p["eventLooks"]["a"]["42"]["events"][0]["title"], "Dinner");
         assert_eq!(p["eventLooks"]["a"]["43"]["id"], "run");
         assert_eq!(p["eventLooks"]["a"].get("44"), None);
         assert_eq!(p["eventLooks"]["a"].get("45"), None);
         assert_eq!(p["eventLooks"]["b"]["42"]["id"], "bobs");
-        // A running look outranks a finished one on the same message.
         let again = projection(&json!({"jobs":[look("new","a","42","done",2),look("later","a","42","running",7)],"accountId":"a"})).unwrap();
         assert_eq!(again["eventLooks"]["a"]["42"]["id"], "later");
-        // The events record is validated before any map is built, and only
-        // on a look.
         let mut ask_with_events = jobs[6].clone();
         ask_with_events["events"] = json!([]);
         assert!(projection(&json!({"jobs":[ask_with_events],"accountId":"a"})).is_err());

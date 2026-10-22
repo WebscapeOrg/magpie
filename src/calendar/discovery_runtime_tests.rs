@@ -12,7 +12,7 @@ struct Peer {
     port: u16,
 }
 
-// No lookup can leave the test, even if a regression accepts a foreign host.
+// Invariant: No lookup can leave the test, even if a regression accepts a foreign host.
 struct LoopbackDns(SocketAddr);
 impl reqwest::dns::Resolve for LoopbackDns {
     fn resolve(&self, _: reqwest::dns::Name) -> reqwest::dns::Resolving {
@@ -137,8 +137,6 @@ async fn https_icloud_redirects_never_send_credentials_to_foreign_origins() {
             );
         }
     }
-    // Positive control: a trusted Apple partition receives the same method,
-    // credential and legitimate multiline body, not a rewritten GET.
     peer.responses(json!([
         {"status":307,"location":"https://p37-caldav.icloud.com/home/"},
         {"status":207,"body":"<multistatus/>"}

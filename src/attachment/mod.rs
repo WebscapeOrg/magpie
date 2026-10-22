@@ -125,12 +125,12 @@ pub fn decode(data: &str) -> Result<Vec<u8>, &'static str> {
     Ok(bytes)
 }
 pub fn openable(name: &str, data: &[u8]) -> bool {
-    // The exception must follow the filename actually given to the desktop,
+    // Invariant: The exception must follow the filename actually given to the desktop,
     // not the lossy name used below only to reject disguised active suffixes.
     let pdf_name = Path::new(name)
         .extension()
         .is_some_and(|suffix| suffix.eq_ignore_ascii_case("pdf"));
-    // Ignore non-ASCII suffix disguises after compatibility normalization.
+    // Invariant: Ignore non-ASCII suffix disguises after compatibility normalization.
     // This deliberately errs toward refusing an open; saving remains available.
     let name: String = name
         .nfkc()
@@ -171,7 +171,7 @@ pub fn openable(name: &str, data: &[u8]) -> bool {
             for at in declarations {
                 sample[at..at + 5].fill(b' ');
             }
-            // An exception buys no other exception: scan the whole container,
+            // Performance: An exception buys no other exception: scan the whole container,
             // including bytes beyond the ordinary 64 KiB sniffing window.
             // PDF bytes are binary; ASCII-fold in place instead of expanding
             // invalid UTF-8 into multiple full-size replacement strings.

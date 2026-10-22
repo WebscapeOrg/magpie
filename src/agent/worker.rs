@@ -31,7 +31,7 @@ fn now() -> u64 {
 pub async fn run(id: &str) -> Result<(), &'static str> {
     #[cfg(target_os = "macos")]
     let control = super::control::Control::bind(id)?;
-    // Install handlers before making the job visible as running.
+    // Invariant: Install handlers before making the job visible as running.
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| INVALID)?;
     let mut int = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
@@ -52,7 +52,7 @@ pub async fn run(id: &str) -> Result<(), &'static str> {
             super::events::prompt(&context)
         } else {
             let resumed = !job["resume"].as_str().unwrap_or("").is_empty();
-            // The new job owns a full snapshot even if a historical comparison
+            // Invariant: The new job owns a full snapshot even if a historical comparison
             // record is unavailable.
             let previous = match context["parent"].as_str() {
                 Some(parent)
@@ -178,7 +178,7 @@ pub async fn run(id: &str) -> Result<(), &'static str> {
         },
     )
     .await;
-    // Short streams can finish before the periodic persistence callback runs.
+    // Invariant: Short streams can finish before the periodic persistence callback runs.
     // Identity must also be checked on that final, unthrottled path.
     let expected = if prepared_session.is_empty() {
         resume
@@ -200,7 +200,7 @@ pub async fn run(id: &str) -> Result<(), &'static str> {
             outcome.failure = None;
         }
     }
-    // V2 run can exit successfully after emitting text but without step_finish.
+    // Invariant: V2 run can exit successfully after emitting text but without step_finish.
     // Never infer success from text/EOF: ask for this session's durable outcome.
     if outcome.failure == Some(NO_COMPLETE)
         && Provider::of_job(&job)? == Provider::OpenCode
@@ -260,8 +260,6 @@ pub async fn run(id: &str) -> Result<(), &'static str> {
         job["sessionId"] = parser.session_id().into();
     }
     if job["kind"] == "events" && state == "done" {
-        // The answer is the array, not a sentence: read it out of whatever
-        // the model wrote around it, and say how many it held.
         let found = super::events::parse(parser.display()["output"].as_str().unwrap_or(""));
         job["summary"] = super::events::summary(&found).into();
         job["events"] = found.into();
@@ -308,7 +306,7 @@ impl Group {
 }
 impl Drop for Group {
     fn drop(&mut self) {
-        // A last-resort path for task unwinding; normal exits use cleanup below.
+        // Invariant: A last-resort path for task unwinding; normal exits use cleanup below.
         if self.1 {
             self.signal(libc::SIGKILL);
             let _ = self.0.wait();
@@ -498,7 +496,7 @@ pub(super) async fn execute<
     {
         outcome.failure = Some(NO_COMPLETE);
     }
-    // The leader was reaped above: disarm Drop so it cannot target a reused PID.
+    // Invariant: The leader was reaped above: disarm Drop so it cannot target a reused PID.
     group.1 = false;
     outcome
 }

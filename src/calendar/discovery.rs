@@ -484,7 +484,7 @@ fn dav_calendars(
                 if let Some(value) = current.as_mut() {
                     match name.as_slice() {
                         b"calendar" => value.is_calendar = true,
-                        // RFC 3744 §3.12: `all` aggregates every privilege,
+                        // Algorithm: RFC 3744 §3.12: `all` aggregates every privilege,
                         // so a server may report it instead of `write`.
                         b"write" | b"write-content" | b"all" => value.writable = true,
                         b"comp" => {
@@ -697,7 +697,7 @@ mod tests {
         );
     }
 
-    // RFC 3744 lets a server report every privilege at once as `<D:all/>`
+    // Algorithm: RFC 3744 lets a server report every privilege at once as `<D:all/>`
     // instead of spelling `write` out. A calendar the owner can write must not
     // arrive read-only, because a discovered source offers no way to say
     // otherwise.

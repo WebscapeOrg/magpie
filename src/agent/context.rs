@@ -283,7 +283,7 @@ impl Contexts {
             Ok(json!({"payload":payload}))
         };
         let result = bounded_work(&mut cancelled, Duration::from_secs(60), work).await;
-        // Completion and acknowledged cancellation linearize under the same
+        // Invariant: Completion and acknowledged cancellation linearize under the same
         // lock. A cancelled entry cannot subsequently return a usable payload.
         let mut active = self.active.lock().map_err(|_| "agent_context_failed")?;
         if !active

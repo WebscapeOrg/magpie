@@ -1,4 +1,4 @@
-// Capture the maintained JS corpus to compare both production renderers.
+// Invariant: Capture the maintained JS corpus to compare both production renderers.
 // Historical benchmark fixtures remain immutable and are measured separately.
 const loader = require(process.cwd() + '/ui/tests/load.js');
 const original = loader.load;

@@ -39,7 +39,7 @@ impl Tree {
         )
     }
     fn attach(pid: u32, process: HANDLE) -> Result<Self, Error> {
-        // The job handle is non-inheritable and breakaway is never enabled.
+        // Invariant: The job handle is non-inheritable and breakaway is never enabled.
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err("process_job_failed");
@@ -61,7 +61,7 @@ impl Tree {
         if unsafe { AssignProcessToJobObject(tree.0.as_raw_handle(), process) } == 0 {
             return Err("process_job_failed");
         }
-        // std::process owns the process handle but does not expose the primary
+        // Invariant: std::process owns the process handle but does not expose the primary
         // thread handle. The suspended process cannot run or create more threads;
         // find its initial thread using the documented Tool Help API.
         resume(pid)?;
@@ -118,7 +118,7 @@ pub(super) fn run(
     if input.len() > limit {
         return Err("process_input_too_large");
     }
-    // Tokio drains Windows pipes on its blocking pool. The non-breakaway job
+    // Invariant: Tokio drains Windows pipes on its blocking pool. The non-breakaway job
     // closes every inherited child handle on timeout, allowing those workers
     // to finish. A scoped runtime also permits calls from an existing runtime.
     std::thread::scope(|scope| {

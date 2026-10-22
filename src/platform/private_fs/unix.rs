@@ -13,7 +13,7 @@ use std::{
 type Result<T> = std::result::Result<T, &'static str>;
 #[cfg(target_os = "linux")]
 const NO_ATIME: i32 = libc::O_NOATIME;
-// Darwin has no per-open NOATIME flag. Read-only access never chmods or writes,
+// Invariant: Darwin has no per-open NOATIME flag. Read-only access never chmods or writes,
 // but filesystem access-time policy remains the OS's responsibility.
 #[cfg(not(target_os = "linux"))]
 const NO_ATIME: i32 = 0;
@@ -36,7 +36,7 @@ pub(crate) fn open_dir(
     validate_acl(parent, false)?;
     let name = cstr(name)?;
     if create {
-        // SAFETY: valid directory fd and NUL-terminated single component.
+        // Invariant: SAFETY: valid directory fd and NUL-terminated single component.
         let result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
         if result != 0
             && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists
@@ -428,7 +428,7 @@ impl AsRawFd for ExclusiveLock {
 }
 impl Drop for ExclusiveLock {
     fn drop(&mut self) {
-        // Forked pre-exec children must neither retain nor unlock the owner's lease.
+        // Invariant: Forked pre-exec children must neither retain nor unlock the owner's lease.
         if std::process::id() == self.owner {
             unsafe {
                 libc::flock(self.as_raw_fd(), libc::LOCK_UN);
@@ -441,7 +441,7 @@ pub(crate) fn open_lock(dir: &File, name: &str) -> Result<File> {
     validate_owned_root(dir)?;
     let name = cstr(name.as_ref())?;
     let flags = libc::O_RDWR | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC;
-    // Darwin can return a spurious ENOENT when concurrent openat(O_CREAT)
+    // Invariant: Darwin can return a spurious ENOENT when concurrent openat(O_CREAT)
     // callers race the first creation. Use exclusive creation followed by a
     // non-creating open of the winner; both remain relative to the pinned dir.
     // https://github.com/golang/go/issues/81246
@@ -570,7 +570,7 @@ fn validate_acl(file: &File, private: bool) -> Result<()> {
         acl_get_fd_np(file.as_raw_fd(), 0x100 /* ACL_TYPE_EXTENDED */)
     });
     if acl.0.is_null() {
-        // Darwin reports ENOENT for a file that has no extended ACL at all.
+        // Invariant: Darwin reports ENOENT for a file that has no extended ACL at all.
         return if std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT) {
             Ok(())
         } else {
@@ -582,7 +582,7 @@ fn validate_acl(file: &File, private: bool) -> Result<()> {
         let mut entry = std::ptr::null_mut();
         let result = unsafe { acl_get_entry(acl.0, index, &mut entry) };
         if result != 0 {
-            // Darwin returns -1/EINVAL when the ACL has no further entries.
+            // Invariant: Darwin returns -1/EINVAL when the ACL has no further entries.
             return if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINVAL) {
                 Ok(())
             } else {

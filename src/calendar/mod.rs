@@ -147,7 +147,7 @@ fn prepare(params: &Value) -> Result<Request, &'static str> {
                 return Err("calendar_invalid_operation");
             }
             if kind == "microsoft" {
-                // Legacy/default sources serialize an empty identity. They
+                // Invariant: Legacy/default sources serialize an empty identity. They
                 // still address /me/calendarView until discovery names one.
                 let calendar_id = source
                     .get("calendarId")
@@ -422,7 +422,7 @@ fn next_page(origin: &Url, payload: &Value, items_key: &str) -> Result<Option<Ur
     }
 }
 
-// The path as a list of decoded segments. A calendar id goes into the request
+// Invariant: The path as a list of decoded segments. A calendar id goes into the request
 // path with `=` and `+` literal, and the server may hand the same id back with
 // them percent-encoded: comparing the serialized strings would refuse the
 // second page of every such calendar. Segments stay separate so an encoded
@@ -462,7 +462,7 @@ async fn execute(
     password: Option<&str>,
 ) -> Result<Value, &'static str> {
     let mut builder = client.request(request.method.clone(), request.url);
-    // Google's empty-body POST endpoints (events.move) require an explicit
+    // Invariant: Google's empty-body POST endpoints (events.move) require an explicit
     // length. reqwest/hyper may otherwise omit framing for a zero-byte body.
     if request.method == Method::POST && request.body.is_empty() {
         builder = builder.header(reqwest::header::CONTENT_LENGTH, "0");

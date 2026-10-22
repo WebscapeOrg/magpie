@@ -69,7 +69,7 @@ Scope {
   root.started=Date.now();root.pump()
  }
  function pump(){
-  // Each eight-ID group completes before its IDs are reused: simultaneous
+  // Performance: Each eight-ID group completes before its IDs are reused: simultaneous
   // operations refer to distinct messages at every concurrency level.
   var groupEnd=Math.min(operations,(Math.floor(completed/8)+1)*8)
   while(inFlight<levels[levelIndex]&&nextOperation<groupEnd){launch(nextOperation++)}
@@ -89,7 +89,7 @@ Scope {
  }
  function finishRound(end){
   var elapsed=(end-started)*1000
-  // Full parity is outside the round timer and after all outstanding calls.
+  // Performance: Full parity is outside the round timer and after all outstanding calls.
   // A bounded batch of response references is retained until validation.
   for(var i=0;i<operations;i++){
    if(display(replies[i])!==reference[i%8]){fail("Display parity failed: "+id(i%8));return}

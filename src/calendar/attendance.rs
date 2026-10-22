@@ -176,7 +176,7 @@ async fn google_inner(
         }
         return Ok(json!({"event":event,"response":"","cancelled":true}));
     }
-    // Primary-calendar self is additionally checked against the signed-in
+    // Invariant: Primary-calendar self is additionally checked against the signed-in
     // account or its Gmail-verified send-as identities. A sender cannot
     // nominate an arbitrary attendee to modify.
     let own = own_attendee(event, addresses)?;
@@ -186,7 +186,7 @@ async fn google_inner(
         let etag = super::text(event, "etag")?;
         request(&source, "update", json!({"eventId":id,"ifMatch":etag,"sendUpdates":"all",
             "body":json!({"attendeesOmitted":true,"attendees":[{"email":answering_as,"responseStatus":response}]}).to_string()}), token).await?;
-        // Only a read-back confirms success, including propagation policies
+        // Invariant: Only a read-back confirms success, including propagation policies
         // which can reset an attendee to needsAction after a successful PATCH.
         request(&source, "get", json!({"eventId":id}), token).await?
     } else {

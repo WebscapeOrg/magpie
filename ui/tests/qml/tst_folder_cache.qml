@@ -16,8 +16,8 @@ Item {
         username: "synthetic",
         insecure: false
       })
-    function withCredentials(cb) {
-      cb("synthetic:secret", "");
+    function withCredentials(callback) {
+      callback("synthetic:secret", "");
     }
   }
   Providers.ImapClient {
@@ -47,16 +47,16 @@ Item {
     property var monitoredIds: ["Work", "Receipts"]
     property var api: client
     property var cache: ({
-        putLabels: function (x) {}
+        putLabels: function (value) {}
       })
-    function monitoredMigrated(x) {
-      monitoredIds = x;
+    function monitoredMigrated(value) {
+      monitoredIds = value;
     }
     property var errors: []
     function fail(error) {
       errors = errors.concat([error])
     }
-    function abortRequest(x) {
+    function abortRequest(value) {
     }
   }
   Account.LabelActions {
@@ -77,17 +77,17 @@ Item {
       }
       function listing() {
         var requests = Transports.transports(client)
-        for (var i = 0; i < requests.length; i++) {
-          var request = requests[i]
+        for (var requestIndex = 0; requestIndex < requests.length; requestIndex++) {
+          var request = requests[requestIndex]
           if (!request.answered && request.method === "imap.folders") return request
         }
         return null
       }
-      client.renameLabel("Work", "Jobs", function (x, e) {
-        compare(e, "");
+      client.renameLabel("Work", "Jobs", function (value, error) {
+        compare(error, "");
         actions.afterLabelMoved(before[0], "Jobs", before);
-        client.renameLabel("Receipts", "Bills", function (y, f) {
-          compare(f, "");
+        client.renameLabel("Receipts", "Bills", function (result, error) {
+          compare(error, "");
           actions.afterLabelMoved(before[1], "Bills", before);
         });
       });

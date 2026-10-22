@@ -23,8 +23,8 @@ Item {
       var rows = []
       var names = ["x\r", "x\n", "x\r\n", "x\0", "x\t", "x\x7f", "x\ud800", "x\udc00"]
       for (var mode = 0; mode < 2; mode++)
-        for (var n = 0; n < names.length; n++)
-          rows.push({ tag: mode + "-" + n, authMode: mode ? "oauth2" : "", name: names[n] })
+        for (var nameIndex = 0; nameIndex < names.length; nameIndex++)
+          rows.push({ tag: mode + "-" + nameIndex, authMode: mode ? "oauth2" : "", name: names[nameIndex] })
       return rows
     }
 
@@ -48,10 +48,10 @@ Item {
       compare(requests[2].params.name,data.name)
       compare(requests[3].method,"imap.deleteFolder")
       compare(requests[3].params.id,data.name)
-      for (var i=0;i<requests.length;i++) {
-        compare(requests[i].params.accountId,"imap:synthetic@example.com")
-        compare(requests[i].params.credential,undefined)
-        Transports.reply(requests[i],null,{code:-32000,message:"imap_invalid_input"})
+      for (var requestIndex=0;requestIndex<requests.length;requestIndex++) {
+        compare(requests[requestIndex].params.accountId,"imap:synthetic@example.com")
+        compare(requests[requestIndex].params.credential,undefined)
+        Transports.reply(requests[requestIndex],null,{code:-32000,message:"imap_invalid_input"})
       }
       compare(answered,4)
       compare(credentials.reads,0,"Only Rust validates and resolves credentials")

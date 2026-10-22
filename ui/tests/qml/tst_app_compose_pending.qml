@@ -157,11 +157,11 @@ Item {
       if (deferAttachments) { attachmentCallback = callback; return }
       var listed = Array.isArray(attachments) ? attachments : []
       var loaded = []
-      for (var i = 0; i < listed.length; i++) {
+      for (var itemIndex = 0; itemIndex < listed.length; itemIndex++) {
         loaded.push({
-          filename: String(listed[i].filename || "attachment"),
-          mimeType: String(listed[i].mimeType || "application/octet-stream"),
-          size: Number(listed[i].size || 0),
+          filename: String(listed[itemIndex].filename || "attachment"),
+          mimeType: String(listed[itemIndex].mimeType || "application/octet-stream"),
+          size: Number(listed[itemIndex].size || 0),
           data: "ZHJhZnQgZmlsZQ"
         })
       }
@@ -215,8 +215,8 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) {
+        var found = named(values[itemIndex], objectName)
         if (found) return found
       }
       return null
@@ -231,8 +231,8 @@ Item {
     function typed(item, prefix) {
       if (String(item).indexOf(prefix) === 0) return item
       var children = item.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = typed(children[i], prefix)
+      for (var itemIndex = 0; itemIndex < children.length; itemIndex++) {
+        var found = typed(children[itemIndex], prefix)
         if (found) return found
       }
       return null
@@ -491,7 +491,7 @@ Item {
       verify(lastNativeRequest("compose.recoverySave") !== saved, "later APIs must not disable API 3 recovery")
     }
     function lastNativeRequest(method) {
-      for (var i = recoveryBackend.requests.length - 1; i >= 0; i--) if (recoveryBackend.requests[i].method === method) return recoveryBackend.requests[i]
+      for (var itemIndex = recoveryBackend.requests.length - 1; itemIndex >= 0; itemIndex--) if (recoveryBackend.requests[itemIndex].method === method) return recoveryBackend.requests[itemIndex]
       return null
     }
     function test_offline_recovery_warns_on_old_backend_connection_data() {
@@ -1239,7 +1239,7 @@ Item {
       verify(dialog)
       tryCompare(dialog,"opened",true)
       wait(0)
-      for (var i = 0; i < data.tabs; i++) keyClick(data.key, data.key === Qt.Key_Backtab ? Qt.ShiftModifier : Qt.NoModifier)
+      for (var itemIndex = 0; itemIndex < data.tabs; itemIndex++) keyClick(data.key, data.key === Qt.Key_Backtab ? Qt.ShiftModifier : Qt.NoModifier)
       keyClick(Qt.Key_Return)
       tryCompare(dialog,"opened",false)
       compare(compose.opened, data.tag === "cancel")

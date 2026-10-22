@@ -75,9 +75,9 @@ Item {
       var sources = [{kind: "microsoft", calendarId: "other-calendar"}, {kind: "icloud"}]
       var operations = ["list", "create", "update", "delete"]
       var refused = 0
-      for (var s = 0; s < sources.length; s++) {
-        for (var op = 0; op < operations.length; op++) {
-          controller.nativeRequest(sources[s], operations[op], {}, function(result, error) {
+      for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
+        for (var operationIndex = 0; operationIndex < operations.length; operationIndex++) {
+          controller.nativeRequest(sources[sourceIndex], operations[operationIndex], {}, function(result, error) {
             compare(result, null)
             compare(error, "Update the backend to access this calendar")
             refused++
@@ -110,8 +110,8 @@ Item {
       tryCompare(service.backend, "launchEnabled", true)
       compare(service.backend.executable, resolved)
       var process = null
-      for (var i = 0; i < service.backend.children.length; i++) {
-        var child = service.backend.children[i]
+      for (var childIndex = 0; childIndex < service.backend.children.length; childIndex++) {
+        var child = service.backend.children[childIndex]
         if (child.command) process = child
       }
       verify(process !== null)

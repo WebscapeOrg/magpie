@@ -85,8 +85,8 @@ Item {
       wait(1)
       var original = account.api
       var installed = false
-      for (var i = 0; i < account.children.length; i++) {
-        var child = account.children[i]
+      for (var childIndex = 0; childIndex < account.children.length; childIndex++) {
+        var child = account.children[childIndex]
         if (child.item === original) {
           child.sourceComponent = apiFactory
           installed = true
@@ -203,10 +203,10 @@ Item {
       compare(account.messages.length, 1)
       finish(account,"Synthetic failure")
       compare(account.api.calls.length, 2, "the failure sent the next queued action before restoring")
-      compare(account.messages.map(function(m) { return m.id }), ["two", "three"],
+      compare(account.messages.map(function(message) { return message.id }), ["two", "three"],
         "the failed row goes back above the neighbour that is still listed")
       finish(account)
-      compare(account.messages.map(function(m) { return m.id }), ["two", "three"])
+      compare(account.messages.map(function(message) { return message.id }), ["two", "three"])
       compare(account.pendingAction, "")
     }
     // An edit ahead of another fails: only its own change comes off, and the
@@ -271,9 +271,9 @@ Item {
       compare(account.messages.length, 0)
       finish(account,"Synthetic failure")
       tryVerify(function() { return account.api.calls.length === 2 })
-      compare(account.messages.map(function(m) { return m.id }), ["one"])
+      compare(account.messages.map(function(message) { return message.id }), ["one"])
       finish(account,"Synthetic failure")
-      compare(account.messages.map(function(m) { return m.id }), ["one", "two"],
+      compare(account.messages.map(function(message) { return message.id }), ["one", "two"],
         "the second row goes back under the first, not above it")
       compare(account.pendingAction, "")
     }
@@ -295,14 +295,14 @@ Item {
     // `a`. Two rail actions on `a`, the first refused: the rail, the reader
     // and the row's block all say the same thing afterwards.
     function conversation(account) {
-      var rep = { id: "R", labelIds: ["INBOX"], unread: true, inInbox: true,
+      var representative = { id: "R", labelIds: ["INBOX"], unread: true, inInbox: true,
         thread: { id: "T", memberIds: ["R", "a"], count: 2, unread: true, flagged: false } }
-      var a = { id: "a", labelIds: ["INBOX", "UNREAD"], unread: true, inInbox: true }
-      account.messages = [rep, unreadRows()[1]]
-      account.memberSummaries = ({ R: rep, a: a })
-      account.selectedThread = rep.thread
+      var member = { id: "a", labelIds: ["INBOX", "UNREAD"], unread: true, inInbox: true }
+      account.messages = [representative, unreadRows()[1]]
+      account.memberSummaries = ({ R: representative, a: member })
+      account.selectedThread = representative.thread
       account.selectedId = "a"
-      account.selectedMessage = a
+      account.selectedMessage = member
     }
     function test_failed_member_read_keeps_the_row_in_step_with_the_rail() {
       var account = ready()
@@ -332,10 +332,10 @@ Item {
       verify(account.cacheKey !== home)
       account.messages = [{ id: "nine", labelIds: ["INBOX"], unread: false, inInbox: true }]
       finish(account,"Synthetic failure")
-      compare(account.messages.map(function(m) { return m.id }), ["nine"])
+      compare(account.messages.map(function(message) { return message.id }), ["nine"])
       compare(account.pendingAction, "")
     }
-    function ids(list) { return list.map(function(m) { return m.id }) }
+    function ids(list) { return list.map(function(message) { return message.id }) }
     // Mark-all holds an intent per row like any edit, so a refusal takes off
     // only what it changed: the star pressed while the server was deciding
     // stays, where a snapshot of the list put back would have lost it.

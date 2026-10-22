@@ -68,9 +68,9 @@ Item {
       compare(replyRecorder.received.length, 0)
     }
     function create() {
-      var svc = createTemporaryObject(serviceComponent, parent);
-      verify(svc !== null);
-      BackendFixture.markReady(svc);
+      var service = createTemporaryObject(serviceComponent, parent);
+      verify(service !== null);
+      BackendFixture.markReady(service);
       var list = Accounts.emptyList();
       list = Accounts.add(list, {
         provider: "gmail",
@@ -80,9 +80,9 @@ Item {
         provider: "gmail",
         email: "other@example.com"
       });
-      svc.applyAccounts(Accounts.serialize(list));
-      compare(svc.lastPersistedIds.length, 2);
-      return svc;
+      service.applyAccounts(Accounts.serialize(list));
+      compare(service.lastPersistedIds.length, 2);
+      return service;
     }
     function latestRequest(service, method) {
       var requests = BackendFixture.install(service).requests
@@ -90,92 +90,92 @@ Item {
         if (requests[requestIndex].method === method) return requests[requestIndex].id
       return ""
     }
-    function finishWrite(svc) {
-      var id = latestRequest(svc, "accounts.save")
+    function finishWrite(service) {
+      var id = latestRequest(service, "accounts.save")
       verify(id !== "")
-      svc.backend.receive(JSON.stringify({jsonrpc:"2.0",id:id,result:{revision:"synthetic-revision"}}))
+      service.backend.receive(JSON.stringify({jsonrpc:"2.0",id:id,result:{revision:"synthetic-revision"}}))
     }
     function test_native_registry_event_reloads_and_coalesces_inflight_read() {
-      var svc = create()
-      var first = latestRequest(svc, "accounts.read")
+      var service = create()
+      var first = latestRequest(service, "accounts.read")
       verify(first !== "")
       var revision = new Array(65).join("a")
-      svc.backend.receive(JSON.stringify({jsonrpc:"2.0",method:"accounts.changed",params:{revision:revision}}))
-      compare(svc.accountsReloadQueued, true)
-      svc.backend.receive(JSON.stringify({jsonrpc:"2.0",id:first,result:{registry:svc.accountList,revision:new Array(65).join("b")}}))
-      var next = latestRequest(svc, "accounts.read")
+      service.backend.receive(JSON.stringify({jsonrpc:"2.0",method:"accounts.changed",params:{revision:revision}}))
+      compare(service.accountsReloadQueued, true)
+      service.backend.receive(JSON.stringify({jsonrpc:"2.0",id:first,result:{registry:service.accountList,revision:new Array(65).join("b")}}))
+      var next = latestRequest(service, "accounts.read")
       verify(next !== first)
-      var changed = Accounts.setLabel(svc.accountList,"alias@example.com","Native change")
-      svc.backend.receive(JSON.stringify({jsonrpc:"2.0",id:next,result:{registry:changed,revision:revision}}))
-      compare(svc.accountsRevision, revision)
-      compare(svc.accountList.accounts[0].label, "Native change")
-      compare(svc.accountsReading, false)
+      var changed = Accounts.setLabel(service.accountList,"alias@example.com","Native change")
+      service.backend.receive(JSON.stringify({jsonrpc:"2.0",id:next,result:{registry:changed,revision:revision}}))
+      compare(service.accountsRevision, revision)
+      compare(service.accountList.accounts[0].label, "Native change")
+      compare(service.accountsReading, false)
     }
     function test_queued_profile_correction_is_saved_after_the_old_write() {
-      var svc = create();
-      svc.saveAccounts();
-      svc.nameAccount(0, "canonical@example.com");
-      compare(svc.accountsSaveQueued, true);
-      finishWrite(svc);
-      verify(svc.accountsWritePayload.indexOf("canonical@example.com") >= 0);
-      verify(svc.accountsWritePayload.indexOf("other@example.com") >= 0);
+      var service = create();
+      service.saveAccounts();
+      service.nameAccount(0, "canonical@example.com");
+      compare(service.accountsSaveQueued, true);
+      finishWrite(service);
+      verify(service.accountsWritePayload.indexOf("canonical@example.com") >= 0);
+      verify(service.accountsWritePayload.indexOf("other@example.com") >= 0);
     }
     function test_profile_duplicate_releases_only_its_redundant_row() {
-      var svc = create();
-      svc.nameAccount(0, "other@example.com");
-      compare(svc.accountList.accounts.length, 1);
-      compare(Accounts.load(svc.accountsWritePayload).accounts[0].email, "other@example.com");
+      var service = create();
+      service.nameAccount(0, "other@example.com");
+      compare(service.accountList.accounts.length, 1);
+      compare(Accounts.load(service.accountsWritePayload).accounts[0].email, "other@example.com");
     }
     function test_first_profile_name_keeps_existing_accounts() {
-      var svc = create();
-      svc.accountList = Accounts.add(svc.accountList, {
+      var service = create();
+      service.accountList = Accounts.add(service.accountList, {
         provider: "gmail",
         email: "",
         pending: true
       });
-      svc.nameAccount(2, "new@example.com");
-      compare(Accounts.load(svc.accountsWritePayload).accounts.length, 3);
+      service.nameAccount(2, "new@example.com");
+      compare(Accounts.load(service.accountsWritePayload).accounts.length, 3);
     }
     function test_invalid_profile_name_changes_nothing() {
-      var svc = create();
-      var before = Accounts.serialize(svc.accountList);
-      svc.nameAccount(0, "");
-      compare(Accounts.serialize(svc.accountList), before);
-      compare(svc.lastPersistedIds, ["alias@example.com", "other@example.com"]);
-      compare(svc.accountsWritePayload, "");
+      var service = create();
+      var before = Accounts.serialize(service.accountList);
+      service.nameAccount(0, "");
+      compare(Accounts.serialize(service.accountList), before);
+      compare(service.lastPersistedIds, ["alias@example.com", "other@example.com"]);
+      compare(service.accountsWritePayload, "");
     }
     function test_correction_does_not_authorize_an_unrelated_drop() {
-      var svc = create();
-      svc.nameAccount(0, "canonical@example.com");
-      finishWrite(svc);
-      svc.accountList = Accounts.remove(svc.accountList, "other@example.com");
-      svc.saveAccounts();
-      compare(svc.accountsWriting, false, "unrelated omission must not start a writer");
-      compare(svc.accountsWritePayload, "");
+      var service = create();
+      service.nameAccount(0, "canonical@example.com");
+      finishWrite(service);
+      service.accountList = Accounts.remove(service.accountList, "other@example.com");
+      service.saveAccounts();
+      compare(service.accountsWriting, false, "unrelated omission must not start a writer");
+      compare(service.accountsWritePayload, "");
     }
     function test_provider_identity_change_can_be_saved() {
-      var svc = create();
-      svc.nameAccount(0, "canonical@example.com");
-      compare(svc.accountList.accounts[0].email, "canonical@example.com");
-      verify(svc.accountsWritePayload.indexOf("canonical@example.com") >= 0, "profile identity must reach writer");
-      finishWrite(svc);
-      svc.setAccountLabel("canonical@example.com", "Personal");
-      verify(svc.accountsWritePayload.indexOf("Personal") >= 0, "later settings remain writable");
+      var service = create();
+      service.nameAccount(0, "canonical@example.com");
+      compare(service.accountList.accounts[0].email, "canonical@example.com");
+      verify(service.accountsWritePayload.indexOf("canonical@example.com") >= 0, "profile identity must reach writer");
+      finishWrite(service);
+      service.setAccountLabel("canonical@example.com", "Personal");
+      verify(service.accountsWritePayload.indexOf("Personal") >= 0, "later settings remain writable");
     }
     function test_collision_does_not_dispatch_password_or_oauth() {
-      var svc = create();
-      var before = Accounts.serialize(svc.accountList);
-      compare(svc.configureCurrentAccountAndSignIn({
+      var service = create();
+      var before = Accounts.serialize(service.accountList);
+      compare(service.configureCurrentAccountAndSignIn({
         email: "other@example.com"
       }, "SYNTHETIC"), false);
-      compare(svc.configureCurrentAccountAndSignInOAuth({
+      compare(service.configureCurrentAccountAndSignInOAuth({
         email: "other@example.com"
       }), false);
       wait(0);
-      compare(svc.passwordCalls, 0);
-      compare(svc.oauthCalls, 0);
-      compare(svc.accountsWritePayload, "");
-      compare(Accounts.serialize(svc.accountList), before);
+      compare(service.passwordCalls, 0);
+      compare(service.oauthCalls, 0);
+      compare(service.accountsWritePayload, "");
+      compare(Accounts.serialize(service.accountList), before);
     }
   }
 }

@@ -32,8 +32,8 @@ Item {
     when: windowShown
     function findText(item, text) {
       if (item.text === text) return item
-      for (var i=0;i<item.children.length;i++) {
-        var found=findText(item.children[i],text)
+      for (var childIndex=0;childIndex<item.children.length;childIndex++) {
+        var found=findText(item.children[childIndex],text)
         if (found) return found
       }
       return null

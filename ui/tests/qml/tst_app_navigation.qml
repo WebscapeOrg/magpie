@@ -127,9 +127,9 @@ Item {
       log = next
     }
     function count(text) {
-      var n = 0
-      for (var i = 0; i < log.length; i++) if (log[i] === text) n++
-      return n
+      var matches = 0
+      for (var itemIndex = 0; itemIndex < log.length; itemIndex++) if (log[itemIndex] === text) matches++
+      return matches
     }
     function accountEmailFor(_accountId) { return accountEmail }
     function editingIndex() { return 0 }
@@ -223,8 +223,8 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) {
+        var found = named(values[itemIndex], objectName)
         if (found) return found
       }
       return null
@@ -235,8 +235,8 @@ Item {
       if (!item) return null
       if (accept(item)) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = having(values[i], accept)
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) {
+        var found = having(values[itemIndex], accept)
         if (found) return found
       }
       return null
@@ -390,8 +390,8 @@ Item {
       wait(60)
       verify(menu.opened)
       var row = null
-      for (var i = 0; i < menu.menuRows.length; i++)
-        if (menu.menuRows[i].objectName === "app-menu-settings") row = menu.menuRows[i]
+      for (var itemIndex = 0; itemIndex < menu.menuRows.length; itemIndex++)
+        if (menu.menuRows[itemIndex].objectName === "app-menu-settings") row = menu.menuRows[itemIndex]
       verify(row && row.visible, "the Settings row is drawn")
       row.activated()
       wait(60)
@@ -408,8 +408,8 @@ Item {
       menu.openAt(40, 40)
       wait(20)
       var row = null
-      for (var i = 0; i < menu.menuRows.length; i++)
-        if (menu.menuRows[i].objectName === "app-menu-quit") row = menu.menuRows[i]
+      for (var itemIndex = 0; itemIndex < menu.menuRows.length; itemIndex++)
+        if (menu.menuRows[itemIndex].objectName === "app-menu-quit") row = menu.menuRows[itemIndex]
       verify(row, "the shared menu keeps one tested row")
       compare(app.standaloneWindowChrome, false)
       compare(menu.canQuit, false)
@@ -496,7 +496,7 @@ Item {
     function test_the_header_account_button_opens_the_switcher() {
       var trigger = named(app, "header-account-button")
       verify(trigger && trigger.visible)
-      var switcher = having(app, function(it) { return typeof it.openCentered === "function" && typeof it.accountChosen === "function" })
+      var switcher = having(app, function(item) { return typeof item.openCentered === "function" && typeof item.accountChosen === "function" })
       mouseClick(trigger)
       tryCompare(switcher,"opened",true)
       compare(trigger.selected,true)
@@ -640,7 +640,7 @@ Item {
 
     function test_an_event_opened_for_reading_is_a_place() {
       app.runShortcut("calendarView", "")
-      var calendar = having(app, function(it) { return typeof it.closeDetail === "function" })
+      var calendar = having(app, function(item) { return typeof item.closeDetail === "function" })
       verify(calendar, "the calendar view is on the page")
       calendar.activateEvent({ uid: "e1", summary: "Standup",
         start: { ms: Date.now(), allDay: false }, end: { ms: Date.now() + 3600000 } })
@@ -667,13 +667,13 @@ Item {
     // MouseArea moves none — so the context stayed "search" with a message
     // open, and `e` typed itself into the query instead of archiving.
     function test_opening_a_message_takes_the_keyboard_back_from_search() {
-      var field = having(app, function(it) {
-        return it.placeholderText !== undefined
-          && String(it.placeholderText).indexOf("Search...") === 0
+      var field = having(app, function(item) {
+        return item.placeholderText !== undefined
+          && String(item.placeholderText).indexOf("Search...") === 0
       })
       verify(field, "the search field is on the page")
-      var scope = having(app, function(it) {
-        return typeof it.keyContext === "string" && typeof it.parkKeyboard === "function"
+      var scope = having(app, function(item) {
+        return typeof item.keyContext === "string" && typeof item.parkKeyboard === "function"
       })
       verify(scope, "the focus scope is on the page")
       var spot = field.mapToItem(app, field.width / 2, field.height / 2)
@@ -746,8 +746,8 @@ Item {
       while (view && String(view.toString()).indexOf("QQuickFlickable") < 0) view = view.parent
       verify(view, "the settings page scrolls inside a Flickable")
       var calendars = -1
-      for (var i = 0; i < page.sections.length; i++)
-        if (page.sections[i].key === "calendars") calendars = page.sections[i].y
+      for (var itemIndex = 0; itemIndex < page.sections.length; itemIndex++)
+        if (page.sections[itemIndex].key === "calendars") calendars = page.sections[itemIndex].y
       verify(calendars > 0, "the Calendars section is some way down the page")
       view.contentY = calendars
       compare(view.contentY, calendars, "the previous visit ended on Calendars")
@@ -757,13 +757,13 @@ Item {
       // The switcher opens over the calendar root as readily as over the list.
       app.showCalendar()
       compare(kinds(), "calendar")
-      var switcher = having(app, function(it) {
-        return typeof it.openCentered === "function" && typeof it.manageRequested === "function"
+      var switcher = having(app, function(item) {
+        return typeof item.openCentered === "function" && typeof item.manageRequested === "function"
       })
       switcher.openCentered()
       tryCompare(switcher, "opened", true)
-      var manage = having(switcher.menuRows, function(it) {
-        return it.text === "Manage accounts..." && typeof it.activated === "function"
+      var manage = having(switcher.menuRows, function(item) {
+        return item.text === "Manage accounts..." && typeof item.activated === "function"
       })
       verify(manage && manage.visible, "the switcher offers Manage accounts...")
       mouseClick(manage)

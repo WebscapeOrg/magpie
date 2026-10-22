@@ -47,8 +47,8 @@ Item {
       if (!node) return found
       if (node.objectName === "account-row") found.push(node)
       var children = node.children || []
-      for (var i = 0; i < children.length; i++)
-        found = found.concat(rows(children[i]))
+      for (var childIndex = 0; childIndex < children.length; childIndex++)
+        found = found.concat(rows(children[childIndex]))
       return found
     }
 
@@ -99,7 +99,7 @@ Item {
         if (!node) return
         if (node.text !== undefined && String(node.text).length === 1) found.push(node)
         var children = node.children || []
-        for (var i = 0; i < children.length; i++) walk(children[i])
+        for (var childIndex = 0; childIndex < children.length; childIndex++) walk(children[childIndex])
       }
       walk(all[0])
       verify(found.length > 0, "the row draws an initial")

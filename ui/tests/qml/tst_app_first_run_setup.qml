@@ -157,8 +157,8 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var childIndex = 0; childIndex < values.length; childIndex++) {
+        var found = named(values[childIndex], objectName)
         if (found) return found
       }
       return null
@@ -168,8 +168,8 @@ Item {
       if (!item) return null
       if (item.text === "Remove account" && typeof item.clicked === "function") return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = removeAccountButton(values[i])
+      for (var childIndex = 0; childIndex < values.length; childIndex++) {
+        var found = removeAccountButton(values[childIndex])
         if (found) return found
       }
       return null

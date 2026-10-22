@@ -55,7 +55,7 @@ Item {
 
     function seed(emails, activeId) {
       var list = Accounts.emptyList()
-      for (var i = 0; i < emails.length; i++) list = Accounts.add(list, entry(emails[i]))
+      for (var itemIndex = 0; itemIndex < emails.length; itemIndex++) list = Accounts.add(list, entry(emails[itemIndex]))
       list = Accounts.setActive(list, activeId)
       mailService.activeIndex = -1
       mailService.accountList = list
@@ -67,8 +67,8 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) {
+        var found = named(values[itemIndex], objectName)
         if (found) return found
       }
       return null
@@ -81,10 +81,10 @@ Item {
         if (!item) return null
         if (item.hasOwnProperty("request") && item.hasOwnProperty("opened")
             && String(item).indexOf("AccountRemovalDialog") === 0) return item
-        var kids = item.children || []
-        for (var i = 0; i < kids.length; i++) {
-          var f = walk(kids[i])
-          if (f) return f
+        var children = item.children || []
+        for (var itemIndex = 0; itemIndex < children.length; itemIndex++) {
+          var found = walk(children[itemIndex])
+          if (found) return found
         }
         return null
       }
@@ -92,10 +92,10 @@ Item {
     }
 
     function emails() {
-      var out = []
+      var addresses = []
       var values = mailService.accountSummaries || []
-      for (var i = 0; i < values.length; i++) out.push(values[i].email)
-      return out
+      for (var itemIndex = 0; itemIndex < values.length; itemIndex++) addresses.push(values[itemIndex].email)
+      return addresses
     }
 
     // The bug this file exists for.

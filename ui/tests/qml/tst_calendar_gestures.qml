@@ -74,33 +74,31 @@ Item {
       waitForRendering(view)
       wait(50)
     }
+    function dragMeetingEnd() {
+      var drag = findChild(view, "calendar-event-drag-meeting")
+      verify(drag !== null)
+      mousePress(drag, drag.width / 2, drag.height - 2)
+      mouseMove(drag, drag.width / 2, drag.height + 35, 20)
+      mouseRelease(drag, drag.width / 2, drag.height + 35)
+    }
     function test_legacy_provider_cannot_dispatch_resize() {
       for (var i = 0; i < 3; i++) {
         fixture.sourceKind = ["microsoft", "icloud", "caldav"][i]
-        var drag = findChild(view, "calendar-event-drag-meeting")
-        mousePress(drag, drag.width / 2, drag.height - 2)
-        mouseMove(drag, drag.width / 2, drag.height + 35, 20)
-        mouseRelease(drag, drag.width / 2, drag.height + 35)
+        dragMeetingEnd()
         compare(moved.count, 0)
         compare(view.pendingGesture, null)
       }
     }
     function test_old_backend_cannot_dispatch_resize() {
       fixture.apiReady = false
-      var drag = findChild(view, "calendar-event-drag-meeting")
-      mousePress(drag, drag.width / 2, drag.height - 2)
-      mouseMove(drag, drag.width / 2, drag.height + 35, 20)
-      mouseRelease(drag, drag.width / 2, drag.height + 35)
+      dragMeetingEnd()
       compare(moved.count, 0)
       compare(view.pendingGesture, null)
     }
     function test_pending_resize_is_immediate_and_failure_restores_it() {
       var originalEnd = fixture.events[0].end.ms
       fixture.acceptReschedule = true
-      var drag = findChild(view, "calendar-event-drag-meeting")
-      mousePress(drag, drag.width / 2, drag.height - 2)
-      mouseMove(drag, drag.width / 2, drag.height + 35, 20)
-      mouseRelease(drag, drag.width / 2, drag.height + 35)
+      dragMeetingEnd()
       verify(view.pendingGesture !== null)
       verify(view.pendingGesture.end > originalEnd)
       compare(fixture.events[0].end.ms, originalEnd)
@@ -132,11 +130,7 @@ Item {
       fixture.events = original
     }
     function test_resize_changes_only_the_end() {
-      var drag = findChild(view, "calendar-event-drag-meeting")
-      verify(drag !== null)
-      mousePress(drag, drag.width / 2, drag.height - 2)
-      mouseMove(drag, drag.width / 2, drag.height + 35, 20)
-      mouseRelease(drag, drag.width / 2, drag.height + 35)
+      dragMeetingEnd()
       compare(moved.count, 1)
       compare(moved.signalArguments[0][1], fixture.events[0].start.ms)
       verify(moved.signalArguments[0][2] > fixture.events[0].end.ms)

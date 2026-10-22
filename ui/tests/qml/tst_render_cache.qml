@@ -23,7 +23,6 @@ Item {
     pluginDir: "/tmp/omamail-render-cache-test"
     active: false
     windowOpen: false
-    bodyMode: "original"
   }
 
   TestCase {
@@ -34,7 +33,6 @@ Item {
       account.clearSelection()
       account.accountId = "account-one"
       backend.requests = []
-      account.bodyMode = "original"
       account.alwaysShowImages = false
       account.remoteImagesAllowed = false
       account.remoteImageData = ({})
@@ -42,7 +40,7 @@ Item {
 
     function test_html_is_only_drawn_after_native_sanitization() {
       account.selectedId = "message-one"
-      account.renderSource("opaque-native-key", true)
+      account.renderSource("opaque-native-key")
       compare(account.selectedDocument, null)
       compare(backend.requests.length, 1)
       compare(backend.requests[0].method, "reader.render")
@@ -56,10 +54,10 @@ Item {
 
     function test_a_stale_render_cannot_replace_the_new_selection() {
       account.selectedId = "message-one"
-      account.renderSource("old", false)
+      account.renderSource("old")
       account.detailSerial++
       account.selectedId = "message-two"
-      account.renderSource("current", false, true)
+      account.renderSource("current")
       backend.complete(1, "current", null)
       backend.complete(0, "old", null)
       compare(account.selectedDocument.children[0].text, "current")
@@ -67,7 +65,7 @@ Item {
 
     function test_changing_account_identity_rejects_late_render() {
       account.selectedId = "message-one"
-      account.renderSource("private account one", false, true)
+      account.renderSource("private account one")
       account.accountId = "account-two"
       backend.complete(0, "private account one", null)
       compare(account.selectedDocument, null)
@@ -75,7 +73,7 @@ Item {
 
     function test_failure_never_falls_back_to_sender_html() {
       account.selectedId = "message-one"
-      account.renderSource("opaque-key-with-blocked-images", false, true)
+      account.renderSource("opaque-key-with-blocked-images")
       backend.complete(0, "", {code: "failed"})
       compare(account.selectedDocument, null)
       verify(account.lastError !== "")

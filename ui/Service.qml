@@ -2279,7 +2279,6 @@ Item {
       // Invariant: Only the first Gmail account may adopt the legacy client-keyed refresh token.
       mayAdoptLegacyToken: index === 0 && (!entry || entry.provider === "gmail")
       settings: root.settings
-      bodyMode: root.bodyMode
       monitoredIds: entry ? entry.monitored : []
       // Invariant: Remote-image permission is a reader-wide preference shared by every account.
       alwaysShowImages: root.alwaysShowImages

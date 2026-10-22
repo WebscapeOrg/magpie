@@ -1,6 +1,4 @@
 import QtQuick
-import Quickshell
-import Quickshell.Io
 import "../providers"
 import "../cache"
 
@@ -59,8 +57,6 @@ Item {
   property var settings: defaultSettingValues
 
   property bool windowOpen: false
-  // Performance: Reader mode needs its document on first paint; other modes can defer that build.
-  property string bodyMode: "reader"
 
   property var savingAttachmentIds: Object.create(null)
 
@@ -638,7 +634,7 @@ Item {
 
   // Performance: Paint cached query rows immediately; typed searches can also search cached summaries while the server continues.
   function paintFromCache() {
-    if (!cacheStore.loaded) return false
+    if (!cacheStore.loaded) return
     var serial = listSerial
     var account = accountId
     var query = cacheKey
@@ -651,10 +647,7 @@ Item {
         var restored = result.summaries || []
         var entry = result.entry
         if (restored.length === 0) return
-      for (var restoredIndex = 0; restoredIndex < restored.length; restoredIndex++) {
-        restored[restoredIndex].date = new Date(restored[restoredIndex].dateMs || restored[restoredIndex].date || 0)
-        restored[restoredIndex].time = Mail.relativeTime(restored[restoredIndex].date, new Date())
-      }
+      hydrateSummaries(restored)
 
       if (!Model.sameSummaries(messages, restored)) messages = restored
       resultEstimate = entry ? Math.max(entry.estimate, restored.length) : restored.length
@@ -672,7 +665,6 @@ Item {
       notificationsPrimed = true
       listRefreshed()
       })
-    return false
   }
 
   function loadMessages(append, skipCache, preservedError) {
@@ -724,12 +716,11 @@ Item {
     var serial = ++listSerial
     var keptError = String(preservedError || "")
     abortRequest(listHandle)
-    if (!append) {
+    if (!append && skipCache !== true) {
       // Invariant: An interrupted optimistic edit already owns the freshest state; cache-first refresh must not restore its removed row.
-      if (skipCache !== true && !paintFromCache()) {
-        nextPageToken = ""
-        resultEstimate = 0
-      }
+      paintFromCache()
+      nextPageToken = ""
+      resultEstimate = 0
     }
     listLoading = true
     var token = append ? nextPageToken : ""
@@ -1279,7 +1270,7 @@ Item {
   }
 
   // Invariant: Policy changes re-render by native source identity; sender markup never returns through QML.
-  function renderSource(source, withPlainText, completeReader, callback) {
+  function renderSource(source) {
     readerSourceKey = String(source || "")
     var rendering = ++renderSerial
     var selection = selectedId
@@ -1293,7 +1284,6 @@ Item {
           || selection !== root.selectedId || detail !== root.detailSerial || key !== root.readerSourceKey) return
       if (error || !result) { root.detailLoading = false; root.fail("Could not prepare this message for display"); return }
       root.applyRendered(result.nativeRender)
-      if (typeof callback === "function") callback(result.nativeRender)
     })
   }
 

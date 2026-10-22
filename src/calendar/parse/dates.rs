@@ -132,6 +132,23 @@ fn dated(rule: &Component) -> Vec<NaiveDateTime> {
         .filter_map(date)
         .collect()
 }
+fn transition_years(rule: &Component, year: i32, include_history: bool) -> Vec<i32> {
+    let mut years = vec![year - 1, year];
+    if !include_history {
+        return years;
+    }
+    let Some(last_year) = rules(rule.text("RRULE"))
+        .get("UNTIL")
+        .and_then(|value| date(value))
+        .map(|date| date.year())
+    else {
+        return years;
+    };
+    if last_year < year - 1 {
+        years.extend([last_year - 1, last_year, last_year + 1]);
+    }
+    years
+}
 pub(super) fn zone(calendar: &Component, tzid: &str, reading: NaiveDateTime) -> Option<i64> {
     let zone = calendar
         .children
@@ -155,32 +172,26 @@ pub(super) fn zone(calendar: &Component, tzid: &str, reading: NaiveDateTime) -> 
         });
     let mut candidates = Vec::new();
     let year = reading.year();
-    for (rule, to) in &ordered {
+    for (rule, offset_seconds) in &ordered {
         if rule.property("RRULE").is_some() {
-            let mut years = vec![year - 1, year];
-            if history {
-                if let Some(last) = rules(rule.text("RRULE"))
-                    .get("UNTIL")
-                    .and_then(|s| date(s))
-                    .map(|d| d.year())
-                {
-                    if last < year - 1 {
-                        years.extend([last - 1, last, last + 1]);
-                    }
-                }
-            }
-            for y in years {
-                if let Some(at) = transition(rule, y) {
-                    candidates.push((at, *to));
-                }
-            }
-        } else {
-            for d in dated(rule) {
-                if d.year() == year || d.year() == year - 1 || (history && d.year() < year) {
-                    candidates.push((d.and_utc().timestamp_millis(), *to));
-                }
-            }
+            candidates.extend(
+                transition_years(rule, year, history)
+                    .into_iter()
+                    .filter_map(|year| transition(rule, year))
+                    .map(|at| (at, *offset_seconds)),
+            );
+            continue;
         }
+        candidates.extend(
+            dated(rule)
+                .into_iter()
+                .filter(|date| {
+                    date.year() == year
+                        || date.year() == year - 1
+                        || (history && date.year() < year)
+                })
+                .map(|date| (date.and_utc().timestamp_millis(), *offset_seconds)),
+        );
     }
     let wanted = reading.and_utc().timestamp_millis();
     if let Some((_, to)) = candidates

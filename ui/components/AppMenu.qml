@@ -35,7 +35,7 @@ Item {
   property real anchorX: 0
   property real anchorY: 0
   property int cursorIndex: -1
-  readonly property var menuRows: [snoozedRow, refreshImagesRow, pauseOverviewRow, layoutRow, refreshRow, aiToolsRow, overviewRow, inboxRow, calendarRow, markRow, webRow,
+  readonly property var menuRows: [snoozedRow, layoutRow, refreshRow, aiToolsRow, refreshImagesRow, pauseOverviewRow, overviewRow, inboxRow, calendarRow, markRow, webRow,
     switchRow, settingsRow, shortcutsRow, projectRow, authorRow, quitRow]
 
   function openAt(sceneX, sceneY) {

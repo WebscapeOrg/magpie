@@ -41,6 +41,19 @@ Item {
   }
   SignalSpy { id: composeSpy; target: menu; signalName: "composeRequested" }
 
+  Omamail.AppMenu {
+    id: applicationMenu
+    anchors.fill: parent
+    textColor: menu.textColor
+    popupBackgroundColor: menu.popupBackgroundColor
+    popupBorderColor: menu.popupBorderColor
+    panelFontFamily: "monospace"
+    signedIn: true
+    canOpenWebInbox: true
+    accountCount: 2
+    canQuit: true
+  }
+
   TestCase {
     name: "MessageMenuInbox"
     when: windowShown
@@ -63,8 +76,33 @@ Item {
 
     function cleanup() {
       menu.close()
+      applicationMenu.close()
+      fakeService.canOpenOnWeb = false
       fakeService.hosts = null
       fakeService.canReportSpam = true
+    }
+
+    function test_down_arrow_follows_visible_menu_order_data() {
+      return [{tag: "application", application: true}, {tag: "message", application: false}]
+    }
+    function test_down_arrow_follows_visible_menu_order(data) {
+      var target = data.application ? applicationMenu : menu
+      if (data.application) applicationMenu.openAt(10, 10)
+      else {
+        fakeService.canOpenOnWeb = true
+        show(archivedMessage())
+      }
+      tryCompare(target, "opened", true)
+      wait(30)
+      var rows = target.menuRows.filter(function(row) { return row.visible && row.enabled })
+      rows.sort(function(left, right) { return left.y - right.y })
+      if (target.cursorIndex < 0) keyClick(Qt.Key_Down)
+      compare(target.menuRows[target.cursorIndex], rows[0])
+      for (var rowIndex = 1; rowIndex < rows.length; rowIndex++) {
+        keyClick(Qt.Key_Down)
+        compare(target.menuRows[target.cursorIndex], rows[rowIndex],
+          "Down should select the next displayed row: " + rows[rowIndex].text)
+      }
     }
 
     function archivedMessage() {

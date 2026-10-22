@@ -27,7 +27,7 @@ Item {
   property int cursorIndex: -1
   readonly property var menuRows: [continueRow, replyRow, replyAllRow, forwardRow, archiveRow,
     unarchiveRow, moveRow,
-    trashRow, spamRow, readRow, starRow, browserRow, aiRow]
+    trashRow, spamRow, readRow, starRow, aiRow, browserRow]
   // Invariant: spam has its own inverse only where the provider supports it; IMAP Junk otherwise
   // remains eligible for Move to Inbox.
   readonly property var messageHost: !root.service ? null

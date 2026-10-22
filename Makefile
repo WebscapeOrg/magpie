@@ -95,6 +95,14 @@ QML_FILES += ui/tests/qml/tst_signature_import_lifecycle.qml
 QML_FILES += ui/tests/qml/NativeIntentBridge.qml
 QML_FILES += ui/tests/qml/tst_shell_fixtures.qml
 QML_FILES += ui/tests/qml/tst_magpie_logo.qml
+QML_FILES += ui/providers/Deferred.qml ui/tests/qml/tst_provider_deferred.qml
+QML_FILES += ui/tests/qml/tst_intents_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_google_backend_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_picker_keyboard.qml
+QML_FILES += ui/tests/qml/tst_label_move_picker.qml
+QML_FILES += ui/tests/qml/tst_mail_account_lifecycle.qml
+QML_FILES += ui/tests/qml/tst_service_attachment_owner.qml
+QML_FILES += ui/tests/qml/tst_compose_recovery_attachment_gate.qml
 APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml app/tests/qml/tst_calendar_palette_bindings.qml
 APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)
@@ -234,6 +242,7 @@ test-shell-independent:
 	python3 tests/test_contacts.py
 	python3 tests/test_qml_names.py
 	python3 tests/test_qml_text_format.py
+	python3 tests/test_qml_text_guard.py
 	python3 tests/test_clipboard.py
 	bash tests/test_source.sh
 	bash tests/test_service_source.sh

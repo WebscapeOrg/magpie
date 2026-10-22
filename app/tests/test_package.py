@@ -178,7 +178,7 @@ class PackageTest(unittest.TestCase):
         source = PACKAGER.read_text(encoding="utf-8")
         self.assertIn('QtSvg.framework/Versions/A/QtSvg', source)
         self.assertIn('-libpath="$svg_libraries"', source)
-        # Qt 6.8.3's macdeployqt rejects -no-codesign; the bundle is re-sealed below.
+        # Invariant: Qt 6.8.3's macdeployqt rejects -no-codesign; the bundle is re-sealed below.
         self.assertNotIn('-no-codesign', source)
         self.assertNotIn('-codesign=', source)
         self.assertIn('codesign --force --deep --sign - "$app"', source)

@@ -122,8 +122,8 @@ QVariantMap FileStore::write(const QString &path, const QString &text, bool atom
     bool ok = false;
     if (atomic) {
         // Invariant: Replacing a file on Windows fails with a sharing violation while
-        // the virus scanner or the indexer still holds the one setting replaces,
-        // which is often the case a moment after setting was written. A few short
+        // the virus scanner or the indexer still holds the file being replaced,
+        // which is often the case a moment after it was written. A few short
         // waits outlast that; a file held for good still fails.
 #ifdef Q_OS_WIN
         const int attempts = 8;
@@ -168,7 +168,7 @@ void FileStore::watch(const QString &path, bool enabled)
 }
 
 // Invariant: Only the difference is applied. Re-adding a directory that is already
-// watched makes Qt's FSEvents engine list setting afresh, and setting lists without
+// watched makes Qt's FSEvents engine list it afresh, and the engine lists without
 // hidden entries then checks with them, so a directory holding a dotfile
 // (the backend's lock files) reported itself changed after every re-arm.
 // With every directory event re-arming the watches, that never ended.

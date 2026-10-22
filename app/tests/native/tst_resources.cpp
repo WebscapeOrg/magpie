@@ -33,7 +33,7 @@ private:
         paths.standaloneQml = directory.filePath(QStringLiteral("qml/Main.qml"));
         paths.sharedUi = directory.filePath(QStringLiteral("ui/Service.qml"));
         paths.platformPlugin = directory.filePath(QStringLiteral("plugins/platforms/platform.fixture"));
-        // Windows judges a file executable by its extension, so the fixture
+        // Invariant: Windows judges a file executable by its extension, so the fixture
         // backend is named the way the packaged one is there.
 #ifdef Q_OS_WIN
         paths.backend = directory.filePath(QStringLiteral("bin/omamail.exe"));
@@ -107,7 +107,7 @@ void ResourcesTest::platedIconReadsEveryPngInTheIcns()
     const QList<QSize> sizes = icon.availableSizes();
     for (int dimension : {32, 64, 128, 256, 512, 1024})
         QVERIFY2(sizes.contains(QSize(dimension, dimension)), qPrintable(QString::number(dimension)));
-    // The plate is the Omarchy background, not the bare logo's transparency.
+    // Invariant: The plate is the Omarchy background, not the bare logo's transparency.
     const QImage image = icon.pixmap(QSize(64, 64)).toImage();
     QCOMPARE(image.pixelColor(32, 16).name(), QStringLiteral("#1a1b26"));
     QCOMPARE(image.pixelColor(2, 2).alpha(), 0);
@@ -169,7 +169,7 @@ void ResourcesTest::rejectsBackendWithoutExecutePermission()
     QTemporaryDir directory;
     ResourcePaths paths = completeLayout(directory);
 #ifdef Q_OS_WIN
-    // No execute bit to take away: a backend that is not executable on
+    // Invariant: No execute bit to take away: a backend that is not executable on
     // Windows is one without an executable extension.
     const QString renamed = directory.filePath(QStringLiteral("bin/omamail"));
     QVERIFY(QFile::rename(paths.backend, renamed));
@@ -267,7 +267,7 @@ void ResourcesTest::smokeBoundsBothChannelsAfterQuitReply()
                           100, &metrics));
     qunsetenv("OMAMAIL_SMOKE_FIXTURE");
     QVERIFY(error.contains(QStringLiteral("timed out")));
-    // The fixture floods without end, so any finite bound is the point. The
+    // Invariant: The fixture floods without end, so any finite bound is the point. The
     // wall time is QML loading, a process spawn and a kill-wait of up to a
     // second, which a busy runner has stretched past three seconds.
     QVERIFY(elapsed.elapsed() < 10000);
@@ -288,7 +288,7 @@ void ResourcesTest::smokeDeadlineCrossedDuringDrainDoesNotWaitForever()
     QVERIFY(!runSmokeTest(paths, directory.filePath(QStringLiteral("ready.json")), &error, 1));
     qunsetenv("OMAMAIL_SMOKE_FIXTURE");
     QVERIFY(error.contains(QStringLiteral("timed out")));
-    // The 1ms argument is only the post-quit drain. runSmokeTest still loads
+    // Invariant: The 1ms argument is only the post-quit drain. runSmokeTest still loads
     // QML, spawns the fixture, and kill-waits up to 1000ms, the same wall
     // budget the flood-after-quit bound uses.
     QVERIFY(elapsed.elapsed() < 10000);

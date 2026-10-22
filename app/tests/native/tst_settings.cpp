@@ -58,7 +58,7 @@ void SettingsTest::atomicSettingsRoundTrip()
     QVERIFY(permissions.testFlag(QFileDevice::ReadOwner));
     QVERIFY(permissions.testFlag(QFileDevice::WriteOwner));
 #ifndef Q_OS_WIN
-    // NTFS has no group and other bits; Qt reports the file readable by both
+    // Invariant: NTFS has no group and other bits; Qt reports the file readable by both
     // whatever the ACL says, so the private mode is a POSIX assertion.
     QVERIFY(!permissions.testFlag(QFileDevice::ReadGroup));
     QVERIFY(!permissions.testFlag(QFileDevice::ReadOther));
@@ -174,7 +174,7 @@ void SettingsTest::sharedWatchSurvivesOneSubscriberLeaving()
     QVERIFY(changed.isEmpty());
 }
 
-// A file just written is briefly held by the virus scanner or the indexer on
+// Invariant: A file just written is briefly held by the virus scanner or the indexer on
 // Windows, and replacing it in that moment failed with a sharing violation:
 // a settings save that "sometimes" did nothing. The write waits it out.
 void SettingsTest::fileStoreWriteOutlastsABriefShareLock()
@@ -282,7 +282,7 @@ void SettingsTest::watchReportsDirectoryMutation()
     QCOMPARE(changed.last().at(0).toString(), watchedDirectory);
 }
 
-// A directory event used to re-arm every watch, and re-arming the directory
+// Invariant: A directory event used to re-arm every watch, and re-arming the directory
 // raised another directory event: one metadata tick on a sibling file kept
 // the store emitting for the rest of the process's life.
 void SettingsTest::watchSettlesAfterDirectoryMutation()
@@ -294,7 +294,7 @@ void SettingsTest::watchSettlesAfterDirectoryMutation()
     QVERIFY(seed.open(QIODevice::WriteOnly));
     QCOMPARE(seed.write("{}"), qint64(2));
     seed.close();
-    // The backend keeps lock files beside its registry. Qt's FSEvents engine
+    // Invariant: The backend keeps lock files beside its registry. Qt's FSEvents engine
     // lists a directory without hidden entries when a watch is added and with
     // them when it checks the directory, so a hidden sibling makes every
     // re-armed watch report the directory as changed once more.
@@ -308,7 +308,7 @@ void SettingsTest::watchSettlesAfterDirectoryMutation()
     QTest::qWait(300);
     changed.clear();
 
-    // A sibling written is a directory event everywhere. The backend's own
+    // Invariant: A sibling written is a directory event everywhere. The backend's own
     // touch, re-asserting a private mode that already holds, moves only a
     // ctime, which is nothing Windows reports.
     QFile sibling(directory.filePath(QStringLiteral("accounts.json")));
@@ -320,7 +320,7 @@ void SettingsTest::watchSettlesAfterDirectoryMutation()
     QVERIFY(QFile::setPermissions(present, QFileDevice::ReadOwner | QFileDevice::WriteOwner));
 #endif
     QTRY_VERIFY_WITH_TIMEOUT(!changed.isEmpty(), 2000);
-    // FSEvents delivers these three mutations in as many batches as it
+    // Invariant: FSEvents delivers these three mutations in as many batches as it
     // likes, and a busy runner can space them well apart. Wait for a quiet
     // second rather than assuming when the last one lands; the loop never
     // went quiet.
@@ -332,7 +332,7 @@ void SettingsTest::watchSettlesAfterDirectoryMutation()
         QTest::qWait(1000);
     }
     QCOMPARE(changed.count(), settled);
-    // A handful for two coalesced events over two watched paths; the loop
+    // Invariant: A handful for two coalesced events over two watched paths; the loop
     // produced hundreds and was still going.
     QVERIFY2(settled <= 16, qPrintable(QString::number(settled)));
 }

@@ -90,7 +90,7 @@ deepEqual(invalid, {
   controls: {}, popups: {}
 })
 
-// User values replace theme values before validation, matching Omarchy's
+// Invariant: User values replace theme values before validation, matching Omarchy's
 // mergeShell behavior: an invalid explicit override resets that token to its
 // default instead of silently reviving the hidden theme value.
 const invalidOverride = ShellTheme.resolve(`

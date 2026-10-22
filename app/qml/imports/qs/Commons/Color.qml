@@ -28,14 +28,14 @@ QtObject {
   readonly property color border: theme.border
   readonly property color onAccent: theme.onAccent
 
-  // Docs: "light", "dark", or "" to follow the desktop. Set by the standalone
-  // window from its appearance setting; an Omarchy theme overrides both.
   readonly property QtObject tooltip: QtObject {
     readonly property color text: root.popups.text
     readonly property color background: root.popups.background
     readonly property color border: root.popups.border
   }
 
+  // Docs: "light", "dark", or "" to follow the desktop. Set by the standalone
+  // window from its appearance setting; an Omarchy theme overrides both.
   property string preferredAppearance: ""
   onPreferredAppearanceChanged: applySystemAppearance(fallbackAppearance())
 

@@ -85,7 +85,12 @@ Item {
     // rather than the button landing on top of it.
     function test_the_button_does_not_overlap_the_size() {
       var save = find("attachment-save-button")
+      var labels = save.parent.children.filter(function(child) { return child.text !== undefined })
+      compare(labels.length, 1, "the details row has one size label")
+      var sizeLabel = labels[0]
+      var sizeRight = sizeLabel.mapToItem(row, sizeLabel.width, 0).x
       var saveLeft = save.mapToItem(row, 0, 0).x
+      verify(sizeRight <= saveLeft, "the size label ends before the save button")
       verify(saveLeft > 0)
       verify(saveLeft + save.width <= row.width + 1,
         "the button stays inside the row horizontally")

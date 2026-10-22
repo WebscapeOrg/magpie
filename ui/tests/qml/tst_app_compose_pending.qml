@@ -1419,7 +1419,7 @@ Item {
       var compose = composeView()
       named(compose, "compose-subject-field").text = "Keep the attachment"
       recoveryBackend.ready = true
-      compose.enqueueAttach("read", "/synthetic-pending.txt")
+      compose.queueSelectedAttachments(compose, ["/synthetic-pending.txt"], compose.draftKey, compose.accountId)
       var request = lastNativeRequest("attachment.read")
       verify(request !== null)
       compare(compose.attachmentsReady, false)
@@ -1446,7 +1446,7 @@ Item {
       var compose = composeView()
       mailService.pluginDir = "/synthetic-plugin"
       recoveryBackend.ready = true
-      compose.enqueueAttach("read","/synthetic-attachment")
+      compose.queueSelectedAttachments(compose, ["/synthetic-attachment"], compose.draftKey, compose.accountId)
       var request = lastNativeRequest("attachment.read")
       verify(request !== null)
       compose.finish()

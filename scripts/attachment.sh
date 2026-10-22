@@ -16,7 +16,7 @@
 set -eu
 umask 077
 
-MAX=20971520
+MAX_ATTACHMENT_BYTES=20971520
 
 fail_json() {
   printf '{"ok":false,"error":"%s"}\n' "$(json_escape "$1")"
@@ -86,7 +86,7 @@ read_file() {
     fail_json "That file could not be read"
   fi
   size=$(size_of "$path")
-  if [ "$size" -gt "$MAX" ]; then
+  if [ "$size" -gt "$MAX_ATTACHMENT_BYTES" ]; then
     fail_json "That file is larger than the 20 MB send limit"
   fi
   emit_file "$path"
@@ -116,7 +116,7 @@ save_clipboard() {
     return 1
   fi
   size=$(size_of "$dest")
-  if [ "$size" -gt "$MAX" ]; then
+  if [ "$size" -gt "$MAX_ATTACHMENT_BYTES" ]; then
     rm -f "$dest"
     fail_json "That file is larger than the 20 MB send limit"
   fi

@@ -223,7 +223,8 @@ fn image(node: &Node, state: &mut State, images: &mut Images<'_>) {
     } else {
         source.into()
     };
-    if (kind == ImageSource::Embedded || (kind == ImageSource::Remote && images.allowed() && !rendered.is_empty()))
+    if (kind == ImageSource::Embedded
+        || (kind == ImageSource::Remote && images.allowed() && !rendered.is_empty()))
         && images.admit(&rendered)
     {
         if kind == ImageSource::Remote {
@@ -616,7 +617,8 @@ fn visit_node(node: &Node, state: &mut State, images: &mut Images<'_>, tables: b
                         | "legend"
                         | "details"
                         | "summary"
-                )) {
+                ))
+            {
                 walk(node, state, images, tables);
                 return;
             }

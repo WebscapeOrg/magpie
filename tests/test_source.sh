@@ -1058,7 +1058,7 @@ from pathlib import Path
 
 service = Path("Service.qml").read_text()
 start = service.index("readonly property var senderSources:")
-end = service.index("// The name the entry being edited", start)
+end = service.index("  function editingEntry()", start)
 block = service[start:end]
 if "hostsEpoch" not in block:
     raise SystemExit(

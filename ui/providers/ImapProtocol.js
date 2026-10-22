@@ -195,12 +195,8 @@ function normalizedPort(value, fallback) {
   return port
 }
 
-/** A host name is case-insensitive, and lowercasing it here is what keeps every
- * later reading of it the same one. `isLoopback` already compares lowercased,
- * so a user who typed "LocalHost" was judged local up here and then failed to
- * match the transport's own loopback patterns further down — which meant the
- * local bridge, the one server that legitimately speaks plaintext, was the one
- * refused for not offering TLS.
+/** Normalize host casing before the loopback-only certificate override is checked.
+ * Native IMAP and SMTP still require TLS, including loopback bridges.
  */
 function normalizeSettings(raw) {
   var values = raw || {}

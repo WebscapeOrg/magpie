@@ -256,7 +256,7 @@ assert.strictEqual(jmap.downloadUrl("https://h/{name}", "t", "b", undefined, "x"
 
 // ---------------------------------------------------------------- constants
 
-assert.strictEqual(jmap.MAX_BLOB_BYTES, 20971520, "20 MB, the same figure attachment.sh sends up to")
+assert.strictEqual(jmap.MAX_BLOB_BYTES, 20971520, "historical JavaScript transport limit retained by the reference codec")
 assert.strictEqual(jmap.AUTH_BASIC, "basic")
 assert.strictEqual(jmap.AUTH_BEARER, "bearer")
 assert.strictEqual(jmap.AUTH_NONE, "none")

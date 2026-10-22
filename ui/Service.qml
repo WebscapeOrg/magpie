@@ -255,8 +255,8 @@ Item {
     var target = agentTarget(ids[0], accountId)
     if (!target.owner) return []
     var own = []
-    for (var i = 0; i < ids.length; i++) {
-      var item = agentTarget(ids[i], accountId)
+    for (var jobIndex = 0; jobIndex < ids.length; jobIndex++) {
+      var item = agentTarget(ids[jobIndex], accountId)
       if (item.owner !== target.owner) return []
       own.push(item.id)
     }
@@ -267,8 +267,8 @@ Item {
     var target = ids && ids.length ? agentTarget(ids[0], accountId) : null
     if (!target || !target.owner) return null
     var own = []
-    for (var i = 0; i < ids.length; i++) {
-      var item = agentTarget(ids[i], accountId)
+    for (var jobIndex = 0; jobIndex < ids.length; jobIndex++) {
+      var item = agentTarget(ids[jobIndex], accountId)
       if (item.owner !== target.owner) return null
       own.push(item.id)
     }
@@ -328,8 +328,8 @@ Item {
         || !owner.selectedMessage || String(proposal.draftKey || "") !== "") return null
     var message = owner.selectedMessage
     var own = [{email: owner.accountEmail}]
-    for (var i = 0; i < sendIdentities.length; i++)
-      if (String(sendIdentities[i].accountId) === String(proposal.accountId)) own.push(sendIdentities[i])
+    for (var identityIndex = 0; identityIndex < sendIdentities.length; identityIndex++)
+      if (String(sendIdentities[identityIndex].accountId) === String(proposal.accountId)) own.push(sendIdentities[identityIndex])
     var recipients = AgentRecipients.replyFields(message, "reply", own)
     var choice = preferredSendAs(recipients.outgoing ? [message.from]
       : (message.to || []).concat(message.cc || []))
@@ -377,8 +377,8 @@ Item {
     var list = Array.isArray(ids) ? ids : []
     var owner = null
     var own = []
-    for (var i = 0; i < list.length; i++) {
-      var target = agentTarget(list[i], accountId)
+    for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
+      var target = agentTarget(list[entryIndex], accountId)
       if (!target.owner) return false
       if (owner && target.owner !== owner) {
         agentContext.error = "Select messages from one mailbox at a time."
@@ -791,8 +791,8 @@ Item {
   }
 
   function findAccount(id) {
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (host && host.accountId === String(id)) return host
     }
     return null
@@ -801,8 +801,8 @@ Item {
   // The id of the first saved Gmail account, or "" if there is none yet.
   function gmailAccountId() {
     var accounts = accountList ? accountList.accounts : []
-    for (var i = 0; i < accounts.length; i++) {
-      if (accounts[i].provider === "gmail") return accounts[i].id
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      if (accounts[accountIndex].provider === "gmail") return accounts[accountIndex].id
     }
     return ""
   }
@@ -831,8 +831,8 @@ Item {
   // `windowOpen` travels with it for the same reason: `refresh` reloads a
   // loaded list only for a mailbox the window is showing.
   function applyLiveHosts() {
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (!host) continue
       // A mailbox part-way through being added has no id and no rows to
       // contribute, so it is live only when it is the one on screen — which
@@ -981,8 +981,8 @@ Item {
     // together and take the row being added with it, which read as the add
     // silently undoing itself. A mailbox that is already here is a duplicate,
     // not a rename, and the row that has to go is the new one.
-    for (var d = 0; d < accounts.length; d++) {
-      if (d === index || accounts[d].id !== named) continue
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      if (accountIndex === index || accounts[accountIndex].id !== named) continue
       activeIndex = -1
       accountList = Accounts.removeAt(accountList, index)
       saveAccounts()
@@ -1027,8 +1027,8 @@ Item {
     var entry = {}
     for (var key in accounts[index]) entry[key] = accounts[index][key]
     var keys = ["provider", "email", "clientId", "clientSecret", "imap", "jmap", "label", "senderName"]
-    for (var k = 0; k < keys.length; k++)
-      if (raw[keys[k]] !== undefined) entry[keys[k]] = raw[keys[k]]
+    for (var keyIndex = 0; keyIndex < keys.length; keyIndex++)
+      if (raw[keys[keyIndex]] !== undefined) entry[keys[keyIndex]] = raw[keys[keyIndex]]
 
     // Never rebuild through `add`: a colliding id replaces the *other* row
     // and drops this one, which is how re-authing Proton deleted iCloud.
@@ -1112,7 +1112,7 @@ Item {
   function setAccountSignatureHtml(id, html) { commitAccounts(Accounts.setSignatureHtml(accountList, id, html)) }
   function setAccountSignature(id, text) { commitAccounts(Accounts.setSignature(accountList, id, text)) }
 
-  function saveAccounts(opts) {
+  function saveAccounts(options) {
     if (!accountsLoaded) return
     // A nameless row is setup state, never a mailbox. There is no legitimate
     // path that persists only one — Add waits for configureAccount, and the UI
@@ -1134,7 +1134,7 @@ Item {
     // row. Removal never arrives here as an omission: it goes through
     // `remove` or `removeAt`, so the row is gone from `accountList` too.
     if (Accounts.dropsNamedMailbox(accountList, writable)) return
-    var allowDrop = !!(opts && opts.allowDrop)
+    var allowDrop = !!(options && options.allowDrop)
     if (!allowDrop && Accounts.dropsAnyId(lastPersistedIds, writable)) return
     if (accountsWriting) {
       accountsSaveQueued = true
@@ -1397,8 +1397,8 @@ Item {
   function recount() {
     var total = 0
     var signedIn = false
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (!host) continue
       total += host.inboxUnread
       if (host.ready) signedIn = true
@@ -1427,45 +1427,45 @@ Item {
   // over it is destroyed and refilled under whoever is typing in it. This
   // changes only when the account list does.
   readonly property var accountSignatures: {
-    var out = []
+    var result = []
     var accounts = accountList ? accountList.accounts : []
-    for (var i = 0; i < accounts.length; i++) {
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
       // A mailbox part-way through being added has no id to save against.
-      if (!accounts[i].id) continue
-      out.push({
-        id: accounts[i].id,
-        email: accounts[i].email,
+      if (!accounts[accountIndex].id) continue
+      result.push({
+        id: accounts[accountIndex].id,
+        email: accounts[accountIndex].email,
         // The name as it was typed, empty when none was, so a field editing
         // it shows what is there rather than the address standing in for it.
-        label: String(accounts[i].label || ""),
-        provider: String(accounts[i].provider || ""),
-        senderName: String(accounts[i].senderName || ""),
-        signature: String(accounts[i].signature || ""),
-        signatureHtml: String(accounts[i].signatureHtml || "")
+        label: String(accounts[accountIndex].label || ""),
+        provider: String(accounts[accountIndex].provider || ""),
+        senderName: String(accounts[accountIndex].senderName || ""),
+        signature: String(accounts[accountIndex].signature || ""),
+        signatureHtml: String(accounts[accountIndex].signatureHtml || "")
       })
     }
-    return out
+    return result
   }
 
   readonly property var accountSummaries: {
-    var out = []
+    var result = []
     var accounts = accountList ? accountList.accounts : []
-    for (var i = 0; i < accounts.length; i++) {
-      var host = accountHosts.objectAt(i)
-      out.push({
-        id: accounts[i].id,
-        email: accounts[i].email,
-        provider: accounts[i].provider,
-        calendarProvider: Accounts.calendarProvider(accounts[i]),
-        label: Accounts.label(accounts[i]),
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      var host = accountHosts.objectAt(accountIndex)
+      result.push({
+        id: accounts[accountIndex].id,
+        email: accounts[accountIndex].email,
+        provider: accounts[accountIndex].provider,
+        calendarProvider: Accounts.calendarProvider(accounts[accountIndex]),
+        label: Accounts.label(accounts[accountIndex]),
         // The name that was chosen, if one was. `label` always answers —
         // falling through to the local part — so it cannot say whether
         // anything was named, and the switcher has to know the difference.
-        name: String(accounts[i].label || ""),
+        name: String(accounts[accountIndex].label || ""),
         // One more line about this particular mailbox, in its provider's own
         // words. Empty for the three that have nothing to add, and the row
         // draws it only when it is not.
-        detail: Provider.detail(accounts[i].provider, accounts[i]),
+        detail: Provider.detail(accounts[accountIndex].provider, accounts[accountIndex]),
         unread: host ? host.inboxUnread : 0,
         active: host ? host.active : false,
         signedIn: host ? host.ready : false,
@@ -1473,7 +1473,7 @@ Item {
         error: host ? host.lastError : ""
       })
     }
-    return out
+    return result
   }
 
   // ------------------------------------------------------- every mailbox at once
@@ -1504,14 +1504,14 @@ Item {
     // a list nobody was looking at.
     if (!unified) return []
     var _epoch = listEpoch
-    var out = []
+    var result = []
     var accounts = accountList ? accountList.accounts : []
-    for (var i = 0; i < accounts.length; i++) {
-      if (!accounts[i].id) continue
-      var host = accountHosts.objectAt(i)
-      out.push({
-        id: accounts[i].id,
-        label: Accounts.label(accounts[i]),
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      if (!accounts[accountIndex].id) continue
+      var host = accountHosts.objectAt(accountIndex)
+      result.push({
+        id: accounts[accountIndex].id,
+        label: Accounts.label(accounts[accountIndex]),
         messages: host ? host.messages : [],
         // Whether this mailbox has more to come, which is what decides where
         // the merge has to stop: a source still holding mail below its last
@@ -1519,7 +1519,7 @@ Item {
         hasMore: !!(host && host.hasMore)
       })
     }
-    return out
+    return result
   }
 
   // What the merge reads for everything that is not a row: whether each
@@ -1527,13 +1527,13 @@ Item {
   readonly property var unifiedStates: {
     if (!unified) return []
     var _epoch = listEpoch
-    var out = []
+    var result = []
     var accounts = accountList ? accountList.accounts : []
-    for (var i = 0; i < accounts.length; i++) {
-      if (!accounts[i].id) continue
-      var host = accountHosts.objectAt(i)
-      out.push({
-        label: Accounts.label(accounts[i]),
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      if (!accounts[accountIndex].id) continue
+      var host = accountHosts.objectAt(accountIndex)
+      result.push({
+        label: Accounts.label(accounts[accountIndex]),
         loading: !!(host && host.listLoading),
         loaded: !!(host && host.listLoaded),
         serverSearchLoading: !!(host && host.serverSearchLoading),
@@ -1541,7 +1541,7 @@ Item {
         error: host ? String(host.lastError || "") : ""
       })
     }
-    return out
+    return result
   }
 
   // Which services are involved, which is what decides the rail and every
@@ -1554,12 +1554,12 @@ Item {
   readonly property var unifiedAbilities: {
     if (!unified) return []
     var _epoch = listEpoch
-    var out = []
+    var result = []
     var accounts = accountList ? accountList.accounts : []
-    for (var i = 0; i < accounts.length; i++) {
-      if (!accounts[i].id) continue
-      var host = accountHosts.objectAt(i)
-      out.push({
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      if (!accounts[accountIndex].id) continue
+      var host = accountHosts.objectAt(accountIndex)
+      result.push({
         archive: !!(host && host.canArchive),
         spam: !!(host && host.canReportSpam),
         star: !!(host && host.canStar),
@@ -1570,7 +1570,7 @@ Item {
         mailboxes: host ? host.mailboxes : []
       })
     }
-    return out
+    return result
   }
 
 
@@ -1590,7 +1590,7 @@ Item {
     unifiedRequestQueued = true
     var ids = []
     var sources = unifiedSources || []
-    for (var i = 0; i < sources.length; i++) ids.push(sources[i].id)
+    for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) ids.push(sources[sourceIndex].id)
     var key = JSON.stringify(ids)
     if (!unified || key !== unifiedAccountKey) {
       unifiedSnapshot = ({})
@@ -1615,8 +1615,8 @@ Item {
         if (error || !value) root.unifiedSnapshotError = "Could not combine mailboxes"
         else {
           var rows = value.messages || []
-          for (var i = 0; i < rows.length; i++) {
-            if (rows[i].date) rows[i].date = new Date(rows[i].date)
+          for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+            if (rows[rowIndex].date) rows[rowIndex].date = new Date(rows[rowIndex].date)
           }
           root.unifiedSnapshot = value
           root.unifiedSnapshotError = ""
@@ -1657,8 +1657,8 @@ Item {
 
   // Every signed-in mailbox, for the actions that are not about one row.
   function eachHost(callback) {
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (host) callback(host)
     }
   }
@@ -1666,10 +1666,10 @@ Item {
   readonly property var barMessages: {
     var accounts = []
     var values = accountList ? accountList.accounts : []
-    for (var i = 0; i < values.length; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var accountIndex = 0; accountIndex < values.length; accountIndex++) {
+      var host = accountHosts.objectAt(accountIndex)
       accounts.push({
-        id: values[i].id, label: Accounts.label(values[i]), inbox: "Inbox",
+        id: values[accountIndex].id, label: Accounts.label(values[accountIndex]), inbox: "Inbox",
         messages: host ? host.previewMessages : []
       })
     }
@@ -1714,13 +1714,13 @@ Item {
     var _epoch = hostsEpoch
     var mailboxes = []
     var accounts = accountList ? accountList.accounts : []
-    var i
-    for (i = 0; i < accounts.length; i++) {
-      var host = accountHosts.objectAt(i)
+    var accountIndex
+    for (accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      var host = accountHosts.objectAt(accountIndex)
       mailboxes.push({
-        id: accounts[i].id,
-        email: host && host.accountEmail ? host.accountEmail : accounts[i].email,
-        label: Accounts.label(accounts[i]),
+        id: accounts[accountIndex].id,
+        email: host && host.accountEmail ? host.accountEmail : accounts[accountIndex].email,
+        label: Accounts.label(accounts[accountIndex]),
         ready: !!(host && host.ready),
         canSend: !!(host && host.canSend),
         aliases: host ? host.availableSendAsAliases : []
@@ -1815,15 +1815,15 @@ Item {
   readonly property var savingAttachmentIds: {
     if (!unified) return current ? current.savingAttachmentIds : ({})
     var _epoch = listEpoch
-    var out = ({})
+    var result = ({})
     var accounts = accountList ? accountList.accounts : []
-    for (var i = 0; i < accounts.length; i++) {
-      if (!accounts[i].id) continue
-      var host = accountHosts.objectAt(i)
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      if (!accounts[accountIndex].id) continue
+      var host = accountHosts.objectAt(accountIndex)
       var own = host ? host.savingAttachmentIds : ({})
-      for (var key in own) out[Unified.unifiedId(accounts[i].id, key)] = own[key]
+      for (var key in own) result[Unified.unifiedId(accounts[accountIndex].id, key)] = own[key]
     }
-    return out
+    return result
   }
   // Whether a message can be written at all, which is a question about the
   // mailbox it would be sent from — and compose picks that from the From
@@ -2004,8 +2004,8 @@ Item {
   // in a merged list it is the reason the button goes busy for a send from a
   // mailbox that is not the active one, which `current.sending` could not say.
   readonly property var sendingHost: {
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (host && host.sending) return host
     }
     return null
@@ -2040,8 +2040,8 @@ Item {
     var _epoch = listEpoch
     var newest = ""
     var at = -1
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (!host || String(host.actionStatus || "") === "") continue
       if (host.actionStatusAt > at) {
         at = host.actionStatusAt
@@ -2052,32 +2052,32 @@ Item {
   }
   readonly property int sendPendingCount: {
     var total = 0
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (host) total += host.sendPendingCount
     }
     return total
   }
   readonly property int sendingCount: {
     var total = 0
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (host && host.sending) total += 1
     }
     return total
   }
   readonly property int runningActionCount: {
     var total = 0
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (host && host.pendingAction !== "") total += 1
     }
     return total
   }
   readonly property int queuedActionCount: {
     var total = 0
-    for (var i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (host) total += host.queuedActions.length
     }
     return total
@@ -2317,10 +2317,10 @@ Item {
   function withSourceDraftId(values) {
     var id = String(values.draftId || "")
     if (Unified.accountOf(id) === "") return values
-    var out = ({})
-    for (var key in values) out[key] = values[key]
-    out.draftId = Unified.sourceIdOf(id)
-    return out
+    var result = ({})
+    for (var key in values) result[key] = values[key]
+    result.draftId = Unified.sourceIdOf(id)
+    return result
   }
 
   // Which mailbox owns an address, for a From that named no account. Asked of
@@ -2329,17 +2329,17 @@ Item {
   function senderFor(address) {
     var wanted = String(address || "").trim().toLowerCase()
     if (wanted === "") return null
-    var i
-    for (i = 0; i < accountHosts.count; i++) {
-      var host = accountHosts.objectAt(i)
+    var hostIndex
+    for (hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var host = accountHosts.objectAt(hostIndex)
       if (host && String(host.accountEmail || "").toLowerCase() === wanted) return host
     }
-    for (i = 0; i < accountHosts.count; i++) {
-      var other = accountHosts.objectAt(i)
+    for (hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+      var other = accountHosts.objectAt(hostIndex)
       if (!other) continue
       var aliases = other.availableSendAsAliases || []
-      for (var j = 0; j < aliases.length; j++) {
-        var alias = aliases[j]
+      for (var aliasIndex = 0; aliasIndex < aliases.length; aliasIndex++) {
+        var alias = aliases[aliasIndex]
         var email = String((alias && alias.email) || alias || "").trim().toLowerCase()
         if (email === wanted) return other
       }
@@ -2382,9 +2382,9 @@ Item {
     // Same reason as `forwardReplyFailure`: the draft names its mailbox, so a
     // merged view has no need to change what is on screen to undo a send.
     if (host !== current && !unified) {
-      for (var i = 0; i < accountHosts.count; i++) {
-        if (accountHosts.objectAt(i) === host) {
-          switchToIndex(i)
+      for (var hostIndex = 0; hostIndex < accountHosts.count; hostIndex++) {
+        if (accountHosts.objectAt(hostIndex) === host) {
+          switchToIndex(hostIndex)
           break
         }
       }
@@ -2512,14 +2512,14 @@ Item {
 
   function indexOfActiveAccount() {
     var accounts = accountList ? accountList.accounts : []
-    for (var i = 0; i < accounts.length; i++) {
-      if (accounts[i].id !== "" && accounts[i].id === accountList.activeId) return i
+    for (var recipientIndex = 0; recipientIndex < accounts.length; recipientIndex++) {
+      if (accounts[recipientIndex].id !== "" && accounts[recipientIndex].id === accountList.activeId) return recipientIndex
     }
     // Nothing matched by id, which is what a row still being filled in looks
     // like: it has no address yet, so it has no id to match on. The first such
     // row is the one the form is editing.
-    for (var j = 0; j < accounts.length; j++) {
-      if (accounts[j].id === "") return j
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      if (accounts[accountIndex].id === "") return accountIndex
     }
     return -1
   }
@@ -2570,9 +2570,9 @@ Item {
 
   function withGoogleAccessToken(accountId, callback) {
     var accounts = accountList && accountList.accounts ? accountList.accounts : []
-    for (var i = 0; i < accounts.length; i++) {
-      if (accounts[i] && accounts[i].id === accountId && accounts[i].provider === "gmail") {
-        var host = accountHosts.objectAt(i)
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      if (accounts[accountIndex] && accounts[accountIndex].id === accountId && accounts[accountIndex].provider === "gmail") {
+        var host = accountHosts.objectAt(accountIndex)
         if (host) { host.withAccessToken(callback); return }
       }
     }
@@ -2583,9 +2583,9 @@ Item {
   // one its sends use; the sign-in asks for the calendar scope beside it.
   function withMicrosoftAccessToken(accountId, callback) {
     var accounts = accountList && accountList.accounts ? accountList.accounts : []
-    for (var i = 0; i < accounts.length; i++) {
-      if (accounts[i] && accounts[i].id === accountId && accounts[i].provider === "outlook") {
-        var host = accountHosts.objectAt(i)
+    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
+      if (accounts[accountIndex] && accounts[accountIndex].id === accountId && accounts[accountIndex].provider === "outlook") {
+        var host = accountHosts.objectAt(accountIndex)
         if (host && host.auth && typeof host.auth.withGraphToken === "function") {
           host.auth.withGraphToken(callback)
           return
@@ -2869,7 +2869,7 @@ Item {
             exitCode === 0 ? "" : String(stderr.text || "Could not write configuration"))
           else {
             var value = null
-            try { value = JSON.parse(String(stdout.text || "")) } catch (e) {}
+            try { value = JSON.parse(String(stdout.text || "")) } catch (error) {}
             done(value || ({ok:false,error:String(stderr.text || "Host operation failed")}))
           }
         }
@@ -2911,8 +2911,8 @@ Item {
 
   Connections {
     target: root.backend
-    function onNotification(method, params) {
-      if (method === "accounts.changed" && params && params.revision !== root.accountsRevision)
+    function onNotification(method, parameters) {
+      if (method === "accounts.changed" && parameters && parameters.revision !== root.accountsRevision)
         root.restoreAccountRegistry()
     }
     function onReadyChanged() {

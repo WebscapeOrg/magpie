@@ -622,8 +622,8 @@ Item {
         root.countHandle = root.summarizedRead(page.ids, false, function(payloads) {
           if (serial !== root.countSerial) return
           var summaries = []
-          for (var i = 0; i < payloads.length; i++) {
-            var summary = payloads[i].nativeSummary
+          for (var payloadIndex = 0; payloadIndex < payloads.length; payloadIndex++) {
+            var summary = payloads[payloadIndex].nativeSummary
             // The provider's unread query is authoritative. Some IMAP servers
             // omit FLAGS from metadata even when SEARCH UNSEEN found the row.
             summary.unread = true
@@ -745,7 +745,7 @@ Item {
 
   function hydrateSummaries(rows) {
     var values = Array.isArray(rows) ? rows : []
-    for (var i = 0; i < values.length; i++) hydrateSummary(values[i])
+    for (var summaryIndex = 0; summaryIndex < values.length; summaryIndex++) hydrateSummary(values[summaryIndex])
     return values
   }
 
@@ -759,7 +759,7 @@ Item {
       if (error || !result) { callback([], "Could not prepare message summaries"); return }
       var summaries = result.summaries || []
       if (summaries.length !== list.length) { callback([], "Incomplete message summaries"); return }
-      for (var i = 0; i < list.length; i++) list[i].nativeSummary = root.hydrateSummary(summaries[i])
+      for (var payloadIndex = 0; payloadIndex < list.length; payloadIndex++) list[payloadIndex].nativeSummary = root.hydrateSummary(summaries[payloadIndex])
       callback(list, "")
     })
   }
@@ -848,9 +848,9 @@ Item {
         var restored = result.summaries || []
         var entry = result.entry
         if (restored.length === 0) return
-      for (var i = 0; i < restored.length; i++) {
-        restored[i].date = new Date(restored[i].dateMs || restored[i].date || 0)
-        restored[i].time = Mail.relativeTime(restored[i].date, new Date())
+      for (var restoredIndex = 0; restoredIndex < restored.length; restoredIndex++) {
+        restored[restoredIndex].date = new Date(restored[restoredIndex].dateMs || restored[restoredIndex].date || 0)
+        restored[restoredIndex].time = Mail.relativeTime(restored[restoredIndex].date, new Date())
       }
 
       // Only when a row differs; see `Model.sameSummaries`.
@@ -864,7 +864,7 @@ Item {
       // announce a mailbox the user has been looking at all along.
       var seen = Object.create(null)
       for (var key in seenIds) seen[key] = true
-      for (var j = 0; j < restored.length; j++) seen[restored[j].id] = true
+      for (var seenIndex = 0; seenIndex < restored.length; seenIndex++) seen[restored[seenIndex].id] = true
       seenIds = seen
       // The cache is also a record of what was on screen last time, so a live
       // load on top of it can tell genuinely new mail from a first look.
@@ -1189,8 +1189,8 @@ Item {
       root.listLoading = false
       var summaries = []
       var list = Array.isArray(payloads) ? payloads : []
-      for (var i = 0; i < list.length; i++)
-        summaries.push(list[i].nativeSummary)
+      for (var payloadIndex = 0; payloadIndex < list.length; payloadIndex++)
+        summaries.push(list[payloadIndex].nativeSummary)
       root.backend.call("model.apply", {operation: "missingSearchSummaryIds", args: [summaries, ids]}, function(missingSummaries, modelError) {
       if (serial !== root.listSerial) return
       if (modelError) { root.fail("Could not prepare message list"); return }
@@ -1247,7 +1247,7 @@ Item {
       var arrivals = append || suppressArrivals === true ? [] : result[0]
 
     var seen = Object.create(null)
-    for (var i = 0; i < merged.length; i++) seen[merged[i].id] = true
+    for (var rowIndex = 0; rowIndex < merged.length; rowIndex++) seen[merged[rowIndex].id] = true
     // Ids already seen are kept so a message that scrolls off the first page
     // does not get announced again when it comes back.
     for (var key in seenIds) seen[key] = true
@@ -1618,8 +1618,8 @@ Item {
     if (!remoteImagesAllowed || remoteImagesLoading || readerSourceKey === ""
       || selectedRemoteImageSources.length === 0) return
     var pending = []
-    for (var i = 0; i < selectedRemoteImageSources.length; i++) {
-      var source = String(selectedRemoteImageSources[i])
+    for (var imageIndex = 0; imageIndex < selectedRemoteImageSources.length; imageIndex++) {
+      var source = String(selectedRemoteImageSources[imageIndex])
       if (!remoteImageAttempted[source] && !remoteImageData[source] && pending.indexOf(source) < 0)
         pending.push(source)
     }
@@ -1941,11 +1941,11 @@ Item {
               if (remaining === 0) done(null, firstError, failures)
             }
           }
-          for (var r = 0; r < rows.length; r++) {
-            var rowTargets = prepared.targetsOf[rows[r]] || [rows[r]]
+          for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+            var rowTargets = prepared.targetsOf[rows[rowIndex]] || [rows[rowIndex]]
             var sent = rowTargets.length > 1 ? rowTargets : rowTargets[0]
-            if (action === "trash") root.api.trashMessage(sent, replyFor(rows[r]))
-            else root.api.untrashMessage(sent, replyFor(rows[r]))
+            if (action === "trash") root.api.trashMessage(sent, replyFor(rows[rowIndex]))
+            else root.api.untrashMessage(sent, replyFor(rows[rowIndex]))
           }
         } else if (action === "trash") root.api.trashMessage(targets.length > 1 ? targets : targets[0], done)
         else if (action === "untrash") root.api.untrashMessage(targets.length > 1 ? targets : targets[0], done)
@@ -2062,7 +2062,7 @@ Item {
     var loaded = new Array(listed.length)
     var handles = []
     var firstError = ""
-    for (var i = 0; i < listed.length; i++) {
+    for (var attachmentIndex = 0; attachmentIndex < listed.length; attachmentIndex++) {
       (function(index) {
         var source = listed[index] || ({})
         if (draftKey && backend && backend.ready && Number(backend.apiVersion)>=8 && providerId!=="hey") {
@@ -2091,7 +2091,7 @@ Item {
             if (remaining === 0 && typeof callback === "function")
               callback(loaded, firstError)
           }))
-      })(i)
+      })(attachmentIndex)
     }
     return handles
   }
@@ -2674,7 +2674,7 @@ Item {
   function cancelActionCompletions() {
     var callbacks = actionCompletions
     actionCompletions = []
-    for (var i = 0; i < callbacks.length; i++) callbacks[i]()
+    for (var callbackIndex = 0; callbackIndex < callbacks.length; callbackIndex++) callbacks[callbackIndex]()
   }
   Component.onDestruction: {
     cancelConversation()
@@ -2973,8 +2973,8 @@ Item {
       root.inboxUnread = snapshot.estimate
       var summaries = []
       var payloads = prepared
-      for (var i = 0; i < payloads.length; i++) {
-        var summary = payloads[i].nativeSummary
+      for (var payloadIndex = 0; payloadIndex < payloads.length; payloadIndex++) {
+        var summary = payloads[payloadIndex].nativeSummary
         summary.unread = true
         summaries.push(summary)
       }

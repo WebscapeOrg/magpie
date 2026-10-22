@@ -682,12 +682,15 @@ Item {
     var next = ({})
     for (var key in settings) if (key !== "id") next[key] = settings[key]
     next[name] = value
-    applySettings(next)
-
     var entry = ({ id: pluginId })
     for (var field in next) entry[field] = next[field]
-    if (shell && typeof shell.updateEntryInline === "function")
-      shell.updateEntryInline(pluginId, entry)
+    if (shell && typeof shell.updateEntryInline === "function"
+        && shell.updateEntryInline(pluginId, entry) === false) {
+      fail("Could not save settings. Please try again.")
+      return false
+    }
+    applySettings(next)
+    return true
   }
 
   function setUndoSendSeconds(value) {

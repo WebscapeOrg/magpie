@@ -14,10 +14,12 @@ Item {
 
     property string updatedId: ""
     property var updatedEntry: null
+    property bool rejectUpdates: false
 
     function updateEntryInline(id, entry) {
       updatedId = String(id)
       updatedEntry = entry
+      return !rejectUpdates
     }
   }
 
@@ -48,6 +50,25 @@ Item {
 
   TestCase {
     name: "ServiceSettings"
+
+    function init() {
+      shellStore.rejectUpdates = false
+    }
+
+    function test_rejected_setting_save_preserves_preferences_and_reports_failure() {
+      var service = inactiveService()
+      service.shell = shellStore
+      service.applyAccounts(JSON.stringify({version: 1, activeId: "one@example.test", accounts: [
+        {id: "one@example.test", email: "one@example.test", provider: "gmail", clientId: ""}
+      ]}))
+      tryVerify(function() { return service.current !== null })
+      var original = JSON.stringify(service.settings)
+      shellStore.rejectUpdates = true
+      service.setNotifyNewMail(false)
+      compare(JSON.stringify(service.settings), original)
+      verify(service.lastError.indexOf("Could not save settings") >= 0)
+      compare(service.notifyNewMail, true)
+    }
 
     function inactiveService() {
       var service = createTemporaryObject(inactiveServiceFactory, root)

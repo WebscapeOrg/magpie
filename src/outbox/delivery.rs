@@ -1,10 +1,10 @@
-//! Execute only the registered account's native provider send, exactly once.
+//! Invariant: Execute only the registered account's native provider send, exactly once.
 use serde_json::{Value, json};
 use std::time::Duration;
 
-/// The queued MIME owns its bytes. HEY's official CLI needs paths, so create
-/// private copies only for the delivery attempt and keep them alive until it
-/// exits. No caller-selected path is reopened for MIME-backed attachments.
+/// Invariant: The queued MIME owns its bytes. HEY's official CLI needs paths, so create private
+/// copies only for the delivery attempt and keep them alive until it exits. No caller-selected path
+/// is reopened for MIME-backed attachments.
 struct HeyAttachments {
     directory: Option<std::path::PathBuf>,
     paths: Vec<Value>,
@@ -195,8 +195,8 @@ pub async fn send(
         answer = json!({});
     }
     if !draft.is_empty() {
-        // JMAP destroys the source draft in its successful submission flow.
-        // A failed cleanup cannot turn confirmed delivery into a retryable send.
+        // Invariant: JMAP destroys the source draft in its successful submission flow. A failed
+        // cleanup cannot turn confirmed delivery into a retryable send.
         let cleanup = async {
             let params = json!({"accountId":account,"id":draft});
             match provider.as_str() {

@@ -29,9 +29,9 @@ async fn owner_submission_ack_loss_replays_one_durable_id_without_another_delive
         .into_bytes();
     socket.write_u32(bytes.len() as u32).await.unwrap();
     socket.write_all(&bytes).await.unwrap();
-    // Never consume the acknowledgement. Keep the peer alive until accept has
-    // authenticated it: Darwin cannot recover peer credentials after both ends
-    // have been closed. Shutting the write side still sends the complete frame.
+    // Invariant: Never consume the acknowledgement. Keep the peer alive until accept has
+    // authenticated it: Darwin cannot recover peer credentials after both ends have been closed.
+    // Shutting the write side still sends the complete frame.
     socket.shutdown().await.unwrap();
     wait_state(&owner, "lost-reply", "a@example.org", "unknown").await;
     drop(socket);
@@ -289,8 +289,8 @@ impl ForkedDescriptors {
         let pid = unsafe { libc::fork() };
         assert!(pid >= 0);
         if pid == 0 {
-            // Between fork and exec only async-signal-safe syscalls are allowed.
-            // Keep all inherited descriptors open until the parent ends the test.
+            // Invariant: Between fork and exec only async-signal-safe syscalls are allowed. Keep
+            // all inherited descriptors open until the parent ends the test.
             let mut byte = 1u8;
             unsafe {
                 libc::write(child_fd, (&byte as *const u8).cast(), 1);
@@ -329,7 +329,7 @@ fn forked_child_drop_cannot_unlock_its_parent_lease() {
     let pid = unsafe { libc::fork() };
     assert!(pid >= 0);
     if pid == 0 {
-        // Lease/File destruction uses only getpid/flock/close, not allocation.
+        // Invariant: Lease/File destruction uses only getpid/flock/close, not allocation.
         drop(lease);
         let byte = 1u8;
         unsafe {
@@ -1012,7 +1012,7 @@ async fn queue_preserves_large_composed_payload_without_the_old_sixteen_megabyte
         Arc::new(|_| Box::pin(async { panic!("queued fixture must never send") })),
         Some(dir.0.clone()),
     );
-    // A 20 MiB binary attachment grows twice through MIME and outer base64url.
+    // Invariant: A 20 MiB binary attachment grows twice through MIME and outer base64url.
     let raw = "A".repeat(38 * 1024 * 1024);
     let params = json!({"accountId":"large@example.org","provider":"gmail","payload":{"raw":raw},"sendId":"large","delaySeconds":60});
     outbox.call("outbox.enqueue", &params).await.unwrap();

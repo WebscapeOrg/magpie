@@ -66,7 +66,7 @@ pub async fn call(
     {
         return Err("snooze_invalid_folder");
     }
-    // Capture membership from the authoritative thread, not UI/model text.
+    // Invariant: Capture membership from the authoritative thread, not UI/model text.
     let thread = resource["threadId"]
         .as_str()
         .ok_or("gmail_invalid_response")?;
@@ -108,7 +108,8 @@ pub async fn call(
             &json!({"accountId":account,"ids":ids,"addLabelIds":[],"removeLabelIds":["INBOX"]}),
         )
         .await;
-    // On unknown mutation outcome, retain the durable pending record for idempotent retry.
+    // Invariant: On unknown mutation outcome, retain the durable pending record for idempotent
+    // retry.
     if answer.is_err() {
         return Err("snooze_pending_retry");
     }

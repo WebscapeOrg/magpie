@@ -7,10 +7,8 @@ use std::{future::Future, pin::Pin};
 #[path = "mail_action_tests.rs"]
 mod action_tests;
 
-// The send-as list of a mailbox whose identities live in its account entry
-// rather than on a server: the mailbox's own address first, under the sender
-// name the account was given, then its configured aliases. The name is the
-// account's, not the server settings', because nothing a server says sets it.
+// Invariant: The primary sender name comes from the account entry; server settings cannot replace
+// it. Configured aliases retain their own names.
 fn configured_identities(settings: &Value) -> Result<Value, &'static str> {
     let email = settings["email"]
         .as_str()
@@ -32,9 +30,8 @@ fn configured_identities(settings: &Value) -> Result<Value, &'static str> {
     Ok(json!(rows))
 }
 
-// One header line, cleaned the way `Accounts.senderNameText` cleans it, so a
-// hand-edited entry names agent sends exactly as it names composer sends
-// instead of failing them.
+// Invariant: Match Accounts.senderNameText so a hand-edited primary sender name behaves the same in
+// CLI and composer sends.
 fn sender_name(raw: &str) -> String {
     let line: String = raw
         .chars()
@@ -118,7 +115,8 @@ impl MutationAdapter for ProviderMutation<'_> {
     ) -> Pin<Box<dyn Future<Output = Result<Value, &'static str>> + Send + 'a>> {
         Box::pin(async move {
             if method.starts_with("gmail.") {
-                // The CLI has no notification to wait for: it holds the line.
+                // Invariant: A one-shot CLI cannot wait for a later notification; the mutation must
+                // settle before exit.
                 self.session.gmail.call_settled(method, &params).await
             } else if method.starts_with("jmap.") {
                 self.session
@@ -142,9 +140,9 @@ impl MutationAdapter for ProviderMutation<'_> {
     }
 }
 
-/// Provider results are acknowledgements, never diagnostics to forward. A
-/// partial response must name every requested ID exactly once; malformed or
-/// contradictory acknowledgements cannot confirm any member of that call.
+/// Invariant: Provider results are acknowledgements, never diagnostics to forward. A partial
+/// response must name every requested ID exactly once; malformed or contradictory acknowledgements
+/// cannot confirm any member of that call.
 fn confirmed_ids(reply: Result<Value, &'static str>, ids: &[String]) -> Vec<String> {
     let Ok(reply) = reply else {
         return Vec::new();
@@ -181,8 +179,8 @@ pub(crate) async fn mutate_plan(
     plan: &crate::mail::action::ActionPlan,
     adapter: &impl MutationAdapter,
 ) -> Vec<String> {
-    // Validate the complete plan before chunking: a malformed later target
-    // must never permit an earlier chunk to mutate the provider or caches.
+    // Invariant: Validate the complete plan before chunking: a malformed later target must never
+    // permit an earlier chunk to mutate the provider or caches.
     if plan
         .target_ids
         .iter()
@@ -191,7 +189,7 @@ pub(crate) async fn mutate_plan(
         return Vec::new();
     }
     let mut succeeded = Vec::new();
-    // Gmail trash is a single-message primitive. Other operations preserve the
+    // Invariant: Gmail trash is a single-message primitive. Other operations preserve the
     // provider's batch primitive, including HEY posting batches and IMAP UIDs.
     let chunk_size = if plan.account.provider == Provider::Gmail && plan.operation == "trash" {
         1
@@ -251,9 +249,9 @@ impl crate::mail::action::ActionMutation for ProviderMutation<'_> {
     }
 }
 
-/// The shared planner is provider-neutral. This adapter may make bounded,
-/// read-only provider calls to learn live destination availability and expand
-/// listings that collapse conversations, but never invokes a mutation method.
+/// Invariant: The shared planner is provider-neutral. This adapter may make bounded, read-only
+/// provider calls to learn live destination availability and expand listings that collapse
+/// conversations, but never invokes a mutation method.
 struct AccountActionLookup<'a> {
     session: &'a Session,
 }
@@ -408,7 +406,7 @@ impl Session {
 
     async fn invalidate_action_caches(&self, account: &str) {
         let params = json!({"accountId":account});
-        // Cache failures cannot erase confirmed delivery or invite a retry.
+        // Invariant: Cache failures cannot erase confirmed delivery or invite a retry.
         if let Ok(restored) = self.queries.call("cache.queryRestore", &params).await {
             let _ = self
                 .queries
@@ -417,7 +415,7 @@ impl Session {
                     &json!({"accountId":account,"generation":restored["generation"],"ids":[]}),
                 )
                 .await;
-            // The one-shot CLI can exit before the cache's debounce fires.
+            // Invariant: The one-shot CLI can exit before the cache's debounce fires.
             let _ = self
                 .queries
                 .call(
@@ -555,8 +553,8 @@ impl Session {
         {
             return Err("imap_list_incomplete");
         }
-        // Only an account-wide search continues more than once. Each step has its
-        // own deadline; this one bounds the whole scan so a list always answers.
+        // Invariant: Only an account-wide search continues more than once. Each step has its own
+        // deadline; this one bounds the whole scan so a list always answers.
         let search = params["query"]
             .as_str()
             .is_some_and(|query| query.starts_with("search:"));
@@ -744,9 +742,9 @@ mod tests {
                     assert_eq!(parsed.get_body().unwrap(), "Line one\nLine two\n");
                 }
             }
-            // Aliases keep their own names: malformed alias metadata must be
-            // refused before any payload exists, rather than being cleaned as
-            // though it were the account's primary sender name.
+            // Invariant: Aliases keep their own names: malformed alias metadata must be refused
+            // before any payload exists, rather than being cleaned as though it were the account's
+            // primary sender name.
             for name in [
                 "Alias\r\nBcc: attacker@example.org",
                 "Alias\0",

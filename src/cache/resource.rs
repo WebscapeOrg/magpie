@@ -1,4 +1,4 @@
-//! Full provider message resources retained for background preload and reader reuse.
+//! Invariant: Full provider message resources retained for background preload and reader reuse.
 //! Parsed presentation bodies remain in the separate legacy-compatible body cache.
 use super::*;
 use std::sync::Arc;

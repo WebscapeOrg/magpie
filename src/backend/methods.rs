@@ -1,4 +1,4 @@
-// Advertised public operations; transport and domain dispatch share this inventory.
+// Invariant: Advertised public operations; transport and domain dispatch share this inventory.
 pub const ALL: &[&str] = &[
     "system.info",
     "inbox.snapshot",

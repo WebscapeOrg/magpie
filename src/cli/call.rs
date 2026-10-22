@@ -3,14 +3,14 @@ use std::io::Read;
 
 const MAX_PARAMS: usize = 1024 * 1024;
 
-/// A one-shot process owns any worker it starts until delivery settles. RPC
-/// sessions keep their existing asynchronous enqueue response.
+/// Invariant: A one-shot process owns any worker it starts until delivery settles. RPC sessions
+/// keep their existing asynchronous enqueue response.
 pub(super) async fn dispatch(
     session: &crate::backend::Session,
     method: &str,
     params: &Value,
 ) -> Result<Value, &'static str> {
-    // A queued Gmail mutation would die with this process: wait for it here.
+    // Invariant: A queued Gmail mutation would die with this process: wait for it here.
     if method.starts_with("gmail.") {
         return session.gmail.call_settled(method, params).await;
     }

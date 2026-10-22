@@ -1,6 +1,6 @@
-//! Real cache operations against a caller-injected private root. In particular,
-//! writes/clears must return success after their directory flush, and reads and
-//! touches need the timestamp-write rights promised by `regular`.
+//! Invariant: Real cache operations against a caller-injected private root. In particular,
+//! writes/clears must return success after their directory flush, and reads and touches need the
+//! timestamp-write rights promised by `regular`.
 use super::*;
 #[test]
 fn windows_cache_put_read_touch_clear_complete_their_filesystem_operations() {

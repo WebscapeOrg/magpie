@@ -1,4 +1,4 @@
-//! Validate a semantic message once; previews own no mutable service or storage.
+//! Invariant: Validate a semantic message once; previews own no mutable service or storage.
 use super::{Account, Provider, SendRequest};
 use base64::{
     Engine,
@@ -15,7 +15,7 @@ const MAX_BYTES: usize = crate::attachment::MAX_BYTES;
 type Result<T> = std::result::Result<T, &'static str>;
 
 pub(crate) trait IdentityLookup: Send + Sync {
-    /// Read-only provider aliases, already scoped to this registered account.
+    /// Invariant: Read-only provider aliases, already scoped to this registered account.
     fn identities<'a>(
         &'a self,
         account: &'a Account,
@@ -242,8 +242,8 @@ impl Prepared {
         self.preview.clone()
     }
 
-    /// Timestamp and seed are retained by the outbox for explicit send IDs, so
-    /// duplicate requests use its original digest even after payload removal.
+    /// Invariant: Timestamp and seed are retained by the outbox for explicit send IDs, so duplicate
+    /// requests use its original digest even after payload removal.
     pub(crate) fn payload(&self, stamp: u64, seed: &str) -> Result<Value> {
         let mut fields = self.fields.clone();
         let digest = format!(

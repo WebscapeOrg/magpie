@@ -1,4 +1,4 @@
-//! Background mailbox reads. Each account has one cancellable check loop.
+//! Invariant: Background mailbox reads. Each account has one cancellable check loop.
 mod preload;
 use futures_util::future::{BoxFuture, try_join_all};
 use serde::Deserialize;
@@ -20,9 +20,9 @@ pub(crate) type Check = Arc<
         + std::marker::Sync,
 >;
 
-/// A provider's own change notifications for one account, or `None` where it
-/// has none. The future runs for as long as the watch does and wakes the check
-/// loop through the trigger it is handed; polling continues regardless.
+/// Invariant: A provider's own change notifications for one account, or `None` where it has none.
+/// The future runs for as long as the watch does and wakes the check loop through the trigger it is
+/// handed; polling continues regardless.
 pub(crate) type Push =
     Arc<dyn Fn(String, Arc<Notify>) -> Option<BoxFuture<'static, ()>> + Send + std::marker::Sync>;
 
@@ -101,22 +101,13 @@ fn account_id(value: &str) -> Result<String, &'static str> {
     Ok(value.to_lowercase())
 }
 
-/// One listing page of the unread poll. Three would do for the preview, but
-/// Gmail's `resultSizeEstimate` on a truncated page is a placeholder — 201 on
-/// a three-id page whether four messages match or four thousand — so the
-/// count has to come from ids actually listed, and listing 100 at a time
-/// keeps a mailbox with a few dozen unread at one request.
+/// Performance: Count listed IDs because Gmail can return a placeholder estimate on truncated
+/// pages. Pages of 100 keep ordinary unread polls to one request.
 const UNREAD_PAGE: u64 = 100;
-/// Past this the exact number is not information anyone acts on, and a
-/// mailbox that far behind should not cost a poll one request per hundred.
+/// Performance: Stop at 500 unread messages to bound background polling requests.
 const UNREAD_CAP: u64 = 500;
-/// How many of the listed ids are hydrated for the bar preview.
 const UNREAD_PREVIEW: usize = 3;
 
-/// The unread total counted from listed ids rather than read off an estimate,
-/// with the first few ids kept for the preview. `list` is asked for one page
-/// per token, starting from "", until a page carries no continuation or the
-/// cap is reached.
 pub(crate) async fn count_listed<F, Fut>(list: F) -> Result<(u64, Vec<Value>), &'static str>
 where
     F: Fn(String) -> Fut,
@@ -137,9 +128,8 @@ where
         }
         total += ids.len() as u64;
         let next = page["nextPageToken"].as_str().unwrap_or("");
-        // An empty page with a continuation, or one that hands back the token
-        // it was given, is a server going in circles; the count so far is the
-        // honest answer rather than a poll that never ends.
+        // Invariant: An empty page or a repeated continuation must stop polling before another
+        // request.
         if next.is_empty() || ids.is_empty() || total >= UNREAD_CAP {
             return Ok((total, preview));
         }
@@ -147,7 +137,6 @@ where
     }
 }
 
-/// IMAP and Outlook idle on INBOX; every other provider only polls here.
 fn provider_push(account: String, trigger: Arc<Notify>) -> Option<BoxFuture<'static, ()>> {
     (account.starts_with("imap:") || account.starts_with("outlook:")).then(|| {
         Box::pin(crate::providers::imap::idle::watch(account, trigger)) as BoxFuture<'static, ()>
@@ -489,9 +478,9 @@ impl Sync {
                         Ok(value) => {
                             snapshot["estimate"] = value["estimate"].clone();
                             snapshot["messages"] = value["messages"].clone();
-                            // Counts alone miss a new unread message replacing
-                            // one just read elsewhere. Preserve provider state
-                            // tokens, otherwise compare the returned previews.
+                            // Invariant: Counts alone miss a new unread message replacing one just
+                            // read elsewhere. Preserve provider state tokens, otherwise compare the
+                            // returned previews.
                             snapshot["fingerprint"] = value["fingerprint"]
                                 .as_str()
                                 .filter(|value| !value.is_empty())
@@ -516,7 +505,8 @@ impl Sync {
                                                 .load(std::sync::atomic::Ordering::Acquire))
                                 });
                                 if restart {
-                                    // Drop invalidates the writer guard before a replacement starts.
+                                    // Invariant: Drop invalidates the writer guard before a
+                                    // replacement starts.
                                     watch.preload.take();
                                     watch.preload = Some(preload::Job::start(
                                         warm.clone(),
@@ -627,9 +617,9 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use tokio::sync::Semaphore;
 
-    // Gmail's own shape: a truncated first page whose estimate is a
-    // placeholder, then a finished page. The count is the ids, the estimate
-    // is never read, and only the first three ids are kept for the preview.
+    // Invariant: Gmail's own shape: a truncated first page whose estimate is a placeholder, then a
+    // finished page. The count is the ids, the estimate is never read, and only the first three ids
+    // are kept for the preview.
     #[tokio::test]
     async fn unread_is_counted_from_listed_ids_not_the_estimate() {
         let asked = Arc::new(Mutex::new(Vec::new()));
@@ -665,9 +655,6 @@ mod tests {
         assert_eq!((total, preview.len()), (0, 0));
     }
 
-    // A mailbox thousands behind stops at the cap rather than paging to the
-    // end, and a server that keeps handing back the same token or an empty
-    // page with a continuation does not keep the poll going forever.
     #[tokio::test]
     async fn counting_stops_at_the_cap_and_on_a_server_going_in_circles() {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -946,7 +933,8 @@ mod tests {
             Box::pin(async { Ok(json!({"estimate":0,"messages":[]})) })
         }));
         let mut events = sync.subscribe();
-        // Private seam accelerates the interval; the RPC boundary still requires 30 seconds.
+        // Invariant: Private seam accelerates the interval; the RPC boundary still requires 30
+        // seconds.
         sync.watch("one".into(), "".into(), 1).await.unwrap();
         let first = event(&mut events).await;
         let second = event(&mut events).await;
@@ -957,7 +945,7 @@ mod tests {
         sync.shutdown().await;
     }
 
-    /// Dropped with the push future, so a test can see the task was cancelled.
+    /// Invariant: Dropped with the push future, so a test can see the task was cancelled.
     struct Stopped(Arc<AtomicBool>);
     impl Drop for Stopped {
         fn drop(&mut self) {
@@ -1014,8 +1002,8 @@ mod tests {
             .unwrap();
         assert!(stopped.swap(false, Ordering::SeqCst), "unwatch");
 
-        // Dropping the session without a shutdown aborts the task, which is
-        // cancelled the next time the runtime would have polled it.
+        // Invariant: Dropping the session without a shutdown aborts the task, which is cancelled
+        // the next time the runtime would have polled it.
         sync.watch("one".into(), "".into(), 3600).await.unwrap();
         drop(sync);
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -1029,7 +1017,7 @@ mod tests {
 
     #[test]
     fn only_imap_and_outlook_accounts_idle() {
-        // Building the future opens nothing; it is dropped unpolled.
+        // Invariant: Building the future opens nothing; it is dropped unpolled.
         for account in ["imap:a@example.org", "outlook:a@example.org"] {
             assert!(provider_push(account.into(), Arc::new(Notify::new())).is_some());
         }

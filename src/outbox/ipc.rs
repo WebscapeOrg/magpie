@@ -1,6 +1,6 @@
-//! Private, bounded submission to the process holding the outbox lease.
-//! This listener has no independent lifecycle: dropping/stopping the owning
-//! outbox aborts it. Only ID-bound enqueue and payload-free snapshots cross it.
+//! Invariant: Private, bounded submission to the process holding the outbox lease. This listener
+//! has no independent lifecycle: dropping/stopping the owning outbox aborts it. Only ID-bound
+//! enqueue and payload-free snapshots cross it.
 use super::{Inner, storage, text};
 use crate::platform::ipc::{LocalEndpoint, authenticate};
 use serde_json::{Value, json};
@@ -12,8 +12,8 @@ const MAX_REPLY: usize = 128 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(super) fn listen(inner: &Arc<Inner>) -> Result<(), &'static str> {
-    // The caller holds the exclusive lease and the state mutex. No successor
-    // can replace this socket until every in-flight durable write releases it.
+    // Invariant: The caller holds the exclusive lease and the state mutex. No successor can replace
+    // this socket until every in-flight durable write releases it.
     let root = inner.root.clone().map(Ok).unwrap_or_else(storage::home)?;
     let endpoint = LocalEndpoint::outbox(&root)?;
     let listener = endpoint.listen()?;
@@ -61,7 +61,7 @@ async fn serve_request(inner: &Arc<Inner>, request: &Value) -> Result<Value, &'s
     let id = text(params, "sendId")?;
     let mut result = inner.call(method, params).await?;
     if method == "outbox.enqueue" {
-        // Other account entries are irrelevant to this submitting process.
+        // Invariant: Other account entries are irrelevant to this submitting process.
         if let Some(entries) = result["snapshot"]["entries"].as_array_mut() {
             entries.retain(|entry| entry["id"] == id);
         }
@@ -85,7 +85,7 @@ pub(super) async fn request(
         .await?;
         let reply = read_frame(&mut stream, MAX_REPLY).await?;
         if let Some(error) = reply["error"].as_str() {
-            // Never forward arbitrary peer diagnostics as an error code.
+            // Invariant: Never forward arbitrary peer diagnostics as an error code.
             const ERRORS: &[&str] = &[
                 "outbox_invalid_params",
                 "outbox_invalid_provider",

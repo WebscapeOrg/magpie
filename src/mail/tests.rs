@@ -20,8 +20,8 @@ use std::{
 static ENVIRONMENT: Mutex<()> = Mutex::new(());
 static FIXTURE_SERIAL: AtomicU64 = AtomicU64::new(0);
 
-// Environment changes must not leak to parallel tests or their child runtimes.
-// libtest names its worker after the exact test; reuse that name in the child.
+// Invariant: Environment changes must not leak to parallel tests or their child runtimes. libtest
+// names its worker after the exact test; reuse that name in the child.
 pub(crate) fn isolated() -> bool {
     let name = std::thread::current().name().unwrap().to_owned();
     if env::var("OMAMAIL_ACTION_TEST_CHILD").as_deref() == Ok(name.as_str()) {

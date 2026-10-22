@@ -1,4 +1,4 @@
-//! Bounded in-process render results. Source and every sanitization option form the key.
+//! Invariant: Bounded in-process render results. Source and every sanitization option form the key.
 //! Only trusted Rust renderer code inserts results; there is deliberately no RPC put.
 use serde_json::Value;
 use std::collections::VecDeque;

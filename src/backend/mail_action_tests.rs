@@ -1,4 +1,3 @@
-//! Exercise the real dispatcher and native JMAP adapter against synthetic TLS.
 use super::Session;
 use crate::mail::tests::{account_fixture, fixture_tree, isolated};
 use serde_json::{Value, json};
@@ -68,7 +67,7 @@ impl Peer {
             document["accounts"]["account"]["accountCapabilities"]["urn:ietf:params:jmap:submission"] =
                 json!({});
         }
-        // Deliberately stale: production availability must read the live peer.
+        // Invariant: Deliberately stale: production availability must read the live peer.
         let boxes = vec![
             json!({"id":"I","role":"inbox"}),
             json!({"id":"S","role":"sent"}),
@@ -201,8 +200,8 @@ async fn production_jmap_executes_all_planned_ids_and_reports_individual_failure
 #[tokio::test]
 async fn native_jmap_execution_preserves_exact_id_bytes_and_ignores_cached_memberships() {
     let (peer, session) = Peer::start("matrix", true).await;
-    // Populate the desktop's cache with e2 in Sent. An already reviewed plan
-    // remains authoritative if that cached membership would now exclude e2.
+    // Invariant: Populate the desktop's cache with e2 in Sent. An already reviewed plan remains
+    // authoritative if that cached membership would now exclude e2.
     session
         .jmap
         .call(
@@ -402,8 +401,8 @@ async fn production_jmap_dispatch_previews_all_actions_without_local_writes() {
     }
     let fixture = account_fixture(json!({"version":1,"activeId":ACCOUNT,
         "accounts":[{"provider":"jmap","email":"user@example.test"}]}));
-    // Existing account, outbox and compose bytes are protected alongside absent
-    // cache, lock and upload destinations. Directory metadata detects creation.
+    // Invariant: Existing account, outbox and compose bytes are protected alongside absent cache,
+    // lock and upload destinations. Directory metadata detects creation.
     for directory in [&fixture.state, &fixture.home] {
         fs::create_dir_all(directory).unwrap();
         fs::write(directory.join("sentinel"), b"unchanged synthetic state").unwrap();
@@ -462,9 +461,8 @@ async fn production_jmap_dispatch_previews_all_actions_without_local_writes() {
         .iter()
         .flat_map(|request| request["calls"].as_array().unwrap())
         .collect();
-    // Star reads only availability and representatives; the six conversation
-    // actions also read threads and members.
-    // Invalid batches must cause no extra provider request.
+    // Algorithm: Star reads only availability and representatives; the six conversation actions
+    // also read threads and members. Invalid batches must cause no extra provider request.
     assert_eq!(calls.len(), 6 * 2 * 4 + 2 * 2, "{report}");
     assert_eq!(fixture_tree(&fixture.root), before);
 }
@@ -476,7 +474,7 @@ async fn production_jmap_send_preview_only_reads_identity_and_preserves_storage(
     }
     let fixture = account_fixture(json!({"version":1,"activeId":ACCOUNT,
         "accounts":[{"provider":"jmap","email":"user@example.test"}]}));
-    // Keep the hostile display name separate from a Windows-valid filename.
+    // Invariant: Keep the hostile display name separate from a Windows-valid filename.
     let attachment = fixture.root.join(if cfg!(windows) {
         "attachment-工.txt"
     } else {

@@ -88,14 +88,14 @@ Item {
     function test_two_mailboxes_become_one_list() {
       compare(service.unified, true)
       compare(service.messages.length, 3)
-      compare(service.messages.map(function(m) { return m.subject }),
+      compare(service.messages.map(function(message) { return message.subject }),
         ["ada newest", "bob middle", "ada oldest"])
     }
 
     // Two mailboxes numbering their own messages from 1 is the collision the
     // composed id exists for.
     function test_each_row_is_addressed_by_its_own_mailbox() {
-      var ids = service.messages.map(function(m) { return m.id })
+      var ids = service.messages.map(function(message) { return message.id })
       compare(ids[0], Unified.unifiedId(adaId, "1"))
       compare(ids[1], Unified.unifiedId(bobId, "1"))
       compare(ids[2], Unified.unifiedId(adaId, "2"))
@@ -208,7 +208,7 @@ Item {
     // ------------------------------------------------------- the properties
 
     function test_the_rail_is_what_every_mailbox_has() {
-      var keys = service.mailboxes.map(function(m) { return m.key })
+      var keys = service.mailboxes.map(function(mailbox) { return mailbox.key })
       compare(keys.indexOf("inbox") >= 0, true)
       compare(keys.indexOf("spam") >= 0, true, "two Gmail mailboxes share Gmail's rail")
     }
@@ -383,15 +383,15 @@ Item {
       compare(rows.length, 2, "one row per mailbox in the merge")
 
       var hosts = [ada(), bob()]
-      for (var i = 0; i < hosts.length; i++) {
-        compare(rows[i].archive, hosts[i].canArchive)
-        compare(rows[i].spam, hosts[i].canReportSpam)
-        compare(rows[i].star, hosts[i].canStar)
-        compare(rows[i].labels, hosts[i].hasLabels)
-        compare(rows[i].web, hosts[i].canOpenOnWeb)
-        compare(rows[i].move, hosts[i].canMove)
-        compare(rows[i].conversations, hosts[i].showsConversations)
-        compare(rows[i].mailboxes.length, hosts[i].mailboxes.length)
+      for (var hostIndex = 0; hostIndex < hosts.length; hostIndex++) {
+        compare(rows[hostIndex].archive, hosts[hostIndex].canArchive)
+        compare(rows[hostIndex].spam, hosts[hostIndex].canReportSpam)
+        compare(rows[hostIndex].star, hosts[hostIndex].canStar)
+        compare(rows[hostIndex].labels, hosts[hostIndex].hasLabels)
+        compare(rows[hostIndex].web, hosts[hostIndex].canOpenOnWeb)
+        compare(rows[hostIndex].move, hosts[hostIndex].canMove)
+        compare(rows[hostIndex].conversations, hosts[hostIndex].showsConversations)
+        compare(rows[hostIndex].mailboxes.length, hosts[hostIndex].mailboxes.length)
       }
 
       compare(service.canArchive,

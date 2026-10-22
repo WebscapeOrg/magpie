@@ -38,7 +38,7 @@ Item {
     property bool refuseBatch: false
     property bool hold: false
     property var pending: []
-    function finish() {var callbacks=pending;pending=[];hold=false;for(var i=0;i<callbacks.length;i++)callbacks[i]()}
+    function finish() {var callbacks=pending;pending=[];hold=false;for(var itemIndex=0;itemIndex<callbacks.length;itemIndex++)callbacks[itemIndex]()}
     function reset() { trashed = []; untrashed = []; batches = []; lists = 0; refuse = ""; refuseBatch = false; hold=false; pending=[] }
   }
 
@@ -48,7 +48,7 @@ Item {
       property var auth: null
       property string email: ""
       function handle() { return ({ aborted: false }) }
-      function later(fn) { if(record.hold)record.pending=record.pending.concat([fn]);else Qt.callLater(fn); return handle() }
+      function later(callback) { if(record.hold)record.pending=record.pending.concat([callback]);else Qt.callLater(callback); return handle() }
       function trashMessage(id, callback) {
         var mine = record.trashed.slice(); mine.push(String(id)); record.trashed = mine
         var refused = String(id) === record.refuse
@@ -79,7 +79,7 @@ Item {
       function createLabel() { return handle() }
       function renameLabel() { return handle() }
       function deleteLabel() { return handle() }
-      function abortRequest(h) { if (h) h.aborted = true }
+      function abortRequest(handle) { if (handle) handle.aborted = true }
     }
   }
 
@@ -116,15 +116,15 @@ Item {
 
     function seed(entries, activeId) {
       var list = Accounts.emptyList()
-      for (var i = 0; i < entries.length; i++) list = Accounts.add(list, entries[i])
+      for (var itemIndex = 0; itemIndex < entries.length; itemIndex++) list = Accounts.add(list, entries[itemIndex])
       list = Accounts.setActive(list, activeId)
       mailService.activeIndex = -1
       mailService.accountList = list
       mailService.accountsLoaded = true
       wait(0)
       mailService.refreshCurrent()
-      for (var h = 0; h < entries.length; h++) {
-        var account = mailService.accountAt(h)
+      for (var accountIndex = 0; accountIndex < entries.length; accountIndex++) {
+        var account = mailService.accountAt(accountIndex)
         verify(account !== null)
         account.clientOverride = controlledClient
         account.auth.toolsChecked = true
@@ -196,12 +196,12 @@ Item {
       var answers = []
       verify(account.actMany(["1:INBOX", "2:INBOX"], "markRead", function(result) { answers.push(result) }))
       tryCompare(account, "pendingAction", "markRead")
-      for (var i = 0; i < 2; i++)
+      for (var itemIndex = 0; itemIndex < 2; itemIndex++)
         verify(account.actMany(["1:INBOX", "2:INBOX"], "markRead", function(result) { answers.push(result) }))
       tryVerify(function() { return account.queuedActions.length === 2 })
       record.finish()
       tryVerify(function() { return answers.length === 3 })
-      for (var a = 0; a < answers.length; a++) compare(answers[a].failedIds, [])
+      for (var answerIndex = 0; answerIndex < answers.length; answerIndex++) compare(answers[answerIndex].failedIds, [])
       compare(record.batches.length, 3)
     }
     function test_sign_out_finishes_queued_batches_without_dispatching_them() {
@@ -219,9 +219,9 @@ Item {
       compare(answers.length, 2)
       compare(account.actionCompletions.length, 0)
       compare(account.queuedActions.length, 0)
-      for (var i = 0; i < answers.length; i++) {
-        compare(answers[i].failedIds, ["1:INBOX", "2:INBOX"])
-        compare(answers[i].error, "Account signed out")
+      for (var itemIndex = 0; itemIndex < answers.length; itemIndex++) {
+        compare(answers[itemIndex].failedIds, ["1:INBOX", "2:INBOX"])
+        compare(answers[itemIndex].error, "Account signed out")
       }
       record.finish()
       wait(30)
@@ -232,8 +232,8 @@ Item {
     function having(item, accept) {
       if (accept(item)) return item
       var children = item.children || []
-      for (var i = 0; i < children.length; i++) {
-        var found = having(children[i], accept)
+      for (var itemIndex = 0; itemIndex < children.length; itemIndex++) {
+        var found = having(children[itemIndex], accept)
         if (found) return found
       }
       return null
@@ -278,8 +278,8 @@ Item {
       app.open()
       app.pushEntry("reader", { id: account.selectedId })
       compare(app.listWidth, 4000, "clamping does not overwrite the saved preference")
-      for (var i = 0; i < 4; i++) {
-        window.width = [760, 759, 980, 1400][i]
+      for (var itemIndex = 0; itemIndex < 4; itemIndex++) {
+        window.width = [760, 759, 980, 1400][itemIndex]
         wait(0)
         verify(reader.width >= 200, "reader survives resize to " + window.width + ": " + reader.width)
       }
@@ -397,7 +397,7 @@ Item {
       seed([entry(ada)], "imap:" + ada)
       var account = mailService.accountAt(0)
       var messages = [row("1:INBOX"), row("2:INBOX"), row("3:INBOX")]
-      for (var i = 0; i < messages.length; i++) messages[i].starred = data.starred
+      for (var itemIndex = 0; itemIndex < messages.length; itemIndex++) messages[itemIndex].starred = data.starred
       account.messages = messages
       account.selectedId = data.outside ? "3:INBOX" : "1:INBOX"
       account.selectedMessage = messages[data.outside ? 2 : 0]
@@ -421,9 +421,9 @@ Item {
       tryCompare(record, "batches", [data.expected])
       compare(app.cursorId, app.selectionActive && !data.outside ? cursorBefore : account.selectedId, "mark unread follows the visible reader unless acting on the selection")
       var acted = data.expected.split(",")
-      for (var j = 0; j < messages.length; j++) {
-        var changed = acted.indexOf(messages[j].id) >= 0
-        compare(account.messages[j].unread, changed)
+      for (var messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+        var changed = acted.indexOf(messages[messageIndex].id) >= 0
+        compare(account.messages[messageIndex].unread, changed)
       }
       app.close()
       window.width = MailStyle.space(980)
@@ -478,7 +478,7 @@ Item {
       tryCompare(record, "trashed", ["1:INBOX", "2:INBOX"])
       record.finish()
       tryVerify(function() { return account.messages.length === 2 }, 1000)
-      compare(account.messages.map(function(m) { return m.id }), ["2:INBOX", "3:INBOX"],
+      compare(account.messages.map(function(message) { return message.id }), ["2:INBOX", "3:INBOX"],
         "the refused row is back in its place; the accepted one is gone")
       verify(account.lastError.indexOf("1 of 2") >= 0, "the note counts the refusal: " + account.lastError)
     }
@@ -505,7 +505,7 @@ Item {
       record.finish()
       tryVerify(function() { return account.messages.length === 2 }, 1000)
       tryVerify(function() { return record.lists > listsBefore }, 1000)
-      compare(account.messages.map(function(m) { return m.id }), ["2:INBOX", "3:INBOX"],
+      compare(account.messages.map(function(message) { return message.id }), ["2:INBOX", "3:INBOX"],
         "the restored rows stay on screen while the server answers")
       verify(account.listLoading, "the page is being read again")
       verify(account.lastError.indexOf("1 of 2") >= 0, "the note is up while the page is read: " + account.lastError)
@@ -534,7 +534,7 @@ Item {
       tryVerify(function() { return account.pendingAction === "" }, 1000)
       tryVerify(function() { return record.lists > listsBefore }, 1000)
       compare(account.deferredListLoad, null, "the waiting refresh ran")
-      compare(account.messages.map(function(m) { return m.id }), ["2:INBOX", "3:INBOX"],
+      compare(account.messages.map(function(message) { return message.id }), ["2:INBOX", "3:INBOX"],
         "with the refused row back and the accepted one gone")
       verify(account.lastError.indexOf("1 of 2") >= 0, account.lastError)
     }

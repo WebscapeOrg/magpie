@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import "MailboxIdentity.js" as Identity
 Rectangle {
   id: root
@@ -23,10 +24,13 @@ Rectangle {
   }
   Image {
     id: picture
+    objectName: "sender-avatar-image"
     anchors.centerIn: parent
     width: parent.width
     height: parent.height
     source: root.safeImage
+    sourceSize: Qt.size(Math.max(1, Math.ceil(width * Screen.devicePixelRatio)),
+      Math.max(1, Math.ceil(height * Screen.devicePixelRatio)))
     fillMode: Image.PreserveAspectFit
     smooth: true
     mipmap: true

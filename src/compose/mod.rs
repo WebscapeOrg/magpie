@@ -170,7 +170,12 @@ fn draft(value: &Value) -> Result<Value> {
     attachment_state(value, &mut out)?;
     Ok(out)
 }
-fn attachment_owner(value: &Value) -> Result<(&str, &str)> {
+struct Owner<'a> {
+    draft: &'a str,
+    account: &'a str,
+}
+
+fn attachment_owner(value: &Value) -> Result<Owner<'_>> {
     let identity = |key| {
         value[key]
             .as_str()
@@ -179,16 +184,19 @@ fn attachment_owner(value: &Value) -> Result<(&str, &str)> {
             })
             .ok_or("recovery_invalid")
     };
-    Ok((identity("draftKey")?, identity("accountId")?))
+    Ok(Owner {
+        draft: identity("draftKey")?,
+        account: identity("accountId")?,
+    })
 }
 
-fn attachment_job(value: &Value, owner: &str, account: &str) -> Result<Option<Value>> {
+fn attachment_job(value: &Value, owner: Owner<'_>) -> Result<Option<Value>> {
     let object = value.as_object().ok_or("recovery_invalid")?;
     if object
         .keys()
         .any(|key| !["mode", "path", "owner", "accountId"].contains(&key.as_str()))
-        || value["owner"] != owner
-        || value["accountId"] != account
+        || value["owner"] != owner.draft
+        || value["accountId"] != owner.account
     {
         return Err("recovery_invalid");
     }
@@ -213,7 +221,7 @@ fn attachment_job(value: &Value, owner: &str, account: &str) -> Result<Option<Va
         return Err("recovery_attachment_path_invalid");
     }
     Ok(Some(
-        json!({"mode":mode,"path":path,"owner":owner,"accountId":account}),
+        json!({"mode":mode,"path":path,"owner":owner.draft,"accountId":owner.account}),
     ))
 }
 
@@ -259,8 +267,7 @@ fn attachment_state(value: &Value, out: &mut Value) -> Result<()> {
         }
         let mut kept = Vec::new();
         for job in jobs {
-            let (owner, account) = attachment_owner(value)?;
-            match attachment_job(job, owner, account)? {
+            match attachment_job(job, attachment_owner(value)?)? {
                 Some(job) => kept.push(job),
                 None => interrupted = true,
             }
@@ -270,8 +277,7 @@ fn attachment_state(value: &Value, out: &mut Value) -> Result<()> {
     if let Some(pending) = value.get("pendingAttachment") {
         out["pendingAttachment"] = Value::Null;
         if !pending.is_null() {
-            let (owner, account) = attachment_owner(value)?;
-            match attachment_job(pending, owner, account)? {
+            match attachment_job(pending, attachment_owner(value)?)? {
                 Some(job) => out["pendingAttachment"] = job,
                 None => interrupted = true,
             }

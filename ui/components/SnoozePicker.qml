@@ -21,7 +21,12 @@ Item {
   property real anchorX: 0
   property real anchorY: 0
   readonly property bool opened: popup.opened
-  readonly property var chosenTime: Snooze.parse(dateField.text,hour.value,minute.value,Date.now())
+  property int validationRevision: 0
+  readonly property var chosenTime: {
+    validationRevision
+    return Snooze.parse(dateField.text,hour.value,minute.value,currentTime())
+  }
+  function currentTime() { return Date.now() }
   signal snoozed(string id, double until)
   anchors.fill: parent
   z: 60
@@ -41,7 +46,19 @@ Item {
     var at = Menu.position(anchorX,anchorY,popup.width,popup.implicitHeight,width,height)
     popup.x = at.x; popup.y = at.y
   }
-  function choose(date) { if (!date || date.getTime() <= Date.now()) return; popup.close(); snoozed(messageId,date.getTime()) }
+  function choose(date) {
+    if (!date) return
+    if (date.getTime() <= currentTime()) {
+      custom = true
+      dateField.text = Qt.formatDate(date, "yyyy-MM-dd")
+      hour.value = date.getHours()
+      minute.value = date.getMinutes()
+      validationRevision++
+      return
+    }
+    popup.close()
+    snoozed(messageId,date.getTime())
+  }
   QQC.Popup {
     id: popup
     objectName: "snooze-popup"
@@ -99,7 +116,7 @@ Item {
           TimeField { id: minute; objectName: "snooze-minute"; from: 0; to: 59; value: 0; editable: true; Accessible.name: "Minute"; font.family: root.panelFontFamily; font.pixelSize: MailStyle.body }
         }
         Text { textFormat: Text.PlainText; width: parent.width; visible: !root.chosenTime; text: "Choose a valid date and time in the future."; color: root.dimColor; wrapMode: Text.WordWrap; font.family: root.panelFontFamily; font.pixelSize: MailStyle.caption }
-        Widgets.Button { text: "Snooze"; foreground: root.textColor; accent: root.accentColor; fontFamily: root.panelFontFamily; fontSize: MailStyle.body; enabled: !!root.chosenTime; focusable: true; onClicked: root.choose(root.chosenTime) }
+        Widgets.Button { objectName: "snooze-submit"; text: "Snooze"; foreground: root.textColor; accent: root.accentColor; fontFamily: root.panelFontFamily; fontSize: MailStyle.body; enabled: !!root.chosenTime; focusable: true; onClicked: root.choose(root.chosenTime) }
       }
       Column {
         width: parent.width

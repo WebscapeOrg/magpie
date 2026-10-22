@@ -68,7 +68,6 @@ Item {
     when: windowShown
     function test_queued_listing_is_fresh() {
       var before = mailbox.labels;
-      var second;
       Transports.install(client)
       function finish(request, names) {
         if (request.method !== "imap.folders") { Transports.reply(request, {}, ""); return }
@@ -95,7 +94,7 @@ Item {
       compare(first.params.accountId, "imap:synthetic@example.com")
       compare(first.params.credential, undefined)
       finish(first)
-      second = Transports.transports(client).filter(function(request) {
+      var second = Transports.transports(client).filter(function(request) {
         return request.method === "imap.renameFolder" && !request.answered
       })[0]
       var stale = listing();
@@ -107,7 +106,7 @@ Item {
       verify(fresh !== null, "A mutation during LIST requires a fresh server read");
       finish(fresh, ["Jobs", "Bills"]);
       tryCompare(actions, "reloading", false, 1000);
-      compare(JSON.stringify(mailbox.monitoredIds), JSON.stringify(["Jobs", "Bills"]));
+      compare(mailbox.monitoredIds, ["Jobs", "Bills"]);
       compare(mailbox.errors, [])
     }
   }

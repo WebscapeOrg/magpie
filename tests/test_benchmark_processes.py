@@ -58,7 +58,7 @@ class Child:
 
 
 class BenchmarkProcesses(unittest.TestCase):
-    def roundtrip(self, child, external_target=False):
+    def roundtrip(self, child, external_target=False, change_binary=False, cases=None):
         module = load("roundtrip")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -83,9 +83,11 @@ class BenchmarkProcesses(unittest.TestCase):
             def launch(*arguments, **options):
                 qml = Path(arguments[0][-1]).read_text()
                 self.assertIn("executable: " + json.dumps(str(binary)), qml)
+                if change_binary:
+                    binary.write_bytes(b"changed during measurement")
                 return child
             with patch.object(module, "HERE", benchmark), patch.object(module, "ROOT", root), \
-                    patch.object(module, "corpus", return_value=[]), \
+                    patch.object(module, "corpus", return_value=cases or []), \
                     patch.object(module, "__file__", str(benchmark / "roundtrip.py")), \
                     patch.object(sys, "argv", ["roundtrip.py", "--samples", "3"]), \
                     patch.object(subprocess, "run", return_value=SimpleNamespace(stdout=artifact)), \
@@ -97,6 +99,9 @@ class BenchmarkProcesses(unittest.TestCase):
                     module.main()
                 except subprocess.TimeoutExpired:
                     pass
+                except RuntimeError:
+                    self.assertFalse((benchmark / "roundtrip-results.json").exists())
+                    raise
                 if external_target:
                     report = json.loads((benchmark / "roundtrip-results.json").read_text())
                     self.assertEqual(report["binarySha256"], hashlib.sha256(binary.read_bytes()).hexdigest())
@@ -104,6 +109,55 @@ class BenchmarkProcesses(unittest.TestCase):
 
     def test_roundtrip_measures_the_cargo_artifact_from_a_custom_target(self):
         self.roundtrip(Child("ROUNDTRIP_DONE\n"), external_target=True)
+
+    def test_roundtrip_refuses_a_binary_changed_during_measurement(self):
+        with self.assertRaisesRegex(RuntimeError, "changed during measurement"):
+            self.roundtrip(Child("ROUNDTRIP_DONE\n"), change_binary=True)
+
+    def test_roundtrip_refuses_invalid_stage_timings(self):
+        for field, value in [("coldUs", -1), ("samplesUs", [float("nan")] * 3), ("samplesUs", [-1] * 3)]:
+            with self.subTest(field=field, value=value):
+                lines = []
+                for phase in ["mime", "html", "readprep"]:
+                    timing = dict(coldUs=1, samplesUs=[1]*3, batch=1,
+                                  result={"document":{"type":"root","children":[]}})
+                    row = dict(name="fixture", phase=phase, qml=timing, native=dict(timing))
+                    if phase == "mime":
+                        row["native"][field] = value
+                    lines.append("ROUNDTRIP_PART " + json.dumps(dict(index=0, total=1, data=json.dumps(row))))
+                lines.append("ROUNDTRIP_DONE")
+                with self.assertRaisesRegex(RuntimeError, "Invalid benchmark sample"):
+                    self.roundtrip(Child("\n".join(lines)), cases=[dict(name="fixture", raw="", html="")])
+
+    def test_cpu_measurement_refuses_changed_binary_or_source(self):
+        module = load("run")
+        for change in ["binary", "source"]:
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                benchmark = root / "benchmarks/mail"
+                (benchmark / "baseline/ui").mkdir(parents=True)
+                (benchmark / "baseline/manifest.json").write_text('{"sha256":{}}')
+                binary = root / "target/release/examples/mail_bench"
+                binary.parent.mkdir(parents=True)
+                binary.write_bytes(b"synthetic binary")
+                source = root / "src/message/mod.rs"
+                source.parent.mkdir(parents=True)
+                source.write_text("synthetic source")
+                output = root / "results.json"
+                def measure(command, payload, folder, name):
+                    if name == "rust":
+                        (binary if change == "binary" else source).write_text("changed")
+                    return {"engine":"synthetic", "cases":[dict(name="fixture", phase="readprep", coldUs=1,
+                        samplesUs=[1]*payload["samples"], result={"document":{"type":"root", "children":[]}})]}, {}
+                with patch.object(module, "HERE", benchmark), patch.object(module, "ROOT", root), \
+                        patch.object(module, "corpus", return_value=[{"name":"fixture"}]), \
+                        patch.object(module, "run_process", side_effect=measure), \
+                        patch.object(subprocess, "run"), patch.object(subprocess, "check_output", return_value="synthetic"), \
+                        patch.object(sys, "argv", ["run.py", "--phases", "readprep", "--output", str(output)]), \
+                        patch("builtins.print"):
+                    with self.assertRaisesRegex(RuntimeError, "changed during measurement"):
+                        module.main()
+                self.assertFalse(output.exists(), "Changed inputs cannot publish measurement provenance")
 
     def test_completed_roundtrip_does_not_signal_reaped_process_group(self):
         child = Child("ROUNDTRIP_DONE\n")

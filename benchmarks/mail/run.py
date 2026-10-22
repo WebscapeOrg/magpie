@@ -39,6 +39,15 @@ def digest(value):
     return hashlib.sha256(json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
 
+def fingerprints(paths):
+    return {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+
+
+def verify_unchanged(expected):
+    if fingerprints(Path(path) for path in expected) != expected:
+        raise RuntimeError('Source or binary changed during measurement')
+
+
 def mime_semantics(value):
     # Compare wire headers, MIME structure, names and exact decoded bytes. The
     # attachmentId is a backend locator, not parsed mail content.
@@ -103,13 +112,17 @@ def measured_cases(measured, payload):
     if actual != expected:
         raise RuntimeError('Missing, duplicated or reordered benchmark operations')
     for case in cases:
-        samples = case.get('samplesUs', [])
-        if len(samples) != payload['samples']:
-            raise RuntimeError('Missing benchmark samples: ' + case['name'])
-        if any(not isinstance(value, (int, float)) or isinstance(value, bool)
-               or not math.isfinite(value) or value < 0 for value in [case.get('coldUs'), *samples]):
-            raise RuntimeError('Invalid benchmark sample: ' + case['name'])
+        validate_samples(case, payload['samples'])
     return cases
+
+
+def validate_samples(row, count):
+    samples = row.get('samplesUs', [])
+    if len(samples) != count:
+        raise RuntimeError('Missing benchmark samples')
+    if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
+           for value in [row.get('coldUs'), *samples]):
+        raise RuntimeError('Invalid benchmark sample')
 
 
 def main():
@@ -136,10 +149,13 @@ def main():
     build_started=time.perf_counter()
     subprocess.run(['cargo','build','--locked','--release','--example','mail_bench','--target-dir',str(ROOT/'target')],cwd=ROOT,check=True)
     build_seconds=time.perf_counter()-build_started
+    binary=ROOT/'target/release/examples/mail_bench'
+    sources=sorted((ROOT/'src/message').rglob('*.rs'))
+    provenance=fingerprints([binary,*sources])
     with tempfile.TemporaryDirectory(prefix='omamail-mail-bench-') as directory:
         directory=Path(directory)
         js,js_process=run_process(['node',str(HERE/'node.cjs')],payload,directory,'node')
-        native,native_process=run_process([str(ROOT/'target/release/examples/mail_bench')],payload,directory,'rust')
+        native,native_process=run_process([str(binary)],payload,directory,'rust')
         qml=None
         qml_process=None
         if args.qml:
@@ -161,12 +177,13 @@ def main():
                 results[-1]['qml']['batch']=actual['batch']
                 results[-1]['qmlSemanticMatch']=canonical(actual['result'])==a
                 results[-1]['qmlSpeedup']=statistics.median(actual['samplesUs'])/statistics.median(new['samplesUs'])
+    verify_unchanged(provenance)
     cpu=next((line.split(':',1)[1].strip() for line in Path('/proc/cpuinfo').read_text().splitlines() if line.startswith('model name')),'unknown')
     report=dict(date=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),machine=dict(cpu=cpu,platform=platform.platform(),logicalCpus=os.cpu_count(),loadAverageBefore=load_before,loadAverageAfter=os.getloadavg()),
         versions=dict(qml=subprocess.check_output(['/usr/lib/qt6/bin/qml','--version'],text=True,env=dict(os.environ,QT_QPA_PLATFORMTHEME='',GSETTINGS_BACKEND='memory'),stderr=subprocess.DEVNULL).strip() if args.qml else None,node=js['engine'],rust=subprocess.check_output(['rustc','--version'],text=True).strip()),
         conditions=args.conditions,commandWallSeconds=time.perf_counter()-command_started,buildWallSeconds=build_seconds,
-        baseline=manifest,nativeBinarySha256=hashlib.sha256((ROOT/"target/release/examples/mail_bench").read_bytes()).hexdigest(),
-        nativeSourceSha256={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((ROOT/"src/message").rglob("*.rs"))},
+        baseline=manifest,nativeBinarySha256=provenance[str(binary)],
+        nativeSourceSha256={str(path.relative_to(ROOT)):provenance[str(path)] for path in sources},
         samples=args.samples,batch=args.batch,warmupOperations=5,attachmentMiB=args.attachment_mib,
         corpus=[{k:v for k,v in c.items() if k not in ('raw','html')} for c in payload['cases']],
         nodeProcess=js_process,rustProcess=native_process,qmlProcess=qml_process,results=results)

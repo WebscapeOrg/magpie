@@ -3,7 +3,7 @@
 import argparse,hashlib,json,os,platform,shutil,signal,subprocess,tempfile,time,tomllib
 from pathlib import Path
 from corpus import corpus
-from run import mime_semantics,html_semantics,difference,digest,stats
+from run import mime_semantics,html_semantics,difference,digest,stats,fingerprints,verify_unchanged,validate_samples
 HERE=Path(__file__).resolve().parent
 ROOT=HERE.parents[1]
 QML=r'''
@@ -139,6 +139,9 @@ def main():
                  and item.get('target',{}).get('kind')==['bin'] and item.get('executable')]
     if len(executables)!=1:raise RuntimeError('Expected one built omamail executable')
     binary=Path(executables[0])
+    sources=[path for base in ['src','ui/backend','ui/message'] for path in sorted((ROOT/base).rglob('*')) if path.is_file()]
+    harness=[Path(__file__),HERE/'corpus.py',HERE/'run.py']
+    provenance=fingerprints([binary,*sources,*harness])
     version=tomllib.loads((ROOT/'Cargo.toml').read_text())['package']['version']
     env={k:v for k,v in os.environ.items() if not k.startswith(('QML','QS_'))}
     env.pop('WAYLAND_DISPLAY',None)
@@ -164,6 +167,7 @@ def main():
             process.communicate()
             raise
         if process.returncode!=0 or 'ROUNDTRIP_ERROR' in output or 'ROUNDTRIP_DONE' not in output:raise RuntimeError(output[-6000:])
+        verify_unchanged(provenance)
         rows=[];parts=[];total=None
         for line in output.splitlines():
             if 'ROUNDTRIP_PART ' not in line:continue
@@ -176,12 +180,13 @@ def main():
         if parts or [(r['name'],r['phase']) for r in rows]!=expected:raise RuntimeError('Incomplete benchmark results')
         results=[]
         for r in rows:
-            if len(r['qml']['samplesUs'])!=args.samples or len(r['native']['samplesUs'])!=args.samples:raise RuntimeError('Missing samples')
+            validate_samples(r['qml'],args.samples)
+            validate_samples(r['native'],args.samples)
             canonical=mime_semantics if r['phase']=='mime' else html_semantics
             a,b=canonical(r['qml']['result']),canonical(r['native']['result'])
             old,new=stats(r['qml']),stats(r['native'])
             results.append(dict(name=r['name'],phase=r['phase'],qml={**old,'batch':r['qml']['batch']},native={**new,'batch':r['native']['batch']},semanticMatch=a==b,semanticDifference=difference(a,b),qmlDigest=digest(a),nativeDigest=digest(b),speedup=old['medianUs']/new['medianUs']))
-        report={'date':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'cpu':next(l.split(':',1)[1].strip() for l in Path('/proc/cpuinfo').read_text().splitlines() if l.startswith('model name')),'platform':platform.platform(),'versions':versions,'samples':args.samples,'loadBefore':load_before,'loadAfter':os.getloadavg(),'wallSeconds':time.perf_counter()-start,'baseline':manifest,'corpus':[dict({k:v for k,v in c.items() if k not in ['raw','html']}, htmlSha256=hashlib.sha256(c['html'].encode('utf-8')).hexdigest()) for c in cases],'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'sourceSha256':{str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for base in ['src','ui/backend','ui/message'] for p in sorted((ROOT/base).rglob('*')) if p.is_file()},'harnessSha256':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path(__file__),HERE/'corpus.py',HERE/'run.py']},'results':results}
+        report={'date':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'cpu':next(l.split(':',1)[1].strip() for l in Path('/proc/cpuinfo').read_text().splitlines() if l.startswith('model name')),'platform':platform.platform(),'versions':versions,'samples':args.samples,'loadBefore':load_before,'loadAfter':os.getloadavg(),'wallSeconds':time.perf_counter()-start,'baseline':manifest,'corpus':[dict({k:v for k,v in c.items() if k not in ['raw','html']}, htmlSha256=hashlib.sha256(c['html'].encode('utf-8')).hexdigest()) for c in cases],'binarySha256':provenance[str(binary)],'sourceSha256':{str(path.relative_to(ROOT)):provenance[str(path)] for path in sources},'harnessSha256':{path.name:provenance[str(path)] for path in harness},'results':results}
         (HERE/'roundtrip-results.json').write_text(json.dumps(report,indent=2)+'\n')
         (HERE/'roundtrip-results.md').write_text(render(report))
         print(render(report))

@@ -30,9 +30,14 @@ grep -q 'data = "<query/>"' "$work/config"
 test "$(printf '%s\n' "$reply" | sed -n '1p')" = 0
 test "$(printf '%s\n' "$reply" | sed -n '2p' | base64 -d)" = '<d:multistatus/>'
 
+rm -f "$work/config"
 if printf '%s\n' "$(b64 'http://calendar.example/') $(b64 'me:secret') $(b64 '<query/>')" \
   | PATH="$work/bin:$PATH" "$project_dir/scripts/calendar-transport.sh" >/dev/null 2>&1; then
   echo 'plaintext calendar URL was accepted' >&2
+  exit 1
+fi
+if [ -e "$work/config" ]; then
+  echo 'test_calendar_transport.sh: refused input reached curl' >&2
   exit 1
 fi
 

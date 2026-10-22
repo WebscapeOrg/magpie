@@ -125,7 +125,11 @@ where
     let mut token = String::new();
     let mut total = 0u64;
     let mut preview = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     loop {
+        if !seen.insert(token.clone()) {
+            return Ok((total, preview));
+        }
         let page = list(token.clone()).await?;
         let ids = page["ids"].as_array().ok_or("gmail_invalid_response")?;
         if preview.is_empty() {
@@ -136,7 +140,7 @@ where
         // An empty page with a continuation, or one that hands back the token
         // it was given, is a server going in circles; the count so far is the
         // honest answer rather than a poll that never ends.
-        if next.is_empty() || ids.is_empty() || next == token || total >= UNREAD_CAP {
+        if next.is_empty() || ids.is_empty() || total >= UNREAD_CAP {
             return Ok((total, preview));
         }
         token = next.to_owned();
@@ -701,6 +705,27 @@ mod tests {
             count_listed(|_| async { Ok(json!({"nextPageToken":""})) }).await,
             Err("gmail_invalid_response")
         );
+    }
+
+    #[tokio::test]
+    async fn unread_pagination_never_requests_a_previously_seen_token() {
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let (total, preview) = count_listed(|token| {
+            asked.lock().unwrap().push(token.clone());
+            async move {
+                Ok(match token.as_str() {
+                    "" => json!({"ids":["one"],"nextPageToken":"a"}),
+                    "a" => json!({"ids":["two"],"nextPageToken":"b"}),
+                    "b" => json!({"ids":["three"],"nextPageToken":"a"}),
+                    _ => panic!("unexpected synthetic page token"),
+                })
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(*asked.lock().unwrap(), ["", "a", "b"]);
+        assert_eq!(total, 3);
+        assert_eq!(preview, [json!("one")]);
     }
 
     async fn event(events: &mut broadcast::Receiver<Event>) -> Event {

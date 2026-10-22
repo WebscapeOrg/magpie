@@ -11,9 +11,9 @@ for (const api of [1, 5, 6, 7]) {
 }
 // Historical query assertions stay as oracles; Rust independently matches the
 // captured parameter/result fixtures. Production Registry has no query engine.
-const legacy = load("tests/oracles/providers/Registry.js")
+const legacyQueries = load("tests/oracles/providers/Registry.js")
 for (const method of ["query", "cachedSummaryInSearch", "labelQuery", "addressQuery", "webMessageUrl", "webBoxUrl"])
-  provider[method] = legacy[method]
+  provider[method] = legacyQueries[method]
 
 // ------------------------------------------------------------- the registry
 //
@@ -190,7 +190,7 @@ assert.strictEqual(provider.unavailableReason("hey"), "")
 
 // The glyphs ActionIcon actually draws. A mailbox naming anything else renders
 // as nothing at all.
-const DRAWN = ["inbox", "unread", "star", "sent", "archive", "trash", "spam", "reply", "pin", "label", "compose"]
+const DRAWN_ICONS = ["inbox", "unread", "star", "sent", "archive", "trash", "spam", "reply", "pin", "label", "compose"]
 
 // Every provider's first mailbox is its inbox: `mailboxFor` falls back to it,
 // which is what a key belonging to another provider lands on mid-switch.
@@ -203,7 +203,7 @@ for (const id of ids) {
   for (const box of boxes) {
     // The sidebar is icon-first and collapses to a strip of glyphs, so a
     // mailbox whose icon ActionIcon cannot draw is an invisible row.
-    assert.ok(DRAWN.indexOf(box.icon) >= 0,
+    assert.ok(DRAWN_ICONS.indexOf(box.icon) >= 0,
       id + "/" + box.key + " has no drawable icon: " + box.icon)
     assert.ok(box.label !== "", id + "/" + box.key + " needs a label for its tooltip")
   }

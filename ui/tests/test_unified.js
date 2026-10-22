@@ -9,21 +9,21 @@ const unified = load("account/Unified.js")
 // unique inside the thing that issued it and nowhere else.
 // The separator is U+001F, named here so the tests read as intent rather than
 // as a control character nobody can see in a diff.
-const SEP = "\u001f"
+const ID_SEPARATOR = "\u001f"
 
-assert.strictEqual(unified.unifiedId("me@example.org", "42"), "me@example.org" + SEP + "42")
+assert.strictEqual(unified.unifiedId("me@example.org", "42"), "me@example.org" + ID_SEPARATOR + "42")
 assert.strictEqual(unified.unifiedId("", "42"), "", "an id with no account addresses nothing")
 assert.strictEqual(unified.unifiedId("me@example.org", ""), "")
 
-deepEqual(unified.splitUnifiedId("me@example.org" + SEP + "42"),
+deepEqual(unified.splitUnifiedId("me@example.org" + ID_SEPARATOR + "42"),
   { accountId: "me@example.org", id: "42" })
 
 // It has to be a character no id can hold. An IMAP folder cannot carry a
 // control character — the protocol forbids it — and Gmail issues hex.
-assert.strictEqual(unified.unifiedId("a@b.com", "42:Sent Items").indexOf(SEP), 7,
+assert.strictEqual(unified.unifiedId("a@b.com", "42:Sent Items").indexOf(ID_SEPARATOR), 7,
   "the only separator in a composed id is the one that was put there")
 assert.strictEqual(
-  unified.unifiedId("a@b.com", "42:Sent Items").split(SEP).length, 2)
+  unified.unifiedId("a@b.com", "42:Sent Items").split(ID_SEPARATOR).length, 2)
 
 // Anything that is not a composed id addresses nothing rather than being
 // guessed at.
@@ -46,8 +46,8 @@ deepEqual(unified.splitUnifiedId("1a0682969660774e"), { accountId: "", id: "" },
 deepEqual(unified.splitUnifiedId(unified.unifiedId("me@fastmail.com", "42:Sent Items")),
   { accountId: "me@fastmail.com", id: "42:Sent Items" })
 
-assert.strictEqual(unified.accountOf("me@example.org" + SEP + "42"), "me@example.org")
-assert.strictEqual(unified.sourceIdOf("me@example.org" + SEP + "42"), "42")
+assert.strictEqual(unified.accountOf("me@example.org" + ID_SEPARATOR + "42"), "me@example.org")
+assert.strictEqual(unified.sourceIdOf("me@example.org" + ID_SEPARATOR + "42"), "42")
 assert.strictEqual(unified.accountOf("42"), "")
 
 // A selection spanning two mailboxes is one batch for each, in each one's own
@@ -125,12 +125,12 @@ deepEqual(unified.mergeMessages([]), [])
 // merge of two 25-row mailboxes spent 244ms in `sort` alone, paid again on
 // every list change. The count is what keeps that from coming back.
 let timeReads = 0
-function countingTime(at) {
-  return { getTime: function() { timeReads += 1; return at } }
+function countingTime(timestamp) {
+  return { getTime: function() { timeReads += 1; return timestamp } }
 }
 const unsorted = []
-for (let i = 0; i < 8; i++) {
-  unsorted.push({ id: String(i), subject: "s" + i, date: countingTime(1000 + (i % 3) * 1000) })
+for (let rowIndex = 0; rowIndex < 8; rowIndex++) {
+  unsorted.push({ id: String(rowIndex), subject: "s" + rowIndex, date: countingTime(1000 + (rowIndex % 3) * 1000) })
 }
 const timed = unified.mergeMessages([{ id: "a@x", label: "A", messages: unsorted }])
 assert.strictEqual(timed.length, 8)
@@ -152,8 +152,8 @@ assert.strictEqual(timed[0].row, undefined)
 // anywhere else".
 timeReads = 0
 const paging = []
-for (let i = 0; i < 4; i++) {
-  paging.push({ id: String(i), subject: "s" + i, date: countingTime(4000 - i * 100) })
+for (let rowIndex = 0; rowIndex < 4; rowIndex++) {
+  paging.push({ id: String(rowIndex), subject: "s" + rowIndex, date: countingTime(4000 - rowIndex * 100) })
 }
 unified.mergeMessages([{ id: "a@x", label: "A", messages: paging, hasMore: true }])
 assert.strictEqual(timeReads, 5,

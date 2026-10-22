@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Synthetic CLI integration tests; no real AI, credentials or mail are used."""
-import importlib.util
 import json
 import os
 from pathlib import Path

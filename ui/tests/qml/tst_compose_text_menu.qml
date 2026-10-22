@@ -21,6 +21,8 @@ Item {
     property string activeAccountId: "me@example.com"
     property var copied: []
     property var pastedInto: []
+    property var clipboardCallback: null
+    property bool delayClipboard: false
     function preferredSendAs(recipients) { return null }
     function switchTo(accountId) { return true }
     function refreshRecipientContacts() {}
@@ -29,7 +31,8 @@ Item {
     function clipboardAttachment(directory, callback) {
       var focused = compose.Window.activeFocusItem
       pastedInto = pastedInto.concat([focused ? String(focused.objectName) : ""])
-      callback({ ok: false, error: "no-image" })
+      if (delayClipboard) clipboardCallback = callback
+      else callback({ ok: false, error: "no-image" })
       return true
     }
   }
@@ -62,6 +65,8 @@ Item {
       compose.begin("new", null, "", [])
       mailService.copied = []
       mailService.pastedInto = []
+      mailService.clipboardCallback = null
+      mailService.delayClipboard = false
       menu().close()
     }
 
@@ -116,6 +121,58 @@ Item {
       menu().pasteRow.activated()
       wait(20)
       compare(mailService.pastedInto, ["compose-to-field"])
+    }
+
+    function prepareClipboard() {
+      var body = findChild(compose, "compose-body-editor")
+      body.text = "recipient@example.test"
+      body.selectAll()
+      body.copy()
+      body.text = ""
+      return body
+    }
+
+    function pasteFromMenu(field) {
+      mouseClick(field, 20, field.height / 2, Qt.RightButton)
+      tryCompare(menu(), "opened", true)
+      var row = menu().pasteRow
+      mouseClick(row, row.width / 2, row.height / 2)
+      tryCompare(menu(), "opened", false)
+    }
+
+    function test_reply_to_menu_pastes_into_reply_to() {
+      var body = prepareClipboard()
+      compose.replyToVisible = true
+      var replyTo = findChild(compose, "compose-reply-to-field")
+      waitForRendering(replyTo)
+      pasteFromMenu(replyTo)
+      compare(replyTo.text, "recipient@example.test")
+      compare(body.text, "", "Reply-To paste must not alter the message body")
+    }
+
+    function test_delayed_text_paste_keeps_its_original_field() {
+      var body = prepareClipboard()
+      var subject = findChild(compose, "compose-subject-field")
+      mailService.delayClipboard = true
+      pasteFromMenu(subject)
+      verify(mailService.clipboardCallback !== null)
+      mouseClick(body, 20, 10)
+      verify(body.activeFocus)
+      mailService.clipboardCallback({ok: false, error: "no-image"})
+      compare(subject.text, "recipient@example.test")
+      compare(body.text, "", "A later focus change must not redirect pending paste")
+    }
+
+    function test_delayed_text_paste_cannot_enter_a_new_draft() {
+      var body = prepareClipboard()
+      var subject = findChild(compose, "compose-subject-field")
+      mailService.delayClipboard = true
+      pasteFromMenu(subject)
+      verify(mailService.clipboardCallback !== null)
+      compose.begin("new", null, "", [])
+      mailService.clipboardCallback({ok: false, error: "no-image"})
+      compare(subject.text, "", "The previous draft's paste must remain discarded")
+      compare(body.text, "")
     }
   }
 }

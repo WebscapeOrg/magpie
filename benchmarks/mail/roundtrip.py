@@ -112,8 +112,8 @@ def render(report):
      '','| Case / stage | Previous Qt JS median / p95 | Rust + full RPC median / p95 | Qt / full RPC | Equal output |',
      '|---|---:|---:|---:|---|']
     for row in report['results']:
-        a,b=row['qml'],row['native']
-        lines.append(f"| {row['name']} / {row['phase']} | {a['medianUs']/1000:.3f} / {a['p95Us']/1000:.3f} | {b['medianUs']/1000:.3f} / {b['p95Us']/1000:.3f} | {row['speedup']:.2f}× | {'yes' if row['semanticMatch'] else 'NO'} |")
+        qml_stats,native_stats=row['qml'],row['native']
+        lines.append(f"| {row['name']} / {row['phase']} | {qml_stats['medianUs']/1000:.3f} / {qml_stats['p95Us']/1000:.3f} | {native_stats['medianUs']/1000:.3f} / {native_stats['p95Us']/1000:.3f} | {row['speedup']:.2f}× | {'yes' if row['semanticMatch'] else 'NO'} |")
     lines+=['','The Rust column is measured directly from the QML call to its completed callback, using the release application backend and unchanged production Backend.qml/Upload.js/Chunks.js/Wire.js. It includes outgoing parameter serialization, JavaScript base64/UTF-8 upload encoding, upload.begin/append round trips where used, Rust dispatch and processing, response serialization/chunking, pipe transfer, QML reassembly/JSON parsing and callback dispatch. It is not the old CPU time plus an estimated transfer constant.','',
       'Both paths start with the same input already held in QML. MIME uses Backend.parseMessage; HTML stages use message.render with no cache identity, so a render cache hit cannot replace processing. Each stage is independent: HTML is pre-extracted, and readprep includes sanitization, plain-text extraction and reader-document preparation. Network access, disk reads, application startup, initial corpus decoding, report serialization and UI drawing are excluded. This represents processing requested from QML, not the native-provider/preloaded-cache path that keeps input in Rust.','',
       'The same frozen Qt JavaScript baseline is rerun in this process. Cold calls and five warmups precede each engine’s timed samples; Qt JS batches calibrate to at least 20 ms, capped at 2048 operations. Native small requests use fixed batches (32 or 8), large requests use one operation per sample. QML Date.now has 1 ms resolution; small native results are batch averages and include callback bookkeeping between operations. Final outputs are compared by decoded MIME bytes/tree semantics or complete normalized HTML outputs outside timing. The shared desktop and GC can affect results.','',
@@ -141,22 +141,22 @@ def roundtrip_results(output,cases):
         if part['index']!=len(parts) or part['total']!=total:raise RuntimeError('Broken benchmark report transfer')
         parts.append(part['data'])
         if len(parts)==total:rows.append(json.loads(''.join(parts)));parts=[];total=None
-    expected=[(c['name'],p) for c in cases for p in ['mime','html','readprep']]
-    if parts or [(r['name'],r['phase']) for r in rows]!=expected:raise RuntimeError('Incomplete benchmark results')
+    expected=[(case['name'],p) for case in cases for p in ['mime','html','readprep']]
+    if parts or [(row['name'],row['phase']) for row in rows]!=expected:raise RuntimeError('Incomplete benchmark results')
     return rows
 
 
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--samples',type=int,default=31)
-    parser.add_argument('--cases',nargs='+',choices=[c['name'] for c in corpus()])
+    parser.add_argument('--cases',nargs='+',choices=[case['name'] for case in corpus()])
     args=parser.parse_args()
     if not 3<=args.samples<=1000:parser.error('samples must be 3..1000')
     manifest=json.loads((HERE/'baseline/manifest.json').read_text())
-    for relative,h in manifest['sha256'].items():
-        if hashlib.sha256((HERE/'baseline/ui'/relative).read_bytes()).hexdigest()!=h:raise RuntimeError('Frozen baseline changed')
+    for relative,expected_hash in manifest['sha256'].items():
+        if hashlib.sha256((HERE/'baseline/ui'/relative).read_bytes()).hexdigest()!=expected_hash:raise RuntimeError('Frozen baseline changed')
     cases=corpus()
-    if args.cases:cases=[c for c in cases if c['name'] in args.cases]
+    if args.cases:cases=[case for case in cases if case['name'] in args.cases]
     binary=build_backend()
     sources=[path for base in ['src','ui/backend','ui/message'] for path in sorted((ROOT/base).rglob('*')) if path.is_file()]
     harness=[Path(__file__),HERE/'corpus.py',HERE/'run.py']
@@ -189,16 +189,16 @@ def main():
         verify_unchanged(provenance)
         rows=roundtrip_results(output,cases)
         results=[]
-        for r in rows:
-            validate_samples(r['qml'],args.samples)
-            validate_samples(r['native'],args.samples)
-            canonical=mime_semantics if r['phase']=='mime' else html_semantics
-            a,b=canonical(r['qml']['result']),canonical(r['native']['result'])
-            old,new=stats(r['qml']),stats(r['native'])
-            results.append(dict(name=r['name'],phase=r['phase'],qml={**old,'batch':r['qml']['batch']},native={**new,'batch':r['native']['batch']},semanticMatch=a==b,semanticDifference=difference(a,b),qmlDigest=digest(a),nativeDigest=digest(b),speedup=old['medianUs']/new['medianUs']))
-        report={'date':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'cpu':next(l.split(':',1)[1].strip() for l in Path('/proc/cpuinfo').read_text().splitlines() if l.startswith('model name')),'platform':platform.platform(),'versions':versions,'samples':args.samples,'loadBefore':load_before,'loadAfter':os.getloadavg(),'wallSeconds':time.perf_counter()-start,'baseline':manifest,'corpus':[dict({k:v for k,v in c.items() if k not in ['raw','html']}, htmlSha256=hashlib.sha256(c['html'].encode('utf-8')).hexdigest()) for c in cases],'binarySha256':provenance[str(binary)],'sourceSha256':{str(path.relative_to(ROOT)):provenance[str(path)] for path in sources},'harnessSha256':{path.name:provenance[str(path)] for path in harness},'results':results}
+        for row in rows:
+            validate_samples(row['qml'],args.samples)
+            validate_samples(row['native'],args.samples)
+            canonical=mime_semantics if row['phase']=='mime' else html_semantics
+            qml_result,native_result=canonical(row['qml']['result']),canonical(row['native']['result'])
+            qml_stats,native_stats=stats(row['qml']),stats(row['native'])
+            results.append(dict(name=row['name'],phase=row['phase'],qml={**qml_stats,'batch':row['qml']['batch']},native={**native_stats,'batch':row['native']['batch']},semanticMatch=qml_result==native_result,semanticDifference=difference(qml_result,native_result),qmlDigest=digest(qml_result),nativeDigest=digest(native_result),speedup=qml_stats['medianUs']/native_stats['medianUs']))
+        report={'date':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'cpu':next(line.split(':',1)[1].strip() for line in Path('/proc/cpuinfo').read_text().splitlines() if line.startswith('model name')),'platform':platform.platform(),'versions':versions,'samples':args.samples,'loadBefore':load_before,'loadAfter':os.getloadavg(),'wallSeconds':time.perf_counter()-start,'baseline':manifest,'corpus':[dict({k:v for k,v in case.items() if k not in ['raw','html']}, htmlSha256=hashlib.sha256(case['html'].encode('utf-8')).hexdigest()) for case in cases],'binarySha256':provenance[str(binary)],'sourceSha256':{str(path.relative_to(ROOT)):provenance[str(path)] for path in sources},'harnessSha256':{path.name:provenance[str(path)] for path in harness},'results':results}
         (HERE/'roundtrip-results.json').write_text(json.dumps(report,indent=2)+'\n')
         (HERE/'roundtrip-results.md').write_text(render(report))
         print(render(report))
-        if not all(r['semanticMatch'] for r in results):raise SystemExit('Output mismatch: ratios are not comparable-work evidence')
+        if not all(row['semanticMatch'] for row in results):raise SystemExit('Output mismatch: ratios are not comparable-work evidence')
 if __name__=='__main__':main()

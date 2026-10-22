@@ -14,7 +14,7 @@ function messageTime(item) {
 
 function latestMessages(accounts, limit) {
   var values = Array.isArray(accounts) ? accounts : []
-  var out = []
+  var output = []
   for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
     var account = values[valueIndex] || {}
     var messages = Array.isArray(account.messages) ? account.messages : []
@@ -27,13 +27,13 @@ function latestMessages(accounts, limit) {
       copy.sourceLabel = String(account.label || "Mailbox") + " · "
         + String(account.inbox || "Inbox")
       copy.receivedLabel = String(item.fullTime || "")
-      out.push(copy)
+      output.push(copy)
     }
   }
-  out.sort(function(left, right) {
+  output.sort(function(left, right) {
     return messageTime(right) - messageTime(left)
   })
-  return out.slice(0, Math.max(0, Math.floor(Number(limit) || 0)))
+  return output.slice(0, Math.max(0, Math.floor(Number(limit) || 0)))
 }
 
 // Performance: key the preview month by day so repeated clock ticks reuse its calendar range.
@@ -47,7 +47,7 @@ function previewRange(nowMs) {
 function upcomingEvents(events, nowMs, limit) {
   var values = Array.isArray(events) ? events : []
   var now = Number(nowMs) || Date.now()
-  var out = []
+  var output = []
   for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
     var item = values[valueIndex] || {}
     if (!item.start || Number(item.start.ms) < now) continue
@@ -57,8 +57,8 @@ function upcomingEvents(events, nowMs, limit) {
     var location = String(item.location || "").trim()
     copy.callUrl = Html.externallyOpenableHttpUrl(item.meetLink)
       || Html.externallyOpenableHttpUrl(/^https?:\/\/\S+$/i.test(location) ? location : "")
-    out.push(copy)
+    output.push(copy)
   }
-  out.sort(function(left, right) { return Number(left.start.ms) - Number(right.start.ms) })
-  return out.slice(0, Math.max(0, Math.floor(Number(limit) || 0)))
+  output.sort(function(left, right) { return Number(left.start.ms) - Number(right.start.ms) })
+  return output.slice(0, Math.max(0, Math.floor(Number(limit) || 0)))
 }

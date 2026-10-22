@@ -105,15 +105,15 @@ Item {
         "event writes remain scoped to the current mailbox")
       controller.setReminderPolicy("google:two@gmail.com", false, -1)
       compare(mailService.configWrites.length, 1)
-      var saved = JSON.parse(mailService.configWrites[0].payload).sources.filter(function(s) {
-        return s.id === "google:two@gmail.com"
+      var saved = JSON.parse(mailService.configWrites[0].payload).sources.filter(function(source) {
+        return source.id === "google:two@gmail.com"
       })[0]
       compare(saved.remindersEnabled, false)
       mailService.configCallback(true, "")
       controller.setDefaultCalendar("google:two@gmail.com")
       compare(mailService.configWrites.length, 2)
-      saved = JSON.parse(mailService.configWrites[1].payload).sources.filter(function(s) {
-        return s.id === "google:two@gmail.com"
+      saved = JSON.parse(mailService.configWrites[1].payload).sources.filter(function(source) {
+        return source.id === "google:two@gmail.com"
       })[0]
       compare(saved.preferred, true)
       mailService.configCallback(true, "")
@@ -121,8 +121,8 @@ Item {
 
     function test_legacy_sources_cannot_enter_reminder_polling_or_settings() {
       var kinds = ["microsoft", "icloud", "caldav", "hey"]
-      for (var i = 0; i < kinds.length; i++) {
-        var source = {id:"legacy",kind:kinds[i],enabled:true,remindersEnabled:true,reminderMinutes:10}
+      for (var kindIndex = 0; kindIndex < kinds.length; kindIndex++) {
+        var source = {id:"legacy",kind:kinds[kindIndex],enabled:true,remindersEnabled:true,reminderMinutes:10}
         controller.reminderMode = false
         compare(controller.sourceIncluded(source), true)
         controller.reminderMode = true
@@ -186,9 +186,9 @@ Item {
       var base = {title:"Planning",allDay:false,startMs:start,endMs:start + 3600000,location:"",description:"",
         recurrence:{enabled:false}}
       var asks = [{guestEmails:"guest@example.org"}, {createMeet:true}]
-      for (var i = 0; i < asks.length; i++) {
+      for (var requestIndex = 0; requestIndex < asks.length; requestIndex++) {
         var fields = JSON.parse(JSON.stringify(base))
-        for (var key in asks[i]) fields[key] = asks[i][key]
+        for (var key in asks[requestIndex]) fields[key] = asks[requestIndex][key]
         compare(controller.createEvent("google:one@gmail.com", fields), false)
       }
       compare(mailService.requests.length, 0)
@@ -371,8 +371,8 @@ Item {
         {message: "calendar_timeout", expected: "Calendar discovery timed out"},
         {message: "private diagnostic <img src='https://example.org/tracker'>", expected: "Calendars could not be discovered"}
       ]
-      for (var i = 0; i < cases.length; i++) {
-        compare(controller.discoveryFailure({code: -32000, message: cases[i].message}), cases[i].expected)
+      for (var caseIndex = 0; caseIndex < cases.length; caseIndex++) {
+        compare(controller.discoveryFailure({code: -32000, message: cases[caseIndex].message}), cases[caseIndex].expected)
       }
       compare(controller.discoveryFailure(null), "Calendars could not be discovered")
     }
@@ -394,9 +394,9 @@ Item {
       var sources = [{kind: "microsoft", calendarId: "other-calendar"}, {kind: "icloud"}]
       var operations = ["list", "create", "update", "delete"]
       var replies = 0
-      for (var s = 0; s < sources.length; s++) {
-        for (var op = 0; op < operations.length; op++) {
-          controller.nativeRequest(sources[s], operations[op], {}, function(result, error) {
+      for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
+        for (var operationIndex = 0; operationIndex < operations.length; operationIndex++) {
+          controller.nativeRequest(sources[sourceIndex], operations[operationIndex], {}, function(result, error) {
             compare(result, null)
             compare(error, "Update the backend to access this calendar")
             replies++
@@ -646,8 +646,8 @@ Item {
       mailService.accountSummaries = summaries
       controller.accountId = "one@gmail.com"
       var cache = null
-      for (var i = 0; i < controller.children.length; i++) {
-        if (controller.children[i].cacheName !== undefined) cache = controller.children[i]
+      for (var childIndex = 0; childIndex < controller.children.length; childIndex++) {
+        if (controller.children[childIndex].cacheName !== undefined) cache = controller.children[childIndex]
       }
       verify(cache !== null, "the controller owns an event cache")
       cache.loaded = true
@@ -658,7 +658,7 @@ Item {
       summaries = JSON.parse(JSON.stringify(summaries))
       summaries[1].signedIn = true
       mailService.accountSummaries = summaries
-      var asked = mailService.requests.map(function(r) { return r.params.source.id })
+      var asked = mailService.requests.map(function(request) { return request.params.source.id })
       verify(asked.indexOf("google:one@gmail.com") >= 0, "asked " + JSON.stringify(asked))
       compare(mailService.requests[0].params.start, new Date(1000).toISOString())
       cache.loaded = false
@@ -670,9 +670,9 @@ Item {
     // calendar, which read the registry, which touched the directory.
     function test_a_still_missing_sources_file_is_not_a_change() {
       var sourcesFile = null
-      for (var i = 0; i < controller.data.length; i++) {
-        if (controller.data[i] && typeof controller.data[i].loadFailed === "function")
-          sourcesFile = controller.data[i]
+      for (var childIndex = 0; childIndex < controller.data.length; childIndex++) {
+        if (controller.data[childIndex] && typeof controller.data[childIndex].loadFailed === "function")
+          sourcesFile = controller.data[childIndex]
       }
       verify(sourcesFile !== null, "the controller watches its sources file")
       var originalList = controller.sourceList

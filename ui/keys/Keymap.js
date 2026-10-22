@@ -232,24 +232,24 @@ function isSequenceEnabled(binding, sequence, context, overlay) {
 }
 
 function bindingsFor(context) {
-  var out = []
+  var output = []
   for (var bindingIndex = 0; bindingIndex < BINDINGS.length; bindingIndex++) {
-    if (matchesContext(BINDINGS[bindingIndex], context)) out.push(BINDINGS[bindingIndex])
+    if (matchesContext(BINDINGS[bindingIndex], context)) output.push(BINDINGS[bindingIndex])
   }
-  return out
+  return output
 }
 
 function sequencesFor(context) {
-  var out = []
+  var output = []
   var rows = BINDINGS
   for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     var keys = rows[rowIndex].keys || []
     for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
       if (matchesSequenceContext(rows[rowIndex], keys[keyIndex], context))
-        out.push(({ id: rows[rowIndex].id, sequence: keys[keyIndex], binding: rows[rowIndex] }))
+        output.push(({ id: rows[rowIndex].id, sequence: keys[keyIndex], binding: rows[rowIndex] }))
     }
   }
-  return out
+  return output
 }
 
 // Docs: Qt chord syntax uses commas; keycap labels display consecutive keys separated by spaces.
@@ -267,13 +267,13 @@ function displayFor(binding) {
 
   if (binding.display) return binding.display
   var keys = binding.keys || []
-  var out = []
+  var output = []
   // Invariant: Return and Enter share one displayed keycap name.
   for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
     var readable = readableSequence(keys[keyIndex])
-    if (out.indexOf(readable) < 0) out.push(readable)
+    if (output.indexOf(readable) < 0) output.push(readable)
   }
-  return out.join(", ")
+  return output.join(", ")
 }
 
 function hintKeyFor(binding) {
@@ -315,7 +315,7 @@ function helpGroups(hidden) {
 }
 
 function hintsFor(context, unavailable, hasSelection) {
-  var out = []
+  var output = []
   var rows = bindingsFor(context)
   var missing = Array.isArray(unavailable) ? unavailable : []
   for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -323,9 +323,9 @@ function hintsFor(context, unavailable, hasSelection) {
     var unavailableId = rows[rowIndex].hintUnavailableId || rows[rowIndex].id
     if (missing.indexOf(unavailableId) >= 0) continue
     var text = hintTextFor(rows[rowIndex], context)
-    if (text !== "") out.push(({ key: hintKeyFor(rows[rowIndex]), label: text }))
+    if (text !== "") output.push(({ key: hintKeyFor(rows[rowIndex]), label: text }))
   }
-  return out
+  return output
 }
 
 function helpWeight(group) {
@@ -336,11 +336,11 @@ function helpWeight(group) {
 function helpColumns(count, hidden) {
   var groups = helpGroups(hidden)
   var columns = Math.max(1, Math.min(groups.length, Math.floor(Number(count)) || 1))
-  var out = []
-  for (var columnIndex = 0; columnIndex < columns; columnIndex++) out.push([])
+  var output = []
+  for (var columnIndex = 0; columnIndex < columns; columnIndex++) output.push([])
   if (columns === 1) {
-    out[0] = groups
-    return out
+    output[0] = groups
+    return output
   }
 
   var total = 0
@@ -355,17 +355,17 @@ function helpColumns(count, hidden) {
     var target = (total - placed) / free
     var nextWeight = helpWeight(groups[nextGroupIndex])
 
-    if (at < columns - 1 && out[at].length > 0
+    if (at < columns - 1 && output[at].length > 0
         && (left <= free - 1
           || Math.abs(used - target) <= Math.abs(used + nextWeight - target))) {
       placed += used
       at++
       used = 0
     }
-    out[at].push(groups[nextGroupIndex])
+    output[at].push(groups[nextGroupIndex])
     used += helpWeight(groups[nextGroupIndex])
   }
-  return out
+  return output
 }
 
 function conflicts() {

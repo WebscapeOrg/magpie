@@ -6,12 +6,12 @@ function asList(value) {
   if (Array.isArray(value)) return value
   var count = value.length
   if (typeof count !== "number" || count < 1) return []
-  var out = []
+  var output = []
   var valueIndex
   for (valueIndex = 0; valueIndex < count; valueIndex++) {
-    if (value[valueIndex] !== undefined) out.push(value[valueIndex])
+    if (value[valueIndex] !== undefined) output.push(value[valueIndex])
   }
-  return out
+  return output
 }
 
 function visible(rows, accountId, mode) {

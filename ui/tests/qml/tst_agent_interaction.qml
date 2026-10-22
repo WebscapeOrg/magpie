@@ -538,7 +538,7 @@ Item {
       queue.advance()
       compare(service.calls,1)
     }
-    function test_copy_appears_only_after_response_finishes() {
+    function test_copy_control_stays_absent_during_and_after_response() {
       service.jobs=[{id:"reply",messageId:"m1",accountId:service.activeAccountId,state:"running"}]
       popup.openCenteredFor("m1","Mail")
       service.agentShownTranscript=[{role:"assistant",text:"Partial reply"}]

@@ -7,7 +7,6 @@ const bench = load("tests/bench_cases.js")
 // this and the QML runner hand Html.js over the same way.
 const api = {
   sanitize: function (source, options) { return html.sanitize(source, options) },
-  documentFor: function (document, palette) { return html.documentFor(document, palette) },
   readerDocumentFor: function (document, palette) {
     return html.readerDocumentFor(document, palette)
   },

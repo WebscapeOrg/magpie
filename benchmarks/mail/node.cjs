@@ -14,15 +14,15 @@ for (const item of input.cases) {
         if(result.plainText)result.plainText.bodyDirection=Direction.resolveBody(result.plainText.text,"Auto");
         return result;
       };
-    let start = process.hrtime.bigint();
+    let startedNanoseconds = process.hrtime.bigint();
     let result = operation();
-    const coldUs = Number(process.hrtime.bigint()-start)/1000;
-    for (let n=0;n<5;n++) result=operation();
+    const coldUs = Number(process.hrtime.bigint()-startedNanoseconds)/1000;
+    for (let warmupIndex=0;warmupIndex<5;warmupIndex++) result=operation();
     const samplesUs=[];
-    for (let n=0;n<input.samples;n++) {
-      start=process.hrtime.bigint();
-      for (let j=0;j<input.batch;j++) result=operation();
-      samplesUs.push(Number(process.hrtime.bigint()-start)/1000/input.batch);
+    for (let sampleIndex=0;sampleIndex<input.samples;sampleIndex++) {
+      startedNanoseconds=process.hrtime.bigint();
+      for (let batchIndex=0;batchIndex<input.batch;batchIndex++) result=operation();
+      samplesUs.push(Number(process.hrtime.bigint()-startedNanoseconds)/1000/input.batch);
     }
     if (!result || typeof result !== 'object') throw Error('Invalid operation result');
     output.cases.push({name:item.name,phase,coldUs,samplesUs,result});

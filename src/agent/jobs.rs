@@ -22,22 +22,23 @@ pub fn now() -> u64 {
         .as_secs()
 }
 pub fn text(value: &Value) -> Result<&str> {
-    let s = value.as_str().ok_or("agent_invalid_text")?;
-    if s.chars().any(|c| {
-        (c < ' ' && !matches!(c, '\t' | '\r' | '\n')) || ('\u{7f}'..='\u{9f}').contains(&c)
+    let text = value.as_str().ok_or("agent_invalid_text")?;
+    if text.chars().any(|character| {
+        (character < ' ' && !matches!(character, '\t' | '\r' | '\n'))
+            || ('\u{7f}'..='\u{9f}').contains(&character)
     }) {
         return Err("agent_invalid_text");
     }
-    Ok(s)
+    Ok(text)
 }
-pub fn session(s: &str) -> bool {
-    let b = s.as_bytes();
-    b.len() == 36
-        && b.iter().enumerate().all(|(i, c)| {
-            if [8, 13, 18, 23].contains(&i) {
-                *c == b'-'
+pub fn session(session: &str) -> bool {
+    let bytes = session.as_bytes();
+    bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if [8, 13, 18, 23].contains(&index) {
+                *byte == b'-'
             } else {
-                c.is_ascii_hexdigit()
+                byte.is_ascii_hexdigit()
             }
         })
 }

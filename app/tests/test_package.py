@@ -177,7 +177,7 @@ class PackageTest(unittest.TestCase):
     def test_macos_deployment_handles_split_qt_and_reseals_bundle(self):
         source = PACKAGER.read_text(encoding="utf-8")
         self.assertIn('QtSvg.framework/Versions/A/QtSvg', source)
-        self.assertIn('-libpath="$svg_libs"', source)
+        self.assertIn('-libpath="$svg_libraries"', source)
         # Qt 6.8.3's macdeployqt rejects -no-codesign; the bundle is re-sealed below.
         self.assertNotIn('-no-codesign', source)
         self.assertNotIn('-codesign=', source)

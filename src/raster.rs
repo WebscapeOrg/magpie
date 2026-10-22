@@ -167,10 +167,10 @@ impl<'a> Metadata<'a> {
                 }
                 0x2c => {
                     let frame = self.read(offset + 1, 9)?;
-                    let left = le16(&frame[..2]);
-                    let top = le16(&frame[2..4]);
-                    let frame_width = le16(&frame[4..6]);
-                    let frame_height = le16(&frame[6..8]);
+                    let left = little_endian_16(&frame[..2]);
+                    let top = little_endian_16(&frame[2..4]);
+                    let frame_width = little_endian_16(&frame[4..6]);
+                    let frame_height = little_endian_16(&frame[6..8]);
                     fits(width, height, left, top, frame_width, frame_height)?;
                     offset = self.skip(offset + 10, palette_bytes(frame[8]))?;
                     if !(2..=8).contains(&self.read(offset, 1)?[0]) {
@@ -186,7 +186,7 @@ impl<'a> Metadata<'a> {
 
     fn webp(&mut self, width: u32, height: u32) -> Option<()> {
         let header = self.read(0, 12)?;
-        let end = self.skip(8, le32(&header[4..8]) as usize)?;
+        let end = self.skip(8, little_endian_32(&header[4..8]) as usize)?;
         let mut offset = 12;
         let mut extended = false;
         let mut animated = false;
@@ -200,7 +200,9 @@ impl<'a> Metadata<'a> {
                         return None;
                     }
                     let canvas = self.read(start, 10)?;
-                    if le24(&canvas[4..7]) + 1 != width || le24(&canvas[7..10]) + 1 != height {
+                    if little_endian_24(&canvas[4..7]) + 1 != width
+                        || little_endian_24(&canvas[7..10]) + 1 != height
+                    {
                         return None;
                     }
                     extended = true;
@@ -218,10 +220,10 @@ impl<'a> Metadata<'a> {
                         return None;
                     }
                     let frame = self.read(start, 16)?;
-                    let left = le24(&frame[..3]) * 2;
-                    let top = le24(&frame[3..6]) * 2;
-                    let frame_width = le24(&frame[6..9]) + 1;
-                    let frame_height = le24(&frame[9..12]) + 1;
+                    let left = little_endian_24(&frame[..3]) * 2;
+                    let top = little_endian_24(&frame[3..6]) * 2;
+                    let frame_width = little_endian_24(&frame[6..9]) + 1;
+                    let frame_height = little_endian_24(&frame[9..12]) + 1;
                     fits(width, height, left, top, frame_width, frame_height)?;
                     self.webp_frame(start + 16, start + length, frame_width, frame_height)?;
                     images += 1;
@@ -243,7 +245,7 @@ impl<'a> Metadata<'a> {
 
     fn chunk(&mut self, offset: usize, end: usize) -> Option<(&'a [u8], usize, usize, usize)> {
         let header = self.read(offset, 8)?;
-        let length = le32(&header[4..8]) as usize;
+        let length = little_endian_32(&header[4..8]) as usize;
         let start = offset.checked_add(8)?;
         let next = self.skip(start, length.checked_add(length & 1)?)?;
         (next <= end).then_some((&header[..4], start, length, next))
@@ -283,13 +285,16 @@ impl<'a> Metadata<'a> {
             if header[0] & 1 != 0 || header[3..6] != [0x9d, 0x01, 0x2a] {
                 return None;
             }
-            (le16(&header[6..8]) & 0x3fff, le16(&header[8..10]) & 0x3fff)
+            (
+                little_endian_16(&header[6..8]) & 0x3fff,
+                little_endian_16(&header[8..10]) & 0x3fff,
+            )
         } else {
             if length < 5 {
                 return None;
             }
             let header = self.read(offset, 5)?;
-            let bits = le32(&header[1..5]);
+            let bits = little_endian_32(&header[1..5]);
             if header[0] != 0x2f || bits >> 29 != 0 {
                 return None;
             }
@@ -322,15 +327,15 @@ fn fits(
         .then_some(())
 }
 
-fn le16(bytes: &[u8]) -> u32 {
+fn little_endian_16(bytes: &[u8]) -> u32 {
     u32::from(u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
-fn le24(bytes: &[u8]) -> u32 {
+fn little_endian_24(bytes: &[u8]) -> u32 {
     u32::from_le_bytes([bytes[0], bytes[1], bytes[2], 0])
 }
 
-fn le32(bytes: &[u8]) -> u32 {
+fn little_endian_32(bytes: &[u8]) -> u32 {
     u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 

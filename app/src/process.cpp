@@ -209,21 +209,21 @@ void NativeProcess::killTree()
     m_processGroupId = 0;
 }
 
-void NativeProcess::consume(QByteArray &pending, const QByteArray &data,
+void NativeProcess::consume(QByteArray &pending, const QByteArray &bytes,
                             bool standardError)
 {
     if (m_streamFailed) return;
     qsizetype offset = 0;
-    while (offset < data.size()) {
-        const qsizetype newline = data.indexOf('\n', offset);
-        const qsizetype end = newline < 0 ? data.size() : newline;
+    while (offset < bytes.size()) {
+        const qsizetype newline = bytes.indexOf('\n', offset);
+        const qsizetype end = newline < 0 ? bytes.size() : newline;
         const qsizetype length = end - offset;
         if (pending.size() + length >= maximumLineBytes()) {
             failStream(standardError ? QStringLiteral("stderr record is too large")
                                      : QStringLiteral("stdout record is too large"));
             return;
         }
-        pending.append(data.constData() + offset, length);
+        pending.append(bytes.constData() + offset, length);
         if (newline < 0) return;
         emitLine(pending, standardError);
         pending.clear();
@@ -297,12 +297,12 @@ bool NativeProcess::prepareWindowsContainment()
     startup->lpAttributeList = attributes;
     m_attributeList = attributes;
     m_extendedStartupInfo = startup;
-    m_process.setCreateProcessArgumentsModifier([this](QProcess::CreateProcessArguments *args) {
+    m_process.setCreateProcessArgumentsModifier([this](QProcess::CreateProcessArguments *arguments) {
         auto *extended = static_cast<STARTUPINFOEXW *>(m_extendedStartupInfo);
-        extended->StartupInfo = *reinterpret_cast<STARTUPINFOW *>(args->startupInfo);
+        extended->StartupInfo = *reinterpret_cast<STARTUPINFOW *>(arguments->startupInfo);
         extended->StartupInfo.cb = sizeof(STARTUPINFOEXW);
-        args->startupInfo = reinterpret_cast<Q_STARTUPINFO *>(&extended->StartupInfo);
-        args->flags |= EXTENDED_STARTUPINFO_PRESENT;
+        arguments->startupInfo = reinterpret_cast<Q_STARTUPINFO *>(&extended->StartupInfo);
+        arguments->flags |= EXTENDED_STARTUPINFO_PRESENT;
     });
     return true;
 }

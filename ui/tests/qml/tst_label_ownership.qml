@@ -3,6 +3,7 @@ import QtTest 1.3
 import "../.." as Omamail
 import "BackendFixture.js" as BackendFixture
 import "../../account/Accounts.js" as Accounts
+import "../../account" as Account
 
 Item {
   width: 900
@@ -86,6 +87,35 @@ Item {
 
   Omamail.App { id: app; service: mailService }
 
+  QtObject {
+    id: retryRecord
+    property int requests: 0
+    property int errors: 0
+    property bool holdReplies: false
+    property var reply: null
+  }
+
+  QtObject {
+    id: retryAccount
+    property bool ready: true
+    property string providerId: "imap"
+    property var monitoredIds: []
+    property var api: QtObject {
+      function getLabels(callback) {
+        retryRecord.requests++
+        if (retryRecord.holdReplies) { retryRecord.reply = callback; return }
+        callback([], "controlled listing failure")
+      }
+    }
+    function fail(_error) { retryRecord.errors++ }
+  }
+
+  Loader {
+    id: retryLoader
+    active: false
+    sourceComponent: Component { Account.LabelActions { account: retryAccount } }
+  }
+
   TestCase {
     name: "LabelOwnership"
     when: windowShown
@@ -148,6 +178,68 @@ Item {
 
     function init() { record.reset(); app.resetNavigation() }
 
+    function cleanup() {
+      retryLoader.active = false
+      retryRecord.holdReplies = false
+      retryRecord.reply = null
+      wait(0)
+    }
+
+    function test_failed_listing_retries_once_for_a_live_owner() {
+      failOnWarning(/.?/)
+      retryRecord.requests = 0
+      retryRecord.errors = 0
+      retryLoader.active = true
+      verify(retryLoader.item !== null)
+      retryLoader.item.reloadLabels()
+      compare(retryRecord.requests, 1)
+      tryCompare(retryRecord, "requests", 2)
+      compare(retryRecord.errors, 2)
+      wait(20)
+      compare(retryRecord.requests, 2)
+      retryLoader.active = false
+      wait(0)
+    }
+
+    function test_failed_listing_retry_ends_with_its_owner() {
+      failOnWarning(/.?/)
+      retryRecord.requests = 0
+      retryRecord.errors = 0
+      retryLoader.active = true
+      var removed = retryLoader.item
+      verify(removed !== null)
+      removed.reloadLabels()
+      compare(retryRecord.requests, 1)
+      retryLoader.active = false
+      wait(20)
+      verify(!Qt.isQtObject(removed))
+      compare(retryRecord.requests, 1, "a destroyed owner must not issue the deferred provider reload")
+      compare(retryRecord.errors, 1)
+    }
+
+    function test_queued_listing_reply_cannot_reload_a_destroyed_owner() {
+      failOnWarning(/.?/)
+      retryRecord.requests = 0
+      retryRecord.errors = 0
+      retryRecord.holdReplies = true
+      retryLoader.active = true
+      var removed = retryLoader.item
+      verify(removed !== null)
+      removed.reloadLabels()
+      removed.reloadLabels()
+      compare(retryRecord.requests, 1)
+      var reply = retryRecord.reply
+      retryLoader.active = false
+      wait(20)
+      verify(!Qt.isQtObject(removed))
+      retryRecord.holdReplies = false
+      retryRecord.reply = null
+      reply([], "controlled listing failure")
+      wait(20)
+      compare(retryRecord.requests, 1)
+      compare(retryRecord.errors, 0)
+    }
+
     function test_a_change_goes_to_the_account_whose_menu_asked() {
       seed([entry(ada), entry(bob)], adaId)
       var menu = popup("label-menu")
@@ -209,6 +301,7 @@ Item {
     }
 
     function test_a_failed_listing_keeps_the_watch_waiting() {
+      failOnWarning(/invalid context|TypeError/)
       seed([entry(ada, ["Work/2026", "Receipts"])], adaId)
       record.listing[ada] = [folder("Jobs"), folder("Jobs/2026"), folder("Receipts")]
       record.listingError = "the server hung up"

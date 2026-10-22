@@ -7,6 +7,7 @@ QtObject {
   id: labelActions
 
   required property var account
+  property bool retired: false
 
   // Performance: Bound watched-label requests to avoid opening one connection per folder at every refresh.
   property bool monitoredLoading: false
@@ -36,7 +37,7 @@ QtObject {
     var serial = monitorSerial
     var answered = false
     var handle = account.api.getLabelCounts(labelId, function(counts, error) {
-      if (!labelActions || serial !== monitorSerial || answered) return
+      if (!labelActions || labelActions.retired || serial !== monitorSerial || answered) return
       answered = true
       monitorHandles = monitorHandles.filter(function(pendingHandle) { return pendingHandle !== handle })
       if (!error && counts) recordMonitorCount(labelId, counts)
@@ -87,7 +88,7 @@ QtObject {
 
   readonly property bool ready: !!account && account.ready
   onReadyChanged: if (!ready) abortMonitored()
-  Component.onDestruction: abortMonitored()
+  Component.onDestruction: { retired = true; abortMonitored() }
 
   // Invariant: The initial watched-label read establishes counts without announcing historical mail.
   property var monitoredSeen: Object.create(null)
@@ -123,7 +124,7 @@ QtObject {
     problem = problem || takenProblem(name)
     if (problem !== "") { account.fail(problem); return false }
     account.api.createLabel(name, function(payload, error) {
-      if (!labelActions) return
+      if (!labelActions || labelActions.retired) return
       if (error) { account.fail("Could not create " + name + ": " + String(error)); return }
       account.note("Created " + name)
       reloadLabels()
@@ -144,7 +145,7 @@ QtObject {
     if (problem !== "") { account.fail(problem); return false }
     var before = account.labels
     account.api.renameLabel(String(label.id), name, function(payload, error) {
-      if (!labelActions) return
+      if (!labelActions || labelActions.retired) return
       if (error) { account.fail("Could not rename " + path + ": " + String(error)); return }
       account.note("Renamed to " + name)
       afterLabelMoved(label, name, before)
@@ -165,7 +166,7 @@ QtObject {
     if (problem !== "") { account.fail(problem); return false }
     var before = account.labels
     account.api.renameLabel(String(label.id), name, function(payload, error) {
-      if (!labelActions) return
+      if (!labelActions || labelActions.retired) return
       if (error) { account.fail("Could not move " + path + ": " + String(error)); return }
       account.note("Moved to " + name)
       afterLabelMoved(label, name, before)
@@ -179,7 +180,7 @@ QtObject {
     var path = labelPathOf(label)
     var before = account.labels
     account.api.deleteLabel(String(label.id), function(payload, error) {
-      if (!labelActions) return
+      if (!labelActions || labelActions.retired) return
       if (error) { account.fail("Could not delete " + path + ": " + String(error)); return }
       account.note("Deleted " + path)
       if (account.rawLabelId === String(label.id)) account.selectMailbox("inbox")
@@ -195,6 +196,10 @@ QtObject {
   property bool reloadRetried: false
   property bool reloading: false
   property bool reloadQueued: false
+  property Timer reloadRetry: Timer {
+    interval: 0
+    onTriggered: labelActions.reloadLabels()
+  }
 
   function afterLabelMoved(label, newPath, before) {
     var wasOpen = account.rawQuery !== "" && account.rawLabelId === String(label.id || "")
@@ -205,11 +210,11 @@ QtObject {
   }
 
   function reloadLabels() {
-    if (!account.ready) return
+    if (retired || !account.ready) return
     if (reloading) { reloadQueued = true; return }
     reloading = true
     account.api.getLabels(function(result, error) {
-      if (!labelActions) return
+      if (!labelActions || labelActions.retired) return
       reloading = false
       // Invariant: A listing begun before a later mutation cannot settle that mutation's migrations.
       if (reloadQueued) {
@@ -221,7 +226,7 @@ QtObject {
         // Invariant: Retry a failed post-mutation listing once, then retain migrations for a later refresh.
         followLabelPath = ""
         account.fail("Could not read the labels back: " + String(error))
-        if (!reloadRetried) { reloadRetried = true; Qt.callLater(reloadLabels) }
+        if (!reloadRetried) { reloadRetried = true; reloadRetry.start() }
         return
       }
       reloadRetried = false

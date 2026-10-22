@@ -62,7 +62,7 @@ pub(super) fn action_ids(value: &Value) -> Result<Vec<String>, &'static str> {
 }
 #[derive(Default)]
 pub(super) struct Context {
-    pub(super) rejected: std::sync::atomic::AtomicBool,
+    pub(super) rejected: Arc<std::sync::atomic::AtomicBool>,
     pub(super) retired: Arc<std::sync::atomic::AtomicBool>,
     snapshot: AsyncMutex<Option<Snapshot>>,
     pub(super) summaries: Mutex<Cache>,
@@ -459,6 +459,7 @@ impl Session {
         context: &Context,
     ) -> Result<Snapshot, &'static str> {
         let mut held = context.snapshot.lock().await;
+        active(context)?;
         if let Some(snapshot) = held.as_ref() {
             return Ok(snapshot.clone());
         }
@@ -475,6 +476,7 @@ impl Session {
         let credential = json!({"scheme":settings["jmap"]["authScheme"].as_str().unwrap_or("basic"),"username":username,"secret":secret});
         let document = self
             .document(
+                context,
                 "session",
                 string(&settings["jmap"]["sessionUrl"]),
                 &credential,
@@ -504,6 +506,7 @@ impl Session {
         let body = json!({"using":[CORE,MAIL],"methodCalls":[["Mailbox/get",{"accountId":snapshot.account,"ids":null,"properties":BOX_PROPERTIES},"0"]]});
         let result = self
             .document(
+                context,
                 "call",
                 string(&snapshot.document["apiUrl"]),
                 &snapshot.credential,
@@ -515,6 +518,7 @@ impl Session {
             .ok_or("jmap_invalid_response")?
             .clone();
         snapshot.roles = query::roles(&snapshot.boxes);
+        active(context)?;
         *held = Some(snapshot.clone());
         Ok(snapshot)
     }
@@ -539,6 +543,7 @@ impl Session {
         };
         let result = self
             .document(
+                context,
                 "call",
                 string(&snapshot.document["apiUrl"]),
                 &snapshot.credential,
@@ -696,7 +701,7 @@ impl Session {
             "jmap.messages" => self.messages(&context, &snapshot, params).await?,
             "jmap.read" => self.read(&context, &snapshot, params).await?,
             "jmap.attachment" => {
-                self.attachment(&snapshot, text(params, "attachmentId")?)
+                self.attachment(&context, &snapshot, text(params, "attachmentId")?)
                     .await?
             }
             "jmap.labels" => {

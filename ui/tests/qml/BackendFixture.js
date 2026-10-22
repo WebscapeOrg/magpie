@@ -51,6 +51,7 @@ function install(service) {
 
 function respond(service, request, result, error) {
   Qt.callLater(function() {
+    if (!service || !service.backend) return
     var reply = {jsonrpc:"2.0",id:request.id}
     if (error) reply.error = error
     else reply.result = result

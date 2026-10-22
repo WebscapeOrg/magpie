@@ -157,6 +157,7 @@ Item {
     }
 
     function test_keyboard_navigation_opens_the_correct_account_without_changing_query() {
+      failOnWarning(/Binding loop detected|Unable to assign.*QColor/)
       var app = createTemporaryObject(keyboardApp, fixtureRoot, {service: service, shell: fakeShell})
       verify(app)
       app.opened = true
@@ -443,6 +444,7 @@ Item {
     // must not lean on that choreography, so the switch here has nothing else
     // in it. Both mailboxes speak JMAP, whose rows are conversations.
     function test_a_thread_with_the_same_id_in_another_account_is_another_rail() {
+      failOnWarning(/Connections: Detected function/)
       // A mailbox that is not Gmail carries its provider in its id.
       var adaJmap = "jmap:" + adaId
       var bobJmap = "jmap:" + bobId

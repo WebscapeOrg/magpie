@@ -12,6 +12,16 @@ Item {
     function updateEntryInline(id, entry) {
     }
   }
+  QtObject {
+    id: replyRecorder
+    property var received: []
+    function receive(reply) { received = received.concat([JSON.parse(reply)]) }
+  }
+  Loader {
+    id: replyOwner
+    active: false
+    sourceComponent: Component { Item { property var backend: replyRecorder } }
+  }
   Component {
     id: serviceComponent
     Omamail.Service {
@@ -33,6 +43,30 @@ Item {
   TestCase {
     name: "AccountPersistence"
     when: windowShown
+    function test_fixture_reply_requires_a_live_backend() {
+      failOnWarning(/.?/)
+      replyRecorder.received = []
+      replyOwner.active = true
+      BackendFixture.respond(replyOwner.item, {id: "live"}, {ok: true})
+      tryCompare(replyRecorder, "received", [{jsonrpc: "2.0", id: "live", result: {ok: true}}])
+      BackendFixture.respond(replyOwner.item, {id: "removed"}, {ok: true})
+      replyOwner.item.backend = null
+      replyOwner.active = false
+      wait(10)
+      compare(replyRecorder.received.length, 1, "a removed owner cannot receive a queued reply")
+    }
+    function test_fixture_reply_after_owner_destruction_is_ignored() {
+      failOnWarning(/.?/)
+      replyRecorder.received = []
+      replyOwner.active = true
+      var removed = replyOwner.item
+      replyOwner.active = false
+      wait(10)
+      verify(!Qt.isQtObject(removed), "the owner was actually destroyed")
+      BackendFixture.respond(removed, {id: "destroyed"}, {ok: true})
+      wait(10)
+      compare(replyRecorder.received.length, 0)
+    }
     function create() {
       var svc = createTemporaryObject(serviceComponent, parent);
       verify(svc !== null);

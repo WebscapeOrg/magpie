@@ -32,7 +32,7 @@ Item {
       credentials.authMode = data.authMode
       credentials.reads = 0
       var answered = 0
-      function refused(_value, error) { verify(error !== ""); answered++ }
+      function refused(_value, error) { compare(error, "Mail request failed"); answered++ }
       Transports.install(client)
       var before=Transports.transports(client)
       client.createLabel(data.name, refused)
@@ -51,7 +51,7 @@ Item {
       for (var i=0;i<requests.length;i++) {
         compare(requests[i].params.accountId,"imap:synthetic@example.com")
         compare(requests[i].params.credential,undefined)
-        Transports.reply(requests[i],null,{code:"imap_invalid_input"})
+        Transports.reply(requests[i],null,{code:-32000,message:"imap_invalid_input"})
       }
       compare(answered,4)
       compare(credentials.reads,0,"Only Rust validates and resolves credentials")

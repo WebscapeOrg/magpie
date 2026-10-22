@@ -2,12 +2,7 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../../components" as Omamail
 
-// Naming a mailbox.
-//
-// The field draws a box whether or not it can be typed into, which is how it
-// shipped unusable twice. This types into it the way a person does — a click,
-// then keys — rather than assigning `text` from the test, which would pass
-// against a field nothing can reach.
+// Invariant: assigning field.text can pass while the field is unreachable; exercise real clicks and typing.
 Item {
   width: 700
   height: 500
@@ -46,7 +41,6 @@ Item {
     property string signatureHtml: ""
     function setAccountSignatureHtml(id, html) { signatureId = id; signatureHtml = html }
 
-    // What the page wrote, and for which mailbox.
     property string namedId: ""
     property string namedText: ""
     property int nameWrites: 0
@@ -95,8 +89,7 @@ Item {
       return findChild(page, "settings-name-editor")
     }
 
-    // Laid out before it is clicked: switching mailboxes in `init` can show
-    // or hide the field, and the column places it on the next polish.
+    // Invariant: account switching changes field visibility; wait for column polish before pointer input.
     function senderField() {
       var field = findChild(page, "settings-sender-name-editor")
       if (field && field.visible) waitForPolish(field.parent)
@@ -106,8 +99,7 @@ Item {
     function init() {
       fakeService.backendCanNameSender = true
       page.selectNameAccount("a@example.org")
-      // The fake service keeps nothing it is given, so the fields go back to
-      // the stored values rather than carrying one test's typing into the next.
+      // Invariant: the fake does not persist writes; restore stored fields so typing cannot leak between tests.
       page.showNameAccount(page.signatureAccount("a@example.org"))
       fakeService.namedId = ""
       fakeService.namedText = ""
@@ -162,8 +154,6 @@ Item {
         "an empty field is empty: every prompt tried here was read as the name")
     }
 
-    // The whole fault, as a test: a click has to leave the keyboard in the
-    // field. Everything else about naming a mailbox is downstream of this.
     function test_clicking_the_field_gives_it_the_keyboard() {
       var field = nameField()
       verify(field)
@@ -182,8 +172,6 @@ Item {
       keyClick(Qt.Key_I)
       compare(field.text, "pri", "the keys have to land in the field")
 
-      // Saved on the way out rather than on every keystroke: three keys, and
-      // nothing written until the field is left or Return is pressed.
       fakeService.nameWrites = 0
       keyClick(Qt.Key_Return)
       compare(fakeService.nameWrites, 1)
@@ -191,7 +179,6 @@ Item {
       compare(fakeService.namedText, "pri")
     }
 
-    // The picker chooses which mailbox is being named; it is not the name.
     function test_the_picker_moves_the_field_to_another_mailbox() {
       compare(page.selectedNameAccountId, "a@example.org")
       compare(nameField().text, "")
@@ -201,8 +188,6 @@ Item {
       compare(nameField().text, "Work", "the field shows that mailbox's own name")
     }
 
-    // Leaving the field saves it, so clicking straight into the picker does
-    // not lose what was typed.
     function test_moving_away_saves_what_was_typed() {
       var field = nameField()
       mouseClick(field, field.width / 2, field.height / 2)
@@ -216,10 +201,7 @@ Item {
       compare(fakeService.namedText, "x")
     }
 
-    // ---------------------------------------------------------- sender name
 
-    // An IMAP mailbox has no server to name its sender, so the name is set
-    // here, and typed the way a person types it.
     function test_an_imap_mailbox_takes_a_sender_name() {
       var field = senderField()
       verify(field, "the sender name field has to exist")
@@ -236,7 +218,6 @@ Item {
       compare(fakeService.senderNamedText, "jo")
     }
 
-    // Leaving for another mailbox saves the name for the one it was typed for.
     function test_moving_away_saves_the_sender_name_where_it_was_typed() {
       var field = senderField()
       mouseClick(field, field.width / 2, field.height / 2)
@@ -248,7 +229,6 @@ Item {
       verify(field.visible)
     }
 
-    // A server-named mailbox would ignore the field, so there is none.
     function test_a_server_named_mailbox_has_no_sender_name_field() {
       page.selectNameAccount("b@example.net")
       verify(!senderField().visible, "Gmail names the sender itself")
@@ -257,8 +237,7 @@ Item {
       compare(fakeService.senderNameWrites, 0, "nothing is written for it either")
     }
 
-    // A backend older than API 7 sends the bare address whatever is stored, so
-    // the field waits for one that writes the name.
+    // Invariant: backends before API 7 send only the address, so they must not expose this sender-name field.
     function test_an_older_backend_hides_the_sender_name_field() {
       fakeService.backendCanNameSender = false
       verify(!senderField().visible)

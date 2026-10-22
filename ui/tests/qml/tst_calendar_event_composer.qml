@@ -111,7 +111,7 @@ Item {
       composer.begin()
       findChild(composer, "event-title-field").text = "Basic Outlook event"
       compare(findChild(composer, "event-repeat-selector").visible, false)
-      // A previous calendar selection must not leak a hidden repeat setting.
+      // Invariant: a hidden repeat choice from the previous calendar must not affect this save.
       composer.recurring = true
       composer.submit("all")
       compare(eventController.createCalls, 1)
@@ -240,8 +240,6 @@ Item {
       compare(save.enabled,true)
     }
 
-    // A suggestion from a message opens the form filled in, on the
-    // calendar the reading mailbox prefers, with nothing written yet.
     function test_all_day_prefill_uses_inclusive_last_day_without_writing() {
       composer.beginWith({startMs:new Date(2026,9,1).getTime(),endMs:new Date(2026,9,3).getTime(),allDay:true})
       compare(composer.allDay, true)
@@ -349,8 +347,6 @@ Item {
       compare(eventController.createCalls, 1)
     }
 
-    // A form the owner is in the middle of is not replaced by a suggestion;
-    // an empty one is. The suggestion's own mailbox chooses the calendar.
     function test_a_suggestion_does_not_clobber_a_form_in_use() {
       composer.beginAt(new Date(2026, 7, 25, 9, 0).getTime())
       compare(composer.pristine, true)
@@ -386,11 +382,7 @@ Item {
         "the old update completion belongs to the cancelled form")
     }
 
-    // Under the unified view every account's calendars are offered at once, and
-    // `groupByAccount` orders them by the stored accounts rather than by which
-    // mailbox is open. Opening the composer from mailbox B has to preselect B's
-    // calendar: the first group is A's, and an event written there without the
-    // user noticing the picker lands in the wrong account.
+    // Invariant: unified calendar groups start with account A, but a draft for account B must use B's calendar.
     function test_the_composer_opens_on_the_mailbox_being_read() {
       eventController.writableSourceGroups = [{
         id: "account:one@gmail.com", providerLabel: "Google", accountLabel: "one@gmail.com",
@@ -410,7 +402,6 @@ Item {
       compare(composer.selectedSourceId, "google:one@gmail.com")
       composer.close()
 
-      // A mailbox with no calendar of its own still gets a usable default.
       eventController.accountId = "imap:work@example.com"
       composer.beginAt(new Date(2026, 0, 5, 10, 0), false)
       compare(composer.selectedSourceId, "google:one@gmail.com")

@@ -3,7 +3,7 @@
 macro_rules! re {
     ($pattern:literal) => {{
         static VALUE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        #[allow(clippy::regex_creation_in_loops)] // OnceLock compiles once, outside repeated work.
+        #[allow(clippy::regex_creation_in_loops)] // Performance: OnceLock compiles once outside repeated work.
         let pattern = VALUE
             .get_or_init(|| regex::Regex::new($pattern).expect("constant HTML policy pattern"));
         pattern
@@ -433,9 +433,7 @@ pub fn too_heavy(size: &Value) -> bool {
         || size["tables"].as_u64().unwrap_or(0) > 60
         || size["tableDepth"].as_u64().unwrap_or(0) > 4
 }
-// The length bounds the markup Qt has to lay out. The bytes of a picture
-// carried as a data URI are not markup, and counting them turned a small
-// message into the plain-text refusal the moment its pictures loaded.
+// Invariant: embedded raster bytes do not count as layout markup; counting them previously refused small messages after images loaded.
 pub fn too_heavy_to_draw(node: &Node, size: &Value) -> bool {
     fn embedded(node: &Node) -> u64 {
         node.children

@@ -52,8 +52,7 @@ assert.strictEqual(preview.upcomingEvents([
 ], now, 1)[0].callUrl, "")
 
 
-// The range is the cache key. Starting it at the moment of the call made
-// every refresh a miss, and the cache kept eight copies of the same month.
+// Performance: use a stable day boundary; clock-based range keys previously stored duplicate months and missed the cache.
 const morning = new Date(2026, 8, 15, 9, 41, 7, 250).getTime()
 const evening = new Date(2026, 8, 15, 22, 3, 0, 0).getTime()
 assert.strictEqual(JSON.stringify(preview.previewRange(morning)),

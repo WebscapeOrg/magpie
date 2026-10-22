@@ -30,7 +30,7 @@ const feed = load("calendar/Calendar.js")
   assert.strictEqual(guests[1].label,"Declined")
 }
 
-// Shared copies and occurrences cannot share a selection key.
+// Invariant: shared copies and recurring occurrences need distinct selection identities.
 assert.notStrictEqual(feed.eventKey({sourceId:"one",googleId:"instance"}),
   feed.eventKey({sourceId:"two",googleId:"instance"}))
 assert.notStrictEqual(feed.eventKey({sourceId:"one",googleId:"first",uid:"series"}),
@@ -106,9 +106,6 @@ assert.strictEqual(feed.allDayEventsOnDay(allDayEvents, week[1]).length, 1)
 assert.strictEqual(feed.slotStart(week[1], 93, 7, 60, 30),
   new Date(2026, 7, 18, 8, 30).getTime(), "empty slots snap to half hours")
 
-// The now line. Same geometry as eventTop, so 9:30 on a 7:00 grid at 64px an
-// hour lands at 160 — but bounded at both ends and to the one day it belongs
-// to, because the alternative is a line claiming a time it is not at.
 const halfNine = new Date(2026, 7, 18, 9, 30).getTime()
 assert.strictEqual(feed.nowOffset(week[1], 7, 19, 64, halfNine), 160)
 assert.strictEqual(feed.nowOffset(week[2], 7, 19, 64, halfNine), -1,
@@ -124,7 +121,6 @@ assert.strictEqual(feed.nowOffset(week[1], 7, 19, 64,
 assert.strictEqual(feed.nowOffset(week[1], 7, 19, 64, NaN), -1)
 assert.strictEqual(feed.nowOffset(null, 7, 19, 64, halfNine), -1)
 
-// A day whose range weekHourRange widened to the whole day still places it.
 assert.strictEqual(feed.nowOffset(week[1], 0, 24, 64,
   new Date(2026, 7, 18, 0, 30).getTime()), 32)
 
@@ -134,9 +130,7 @@ assert.strictEqual(feed.weekNowOffset(splitWeek, 7, 19, 64, halfNine), -1,
   "another week on screen gets no line")
 assert.strictEqual(feed.weekNowOffset([], 7, 19, 64, halfNine), -1)
 
-// The grid names wall-clock hours, not elapsed hours since midnight. On a DST
-// transition those differ by one, so the marker must still sit beside the time
-// its label names.
+// Invariant: calendar geometry follows wall-clock labels across daylight-saving transitions.
 const previousTimezone = process.env.TZ
 process.env.TZ = "America/New_York"
 const springDay = feed.weekDays(new Date(2026, 2, 8, 12).getTime(), 0)[0]
@@ -207,9 +201,7 @@ assert.strictEqual(feed.tagText("<name>&#x110000; &#55296;</name>", "name"), "&#
 assert.strictEqual(feed.tagText("<name>&#38;#x41; &amp;lt; &LT;</name>", "name"), "&#x41; &lt; &LT;",
   "XML entity decoding is a single case-sensitive pass")
 
-// A server may send the calendar object in a CDATA section instead of escaping
-// it, which RFC 4791 allows and DAViCal and iCloud do. Unwrapped, its first
-// line reads `<![CDATA[BEGIN:VCALENDAR` and the collection parses to nothing.
+// Invariant: RFC 4791 permits CDATA calendar-data; its delimiter must not become part of the ICS header.
 const cdataXml = '<?xml version="1.0" encoding="UTF-8"?>'
   + '<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
   + '<d:response><d:href>/cal/cdata.ics</d:href><d:propstat>'
@@ -220,12 +212,9 @@ const cdataXml = '<?xml version="1.0" encoding="UTF-8"?>'
 const cdataParsed = feed.eventsFromCaldav(cdataXml, "work")
 assert.strictEqual(cdataParsed.length, 1)
 assert.strictEqual(cdataParsed[0].href, "/cal/cdata.ics")
-// Nothing inside a CDATA section is escaped, so the entity pass must not touch
-// it: "&amp;" there is those five characters and a summary keeps them.
+// Invariant: CDATA preserves literal entity text; only text outside the section is decoded.
 assert.strictEqual(cdataParsed[0].summary, "R&D sync &amp; Q&A")
 
-// Both encodings can appear in one element. The entities outside the section
-// are decoded; the section's own content is handed over exactly as it arrived.
 assert.strictEqual(
   feed.tagText('<c:calendar-data>A &amp; B&#13;<![CDATA[C &amp; D]]>'
     + ' &lt;end&gt;</c:calendar-data>', "calendar-data"),
@@ -288,11 +277,7 @@ const utcRecurringEvents = feed.eventsFromCaldav(utcRecurringXml, "work",
 assert.strictEqual(utcRecurringEvents.length, 1)
 assert.strictEqual(utcRecurringEvents[0].start.ms, Date.UTC(2026, 8, 18, 12, 0))
 
-// A rule from long ago is walked from the range it is asked for, not from its
-// DTSTART. Walking from 1990 hit the loop's 10 000-day ceiling twenty-seven
-// years in and returned nothing for 2026; the rules that did reach the range
-// paid for every day since they began, on the shell's main thread, on every
-// refresh — a weekly event from 2023 cost a quarter of a second each.
+// Performance: old rules start near the requested range; walking from DTSTART previously exhausted the ceiling and blocked the UI.
 const ancientXml = recurringXml
   .replace("RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TH", "RRULE:FREQ=WEEKLY;BYDAY=TH")
   .replace(/20240208T140000/g, "19900104T140000")
@@ -305,8 +290,7 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(ancientEvents.map(function(even
 assert.deepStrictEqual(JSON.parse(JSON.stringify(ancientEvents.map(function(event) { return event.summary }))),
   ["Standup", "Standup", "Moved standup"])
 
-// COUNT is the one rule that has to be counted from the start, so it still is:
-// ten Thursdays from July reach 3 September and no further, whatever the range.
+// Invariant: COUNT rules still count from DTSTART so skipping ahead cannot extend a finite recurrence.
 const countedXml = recurringXml
   .replace("RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TH", "RRULE:FREQ=WEEKLY;BYDAY=TH;COUNT=10")
   .replace(/20240208T140000/g, "20260702T140000")
@@ -337,7 +321,6 @@ for (let year = 2024; year <= 2028; year++) {
     assert.ok(grid.length === 35 || grid.slice(35).some(day => day.inMonth))
   }
 }
-// Fill the available rows; reserve the overflow label only when it is needed.
 assert.strictEqual(feed.monthEventLimit(98, 23, 2, 16, 4), 4)
 assert.strictEqual(feed.monthEventLimit(98, 23, 2, 16, 5), 3)
 assert.strictEqual(feed.monthEventLimit(10, 23, 2, 16, 5), 0)
@@ -352,15 +335,12 @@ assert.strictEqual(feed.monthEventLimit(10, 23, 2, 16, 5), 0)
     attendees: [{ self: true }, { email: "sam@example.test" }] }
   assert.deepStrictEqual(labels(feed.deleteRequest(guests, google, true)),
     ["none:Delete without email", "all:Delete and notify guests"])
-  // Someone else's meeting sends nothing from here, and no other provider can
-  // be asked not to notify.
   assert.deepStrictEqual(labels(feed.deleteRequest(Object.assign({}, guests, { organizer: { self: false } }), google, true)),
     ["all:Delete"])
   assert.deepStrictEqual(labels(feed.deleteRequest(guests, { kind: "microsoft" }, true)), ["all:Delete"])
   const occurrence = Object.assign({ recurringEventId: "series" }, guests)
   assert.deepStrictEqual(labels(feed.deleteRequest(occurrence, google, true)),
     ["series:Delete series", "none:Delete occurrence without email", "all:Delete occurrence and notify guests"])
-  // A backend that cannot read the series offers only the occurrence.
   assert.deepStrictEqual(labels(feed.deleteRequest({ summary: "Standup", recurringEventId: "series" }, google, false)),
     ["all:Delete occurrence"])
   assert.ok(feed.deleteRequest({ recurrence: ["RRULE:FREQ=WEEKLY"] }, google, true).message.indexOf("Every occurrence") === 0)
@@ -485,7 +465,6 @@ assert.strictEqual(feed.createEvent({ title: "", startMs: 1, endMs: 2 }, 1).erro
 assert.strictEqual(feed.createEvent({ title: "x", startMs: 2, endMs: 1 }, 1).error,
   "End time must be after start time")
 
-// An edit keeps the event's identity and tells every copy which write is new.
 const updated = feed.updateEvent({
   title: "Planning, moved", startMs: Date.UTC(2026, 7, 24, 10, 0),
   endMs: Date.UTC(2026, 7, 24, 11, 0), location: "", description: "Weekly plan"
@@ -539,10 +518,7 @@ assert.strictEqual(feed.editorDateRange("2026-09-09","24:15","2026-09-10","11:15
 assert.strictEqual(feed.editorDateRange("2026-09-09","","2026-09-09","",true).ok,true)
 assert.strictEqual(feed.editorDateRange("2026-09-10","","2026-09-09","",true).ok,false)
 
-// A CalDAV update replaces the whole resource, so fields this editor does not
-// draw must survive a change to the ones it does. In particular, editing the
-// title must not remove the organiser, attendees, alarms, timezone rules or a
-// server extension from the VEVENT it puts back.
+// Invariant: whole-resource CalDAV writes preserve unsupported attendees, alarms, timezone rules and extensions.
 const preservedXml = [
   '<?xml version="1.0"?>',
   '<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">',
@@ -575,10 +551,6 @@ assert.ok(preservedUpdate.ics.indexOf("BEGIN:VALARM") > 0)
 assert.ok(preservedUpdate.ics.indexOf("X-SERVER-FIELD:keep-me") > 0)
 assert.ok(preservedUpdate.ics.indexOf("BEGIN:VTIMEZONE") > 0)
 
-// A write is refused where it cannot really run: no source, a read-only
-// calendar of any kind, or a recurring CalDAV event whose ICS state this
-// client does not re-serialize. A recurring Google event edits fine — the
-// server keeps the rule and one occurrence is patched.
 assert.strictEqual(feed.writeRefusal(null, null), "Choose a calendar")
 assert.strictEqual(feed.writeRefusal({ kind: "caldav", readOnly: true }, null),
   "This calendar is read-only")
@@ -587,13 +559,11 @@ assert.strictEqual(feed.writeRefusal({ kind: "google", readOnly: true }, null),
 assert.strictEqual(feed.writeRefusal({ kind: "caldav" },
   { recurrenceRule: "FREQ=WEEKLY" }),
   "Recurring CalDAV events can only be changed in a full calendar client")
-// A modified occurrence carries a RECURRENCE-ID but no RRULE — and its href
-// is the series' shared file, so writing it would rewrite the whole series.
+// Invariant: an occurrence can have RECURRENCE-ID without RRULE while sharing its series resource.
 assert.strictEqual(feed.writeRefusal({ kind: "caldav" },
   { recurrenceIdMs: new Date(2026, 7, 24).getTime() }),
   "Recurring CalDAV events can only be changed in a full calendar client")
-// A RECURRENCE-ID too malformed to parse leaves recurrenceIdMs at 0; the raw
-// line still answers for it, because the href names the series' shared file.
+// Invariant: malformed RECURRENCE-ID still forbids rewriting the shared series resource.
 assert.strictEqual(feed.writeRefusal({ kind: "caldav" },
   { recurrenceIdMs: 0, source: { recurrenceId: "RECURRENCE-ID:not-a-date" } }),
   "Recurring CalDAV events can only be changed in a full calendar client")
@@ -604,9 +574,7 @@ assert.strictEqual(feed.writeRefusal({ kind: "google" }, { eventType: "fromGmail
 assert.strictEqual(feed.writeRefusal({ kind: "google" },
   { recurrenceRule: "FREQ=WEEKLY" }), "")
 
-// An all-day event is edited as the dates it spans: the ICS keeps VALUE=DATE
-// with an exclusive end, the Google body carries date and never dateTime, and
-// a title-only change cannot turn it into midnight-to-midnight times.
+// Invariant: all-day writes preserve date-only endpoints and an exclusive end.
 const allDayUpdate = feed.updateEvent({
   title: "Conference, day one moved", startMs: new Date(2026, 7, 24).getTime(),
   endMs: new Date(2026, 7, 26).getTime()
@@ -624,8 +592,6 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(allDayUpdate.google)), {
   start: { date: "2026-08-24" }, end: { date: "2026-08-26" }
 })
 
-// The CalDAV write address is the event's own href, resolved the way the
-// server wrote it: absolute, absolute-path, or relative to the collection.
 assert.strictEqual(feed.caldavEventUrl("https://dav.example/cal/me/",
   { href: "https://dav.example/cal/me/a.ics" }),
   "https://dav.example/cal/me/a.ics")
@@ -639,9 +605,7 @@ assert.strictEqual(feed.caldavEventUrl("http://dav.example/cal/me/",
   { href: "/cal/me/a.ics" }), "", "CalDAV writes stay on HTTPS")
 assert.strictEqual(feed.caldavEventUrl("", { href: "", uid: "" }), "")
 
-// An absolute href is accepted only on the collection's own origin: anything
-// else would send this calendar's credentials to a server that merely named
-// an address in an answer.
+// Invariant: an event href must stay on the collection origin before calendar credentials can be used.
 assert.strictEqual(feed.caldavEventUrl("https://dav.example/cal/me/",
   { href: "https://other.example/cal/me/a.ics" }), "",
   "a cross-origin href is refused before credentials go anywhere")
@@ -682,9 +646,7 @@ assert.strictEqual(feed.caldavEventUrl("https://[2001:db8::1]/cal/",
   { href: "https://[2001:db8::2]/cal/a.ics" }), "",
   "a different IPv6 host is another origin")
 
-// Raw whitespace is refused: a URL's spaces arrive percent-encoded, and the
-// resolved address becomes one quoted line of the transport's curl config,
-// where a line break would write more options.
+// Invariant: raw whitespace is invalid URL input; encoded spaces remain permitted.
 assert.strictEqual(feed.caldavEventUrl("https://dav.example/cal/me/",
   { href: "https://dav.example/cal/me/a.ics\noutput = elsewhere" }), "",
   "a line break in an absolute href is refused")
@@ -695,7 +657,6 @@ assert.strictEqual(feed.caldavEventUrl("https://dav.example/cal/me/",
 
 console.log("test_calendar_feed.js ok")
 
-// -------------------------------------------------------------- Microsoft
 {
   const view = {
     value: [

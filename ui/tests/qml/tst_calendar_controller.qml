@@ -225,9 +225,7 @@ Item {
     }
 
     function init() {
-      // Reset here rather than at the end of each case: a failed compare aborts
-      // the function, so a restore on its last line does not run and one real
-      // failure becomes a cascade that hides it.
+      // Invariant: reset fixtures before assertions; a failing comparison aborts the case before trailing cleanup can run.
       mailService.accountSummaries = JSON.parse(JSON.stringify(originalSummaries))
       mailService.requests = []
       mailService.nextResult = ({ body: "{}", status: 200 })
@@ -409,10 +407,7 @@ Item {
       compare(mailService.requests.length, 1, "the established default calendar still works")
     }
 
-    // Discovery stores the default calendar's real Graph id. A backend one
-    // API step behind cannot address a calendar by id, but the default is
-    // the one calendar it reaches without one, so the source degrades to the
-    // pre-discovery request instead of being refused.
+    // Invariant: historical Graph access still reaches a discovered default calendar without its newer explicit-ID parameter.
     function test_old_backend_reaches_the_discovered_default_calendar_without_its_identity() {
       mailService.backendCanDiscoverCalendars = false
       var defaultCalendar = {id: "microsoft:outlook:me@contoso.com", kind: "microsoft",
@@ -515,10 +510,7 @@ Item {
         JSON.stringify(expected))
     }
 
-    // The cache is keyed by what the visible calendar depends on. Under the
-    // unified view that is not the mailbox — the same calendars are shown
-    // whichever one is open — so keying by the account stored a copy of the
-    // same events per account and made every mailbox switch a cache miss.
+    // Performance: unified views share one calendar cache scope; account-scoped copies previously refetched on every mailbox switch.
     function test_the_scope_is_the_mailbox_only_when_the_view_follows_it() {
       compare(controller.calendarScope, "imap:work@example.com")
       mailService.unifiedCalendarView = true
@@ -528,9 +520,7 @@ Item {
         "and it does not move when the mailbox does")
     }
 
-    // An answer that is still correct is not thrown away. Under the unified
-    // view a refresh started while one mailbox was open is still an answer
-    // about the same calendars after switching to another.
+    // Invariant: a mailbox switch does not invalidate an in-flight result for the same unified calendar scope.
     function test_a_mailbox_switch_does_not_discard_a_unified_refresh() {
       mailService.unifiedCalendarView = true
       controller.rangeStart = 1000
@@ -541,8 +531,6 @@ Item {
         "the fetch in flight still belongs to the view on screen")
     }
 
-    // And the default mode is unchanged: there the scope is the account, so a
-    // switch does invalidate what was in flight.
     function test_the_default_mode_still_follows_the_mailbox() {
       controller.rangeStart = 1000
       controller.rangeEnd = 2000
@@ -551,9 +539,7 @@ Item {
       verify(controller.refreshScope !== controller.calendarScope)
     }
 
-    // A controller with no mailbox is already showing every source, so the
-    // setting cannot change what it shows — and renaming its scope would
-    // orphan the bar preview's cache entry and refetch every calendar.
+    // Invariant: a controller without a mailbox already spans every source; changing its scope would orphan the bar cache.
     function test_a_controller_with_no_mailbox_keeps_its_scope() {
       controller.accountId = ""
       compare(controller.calendarScope, "")
@@ -638,8 +624,6 @@ Item {
       compare(controller.savingSource, false)
     }
 
-    // Google and Microsoft calendars arrive with their account's sign-in,
-    // after a view that was already open asked for its range.
     function test_a_calendar_arriving_with_a_sign_in_reloads_the_range() {
       var summaries = JSON.parse(JSON.stringify(mailService.accountSummaries))
       summaries[1].signedIn = false
@@ -664,10 +648,7 @@ Item {
       cache.loaded = false
     }
 
-    // The sources file is watched, and its directory is touched by the
-    // backend on every registry read. Learning again that the file is still
-    // absent is not a change of sources: announcing one refreshed every
-    // calendar, which read the registry, which touched the directory.
+    // Invariant: repeated absent-file notifications must not start a registry-read and directory-touch refresh loop.
     function test_a_still_missing_sources_file_is_not_a_change() {
       var sourcesFile = null
       for (var childIndex = 0; childIndex < controller.data.length; childIndex++) {

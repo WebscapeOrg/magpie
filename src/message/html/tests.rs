@@ -350,9 +350,7 @@ fn attribute_names_and_nonanchor_urls_cannot_create_resource_markup() {
     }
 }
 
-// A picture the reader approved arrives as a data URI in the document. Its
-// bytes are not markup Qt has to lay out, so one large picture must not turn a
-// small message into the plain-text refusal the moment its pictures load.
+// Invariant: approved raster payloads must not inflate the markup complexity that selects the plain-text fallback.
 #[test]
 fn approved_image_bytes_do_not_make_a_small_message_too_heavy() {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -381,7 +379,6 @@ fn approved_image_bytes_do_not_make_a_small_message_too_heavy() {
         "{}",
         shown["reader"]["complexity"]
     );
-    // The bound on markup itself still holds.
     let markup = format!("<p>{}</p>", "x".repeat(130_000));
     assert_eq!(sanitize(&markup, &json!({})).unwrap()["tooHeavy"], true);
 }

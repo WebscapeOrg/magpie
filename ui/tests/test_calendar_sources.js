@@ -161,9 +161,7 @@ assert.strictEqual(sources.calendarEditorUrl({ sources: [{
   kind: "google", enabled: true, accountId: "me@gmail.com"
 }] }), "https://calendar.google.com/calendar/u/0/r/eventedit")
 
-// Google visibility is seeded once, while future discovery refreshes access
-// and retains the local choice. A discovered primary must not become writable
-// merely because the account list is reconciled.
+// Invariant: account reconciliation must preserve discovered calendar permissions and local visibility choices.
 {
   const discovery = { provider: "google", accountId: "me@example.org", calendars: [
     {sourceId: "google:me@example.org", calendarId: "me@example.org", name: "Primary", selected: true, readOnly: true},
@@ -190,8 +188,6 @@ const namedMicrosoft = sources.withMicrosoftAccounts({sources: [{
 assert.strictEqual(namedMicrosoft.sources[0].name, "Work appointments",
   "refreshing the account summary must preserve the discovered default calendar's name")
 
-// A Microsoft calendar comes with a signed-in Outlook mailbox, the way a
-// Google one comes with Gmail.
 {
   const withMicrosoft = sources.withMicrosoftAccounts(list, [
     { id: "outlook:me@contoso.com", email: "me@contoso.com", provider: "outlook", signedIn: true },
@@ -209,8 +205,6 @@ assert.strictEqual(namedMicrosoft.sources[0].name, "Work appointments",
   assert.strictEqual(sources.forAccount(withMicrosoft, "me@gmail.com").sources.length, 1)
 }
 
-// Provider discovery replaces only the account-owned calendars, preserves the
-// user's choices and adopts a manually assembled iCloud URL without duplication.
 {
   let before = sources.add(sources.emptyList(), {
     id: "manual-icloud", kind: "caldav", name: "Old Personal",
@@ -285,9 +279,7 @@ assert.strictEqual(namedMicrosoft.sources[0].name, "Work appointments",
   assert.strictEqual(available.sources[0].enabled, false)
 }
 
-// Graph may flag no calendar as the default. Every discovered calendar then
-// carries its own id, and synthesizing the account's primary calendar on top
-// would fetch the same one twice.
+// Invariant: discovery without a default calendar must not synthesize a duplicate primary source.
 {
   const found = sources.applyDiscovery(sources.emptyList(), {
     provider: "microsoft", accountId: "outlook:me@contoso.com", calendars: [{
@@ -312,10 +304,7 @@ assert.strictEqual(namedMicrosoft.sources[0].name, "Work appointments",
     "an undiscovered account still gets its primary calendar")
 }
 
-// A discovered calendar outlives the mailbox it came with: removing the
-// account edits the account list, not calendars.json. Such a source can no
-// longer sign in, so it is named as orphaned for the settings page to offer
-// removing it, where a synthesized or still-owned source is not.
+// Invariant: removing a mailbox does not remove its persisted calendars; they remain identifiable as orphaned.
 {
   const accounts = [
     { id: "outlook:me@contoso.com", email: "me@contoso.com", provider: "outlook", signedIn: true },
@@ -334,10 +323,7 @@ assert.strictEqual(namedMicrosoft.sources[0].name, "Work appointments",
   assert.strictEqual(sources.orphaned(null, accounts), false)
 }
 
-// A calendar error names its source. Discovery names a calendar the way its
-// provider does — every Outlook mailbox has a "Calendar" — so a discovered
-// source is named with its mailbox as well, where the address alone said which
-// account needed attention before.
+// Invariant: provider calendar names can repeat across mailboxes; errors must identify the owning mailbox.
 {
   const accounts = [
     { id: "outlook:me@contoso.com", email: "me@contoso.com", provider: "outlook", signedIn: true },

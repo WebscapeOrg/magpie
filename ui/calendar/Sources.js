@@ -6,6 +6,8 @@ var VERSION = 1
 var KINDS = ["caldav", "google", "microsoft", "icloud", "hey"]
 var COLOR_KEYS = Palette.keys()
 
+var MAX_CREDENTIAL_ID_BYTES = 1024
+
 function defaultColorKey(identity) { return Palette.defaultKey(identity) }
 
 function trimmed(value) {
@@ -142,9 +144,9 @@ function validate(raw) {
     return { ok: false, error: "Use an HTTPS CalDAV calendar address" }
   if (source.username === "") return { ok: false, error: "Add the CalDAV username" }
   var identity = source.id || sourceId(source)
-  var identityBytes = 1025
+  var identityBytes = MAX_CREDENTIAL_ID_BYTES + 1
   try { identityBytes = encodeURIComponent(identity).replace(/%[0-9A-F]{2}/g, "_").length } catch (encodingError) {}
-  if (identityBytes > 1024)
+  if (identityBytes > MAX_CREDENTIAL_ID_BYTES)
     return { ok: false, error: "The calendar address and username are too long" }
   return { ok: true, source: source }
 }

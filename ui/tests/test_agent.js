@@ -137,10 +137,7 @@ assert.equal(agent.pendingLimit(Array(20).fill('next'),'next').length > 0,true)
 assert.equal(agent.pendingLimit([], 'x'.repeat(65537)).length > 0,true)
 assert.equal(agent.pendingLimit(['one'], 'two'),'')
 
-// ------------------------------------------------------------ suggested events
 {
-  // The prefilter: a date or a time in the text, by name, number or
-  // relation; not a word that only looks like one.
   const yes = ["See you Thursday at 3pm", "Dinner on 12 September", "Sep 12 works for me", "12/09/2026 at the office",
     "2026-09-12", "call at 14:30", "tomorrow morning", "next week then", "May 12 works", "on Thu, then", "Dinner on Thursday?",
     "Friday evening?", "by Monday please"]
@@ -149,7 +146,6 @@ assert.equal(agent.pendingLimit(['one'], 'two'),'')
   for (const text of yes) assert.strictEqual(agent.mentionsDate(text), true, text)
   for (const text of no) assert.strictEqual(agent.mentionsDate(text), false, text)
 
-  // Mail from a machine or a list is never worth a model call.
   const person = { from: { email: "bob@example.com" }, labelIds: ["INBOX"] }
   assert.strictEqual(agent.automatedMail(person), false)
   for (const email of ["noreply@github.com", "no-reply@email.claude.com", "notifications@github.com", "serviceinfo@dbs.com",
@@ -169,7 +165,6 @@ assert.equal(agent.pendingLimit(['one'], 'two'),'')
   assert.strictEqual(agent.EVENTS_IN_FLIGHT, 2)
   assert.ok(agent.EVENTS_PROMPT.length > 0)
 
-  // The look is a background job: a note only when it found something.
   const look = { id: "e1", kind: "events", messageId: "m1", accountId: adaAccount, state: "running", created: 3 }
   const done = { id: "e0", kind: "events", messageId: "m2", accountId: adaAccount, state: "done", created: 2,
     events: [{ title: "Dinner", startMs: 1789232400000, endMs: 1789239600000 }] }
@@ -181,7 +176,6 @@ assert.equal(agent.pendingLimit(['one'], 'two'),'')
     events: [{ title: "a" }, { title: "b" }] }), "The agent found 2 events in “S”")
   assert.strictEqual(agent.finishedNote({ id: "e4", kind: "events", state: "failed", subject: "S" }), "", "a failed look is not news")
 
-  // The look the projection holds for a message, in its account.
   const looks = { [adaAccount]: { m1: look, m2: done } }
   assert.strictEqual(agent.lookFor(looks, adaAccount, "m1"), look)
   assert.strictEqual(agent.lookFor(looks, bobAccount, "m1"), null, "Bob's m1 was not looked at")
@@ -189,7 +183,6 @@ assert.equal(agent.pendingLimit(['one'], 'two'),'')
   assert.strictEqual(agent.lookFor(looks, "", "m1"), null, "no account owns nothing")
   assert.strictEqual(agent.lookFor(null, adaAccount, "m1"), null)
 
-  // The suggestions: what a finished look found, less the dismissed.
   const found = agent.eventSuggestions(done, [])
   assert.strictEqual(found.length, 1)
   assert.strictEqual(found[0].title, "Dinner")
@@ -204,12 +197,10 @@ assert.equal(agent.pendingLimit(['one'], 'two'),'')
   const untimed = agent.eventSuggestions({ id: "e7", kind: "events", state: "done", events: [{ title: "T", startMs: 1000 }] }, [])
   assert.strictEqual(untimed[0].endMs, 1000 + 3600000, "an hour when no end was given")
 
-  // When, as the card says it.
   const sep12 = new Date(2026, 8, 12, 19, 0).getTime()
   const thisYear = new Date(2026, 8, 7).getTime()
   assert.strictEqual(agent.suggestionWhen({ startMs: sep12, endMs: sep12 + 3600000 }, thisYear), "Sat 12 Sep, 19:00–20:00")
   assert.strictEqual(agent.suggestionWhen({ startMs: sep12, endMs: sep12 }, thisYear), "Sat 12 Sep, 19:00")
-  // A whole day runs from midnight to the next: one day, or two.
   const sep12day = new Date(2026, 8, 12).getTime()
   assert.strictEqual(agent.suggestionWhen({ startMs: sep12day, endMs: sep12day + 86400000, allDay: true }, thisYear), "Sat 12 Sep (all day)")
   assert.strictEqual(agent.suggestionWhen({ startMs: sep12day, endMs: sep12day + 2 * 86400000, allDay: true }, thisYear), "Sat 12 Sep – Sun 13 Sep (all day)")

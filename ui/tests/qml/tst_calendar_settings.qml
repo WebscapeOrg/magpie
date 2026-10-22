@@ -148,14 +148,12 @@ Item {
       wait(1)
       var discover = findChild(settings, "calendar-discover-icloud")
       verify(discover !== null)
-      // The account already lists a calendar, so the action refreshes it.
       compare(discover.text, "Refresh calendars")
       verify(discover.activeFocusOnTab, "discovery must be reachable with Tab")
       discover.forceActiveFocus()
       keyClick(Qt.Key_Return)
       compare(calendarController.discoverCalls, 1)
-      // A switch like every other setting on the page; keyboard reach is the
-      // switch's own, covered where the real control exists.
+      // Invariant: keyboard activation belongs to the native ToggleSwitch tests; this fixture checks its caller.
       var toggle = findChild(settings, "calendar-source-toggle")
       verify(toggle !== null)
       compare(toggle.checked, true)
@@ -182,9 +180,7 @@ Item {
       compare(calendarController.selectedColor, "blue")
       compare(picker.visible, false)
     }
-    // Removing a mailbox leaves the calendars discovered through it in the
-    // settings file with nothing to sign in as. They can be removed here;
-    // a calendar whose mailbox is still present is refreshed, not removed.
+    // Invariant: removing a mailbox leaves its persisted calendar without sign-in credentials.
     function test_a_calendar_whose_mailbox_is_gone_can_be_removed() {
       mailService.accountSummaries = [{ id: "imap:person@icloud.com",
         email: "person@icloud.com", provider: "imap", calendarProvider: "icloud",
@@ -212,8 +208,6 @@ Item {
       compare(removes[0].visible, false, "a calendar with its mailbox is not removable")
       compare(removes[1].visible, true, "a calendar without its mailbox is")
       compare(details.length, 2)
-      // Listed under its mailbox's row, which already names provider and
-      // address; the orphan is listed on its own and says why.
       compare(details[0].text, "")
       compare(details[1].text, "iCloud · Mailbox removed")
       removes[1].clicked()
@@ -272,7 +266,6 @@ Item {
           enabled: true, readOnly: true, remindersEnabled: false, reminderMinutes: -1 }
       ] })
       wait(1)
-      // One writable calendar is no choice: no default row is drawn for it.
       compare(findChild(settings, "calendar-default-picker"), null)
       calendarController.sourceList = ({ version: 1, sources: calendarController.sourceList.sources.concat([
         { id: "work", kind: "google", accountId: "person@example.org", name: "Work",

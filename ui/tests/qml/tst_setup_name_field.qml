@@ -6,9 +6,6 @@ import "../../components" as Mail
 import "../.." as Omamail
 import "../../account/Accounts.js" as Accounts
 
-// A mailbox can be named where it is set up: the name goes to the store
-// with the rest of the form, comes back into the field on the next visit,
-// and an empty field is no name.
 Item {
   width: 700
   height: 900
@@ -67,7 +64,6 @@ Item {
     function openProviderWebsite(_id) {}
   }
 
-  // A second Gmail mailbox: the client exists, so its step is folded away.
   Mail.SetupPage {
     id: gmailPage
     width: 600
@@ -130,9 +126,6 @@ Item {
     function outlookField(name) { return findChild(outlookPage, name) }
     function gmailField(name) { return findChild(gmailPage, name) }
 
-    // Gmail: the field stands above the steps, so a second mailbox — whose
-    // client step is folded away — still gets one; the name goes with a
-    // sign-in as well as with saving the client.
     function test_a_second_gmail_mailbox_can_be_named_and_the_name_goes_with_the_sign_in() {
       compare(gmailPage.configured, true)
       var name = gmailField("account-name-field")
@@ -153,9 +146,7 @@ Item {
       compare(gmailAuth.credentialSaves, 1)
     }
 
-    // A draft mailbox is addressed by its position until it has an id: a
-    // name written to it before the address must not turn the setup page
-    // into the previous mailbox's.
+    // Invariant: a draft has a position before an account ID; naming it must preserve that current draft.
     function test_naming_a_draft_keeps_it_current() {
       var list = Accounts.emptyList()
       list = Accounts.add(list, { email: "ada@example.com", provider: "imap", clientId: "", clientSecret: "",
@@ -198,10 +189,7 @@ Item {
       compare(fakeService.saved.label, "", "empty is no name, which puts the address back")
     }
 
-    // The sender name is asked for beside the mailbox name, and the two stay
-    // apart: one is how Omamail lists the mailbox, the other what recipients
-    // see. A backend too old to write it gets no field and no value, so the
-    // entry keeps whatever it already had.
+    // Invariant: older backends cannot send a stored sender name; hiding the field must also preserve its value.
     function test_imap_setup_names_the_sender_only_on_a_backend_that_writes_it() {
       var sender = field("sender-name-field")
       verify(sender !== null)
@@ -244,8 +232,6 @@ Item {
       compare(outlookService.saved.senderName, "Ada Lovelace")
     }
 
-    // The setup form's value reaches the entry through the same save as the
-    // rest of it, cleaned the way the settings field's is.
     function test_configuring_an_account_stores_its_sender_name() {
       var list = Accounts.emptyList()
       list = Accounts.add(list, { email: "ada@example.com", provider: "imap", clientId: "", clientSecret: "",

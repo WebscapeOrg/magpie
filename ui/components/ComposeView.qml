@@ -900,7 +900,7 @@ DropArea {
   function paste() {
     if (root.pasteInFlight) return
     root.pasteInFlight = true
-    enqueueAttach("clipboard", "")
+    enqueueAttach("clipboard", "", focusedPasteTarget())
   }
 
   function pasteKey(event) {
@@ -911,17 +911,16 @@ DropArea {
     }
   }
 
-  function pasteText() {
-    if (toField.activeFocus) toField.paste()
-    else if (ccField.activeFocus) ccField.paste()
-    else if (bccField.activeFocus) bccField.paste()
-    else if (subjectField.activeFocus) subjectField.paste()
-    else bodyEdit.paste()
+  function focusedPasteTarget() {
+    var fields = [toField, ccField, bccField, replyToField, subjectField]
+    for (var fieldIndex = 0; fieldIndex < fields.length; fieldIndex++)
+      if (fields[fieldIndex].activeFocus) return fields[fieldIndex]
+    return bodyEdit
   }
 
-  function enqueueAttach(mode, path) {
+  function enqueueAttach(mode, path, pasteTarget) {
     var jobs = root.attachJobs.slice()
-    jobs.push({ mode: String(mode || "read"), path: String(path || "") })
+    jobs.push({ mode: String(mode || "read"), path: String(path || ""), pasteTarget: pasteTarget })
     root.attachJobs = jobs
     pumpAttach()
   }
@@ -962,7 +961,7 @@ DropArea {
     if (job.mode === "clipboard" && typeof root.service.clipboardAttachment === "function") {
       root.service.clipboardAttachment(root.composeDir, function(result) {
         root.attachmentHostPending = false
-        root.finishAttach(job.mode, JSON.stringify(result || {ok:false,error:"no-image"}), owner)
+        root.finishAttach(job.mode, JSON.stringify(result || {ok:false,error:"no-image"}), owner, job.pasteTarget)
       })
     } else if (job.mode === "pick" && typeof root.service.chooseFiles === "function") {
       root.service.chooseFiles(function(result) {
@@ -977,7 +976,7 @@ DropArea {
 
   property bool attachmentReadPending: false
 
-  function finishAttach(mode, text, owner) {
+  function finishAttach(mode, text, owner, pasteTarget) {
     var result = null
     try { result = JSON.parse(String(text || "")) }
     catch (parseError) { result = null }
@@ -1014,7 +1013,7 @@ DropArea {
     if (mode === "clipboard" && result && result.ok !== true
         && String(result.error || "") === "no-image") {
       root.attaching = root.attachJobs.length > 0
-      root.pasteText()
+      if (pasteTarget) pasteTarget.paste()
       pumpAttach()
       return
     }

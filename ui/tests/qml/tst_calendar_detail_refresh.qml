@@ -27,7 +27,6 @@ Item {
     property bool eventWriting: false
     property double nowMs: Date.now()
     property string lastError: ""
-    property string lastErrorKind: ""
     function findSource(id) { return source }
     function colorKeyFor(id) { return "accent" }
     function refresh(start, end) {}

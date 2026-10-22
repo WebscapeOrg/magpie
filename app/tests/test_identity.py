@@ -18,7 +18,7 @@ main = (APP / "src/main.cpp").read_text(encoding="utf-8")
 require(main, 'setApplicationName(QStringLiteral("Omamail"))', "Qt application name")
 require(main, 'setWindowIcon(QIcon(QStringLiteral(', "Qt window icon")
 require(main, ':/omamail/app/resources/icons/omamail.svg', "Qt Omamail icon resource")
-# The bare logo is the Linux and Windows window icon. On macOS the plated
+# Invariant: The bare logo is the Linux and Windows window icon. On macOS the plated
 # bundle icon is the application icon, and setting a window icon there would
 # swap the Dock image for the bare logo while Finder keeps the plate. A run
 # outside a bundle takes the same plated icon from the resource.
@@ -29,7 +29,7 @@ require(main, 'iconFromIcnsFile(QStringLiteral(\n            ":/omamail/app/reso
 cmake = (APP / "CMakeLists.txt").read_text(encoding="utf-8")
 require(cmake, 'resources/macos/omamail.icns"', "macOS icon resource")
 
-# Closing the window is not quitting: Qt must not end the process on its own
+# Invariant: Closing the window is not quitting: Qt must not end the process on its own
 # when the last window is hidden, or Cmd+W behaves as Cmd+Q.
 require(main, 'application.setQuitOnLastWindowClosed(false);', "host-owned process lifetime")
 
@@ -46,7 +46,7 @@ if plist.get("CFBundleIconFile") != "omamail.icns":
 
 mac_svg = (APP / "resources/macos/omamail-macos.svg").read_text(encoding="utf-8")
 require(mac_svg, 'viewBox="0 0 1024 1024"', "macOS 1024px icon canvas")
-# Apple's app-icon grid: an 824pt plate on the 1024pt canvas. A plate that
+# Invariant: Apple's app-icon grid: an 824pt plate on the 1024pt canvas. A plate that
 # fills the canvas sits in the Dock visibly larger than every neighbour.
 require(mac_svg, 'x="100" y="100" width="824" height="824" rx="185"',
         "macOS rounded icon plate")

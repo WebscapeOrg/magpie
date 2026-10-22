@@ -377,7 +377,7 @@ TestCase {
     Commons.Color.preferredAppearance = "light"
     compare(Commons.Color.dark, false)
     compare(String(Commons.Color.background), "#fffcf0")
-    // The desktop's scheme only decides when nothing is preferred.
+    // Invariant: The desktop's scheme only decides when nothing is preferred.
     verify(Commons.Color.applySystemAppearance("dark"))
     compare(Commons.Color.dark, true)
     compare(Commons.Color.fallbackAppearance(), "light")

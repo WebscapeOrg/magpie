@@ -132,7 +132,7 @@ TestCase {
   }
 
   function test_calendar_settings_palette(data) {
-    // Read through the host FileView adapter: injecting Palette.values would
+    // Invariant: Read through the host FileView adapter: injecting Palette.values would
     // miss a caller that never supplies the theme path in the first place.
     var colors = {accent: "#e68e0d", red: "#d35f5f", green: "#52b788",
       yellow: "#f4d35e", blue: "#4d96ff", magenta: "#c77dff", cyan: "#56cfe1"}
@@ -157,7 +157,7 @@ TestCase {
     }
     tryCompare(sourceSwatch, "color", data.path !== "" ? colors.blue : settings.dimColor)
     if (data.path !== "") {
-      // A live theme change must reach both the picker and the saved source dot.
+      // Invariant: A live theme change must reach both the picker and the saved source dot.
       host.write(data.path, lines.join("\n").replace(colors.blue, "#80bfff"), false)
       host.changed(data.path)
       tryCompare(findChild(settings, "calendar-color-swatch-blue"), "color", "#80bfff")
@@ -171,7 +171,7 @@ TestCase {
     var settings = createTemporaryObject(calendarComponent, testCase)
     verify(settings)
     wait(0)
-    // A switch like every other setting on the page, and its input is the
+    // Invariant: A switch like every other setting on the page, and its input is the
     // only thing that answers the pointer and the keyboard.
     var trigger = findChild(settings, "calendar-source-toggle")
     verify(trigger)
@@ -267,7 +267,7 @@ TestCase {
       "top-left": Qt.SizeFDiagCursor, "top-right": Qt.SizeBDiagCursor,
       "bottom-left": Qt.SizeBDiagCursor, "bottom-right": Qt.SizeFDiagCursor
     }
-    // Repeater delegates have a visual parent but no object parent, so
+    // Invariant: Repeater delegates have a visual parent but no object parent, so
     // findChild cannot see them; the window's content lists them directly.
     function resizeCorner(name) {
       var items = composition.contentItem.children
@@ -430,7 +430,7 @@ TestCase {
     verify(composition.app.opened)
     sendCloseChord(composition)
     assertHiddenNotQuit(composition)
-    // The Dock brings it back through the same door the launcher uses.
+    // Invariant: The Dock brings it back through the same door the launcher uses.
     host.reopenRequested()
     compare(composition.app.opened, true)
     verify(composition.visible)
@@ -489,7 +489,7 @@ TestCase {
     assertHiddenNotQuit(composition)
   }
 
-  // macOS delivers Cmd+W to Qt only after the input method has had it, so
+  // Invariant: macOS delivers Cmd+W to Qt only after the input method has had it, so
   // the native host catches the chord itself and asks the window to leave.
   function test_native_close_chord_from_the_host_shuts_the_window() {
     var composition = createTemporaryObject(compositionComponent, testCase)

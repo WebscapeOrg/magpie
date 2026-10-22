@@ -110,7 +110,7 @@ class ReleaseWorkflowContract(unittest.TestCase):
                 self.assertIn(command, block)
                 self.assertLess(block.index(command), block.index("cargo build --release"))
                 if "windows" in job:
-                    # A failed cargo invocation must stop PowerShell before it
+                    # Invariant: A failed cargo invocation must stop PowerShell before it
                     # can build or publish an archive.
                     self.assertIn(command + '\n          if ($LASTEXITCODE -ne 0) { throw "standalone Rust tests failed" }', block)
 

@@ -135,7 +135,7 @@ if [ "$target" = macos-aarch64 ]; then
     fi
     [ -f "$app/Contents/PlugIns/platforms/libqcocoa.dylib" ] || { printf 'macdeployqt omitted the Cocoa platform plugin\n' >&2; exit 1; }
     command -v codesign >/dev/null 2>&1 || { printf 'codesign is required\n' >&2; exit 1; }
-    # macdeployqt rewrites Mach-O load commands, invalidating Homebrew's
+    # Invariant: macdeployqt rewrites Mach-O load commands, invalidating Homebrew's
     # ad-hoc signatures. Re-seal the self-contained bundle without an identity
     # so macOS can load it; this is not Developer ID signing or notarization.
     # No signing option is passed to macdeployqt: Qt 6.8 signs only when asked

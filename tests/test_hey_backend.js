@@ -10,13 +10,13 @@ function method(name) {
   return source.slice(start, end)
 }
 const context = {
-  Cli: load("providers/HeyCli.js"), messageResources: {}, rows: {}, inFlight: 0,
-  Qt: { callLater: fn => fn() },
+  Cli: load("providers/HeyCli.js"), messageResources: {}, rows: {}, inFlight: 0, sessionGeneration: 0,
+  deferred: { call: fn => fn() },
   auth: { loggedIn: true, accountId: "hey:me@example.org", heyPath: "/bin/hey" }
 }
 context.root = context
 vm.createContext(context)
-for (const name of ["newHandle", "abortRequest", "usesBackend", "backendRead", "rememberResources", "listMessages", "readFullPage", "getMessages", "getMessage", "forget"])
+for (const name of ["resetSession", "newHandle", "abortRequest", "usesBackend", "backendRead", "rememberResources", "listMessages", "readFullPage", "getMessages", "getMessage", "forget"])
   vm.runInContext(method(name), context)
 let pending, request
 context.backend = { executable: "/bin/omamail", call(method, params, callback) {
@@ -40,16 +40,19 @@ pending({}, null)
 assert.strictEqual(context.inFlight, 0)
 context.getMessage("1:2", true, (result, error) => { assert.strictEqual(result, null); assert(error.includes("changed")) })
 context.auth.accountId = "hey:other@example.org"
+context.resetSession()
 pending({}, null)
 context.auth.accountId = ""
 context.backend.call = () => assert.fail("unidentified account must not reach backend")
 context.getMessage("1:2", true, (result, error) => assert(error.includes("configured")))
-context.forget("markRead", ["1:2"])
-assert.strictEqual(context.messageResources["1:2"].labelIds.length, 0)
+assert.strictEqual(Object.keys(context.messageResources).length, 0)
 context.Mail = load("message/Message.js")
 for (const name of ["act", "modifyMessage", "batchModify", "messageParams", "sendMessage"])
   vm.runInContext(method(name), context)
 context.auth.accountId = "hey:me@example.org"
+context.resetSession()
+context.rememberResources([resource])
+context.forget("markRead", ["1:2"])
 let rpcCalls = 0
 context.backend.call = (method, params, callback) => {
   rpcCalls++; request = { method, params }; pending = callback

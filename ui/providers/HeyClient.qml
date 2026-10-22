@@ -20,8 +20,22 @@ Item {
   readonly property bool busy: inFlight > 0
 
   property string address: ""
+  property int sessionGeneration: 0
+  readonly property string accountIdentity: auth ? String(auth.accountId || "") : ""
+  readonly property string programIdentity: auth ? String(auth.heyPath || "") : ""
+  readonly property bool authenticated: !!auth && !!auth.loggedIn
+  onAuthChanged: resetSession()
+  onAccountIdentityChanged: resetSession()
+  onProgramIdentityChanged: resetSession()
+  onAuthenticatedChanged: resetSession()
 
-  function newHandle() { return { aborted: false, children: [] } }
+  function resetSession() {
+    sessionGeneration++
+    messageResources = ({})
+    address = ""
+  }
+
+  function newHandle() { return { aborted: false, children: [], generation: sessionGeneration } }
   function abortRequest(handle) {
     if (!handle) return
     handle.aborted = true
@@ -54,7 +68,7 @@ Item {
     backend.call(method, parameters, function(result, error) {
       root.inFlight = Math.max(0, root.inFlight - 1)
       if (handle.aborted) return
-      if (!auth || !auth.loggedIn || String(auth.accountId || "") !== account
+      if (handle.generation !== root.sessionGeneration || !auth || !auth.loggedIn || String(auth.accountId || "") !== account
           || String(auth.heyPath || "") !== program) {
         callback(null, "The HEY account changed during this request")
         return
@@ -145,6 +159,10 @@ Item {
 
     deferred.call(function() {
       if (!root || handle.aborted) return
+      if (handle.generation !== root.sessionGeneration) {
+        callback([], "The HEY account changed during this request")
+        return
+      }
       var output = []
       for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
         if (!root.usesBackend()) continue
@@ -152,6 +170,7 @@ Item {
         if (resource) output.push(resource)
       }
       if (output.length > 0 && typeof progress === "function") progress(output)
+      if (handle.generation !== root.sessionGeneration || handle.aborted) return
       callback(output, output.length > 0 || list.length === 0 ? ""
         : "Those messages are no longer in the mailbox")
     })
@@ -166,6 +185,10 @@ Item {
       if (full !== true) {
         deferred.call(function() {
           if (handle.aborted || typeof callback !== "function") return
+          if (handle.generation !== root.sessionGeneration) {
+            callback(null, "The HEY account changed during this request")
+            return
+          }
           var known = root.messageResources[messageId]
           callback(known || null, known ? "" : "That message is no longer in the mailbox")
         })
@@ -221,11 +244,16 @@ Item {
     if (typeof callback !== "function") return newHandle()
     if (address !== "") {
       var known = address
+      var handle = newHandle()
       deferred.call(function() {
-        if (!root) return
+        if (handle.aborted) return
+        if (handle.generation !== root.sessionGeneration) {
+          callback([], "The HEY account changed during this request")
+          return
+        }
         callback([{ email: known, displayName: "", isPrimary: true, isDefault: true }], "")
       })
-      return newHandle()
+      return handle
     }
     return getProfile(function(profile, error) {
       if (error || !profile || String(profile.email || "") === "") {

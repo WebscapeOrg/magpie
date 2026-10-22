@@ -39,6 +39,8 @@ Item {
     name: "AccountRemoval"
     when: windowShown
 
+    function init() { failOnWarning(/invalid context|TypeError/) }
+
     function initTestCase() { BackendFixture.markReady(mailService) }
 
     readonly property string ada: "ada@example.com"

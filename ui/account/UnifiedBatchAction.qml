@@ -35,10 +35,9 @@ QtObject {
         // Invariant: A reply cannot name another account or a row outside the submitted request.
         for (var failureIndex = 0; failureIndex < reportedFailures.length; failureIndex++) {
           var id = reportedFailures[failureIndex]
-          if (group.ids.indexOf(id) >= 0 && localFailures.indexOf(id) < 0) {
-            localFailures.push(id)
-            failed.push(Unified.unifiedId(group.accountId, id))
-          }
+          if (group.ids.indexOf(id) < 0 || localFailures.indexOf(id) >= 0) continue
+          localFailures.push(id)
+          failed.push(Unified.unifiedId(group.accountId, id))
         }
         var count = group.ids.length - localFailures.length
         var name = group.accountId

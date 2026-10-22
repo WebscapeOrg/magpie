@@ -75,20 +75,22 @@ QtObject {
         var keys = ["summary", "description", "location", "start", "end", "sequence", "status", "meetLink"]
         for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) updated[keys[keyIndex]] = current[keys[keyIndex]]
         updated = Calendar.withResponse(updated, account.receivedAsAddress, String(result.response || "").toUpperCase())
-        if (result.response === "needsAction") {
-          updated.attendees = (updated.attendees || []).map(function(attendee) {
-            if (String(attendee.email || "").toLowerCase() !== account.receivedAsAddress.toLowerCase()) return attendee
-            var next = {}
-            for (var key in attendee) next[key] = attendee[key]
-            next.partstat = "NEEDS-ACTION"
-            return next
-          })
-        }
+        if (result.response === "needsAction")
+          updated.attendees = needsActionAttendees(updated.attendees || [], account.receivedAsAddress)
       }
       rsvpAction.cacheInvite(id, updated)
     })
   }
 
+  function needsActionAttendees(attendees, address) {
+    return attendees.map(function(attendee) {
+      if (String(attendee.email || "").toLowerCase() !== address.toLowerCase()) return attendee
+      var next = {}
+      for (var key in attendee) next[key] = attendee[key]
+      next.partstat = "NEEDS-ACTION"
+      return next
+    })
+  }
 
   // Invariant: RSVP completion updates the invitation without triggering compose replySent behavior.
   function run(response, mailOnly) {

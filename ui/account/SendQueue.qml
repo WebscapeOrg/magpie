@@ -90,16 +90,15 @@ QtObject {
     parked = waiting
     account.sending = busy
     arm()
-    for (var receiptIndex = 0; receiptIndex < receipts.length; receiptIndex++) {
-      (function(id) {
-        Qt.callLater(function() {
-          if (!queue || queue.retired || typeof queue.request !== "function") return
-          queue.request("outbox.forget", { sendId: id }, function(result, error) {
-            if (!error) queue.apply(result.snapshot)
-          })
-        })
-      })(receipts[receiptIndex])
-    }
+    for (var receiptIndex = 0; receiptIndex < receipts.length; receiptIndex++) forgetReceipt(receipts[receiptIndex])
+  }
+  function forgetReceipt(id) {
+    Qt.callLater(function() {
+      if (!queue || queue.retired || typeof queue.request !== "function") return
+      queue.request("outbox.forget", { sendId: id }, function(result, error) {
+        if (!error) queue.apply(result.snapshot)
+      })
+    })
   }
   function park(payload, id, order, nativeFields) {
     var sendId = String(id || "")
@@ -218,10 +217,9 @@ QtObject {
       var entries = result.snapshot && Array.isArray(result.snapshot.entries) ? result.snapshot.entries : []
       for (var receiptIndex = 0; receiptIndex < ids.length; receiptIndex++) {
         for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
-          if (entries[entryIndex].id === ids[receiptIndex] && entries[entryIndex].state === "cancelled") {
-            queue.account.reportSendFailure("Queued send cancelled. Your draft has been kept.", ids[receiptIndex])
-            break
-          }
+          if (entries[entryIndex].id !== ids[receiptIndex] || entries[entryIndex].state !== "cancelled") continue
+          queue.account.reportSendFailure("Queued send cancelled. Your draft has been kept.", ids[receiptIndex])
+          break
         }
       }
     })

@@ -32,7 +32,9 @@ function conversation(parameters) {
     for (var messageIndex = 0; messageIndex < ids.length; messageIndex++) {
       if (summaries[ids[messageIndex]]) continue
       for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-        if (rows[rowIndex].id === ids[messageIndex]) { additions[ids[messageIndex]] = rows[rowIndex]; break }
+        if (rows[rowIndex].id !== ids[messageIndex]) continue
+        additions[ids[messageIndex]] = rows[rowIndex]
+        break
       }
     }
     summaries = Conversation.mergedSummaries(summaries, additions, 500, ids)

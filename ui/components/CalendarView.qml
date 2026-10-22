@@ -741,7 +741,11 @@ Item {
             onPressed: root.beginMonthGesture()
             onReleased: root.monthPointerDown = false
             onCanceled: root.monthPointerDown = false
-            onClicked: root.createAt(dayCell.modelData.startMs + 9 * 3600000)
+            onClicked: {
+              var start = new Date(dayCell.modelData.startMs)
+              start.setHours(9, 0, 0, 0)
+              root.createAt(start.getTime())
+            }
           }
 
           Rectangle {

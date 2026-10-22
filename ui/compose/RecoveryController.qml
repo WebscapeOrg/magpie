@@ -25,6 +25,11 @@ QtObject {
   // Invariant: explicit empty-draft edit history requires the fixed API 3 feature gate.
   readonly property bool recoverySupported: !!service && !!service.backend
     && service.backend.ready && service.backend.apiVersion >= 3
+  readonly property bool pendingAttachmentRecoverySupported: !!service && !!service.backend
+    && service.backend.ready && service.backend.apiVersion >= 8
+  onPendingAttachmentRecoverySupportedChanged: {
+    if (pendingAttachmentRecoverySupported) Qt.callLater(root.drainComposeRecovery)
+  }
   readonly property bool recoveryNeedsUpdate: !!service && !!service.backend
     && service.backend.ready && !recoverySupported
   readonly property string recoveryUpdateNotice: "Draft recovery needs an updated backend. Keep this window open."
@@ -193,6 +198,8 @@ QtObject {
 
   function parkedBesides(draft) {
     var drafts = []
+    if (compose.interruptedDraft && compose.interruptedDraft !== draft)
+      drafts.push(compose.interruptedDraft)
     var parked = compose.parkedDrafts || []
     for (var parkedIndex = 0; parkedIndex < parked.length; parkedIndex++) {
       if (parked[parkedIndex].draft !== draft) drafts.push(Object.assign({}, parked[parkedIndex].draft, {pendingSendId: String(parked[parkedIndex].sendId || "")}))
@@ -268,14 +275,31 @@ QtObject {
     else root.drainComposeRecovery()
   }
 
+  function needsAttachmentRecovery(record) {
+    if (!record || record.active !== true) return false
+    var drafts = [record.draft].concat(record.parked || [])
+    return drafts.some(function(draft) {
+      return draft && (draft.pendingAttachment || draft.forwardAttachmentsLoading === true
+        || String(draft.attachmentSourceMessageId || "") !== ""
+        || String(draft.forwardAttachmentError || "") !== ""
+        || String(draft.attachmentRecoveryError || "") !== ""
+        || (Array.isArray(draft.attachJobs) && draft.attachJobs.length > 0))
+    })
+  }
+
   function drainComposeRecovery() {
     if (root.composeRecoveryConflict || root.composeWriting || !root.composeWriteQueued || !root.composeRecoveryLoaded
         || !recoverySupported || root.composeStorageRevision === "") return
     var raw = root.composeWritePayload
+    var record = JSON.parse(raw)
+    if (!pendingAttachmentRecoverySupported && needsAttachmentRecovery(record)) {
+      showRecoveryNotice("Attachment recovery needs an updated backend. Keep this window open.", true)
+      return
+    }
     var mine = root.composeRecoveryRevision
     root.composeWriteQueued = false
     root.composeWriting = true
-    root.service.backend.call("compose.recoverySave", { record: JSON.parse(raw), expectedRevision: root.composeStorageRevision }, function(result, error) {
+    root.service.backend.call("compose.recoverySave", { record: record, expectedRevision: root.composeStorageRevision }, function(result, error) {
       if (!root) return
       root.composeWriting = false
       if (error || !result) {

@@ -92,13 +92,21 @@ impl Session {
         if method == "attachment.download" && !params["open"].is_boolean() {
             return Err("invalid_params");
         }
-        if method == "attachment.retain"
-            && params["draftKey"]
-                .as_str()
-                .is_none_or(|v| v.is_empty() || v.len() > 4096 || v.chars().any(char::is_control))
-        {
-            return Err("invalid_params");
-        }
+        let draft = if method == "attachment.retain" {
+            Some(
+                params["draftKey"]
+                    .as_str()
+                    .filter(|value| {
+                        !value.is_empty()
+                            && value.len() <= 4096
+                            && !value.chars().any(char::is_control)
+                    })
+                    .ok_or("invalid_params")?
+                    .to_owned(),
+            )
+        } else {
+            None
+        };
         let account = params["accountId"]
             .as_str()
             .ok_or("invalid_params")?
@@ -134,16 +142,48 @@ impl Session {
                 .map_err(|_| "worker_failed")?
             }
             "attachment.retain" => {
-                let draft = params["draftKey"]
-                    .as_str()
-                    .filter(|s| !s.is_empty() && s.len() < 4096 && !s.chars().any(char::is_control))
-                    .ok_or("invalid_params")?
-                    .to_owned();
+                let draft = draft.ok_or("invalid_params")?;
                 tokio::task::spawn_blocking(move || vault::retain(&account, &draft, &value))
                     .await
                     .map_err(|_| "worker_failed")?
             }
             _ => Err("unknown_method"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn retain_accepts_the_draft_key_boundary_and_rejects_larger_keys_before_storage() {
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let fixture = crate::mail::tests::account_fixture(
+            json!({"version":1,"accounts":[{"provider":"gmail","email":"owner@example.test"}]}),
+        );
+        let data = json!({"data":"c3ludGhldGlj"});
+        vault::cache("owner@example.test", "message", "part", &data).unwrap();
+        let session = Session::default();
+        let draft = "d".repeat(4096);
+        let mut params = json!({"accountId":"owner@example.test","messageId":"message","attachmentId":"part","filename":"example.txt","mimeType":"text/plain","draftKey":draft});
+        let retained = session
+            .attachment_request("attachment.retain", &params)
+            .await
+            .unwrap();
+        let mut fields = json!({"draftKey":draft,"attachments":[retained]});
+        vault::hydrate("owner@example.test", &mut fields).unwrap();
+        assert_eq!(fields["attachments"][0]["data"], data["data"]);
+        let before = crate::mail::tests::fixture_tree(&fixture.root);
+        params["draftKey"] = json!("d".repeat(4097));
+        assert_eq!(
+            session
+                .attachment_request("attachment.retain", &params)
+                .await,
+            Err("invalid_params")
+        );
+        assert_eq!(crate::mail::tests::fixture_tree(&fixture.root), before);
     }
 }

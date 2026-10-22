@@ -142,8 +142,9 @@ fn call_at(root: &Path, params: &Value) -> Result<Value> {
             let due = pending
                 .and_then(|record| record["due"].as_i64())
                 .unwrap_or(candidate["due"].as_i64().unwrap());
-            let on_time =
-                due <= now && now - due <= 60000 && (pending.is_some() || due > last_check);
+            let on_time = due <= now
+                && now.saturating_sub(due) <= 60000
+                && (pending.is_some() || due > last_check);
             let catch_up = due <= now && start <= now && now - start <= 600000;
             if !on_time && !catch_up {
                 continue;
@@ -210,6 +211,25 @@ mod tests {
             std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
         root
+    }
+
+    #[test]
+    fn round2_extreme_persisted_due_never_overflows_or_notifies_early() {
+        let root = fixture_root("extreme-due");
+        let candidate = json!({"key":"future", "occurrence":"future", "start":2000000,
+            "end":5600000,"due":1400000,"eventId":"event","sourceId":"calendar","accountId":"synthetic","title":"Planning"});
+        let poll =
+            json!({"operation":"poll","now":1400000,"lastCheck":1300000,"candidates":[candidate]});
+        let result = call_at(&root, &poll).unwrap();
+        let id = result["notifications"][0]["key"].as_str().unwrap();
+        let path = root.join("omamail/calendar-reminders.json");
+        let mut ledger: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        ledger[id]["pending"] = json!(true);
+        ledger[id]["due"] = json!(i64::MIN);
+        std::fs::write(&path, serde_json::to_vec(&ledger).unwrap()).unwrap();
+        let actual = std::panic::catch_unwind(|| call_at(&root, &poll));
+        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(actual.unwrap().unwrap()["notifications"], json!([]));
     }
 
     #[test]

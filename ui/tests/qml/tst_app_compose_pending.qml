@@ -269,7 +269,7 @@ Item {
       toggle.activated()
       compare(mailService.displayPreferences.layout, "Split view")
       compare(app.singlePane, false)
-      // A sufficiently wide window shows the list and reader together.
+
       app.openMessage("message-1")
       verify(!app.compact)
       compare(list.visible, true)
@@ -343,7 +343,6 @@ Item {
       compare(app.composing, true)
       compare(named(app, "key-router").context, "compose")
 
-      // A normal queued send must remove the restored overlay as well.
       named(compose, "compose-to-field").text = "synthetic@example.com"
       compose.submit()
       compare(compose.opened, false)
@@ -577,7 +576,7 @@ Item {
       verify(app.composeRecovery.active !== true);verify(!composeView().opened)
       compare(lastNativeRequest("outbox.forget"),null)
       var saved = lastNativeRequest("compose.recoverySave")
-      // Rust refuses a record without version 1, which left the stale receipt on disk.
+      // Invariant: Rust refuses a record without version 1, which left the stale receipt on disk.
       compare(saved.params.record.version, 1)
       compare(saved.params.record.active, false)
       saved.done({record:saved.params.record,revision:"r2"},null)
@@ -600,7 +599,7 @@ Item {
       verify(!saved.params.record.draft.pendingSendId)
       compare(app.composeReceiptAcks.length, 1)
       compare(lastNativeRequest("outbox.forget"), null)
-      // Even another ack drain cannot release the only durable payload early.
+
       app.acknowledgeComposeReceipts()
       compare(lastNativeRequest("outbox.forget"), null)
       saved.done({record:saved.params.record,revision:"r2"},null)
@@ -736,7 +735,7 @@ Item {
       lastNativeRequest("outbox.snapshot").done({accountId:"me@example.com",entries:[{id:"receipt-one",state:"unknown"}]},null)
       tryVerify(function(){return lastNativeRequest("compose.recoverySave") !== null})
       var refused = lastNativeRequest("compose.recoverySave")
-      // The window is shut, so the failure covers nothing at all.
+
       compare(app.draftSavedNotice,"")
       refused.done(null,{message:"recovery_unavailable"})
       verify(app.draftSavedNotice.indexOf("could not be saved") >= 0)
@@ -796,7 +795,7 @@ Item {
       beginNativeRecovery()
       app.saveComposeRecovery({body:"Keep local draft",accountId:"one@example.org"})
       compare(recoveryBackend.requests.length,2)
-      // The host, not the backend: this write may have landed and lost only its
+      // Invariant: The host, not the backend: this write may have landed and lost only its
       // answer, so sending it again on the same revision would collide with it.
       recoveryBackend.requests[1].done(null,{code:-32010,message:"Backend unavailable"})
       verify(app.composeWriteQueued)
@@ -1560,8 +1559,6 @@ Item {
         "once the newer draft is durable, recovery follows the older failed draft")
     }
 
-    // A click on a draft previews it, as a click does in every mailbox; the
-    // keys are what edit it.
     function test_a_click_previews_a_draft() {
       mailService.mailboxKey = "drafts"
       app.openMessage("draft-7")
@@ -1592,9 +1589,6 @@ Item {
       mailService.mailboxKey = "inbox"
     }
 
-    // In Drafts, opening a draft is editing it: `o` selects the draft and,
-    // once its body has loaded, the composer opens on it with what was
-    // written — no second key. `c` still does the same.
     function test_open_edits_a_draft_once_its_body_has_loaded() {
       failOnWarning(/attachmentIsSaving/)
       var compose = composeView()
@@ -1659,9 +1653,6 @@ Item {
       compare(mailService.lastSavedDraft.subject, "Updated subject")
     }
 
-    // A send that failed leaves the message in the parked draft and nowhere
-    // else — not in Drafts, not in Sent, not in an outbox. The composer coming
-    // back holding it is the only thing between a timeout and a lost message.
     function test_a_failed_send_puts_the_message_back_in_the_composer() {
       var compose = composeView()
       verify(compose)
@@ -1685,9 +1676,6 @@ Item {
       compare(app.composeRecovery.draft.body, "Keep every word")
     }
 
-    // The collision undo already has: a draft started during the undo window
-    // is in the composer when the parked one comes back, and saving it is what
-    // keeps the parked one from overwriting it.
     function test_a_failed_send_saves_a_draft_started_over_it() {
       var compose = composeView()
       app.startCompose("new")

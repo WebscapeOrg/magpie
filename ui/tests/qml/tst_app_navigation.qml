@@ -5,10 +5,6 @@ import QtTest 1.3
 import qs.Commons
 import "../.." as Omamail
 
-// Where the window is, is a history. Every page is an entry on it, every Back
-// — the bar on a page, Escape, a draft closing — pops one, and the root is
-// what the window closes on. These are the rules `App.qml` applies on top of
-// `account/Navigation.js`, run against the real views with a fake service.
 Item {
   width: 1700
   height: 1300
@@ -170,7 +166,7 @@ Item {
       detailPainted = false
       detailLoading = true
     }
-    // What the fetch would deliver, delivered by the test when it wants it.
+
     function land() {
       detailLoading = false
       detailPainted = true
@@ -230,7 +226,6 @@ Item {
       return null
     }
 
-    // The first descendant the predicate accepts, wherever it sits.
     function having(item, accept) {
       if (!item) return null
       if (accept(item)) return item
@@ -251,7 +246,7 @@ Item {
     function kinds() { return app.navKinds.join(",") }
 
     function init() {
-      // A test that failed part way through its scales must not leave the next
+      // Invariant: A test that failed part way through its scales must not leave the next
       // one measuring at somebody else's.
       Style.spacingScale = 1
       mailService.displayPreferences = Display.normalize({layout: "Split view"})
@@ -272,7 +267,7 @@ Item {
       fakeShell.hidden = []
       app.opened = true
       app.cursorId = ""
-      // The root a reset rebuilds is the one the window is on, so a test that
+      // Invariant: The root a reset rebuilds is the one the window is on, so a test that
       // ended on the calendar has to leave it first.
       app.backToList()
       app.resetNavigation()
@@ -332,7 +327,7 @@ Item {
       compare(kinds(), "list,settings,picker")
       waitForRendering(app)
       verify(typeof page().chosen === "function", "the chooser is on the page")
-      // `visible` reads effective visibility: a chooser that exists inside a
+      // Invariant: `visible` reads effective visibility: a chooser that exists inside a
       // hidden page is a blank window, which is what Add a mailbox once was.
       verify(page().visible, "and is drawn")
 
@@ -356,9 +351,6 @@ Item {
       compare(mailService.count("discard"), 1, "and only that once")
     }
 
-    // Settings opens over Drafts, whether a draft is being previewed or the
-    // list is showing, and stays open: nothing in the draft path resets the
-    // stack under it.
     function test_settings_opens_over_the_drafts_folder() {
       mailService.mailboxKey = "drafts"
       app.cursorId = "draft-7"
@@ -379,7 +371,7 @@ Item {
       mailService.mailboxKey = "inbox"
     }
 
-    // The menu's Settings row goes where the key goes. The row is activated
+    // Invariant: The menu's Settings row goes where the key goes. The row is activated
     // rather than clicked: the runner delivers no press into a popup's
     // overlay, so a click here would prove nothing either way.
     function test_the_menu_settings_row_opens_settings() {
@@ -435,8 +427,7 @@ Item {
       app.cursorId = "message-1"
       app.composeFromCursor("reply")
       compare(kinds(), "list,reader", "the message opens first, on the reply's behalf")
-      // The draft waits for the fetch; the entry it makes must still remember
-      // that the user was on the list.
+
       mailService.land()
       tryCompare(app, "composing", true)
       compare(kinds(), "list,reader,compose")
@@ -451,7 +442,7 @@ Item {
     function test_a_reply_raised_from_the_list_waits_for_the_body() {
       app.cursorId = "message-1"
       app.composeFromCursor("reply")
-      // What selecting a listed row does: the summary at once, the body later.
+
       mailService.selectedMessage = ({
         id: "message-1", subject: "One",
         from: ({ email: "sender@example.com", display: "Sender" }), to: [], cc: []
@@ -663,7 +654,7 @@ Item {
       compare(kinds(), "list,reader", "reading the next message does not lengthen history")
     }
 
-    // A click in the search field, then a row: the field kept the focus — a
+    // Invariant: A click in the search field, then a row: the field kept the focus — a
     // MouseArea moves none — so the context stayed "search" with a message
     // open, and `e` typed itself into the query instead of archiving.
     function test_opening_a_message_takes_the_keyboard_back_from_search() {
@@ -707,8 +698,6 @@ Item {
       verify(page(), "the provider chooser is loaded")
       verify(!named(app, "page-back").visible, "and there is nothing to go back to")
 
-      // A row saved with a valid server but never signed in — the Gmail
-      // address on the IMAP form — opens on its form, with the chooser under.
       mailService.hasSavedAccounts = true
       fakeAuth.credentialsPresent = true
       waitForRendering(app)
@@ -721,7 +710,6 @@ Item {
       compare(kinds(), "picker")
       compare(mailService.count("discard"), 0, "a saved row is not a draft")
 
-      // Backed out, the user is left alone even as the service learns more.
       mailService.providerId = "gmail"
       waitForRendering(app)
       compare(kinds(), "picker", "a root the user moved off is not rebuilt under them")
@@ -731,7 +719,7 @@ Item {
       compare(kinds(), "list", "a mailbox becoming usable starts over on it")
     }
 
-    // "Manage accounts..." on the switcher is an entry into Settings, from
+    // Invariant: "Manage accounts..." on the switcher is an entry into Settings, from
     // whichever root the switcher was opened over, and the page is entered at
     // its top. The page keeps its scroll while it is in history — Back from a
     // mailbox's form returns to the Mailboxes row it left — but a page that
@@ -754,7 +742,6 @@ Item {
       app.back()
       compare(kinds(), "list")
 
-      // The switcher opens over the calendar root as readily as over the list.
       app.showCalendar()
       compare(kinds(), "calendar")
       var switcher = having(app, function(item) {
@@ -775,7 +762,6 @@ Item {
       compare(view.contentY, 0, "at the top of the page, not where the last visit ended")
       compare(named(app, "settings-sidebar").activeKey, page.sections[0].key)
 
-      // Back from a page pushed over Settings returns to where Settings was.
       view.contentY = calendars
       app.editAccount(0)
       compare(kinds(), "calendar,settings,setup")

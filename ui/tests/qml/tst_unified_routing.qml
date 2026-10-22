@@ -4,7 +4,7 @@ import "../.." as Omamail
 import "../../account/Unified.js" as Unified
 import "ModelFixture.js" as NativeModel
 
-// The service routing a merged list, against a real `Service` with real
+// Invariant: The service routing a merged list, against a real `Service` with real
 // account hosts.
 //
 // This is the gap the review named: `select`, `hostForId`, `sourceIdFor` on
@@ -66,8 +66,6 @@ Item {
     function ada() { return service.findAccount(adaId) }
     function bob() { return service.findAccount(bobId) }
 
-    // A summary shaped the way a provider hands one over, so `mergeMessages`
-    // has real fields to copy and sort.
     function row(id, date, subject) {
       return { id: id, subject: subject, unread: true, starred: false,
         inInbox: true, inTrash: false, isDraft: false, labelIds: ["INBOX"],
@@ -83,8 +81,6 @@ Item {
       wait(20)
     }
 
-    // ------------------------------------------------------------ the merge
-
     function test_two_mailboxes_become_one_list() {
       compare(service.unified, true)
       compare(service.messages.length, 3)
@@ -92,7 +88,7 @@ Item {
         ["ada newest", "bob middle", "ada oldest"])
     }
 
-    // Two mailboxes numbering their own messages from 1 is the collision the
+    // Invariant: Two mailboxes numbering their own messages from 1 is the collision the
     // composed id exists for.
     function test_each_row_is_addressed_by_its_own_mailbox() {
       var ids = service.messages.map(function(message) { return message.id })
@@ -113,8 +109,6 @@ Item {
         "a merged view of one mailbox is the mailbox")
     }
 
-    // ---------------------------------------------------------- the routing
-
     function test_an_id_names_the_mailbox_that_owns_it() {
       compare(service.hostForId(Unified.unifiedId(adaId, "1")), ada())
       compare(service.hostForId(Unified.unifiedId(bobId, "1")), bob())
@@ -122,7 +116,7 @@ Item {
         "42:Sent Items", "a folder with a space in it survives the trip")
     }
 
-    // An id for a mailbox that is not here reaches none rather than the wrong
+    // Invariant: An id for a mailbox that is not here reaches none rather than the wrong
     // one — which a bare id, read as composed, could have done.
     function test_an_id_for_a_mailbox_that_is_not_here_reaches_nothing() {
       compare(service.hostForId(Unified.unifiedId("gone@example.com", "1")), null)
@@ -131,7 +125,7 @@ Item {
       compare(service.act("42:Sent Items", "archive"), false)
     }
 
-    // Selecting routes to the owning mailbox, and clears the others: a second
+    // Invariant: Selecting routes to the owning mailbox, and clears the others: a second
     // mailbox still holding a selection goes on answering for the reader.
     function test_selecting_clears_every_other_mailbox() {
       service.select(Unified.unifiedId(bobId, "1"))
@@ -187,7 +181,6 @@ Item {
       compare(bob().mailboxKey, mailboxB)
     }
 
-    // A reply is written from the mailbox the message arrived in.
     function test_compose_belongs_to_the_mailbox_the_message_arrived_in() {
       service.select(Unified.unifiedId(bobId, "1"))
       compare(service.composeAccountId, bobId,
@@ -204,8 +197,6 @@ Item {
       compare(ada().selectedId, "")
       compare(service.selectedId, "")
     }
-
-    // ------------------------------------------------------- the properties
 
     function test_the_rail_is_what_every_mailbox_has() {
       var keys = service.mailboxes.map(function(mailbox) { return mailbox.key })
@@ -228,8 +219,6 @@ Item {
       compare(service.inboxUnread, 7)
     }
 
-    // The rail row is chosen even with the calendar up, or every mailbox stays
-    // on whatever it was showing while the rail claims one.
     function test_a_rail_row_reaches_every_mailbox() {
       service.selectMailbox("sent")
       compare(service.mailboxKey, "sent")
@@ -237,9 +226,7 @@ Item {
       compare(bob().mailboxKey, "sent")
     }
 
-    // ------------------------------------------------------- attachments
-
-    // Saving reached whichever mailbox was active, so the file that came down
+    // Invariant: Saving reached whichever mailbox was active, so the file that came down
     // was A's part id under B's filename — and on an IMAP pair, where a part
     // id is a number in a tree rather than anything unique, the two collide
     // routinely. Neither host can actually fetch here, so what is asserted is
@@ -257,7 +244,7 @@ Item {
       compare(ada().lastError, "", "and A was not asked at all")
     }
 
-    // The spinner is keyed by mailbox and attachment, and the reader holds
+    // Invariant: The spinner is keyed by mailbox and attachment, and the reader holds
     // only an attachment id — so composing the key is the service's job. It
     // was looked up bare, found nothing, and the row never went busy.
     function test_the_saving_row_is_the_owning_mailboxs_row() {
@@ -273,9 +260,7 @@ Item {
       compare(service.attachmentIsSaving(Unified.unifiedId(bobId, "1"), "2"), false)
     }
 
-    // ------------------------------------------- every mailbox is live
-
-    // `active` is what earns a mailbox a list: `refresh` will not reload one
+    // Invariant: `active` is what earns a mailbox a list: `refresh` will not reload one
     // without it, and neither will the poll. Leaving it on the visible account
     // meant a merged list refreshed one mailbox's rows and left the others as
     // they were — the counts moved and the mail did not.
@@ -287,7 +272,6 @@ Item {
         "and the same answer about the window, which refresh also asks")
     }
 
-    // Turning it off puts the list back on the one mailbox being shown.
     function test_leaving_the_merged_view_stands_the_others_down() {
       service.applySettings({ unifiedMailboxes: false })
       wait(30)
@@ -296,16 +280,12 @@ Item {
       compare(bob().active, false, "and B is no longer being drawn")
     }
 
-    // ------------------------------------------------- the sending identity
-
-    // Two mailboxes can share a send-as alias, and the address alone then
+    // Invariant: Two mailboxes can share a send-as alias, and the address alone then
     // names both. Whichever host answered first got the message.
     function test_a_draft_is_sent_from_the_mailbox_it_names() {
       compare(service.sendHostFor({ accountId: bobId, from: "shared@example.com" }),
         bob(), "the mailbox the composer named, not the one the address matched")
 
-      // The collision itself: one address, both mailboxes claiming it. Named
-      // still decides, and the first match no longer does.
       ada().profile = { email: "shared@example.com" }
       bob().profile = { email: "shared@example.com" }
       compare(service.sendHostFor({ from: "shared@example.com" }), ada(),
@@ -315,17 +295,16 @@ Item {
       ada().profile = null
       bob().profile = null
 
-      // With neither, the mailbox on screen.
       compare(service.sendHostFor({}), service.current)
     }
 
-    // A draft raised from a merged list names its mailbox in its own id, so a
+    // Invariant: A draft raised from a merged list names its mailbox in its own id, so a
     // submission that carries only that still reaches the right one.
     function test_a_draft_id_alone_names_the_sending_mailbox() {
       compare(service.sendHostFor({ draftId: Unified.unifiedId(bobId, "d1") }), bob())
     }
 
-    // A named mailbox that is not here is a refusal rather than permission to
+    // Invariant: A named mailbox that is not here is a refusal rather than permission to
     // fall back to matching the address.
     function test_a_draft_naming_a_mailbox_that_is_gone_is_not_sent() {
       ada().lastError = ""
@@ -338,9 +317,7 @@ Item {
       compare(bob().lastError, "")
     }
 
-    // ------------------------------------------------------- the draft id
-
-    // A draft opened from a merged list carries a composed id, and a provider
+    // Invariant: A draft opened from a merged list carries a composed id, and a provider
     // handed one answers that the draft is gone and writes nothing.
     function test_a_draft_is_saved_under_the_id_its_provider_issued() {
       compare(service.draftOwner({ draftId: Unified.unifiedId(bobId, "d1") }), bobId,
@@ -348,13 +325,12 @@ Item {
       compare(service.withSourceDraftId(
         { draftId: Unified.unifiedId(bobId, "d1") }).draftId, "d1")
 
-      // Named account wins, and a bare id is left exactly as it is.
       compare(service.draftOwner({ accountId: adaId, draftId: Unified.unifiedId(bobId, "d1") }),
         adaId)
       compare(service.withSourceDraftId({ draftId: "d1" }).draftId, "d1")
     }
 
-    // Not gated on the merged view still being on: the composer can be opened
+    // Invariant: Not gated on the merged view still being on: the composer can be opened
     // from one and saved after the reader has left it.
     function test_a_composed_draft_id_is_decoded_after_the_view_changes() {
       service.applySettings({ unifiedMailboxes: false })
@@ -365,9 +341,7 @@ Item {
       compare(service.draftOwner({ draftId: Unified.unifiedId(bobId, "d1") }), bobId)
     }
 
-    // ----------------------------------------------- what a merge may do
-
-    // What the intersection is taken over: one row per mailbox, each row that
+    // Invariant: What the intersection is taken over: one row per mailbox, each row that
     // mailbox's own answer.
     //
     // A host narrows its provider by the refusals its server reported and the
@@ -399,9 +373,7 @@ Item {
         "and the offered verb is that intersection, nothing else")
     }
 
-    // ------------------------------------------------ conversation members
-
-    // The rail steps from one member to the next and hands the id back to
+    // Invariant: The rail steps from one member to the next and hands the id back to
     // `select` and `act`. A raw member id reached no mailbox, so a merged
     // conversation could be drawn and not walked.
     function test_a_conversation_member_is_addressed_like_every_other_row() {
@@ -423,16 +395,13 @@ Item {
       compare(service.memberSummaries[key].id, key,
         "and a stop carries that id onward to an open")
 
-      // Which is what makes the next stop reachable.
       compare(service.hostForId(service.selectedThread.memberIds[1]), bob())
 
       bob().selectedThread = null
       bob().memberSummaries = ({})
     }
 
-    // ------------------------------------------------- the projected rail
-
-    // The rail is drawn from `conversationProjection`, and while a new
+    // Invariant: The rail is drawn from `conversationProjection`, and while a new
     // projection is in flight the one in hand stays up when it is about the
     // same rail — `Model.projectionKey` decides what "the same" means. A
     // thread's id is left as its provider gave it, so two accounts can each
@@ -445,7 +414,7 @@ Item {
     // in it. Both mailboxes speak JMAP, whose rows are conversations.
     function test_a_thread_with_the_same_id_in_another_account_is_another_rail() {
       failOnWarning(/Connections: Detected function/)
-      // A mailbox that is not Gmail carries its provider in its id.
+
       var adaJmap = "jmap:" + adaId
       var bobJmap = "jmap:" + bobId
       service.applyAccounts(JSON.stringify({
@@ -490,7 +459,7 @@ Item {
         compare(Unified.accountOf(service.conversationProjection.stops[0].id), bobJmap,
           "and what lands is Bob's")
       } finally {
-        // The next test seeds other hosts; nothing here may point at these.
+        // Invariant: The next test seeds other hosts; nothing here may point at these.
         service.clearSelection()
       }
     }

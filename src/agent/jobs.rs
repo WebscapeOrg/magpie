@@ -329,6 +329,72 @@ pub fn read_job(store: &Store, id: &str) -> Result<Value> {
     }
     Ok(v)
 }
+fn context_kind(context: &Value) -> &'static str {
+    if context["draft"].is_object() {
+        "draft"
+    } else if super::events::is_look(context) {
+        "events"
+    } else {
+        "message"
+    }
+}
+fn context_message_ids(context: &Value) -> Value {
+    if let Some(messages) = context["messages"].as_array() {
+        json!(
+            messages
+                .iter()
+                .map(|message| message["messageId"].clone())
+                .collect::<Vec<_>>()
+        )
+    } else if !context["messageId"].as_str().unwrap_or("").is_empty() {
+        json!([context["messageId"]])
+    } else {
+        json!([])
+    }
+}
+pub(super) fn same_conversation(job: &Value, other: &Value) -> Result<()> {
+    let conversation = |record: &Value| {
+        record
+            .get("conversationId")
+            .unwrap_or(&record["id"])
+            .clone()
+    };
+    if job["accountId"] != other["accountId"] || conversation(job) != conversation(other) {
+        return Err("agent_context_owner_mismatch");
+    }
+    Ok(())
+}
+pub(super) fn read_context(store: &Store, job: &Value) -> Result<Value> {
+    let context = store
+        .read_json(
+            job["id"].as_str().ok_or("agent_invalid_id")?,
+            "context.json",
+            INPUT_LIMIT,
+        )?
+        .ok_or("agent_context_missing")?;
+    let mut checked = context.clone();
+    checked
+        .as_object_mut()
+        .ok_or("agent_invalid_context")?
+        .remove("parent");
+    validate_payload(&checked)?;
+    if ["accountId", "messageId", "draftKey"]
+        .iter()
+        .any(|key| context[*key].as_str().unwrap_or("") != job[*key].as_str().unwrap_or(""))
+        || context_kind(&context) != job["kind"].as_str().unwrap_or("")
+        || context_message_ids(&context) != job["messageIds"]
+    {
+        return Err("agent_context_owner_mismatch");
+    }
+    if let Some(parent) = context.get("parent") {
+        let parent = text(parent)?;
+        check_id(parent)?;
+        if store.contains(parent)? {
+            same_conversation(job, &read_job(store, parent)?)?;
+        }
+    }
+    Ok(context)
+}
 pub fn saved_display(store: &Store, id: &str) -> Result<Value> {
     let v = store
         .read_json(id, "display.json", 512 * 1024)?
@@ -610,15 +676,11 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
             bootstrap.extend(display["transcript"].as_array().unwrap().iter().cloned());
             super::stream::transcript_check(&bootstrap)?;
         }
-        let mut previous = store
-            .read_json(&parent, "context.json", INPUT_LIMIT)?
-            .ok_or("agent_context_missing")?;
-        // Persisted continuation contexts inherit mail fields; validate the original projection independently.
+        let mut previous = read_context(&store, &job)?;
         previous
             .as_object_mut()
             .ok_or("agent_invalid_context")?
             .remove("parent");
-        validate_payload(&previous)?;
         if let Some(update) = context.get("mailUpdate") {
             if previous["accountId"] != update["accountId"]
                 || previous["messageId"] != update["messageId"]
@@ -707,13 +769,7 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
         .chars()
         .take(120)
         .collect::<String>();
-    let kind = if context["draft"].is_object() {
-        "draft"
-    } else if super::events::is_look(&context) {
-        "events"
-    } else {
-        "message"
-    };
+    let kind = context_kind(&context);
     let order = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -749,13 +805,7 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
     ] {
         job[k] = context.get(k).cloned().unwrap_or(json!(""));
     }
-    job["messageIds"] = if let Some(a) = context["messages"].as_array() {
-        json!(a.iter().map(|m| m["messageId"].clone()).collect::<Vec<_>>())
-    } else if !context["messageId"].as_str().unwrap_or("").is_empty() {
-        json!([context["messageId"]])
-    } else {
-        json!([])
-    };
+    job["messageIds"] = context_message_ids(&context);
     store.write_json(&id, "context.json", &context)?;
     store.write_json(&id, "display.json", &parser.display())?;
     if !bootstrap.is_empty() {
@@ -1214,6 +1264,49 @@ pub fn projection(params: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn round2_saved_context_cannot_change_job_ownership() {
+        let path = std::env::temp_dir().join(format!(
+            "omamail-context-binding-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let store = Store::open_at(&path).unwrap();
+        let id = "a".repeat(32);
+        store.create(&id).unwrap();
+        let job = json!({"id":id,"accountId":"owner","messageId":"m","messageIds":["m"],"draftKey":"","kind":"message"});
+        let valid =
+            json!({"accountId":"owner","messageId":"m","prompt":"Summarize","message":"Allowed"});
+        store.write_json(&id, "context.json", &valid).unwrap();
+        assert_eq!(read_context(&store, &job).unwrap(), valid);
+        let mut outcomes = Vec::new();
+        for (key, value) in [
+            ("accountId", json!("foreign")),
+            ("messageId", json!("foreign")),
+            ("draftKey", json!("foreign")),
+            (
+                "messages",
+                json!([{"messageId":"foreign","message":"FORBIDDEN"}]),
+            ),
+            ("events", json!(true)),
+            ("draft", json!({"body":"FORBIDDEN"})),
+        ] {
+            let mut context = valid.clone();
+            context[key] = value;
+            store.write_json(&id, "context.json", &context).unwrap();
+            outcomes.push((key, read_context(&store, &job)));
+        }
+        drop(store);
+        std::fs::remove_dir_all(path).unwrap();
+        for (key, outcome) in outcomes {
+            assert_eq!(outcome.err(), Some("agent_context_owner_mismatch"), "{key}");
+        }
+    }
 
     #[test]
     fn history_poll_reads_only_heads_and_invalidates_after_creation_or_removal() {

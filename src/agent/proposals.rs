@@ -71,6 +71,7 @@ pub fn turn(store: &super::storage::Store, id: &str) -> Result<Value, &'static s
 }
 
 fn collect(store: &super::storage::Store, id: &str, history: bool) -> Result<Value, &'static str> {
+    let owner = super::jobs::read_job(store, id)?;
     let mut current = id.to_owned();
     let mut visited = Vec::new();
     let mut result = Vec::new();
@@ -81,6 +82,7 @@ fn collect(store: &super::storage::Store, id: &str, history: bool) -> Result<Val
     {
         visited.push(current.clone());
         let job = super::jobs::read_job(store, &current)?;
+        super::jobs::same_conversation(&owner, &job)?;
         let context = store
             .read_json(&current, "context.json", super::jobs::INPUT_LIMIT)?
             .ok_or("agent_context_missing")?;
@@ -106,7 +108,7 @@ fn collect(store: &super::storage::Store, id: &str, history: bool) -> Result<Val
             let mut item = proposal.clone();
             item["applicable"] = json!(job["resultReady"] == true);
             if let Some(saved) = context.get("envelope") {
-                envelope(saved, &job["accountId"], &context["draftKey"])?;
+                envelope(saved, &job["accountId"], &job["draftKey"])?;
                 item["envelope"] = saved.clone();
             }
             // The projection includes app-owned attachments, so account for the
@@ -157,6 +159,60 @@ pub fn validate(arguments: &Value) -> Result<Value, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn round2_proposal_history_cannot_cross_account_or_conversation() {
+        let path = std::env::temp_dir().join(format!(
+            "omamail-proposal-binding-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let store = super::super::storage::Store::open_at(&path).unwrap();
+        let current = "a".repeat(32);
+        let parent = "b".repeat(32);
+        for id in [&current, &parent] {
+            store.create(id).unwrap();
+            store.write_json(id,"context.json",&json!({"prompt":"Read","parent":if id==&current{json!(parent)}else{Value::Null}})).unwrap();
+            store.write_json(id,"proposals.json",&json!([{"id":format!("{id}-0"),"jobId":id,"accountId":"owner","draftKey":"","messageId":"m","subject":"Draft","body":if id==&parent{"FORBIDDEN_PARENT"}else{"Allowed"}}])).unwrap();
+        }
+        let job = |id: &str| json!({"id":id,"conversationId":current,"accountId":"owner","subject":"Mail","messageId":"m","messageIds":["m"],"draftKey":"","draftFingerprint":"","kind":"message","state":"done","created":1,"updated":1,"resultReady":true});
+        store
+            .write_json(&current, "job.json", &job(&current))
+            .unwrap();
+        let mut outcomes = Vec::new();
+        for (key, value) in [
+            ("accountId", "foreign".to_string()),
+            ("conversationId", "c".repeat(32)),
+        ] {
+            let mut foreign = job(&parent);
+            foreign[key] = json!(value);
+            store.write_json(&parent, "job.json", &foreign).unwrap();
+            let mut proposal = store
+                .read_json(&parent, "proposals.json", MAX_BYTES)
+                .unwrap()
+                .unwrap();
+            proposal[0]["accountId"] = foreign["accountId"].clone();
+            store
+                .write_json(&parent, "proposals.json", &proposal)
+                .unwrap();
+            outcomes.push((key, history(&store, &current)));
+        }
+        drop(store);
+        std::fs::remove_dir_all(path).unwrap();
+        for (key, outcome) in outcomes {
+            assert!(
+                !outcome
+                    .as_ref()
+                    .is_ok_and(|output| output.to_string().contains("FORBIDDEN_PARENT")),
+                "{key} exposed foreign content"
+            );
+            assert_eq!(outcome.err(), Some("agent_context_owner_mismatch"), "{key}");
+        }
+    }
 
     #[test]
     fn content_cannot_select_recipients_or_forge_headers() {

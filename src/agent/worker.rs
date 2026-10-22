@@ -47,12 +47,7 @@ pub async fn run(id: &str) -> Result<(), &'static str> {
         let display = super::jobs::saved_display(&store, id)?;
         let history = display["transcript"].as_array().ok_or(INVALID)?.clone();
         let parser = ProviderStream::new(Provider::of_job(&job)?, history.clone())?;
-        let context = store
-            .read_json(id, "context.json", INPUT_LIMIT)?
-            .ok_or(INVALID)?;
-        let mut checked = context.clone();
-        checked.as_object_mut().ok_or(INVALID)?.remove("parent");
-        super::jobs::validate_payload(&checked)?;
+        let context = super::jobs::read_context(&store, &job)?;
         let prompt = if super::events::is_look(&context) {
             super::events::prompt(&context)
         } else {
@@ -64,7 +59,9 @@ pub async fn run(id: &str) -> Result<(), &'static str> {
                     if store.contains(parent)?
                         && super::jobs::read_job(&store, parent)?["state"] == "done" =>
                 {
-                    store.read_json(parent, "context.json", INPUT_LIMIT)?
+                    let previous_job = super::jobs::read_job(&store, parent)?;
+                    super::jobs::same_conversation(&job, &previous_job)?;
+                    Some(super::jobs::read_context(&store, &previous_job)?)
                 }
                 _ => None,
             };

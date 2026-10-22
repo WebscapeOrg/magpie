@@ -71,6 +71,34 @@ Item {
 
     property var originalSummaries: JSON.parse(JSON.stringify(mailService.accountSummaries))
 
+    function test_caldav_text_cannot_inject_event_properties_data() {
+      return [{ tag: "create", update: false }, { tag: "update", update: true }]
+    }
+
+    function test_caldav_text_cannot_inject_event_properties(data) {
+      var fields = {
+        title: "Plan\rATTENDEE:mailto:uninvited@example.test",
+        location: "Room 1\r\nBEGIN:VEVENT",
+        description: "Notes\nEND:VEVENT\rORGANIZER:mailto:other@example.test",
+        startMs: Date.UTC(2026, 9, 22, 10), endMs: Date.UTC(2026, 9, 22, 11)
+      }
+      var event = { uid: "original", href: "/team/original.ics", sourceId: "caldav:team" }
+      var accepted = data.update
+        ? controller.updateEvent("caldav:team", event, fields)
+        : controller.createEvent("caldav:team", fields)
+      verify(accepted)
+      compare(mailService.requests.length, 1)
+      var body = mailService.requests[0].params.body
+      var lines = body.replace(/\r\n?/g, "\n").split("\n")
+      compare(lines.filter(function(line) { return /^ATTENDEE[:;]/.test(line) }).length, 0)
+      compare(lines.filter(function(line) { return /^ORGANIZER[:;]/.test(line) }).length, 0)
+      compare(lines.filter(function(line) { return line === "BEGIN:VEVENT" }).length, 1)
+      compare(lines.filter(function(line) { return line === "END:VEVENT" }).length, 1)
+      verify(body.indexOf("SUMMARY:Plan\\nATTENDEE:mailto:uninvited@example.test") >= 0)
+      verify(body.indexOf("LOCATION:Room 1\\nBEGIN:VEVENT") >= 0)
+      verify(body.indexOf("DESCRIPTION:Notes\\nEND:VEVENT\\nORGANIZER:mailto:other@example.test") >= 0)
+    }
+
     function test_settings_can_target_another_accounts_calendar() {
       controller.accountId = "one@gmail.com"
       verify(controller.findSource("google:two@gmail.com") === null,

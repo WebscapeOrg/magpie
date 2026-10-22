@@ -475,7 +475,7 @@ function nativeRequestError(kind) {
 }
 
 function icsText(value) {
-  return String(value || "").replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n")
+  return String(value || "").replace(/\\/g, "\\\\").replace(/\r\n?|\n/g, "\\n")
     .replace(/,/g, "\\,").replace(/;/g, "\\;")
 }
 

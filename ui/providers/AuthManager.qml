@@ -116,11 +116,21 @@ Item {
 
   function finishWaiters(token, error) {
     var pending = tokenWaiters.slice()
+    var boundAccount = accountId
+    var boundClient = clientId
+    var serial = tokenRequestSerial
+    function currentSession() {
+      return boundAccount === root.accountId && boundClient === root.clientId
+        && serial === root.tokenRequestSerial
+    }
     tokenWaiters = []
     for (var waiterIndex = 0; waiterIndex < pending.length; waiterIndex++) {
-      try { pending[waiterIndex](token || "", safeError(error)) }
+      var current = currentSession()
+      try { pending[waiterIndex](current ? token || "" : "",
+        current ? safeError(error) : "The sign-in session changed") }
       catch (error) { /* consumers own their callback errors */ }
     }
+    return currentSession()
   }
 
   // The only entry point the API transport uses. A refresh already in flight
@@ -477,8 +487,7 @@ Item {
 
       root.acceptToken(result)
       root.sessionChecked = true
-      root.finishWaiters(root.accessToken, "")
-      root.loginSucceeded()
+      if (root.finishWaiters(root.accessToken, "") && root.loggedIn) root.loginSucceeded()
   }
 
   function failLogin(reason, listenerAlreadyAnswered) {

@@ -22,7 +22,8 @@ function element(attributes = {}) {
 }
 
 function page(clipboard) {
-    const copy = element({ "data-copy": "synthetic install command", "data-en": "Copy" });
+    const copy = element({ "data-copy": "synthetic install command", "data-en": "Copy", "data-zh": "复制" });
+    const chinese = element({ "data-lang": "zh" });
     const command = element();
     const theme = element();
     const selection = { node: null, removeAllRanges() { this.node = null; },
@@ -31,7 +32,10 @@ function page(clipboard) {
     const cancelledTimers = new Set();
     const document = {
         documentElement: element(),
-        querySelectorAll(selector) { return selector === "[data-zh]" ? [copy] : []; },
+        querySelectorAll(selector) {
+            if (selector === "[data-zh]") return [copy];
+            return selector === ".lang button" ? [chinese] : [];
+        },
         querySelector(selector) {
             return { ".copy": copy, ".theme-toggle": theme, ".command .cmd": command }[selector];
         },
@@ -48,7 +52,7 @@ function page(clipboard) {
         },
         clearTimeout(id) { cancelledTimers.add(id); }
     });
-    return { copy, command, selection, timers };
+    return { copy, command, selection, timers, chinese };
 }
 
 test("clipboard absence selects the installation command for keyboard copying", () => {
@@ -103,4 +107,35 @@ test("a previous copy reset cannot overwrite the next pending operation", async 
     completions[1]();
     await second;
     assert.equal(view.copy.textContent, "Copied");
+});
+
+test("language changes preserve a pending clipboard operation", async () => {
+    let finish;
+    const view = page({ writeText() { return new Promise(resolve => { finish = resolve; }); } });
+    const pending = view.copy.listeners.click();
+    view.chinese.listeners.click();
+    assert.equal(view.copy.textContent, "正在复制…");
+    assert.equal(view.copy.disabled, true);
+    finish();
+    await pending;
+    assert.equal(view.copy.textContent, "已复制");
+});
+
+test("language changes preserve confirmed clipboard completion", async () => {
+    const view = page({ writeText() { return Promise.resolve(); } });
+    await view.copy.listeners.click();
+    view.chinese.listeners.click();
+    assert.equal(view.copy.textContent, "已复制");
+    assert.equal(view.copy.attributes["data-state"], "done");
+    view.timers[0]();
+    assert.equal(view.copy.textContent, "复制");
+});
+
+test("language changes preserve manual clipboard recovery", () => {
+    const view = page(undefined);
+    view.copy.listeners.click();
+    view.chinese.listeners.click();
+    assert.equal(view.copy.textContent, "按 Ctrl+C");
+    assert.equal(view.selection.node, view.command);
+    assert.equal(view.copy.disabled, false);
 });

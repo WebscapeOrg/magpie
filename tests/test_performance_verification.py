@@ -38,6 +38,20 @@ class VerificationTests(unittest.TestCase):
             self.assertEqual(result["exitCode"], 7)
             self.assertIn("failure evidence", log.read_text())
 
+    def test_low_space_capability_does_not_depend_on_pdf_tools(self):
+        requirements = {name: needs for name, _, needs in verification.stages("ci", Path("/tmp/report"), "HEAD")}
+        self.assertNotIn("pdf-sandbox", requirements["low-space"])
+        self.assertIn("low-space-sandbox", requirements["low-space"])
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(verification, "thumbnail_sandbox", side_effect=RuntimeError("no PDF renderer")), \
+                patch.object(verification.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            capabilities = verification.capabilities(Path(temporary))
+        self.assertEqual(capabilities["pdf-sandbox"]["status"], "blocked")
+        self.assertEqual(capabilities["low-space-sandbox"]["status"], "pass")
+        self.assertTrue(any("--size" in call.args[0] and "67108864" in call.args[0]
+                            for call in run.call_args_list))
+
     def test_timeout_kills_descendants_before_their_write(self):
         with tempfile.TemporaryDirectory() as temp:
             marker = Path(temp) / "forbidden-write"

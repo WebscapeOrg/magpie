@@ -48,6 +48,16 @@ def thumbnail_sandbox():
         raise RuntimeError("PDF sandbox cannot start: " + result.stderr.strip()[:500])
 
 
+def low_space_sandbox():
+    result = subprocess.run([
+        "/usr/bin/bwrap", "--unshare-all", "--die-with-parent", "--new-session",
+        "--cap-drop", "ALL", "--ro-bind", "/", "/", "--proc", "/proc",
+        "--dev", "/dev", "--size", str(64 * 1024 * 1024), "--tmpfs", "/tmp",
+        "--chdir", "/tmp", "/usr/bin/true"], capture_output=True, text=True, timeout=10)
+    if result.returncode:
+        raise RuntimeError("Low-space sandbox cannot start: " + result.stderr.strip()[:500])
+
+
 def capabilities(directory):
     result = {}
 
@@ -69,6 +79,7 @@ def capabilities(directory):
     check("dbus", lambda: subprocess.run(["dbus-run-session", "--", "true"], check=True,
                                         capture_output=True, timeout=10))
     check("pdf-sandbox", thumbnail_sandbox)
+    check("low-space-sandbox", low_space_sandbox)
     for name in ("cargo", "node", "make", "cmake", "omarchy", "qs"):
         result[name] = {"status": "pass"} if shutil.which(name) else {
             "status": "blocked", "reason": name + " is not installed"}
@@ -121,7 +132,7 @@ def stages(profile, output, baseline):
         gate("provider-recovery", ["cargo", "test", "--locked", "--lib", "local_mail::provider_tests"], ["cargo"] + runtime),
         gate("send-recovery", ["cargo", "test", "--locked", "--lib", "outbox::tests::recorder_confirms"], ["cargo"] + runtime),
         gate("retained-attachments", isolated + [sys.executable, "tests/test_attachment_handles_rpc.py"], runtime),
-        gate("low-space", [sys.executable, "scripts/test-low-space.py"], ["cargo", "pdf-sandbox"] + runtime),
+        gate("low-space", [sys.executable, "scripts/test-low-space.py"], ["cargo", "low-space-sandbox"] + runtime),
         gate("subprocess", ["cargo", "test", "--locked", "--lib", "process::"], ["cargo"]),
         gate("rust", isolated + make + ["test-rust"], ["cargo", "pdf-sandbox"] + runtime),
         gate("javascript", make + ["test-js"], ["node"]),

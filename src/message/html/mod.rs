@@ -133,26 +133,28 @@ fn collapse(node: &mut Node) {
     let mut kept = vec![];
     for mut child in std::mem::take(&mut node.children) {
         collapse(&mut child);
-        if child.attrs.is_empty() {
-            if matches!(child.name.as_str(), "span" | "font" | "small" | "big") {
-                kept.extend(child.children);
+        if !child.attrs.is_empty() {
+            kept.push(child);
+            continue;
+        }
+        if matches!(child.name.as_str(), "span" | "font" | "small" | "big") {
+            kept.extend(child.children);
+            continue;
+        }
+        if matches!(
+            child.name.as_str(),
+            "div" | "section" | "article" | "aside" | "header" | "footer" | "main" | "nav"
+        ) {
+            let meaningful: Vec<_> = child
+                .children
+                .iter()
+                .enumerate()
+                .filter(|(_, value)| value.kind != "text" || !value.text.trim().is_empty())
+                .collect();
+            if meaningful.len() == 1 && block(&meaningful[0].1.name) {
+                let index = meaningful[0].0;
+                kept.push(child.children.remove(index));
                 continue;
-            }
-            if matches!(
-                child.name.as_str(),
-                "div" | "section" | "article" | "aside" | "header" | "footer" | "main" | "nav"
-            ) {
-                let meaningful: Vec<_> = child
-                    .children
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, value)| value.kind != "text" || !value.text.trim().is_empty())
-                    .collect();
-                if meaningful.len() == 1 && block(&meaningful[0].1.name) {
-                    let index = meaningful[0].0;
-                    kept.push(child.children.remove(index));
-                    continue;
-                }
             }
         }
         kept.push(child)

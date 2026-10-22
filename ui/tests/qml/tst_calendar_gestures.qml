@@ -22,7 +22,7 @@ Item {
     }
     signal eventUpdated(bool ok, string error)
     property var events: []
-    function colorKeyFor(id) { return "accent" }
+    function colorKeyFor() { return "accent" }
   }
   Views.WeekCalendarView {
     id: view
@@ -116,8 +116,7 @@ Item {
       compare(view.pendingGesture, null)
     }
     function test_gmail_generated_travel_event_does_not_dispatch_resize() {
-      var original = fixture.events
-      var event = JSON.parse(JSON.stringify(original[0]))
+      var event = JSON.parse(JSON.stringify(fixture.events[0]))
       event.eventType = "fromGmail"
       fixture.events = [event]
       wait(0)
@@ -128,7 +127,6 @@ Item {
       compare(view.dragPreview, null)
       mouseRelease(drag, drag.width / 2, drag.height + 35)
       compare(moved.count, 0)
-      fixture.events = original
     }
     function test_resize_changes_only_the_end() {
       dragMeetingEnd()
@@ -138,9 +136,9 @@ Item {
       compare(moved.signalArguments[0][2] % quarterHourMs, 0)
     }
     function test_overlapping_events_have_separate_hit_targets() {
-      var original = fixture.events
-      fixture.events = original.concat([{sourceId:"personal",googleId:"overlap",uid:"overlap",summary:"Review",
-        start:{ms:original[0].start.ms + quarterHourMs},end:{ms:original[0].end.ms + quarterHourMs}}])
+      var meeting = fixture.events[0]
+      fixture.events = fixture.events.concat([{sourceId:"personal",googleId:"overlap",uid:"overlap",summary:"Review",
+        start:{ms:meeting.start.ms + quarterHourMs},end:{ms:meeting.end.ms + quarterHourMs}}])
       wait(0)
       var first = findChild(view, "calendar-event-drag-meeting")
       var second = findChild(view, "calendar-event-drag-overlap")
@@ -148,7 +146,6 @@ Item {
       var left = first.mapToItem(view, 0, 0)
       var right = second.mapToItem(view, 0, 0)
       verify(left.x + first.width <= right.x)
-      fixture.events = original
     }
     function test_empty_time_drag_creates_a_range() {
       var slots = findChild(view, "calendar-time-slots-2026-10-01")
@@ -166,7 +163,6 @@ Item {
       compare(created.signalArguments[0][1] % quarterHourMs, 0)
     }
     function test_empty_all_day_lane_creates_single_and_multi_day_ranges() {
-      allDayCreated.clear()
       compare(view.allDayCount, 0)
       var lane = findChild(view, "calendar-all-day-lane")
       verify(lane.visible && lane.height > 0)
@@ -184,28 +180,23 @@ Item {
       compare(view.allDayDragStart, -1)
     }
     function test_long_timed_event_moves_to_top_lane_and_keeps_original_times() {
-      var original = fixture.events
-      var originalDays = view.days
       var stay = {sourceId:"personal",googleId:"stay",uid:"stay",summary:"Holiday",
         start:{ms:new Date(2026,8,29,12).getTime()},end:{ms:new Date(2026,9,3,12).getTime()}}
-      fixture.events = original.concat([stay])
+      fixture.events = fixture.events.concat([stay])
       wait(0)
       var bar = findChild(view,"calendar-all-day-event-stay")
       verify(bar !== null && bar.visible)
       verify(bar.width > view.width / 2)
       compare(findChild(view,"calendar-event-drag-stay"),null)
       compare(view.firstHour,0)
-      activated.clear()
       mouseClick(bar,bar.width-10,bar.height/2)
       compare(activated.count,1)
       compare(activated.signalArguments[0][0].start.ms,stay.start.ms)
       compare(activated.signalArguments[0][0].start.allDay,undefined)
-      view.days = [originalDays[3]]
+      view.days = [view.days[3]]
       wait(0)
       verify(findChild(view,"calendar-all-day-event-stay").visible)
       compare(findChild(view,"calendar-event-drag-stay"),null)
-      view.days = originalDays
-      fixture.events = original
     }
     function test_day_and_week_scroll_to_late_evening_and_early_morning() {
       var originalDays = view.days
@@ -228,7 +219,6 @@ Item {
         for (var scrollStep = 0; scrollStep < 20; scrollStep++) mouseWheel(scroll, scroll.width - 20, scroll.height / 2, 0, 120)
         compare(scroll.contentY, 0)
       }
-      view.resetTimeScroll()
     }
   }
 }

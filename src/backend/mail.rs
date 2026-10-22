@@ -653,7 +653,6 @@ mod tests {
         future::Future,
         io::{BufRead, BufReader},
         pin::Pin,
-        process::{Command, Stdio},
         sync::{Arc, Mutex},
     };
 
@@ -1047,15 +1046,16 @@ mod tests {
 
     #[tokio::test]
     async fn jmap_adapter_keeps_thread_state_from_nonrepresentative_members() {
-        let mut peer = Command::new("python3")
-            .arg(concat!(
+        let mut peer = crate::process::spawn_managed(
+            "python3",
+            &[concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/src/providers/jmap/mailbox_tls_test.py"
-            ))
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut output = BufReader::new(peer.stdout.take().unwrap());
+            )
+            .into()],
+        )
+        .unwrap();
+        let mut output = BufReader::new(peer.take_stdout().unwrap());
         let mut port = String::new();
         output.read_line(&mut port).unwrap();
         let mut certificate = String::new();
@@ -1179,7 +1179,5 @@ mod tests {
                     Some("Mailbox/get" | "Email/query" | "Email/get" | "Thread/get")
                 ))
         );
-        let _ = peer.kill();
-        let _ = peer.wait();
     }
 }

@@ -376,7 +376,7 @@ function parseMessageId(id) {
 function groupByFolder(ids, maxPerGroup) {
   var list = Array.isArray(ids) ? ids : []
   var order = []
-  var groups = {}
+  var groups = Object.create(null)
   for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {
     var parsed = parseMessageId(list[itemIndex])
     if (parsed.uid < 1) continue

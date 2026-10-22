@@ -165,4 +165,22 @@ assert.strictEqual(jmap.connectionSettled(1000, 31000, 0), false, "no interval t
 assert.strictEqual(jmap.connectionSettled(NaN, 31000, 30), false)
 assert.strictEqual(jmap.connectionSettled(1000, "soon", 30), false)
 
+for (const id of ["constructor", "__proto__", "toString"]) {
+  const boxes = [{ id, name: "Parent" }, { id: "child", name: "Child", parentId: id }]
+  deepEqual(jmap.mailboxLabels(boxes, {}).map(box => box.name), ["Parent", "Parent / Child"])
+  assert.strictEqual(jmap.inMailbox({ mailboxIds: {} }, id), false,
+    "Object prototype members are not mailbox memberships")
+  const update = jmap.emailSet("account", [id], { "keywords/$seen": true }).update
+  assert.ok(Object.hasOwn(update, id))
+  const patch = jmap.patchFor(["TRASH"], [], { trash: id })
+  assert.ok(Object.hasOwn(patch.mailboxIds, id))
+  const imported = jmap.importCall("account", "blob", id, "0")[1].emails.m.mailboxIds
+  assert.ok(Object.hasOwn(imported, id))
+}
+assert.strictEqual(jmap.resolveRole("constructor", []), "")
+assert.strictEqual(jmap.filterFor({ role: "constructor" }, {}), null)
+assert.strictEqual(jmap.bodyValueFor({}, "__proto__"), null)
+deepEqual(jmap.extraHeaders({ headers: [{ name: "constructor", value: "kept" }] }),
+  [{ name: "constructor", value: "kept" }])
+
 console.log("jmap helpers ok")

@@ -434,4 +434,24 @@ assert.notStrictEqual(
 assert.strictEqual(protocol.serverIdentity(null), protocol.serverIdentity({}),
   "no settings at all is one identity, not an error")
 
+for (const id of ["constructor", "__proto__", "toString"]) {
+  const threads = jmap.threadMembers([["Thread/get", { list: [{ id, emailIds: [id] }] }, "2"]])
+  assert.ok(Object.hasOwn(threads, id))
+  deepEqual(jmap.memberIdsOf([{ id, threadId: id }], threads), [id])
+  const indexed = jmap.memberIndex([member(id, id, { a: true }, {})])
+  assert.ok(Object.hasOwn(indexed, id))
+  const blocks = jmap.threadBlocks([{ id, threadId: id }], threads, indexed, roles, "role:inbox")
+  assert.ok(Object.hasOwn(blocks, id))
+  deepEqual(blocks[id].memberIds, [id])
+  const memberships = jmap.membershipsFrom([indexed[id]])
+  assert.ok(Object.hasOwn(memberships, id))
+  deepEqual(memberships[id], ["a"])
+  const merged = jmap.mergedInto({}, JSON.parse(JSON.stringify({ [id]: ["a"] })), 20)
+  assert.ok(Object.hasOwn(merged, id))
+  deepEqual(merged[id], ["a"])
+}
+const missingReservedMember = jmap.threadBlocks([{ id: "rep", threadId: "thread" }],
+  { thread: ["__proto__"] }, {}, roles, "role:inbox")
+assert.strictEqual(missingReservedMember.rep.count, 0, "inherited objects are not returned members")
+
 console.log("jmap threads ok")

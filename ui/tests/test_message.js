@@ -1231,7 +1231,8 @@ assert.strictEqual(message.composeBody("\n\n", ""), "")
   }
 }
 
-console.log("test_message.js ok")
 
 assert.strictEqual(message.draftFields({ replyTo: { email: "team@example.com" }, to: [] }, "x").replyTo, "team@example.com")
 assert.strictEqual(message.draftFields({ replyTo: { email: "" }, to: [] }, "x").replyTo, "")
+
+console.log("test_message.js ok")

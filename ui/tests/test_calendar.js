@@ -752,7 +752,6 @@ for (const response of ["constructor", "__proto__"]) {
   assert.strictEqual(calendar.withResponse(invite, me.email, response), invite, "an unknown answer cannot change attendance")
 }
 
-console.log("test_calendar.js ok")
 
 {
   const overflowDuration = "P" + "9".repeat(400) + "D"
@@ -815,3 +814,5 @@ for (const organizer of ["organizer@example.test", "\"one,two\"@example.test"]) 
     else process.env.TZ = previousTimezone
   }
 }
+
+console.log("test_calendar.js ok")

@@ -1,4 +1,3 @@
-//! CPU-bound message preparation shared by CLI and the persistent UI session.
 use crate::{cache::render::RenderCache, message};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -53,15 +52,15 @@ pub(super) fn call(
     }
 }
 
-// The cached MIME tree stays native. The reader receives decoded content and
-// attachment locators, not base64 payloads it would immediately upload again.
+// Invariant: The cached MIME tree stays native. The reader receives decoded content and attachment
+// locators, not base64 payloads it would immediately upload again.
 fn prepared_projection(mut resource: Value, now: Option<&Value>) -> Result<Value, &'static str> {
     let mut params = json!({"message":resource});
     if let Some(now) = now {
         params["now"] = now.clone();
     }
     let prepared = message::content::request("message.prepare", &params)?;
-    // Release the temporary input copy before constructing the reader result.
+    // Performance: Drop the temporary MIME input before allocating the reader projection.
     drop(params);
     fn strip(part: &mut Value, depth: usize, remaining: &mut usize) -> Result<(), &'static str> {
         if depth > 32 || *remaining == 0 {

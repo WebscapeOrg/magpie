@@ -1,4 +1,4 @@
-//! Normalize once, then preview or consume that exact plan for execution.
+//! Invariant: Normalize once, then preview or consume that exact plan for execution.
 use super::types::opaque_id;
 use super::{Account, ActRequest, Provider};
 use serde_json::{Value, json};
@@ -15,24 +15,24 @@ pub(crate) struct ActionPlan {
     pub target_ids: Vec<String>,
     pub add_label_ids: Vec<String>,
     pub remove_label_ids: Vec<String>,
-    /// Opaque provider facts reviewed by the planner, such as destination IDs.
+    /// Invariant: Opaque provider facts reviewed by the planner, such as destination IDs.
     pub provider_context: Value,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct ActionAvailability {
     pub refusals: Value,
-    /// Canonical destination names whose live account state permits planning.
+    /// Invariant: Canonical destination names whose live account state permits planning.
     pub mailboxes: Value,
-    /// A provider action may be direct (for example HEY spam) rather than a
-    /// move to a listable mailbox. Missing entries retain mailbox semantics.
+    /// Invariant: A provider action may be direct (for example HEY spam) rather than a move to a
+    /// listable mailbox. Missing entries retain mailbox semantics.
     pub mailbox_required: Value,
-    /// Opaque, freshly-read provider context for the matching `rows` lookup.
+    /// Invariant: Opaque, freshly-read provider context for the matching `rows` lookup.
     pub rows_context: Value,
 }
 
-/// Supplies only bounded, read-only action context. Implementations must not
-/// call provider mutation adapters or change cache/account/outbox state.
+/// Invariant: Supplies only bounded, read-only action context. Implementations must not call
+/// provider mutation adapters or change cache/account/outbox state.
 pub(crate) trait ActionLookup: Send + Sync {
     fn availability<'a>(
         &'a self,
@@ -49,8 +49,8 @@ pub(crate) trait ActionLookup: Send + Sync {
     ) -> LookupFuture<'a, Vec<Value>>;
 }
 
-/// Returns only confirmed successful IDs. Unknown outcomes are failures for
-/// reporting purposes; they must never trigger an automatic retry.
+/// Invariant: Returns only confirmed successful IDs. Unknown outcomes are failures for reporting
+/// purposes; they must never trigger an automatic retry.
 pub(crate) trait ActionMutation: Send + Sync {
     fn execute<'a>(
         &'a self,
@@ -77,8 +77,8 @@ fn label_ids(change: &Value, name: &str) -> Result<Vec<String>, &'static str> {
         .collect()
 }
 
-/// Validation only: retain the exact opaque spelling used in the request and
-/// provider acknowledgements. Reuse the same pure parsers as native execution.
+/// Invariant: Validation only: retain the exact opaque spelling used in the request and provider
+/// acknowledgements. Reuse the same pure parsers as native execution.
 pub(crate) fn validate_message_id(provider: Provider, id: &str) -> Result<(), &'static str> {
     opaque_id(id)?;
     match provider {

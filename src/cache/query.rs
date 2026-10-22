@@ -1,4 +1,4 @@
-//! Session-owned query cache. Only presentation snapshots cross to the UI.
+//! Invariant: Session-owned query cache. Only presentation snapshots cross to the UI.
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{
@@ -298,7 +298,7 @@ impl QueryCache {
         }
     }
 
-    /// Flush accepted mutations after RPC and background producers have stopped.
+    /// Invariant: Flush accepted mutations after RPC and background producers have stopped.
     pub async fn shutdown(&self) -> Result<()> {
         let accounts: Vec<_> = self
             .accounts
@@ -317,7 +317,7 @@ impl QueryCache {
         failure.map_or(Ok(()), Err)
     }
 
-    /// Background population does not rotate the UI's account generation.
+    /// Invariant: Background population does not rotate the UI's account generation.
     pub async fn prefetch(
         &self,
         account: &str,

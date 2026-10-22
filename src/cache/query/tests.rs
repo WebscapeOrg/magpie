@@ -153,7 +153,7 @@ async fn live_query_mutation_restore_disk_and_account_boundary() {
     second.call("cache.queryInvalidate", &params).await.unwrap();
     assert!(second.call("cache.queryGet", &params).await.unwrap()["entry"].is_null());
     second.call("cache.queryFlush", &params).await.unwrap();
-    // No delayed writer has dirty state after the explicit flush.
+    // Invariant: No delayed writer has dirty state after the explicit flush.
     std::fs::remove_dir_all(root).unwrap();
 }
 #[tokio::test]
@@ -205,7 +205,7 @@ async fn shutdown_flushes_debounced_writes_and_restores_legacy_direction() {
         );
         assert!(!cache.account(account).await.unwrap().lock().await.dirty);
     }
-    // Old v2 rows receive the same metadata without a network refresh.
+    // Invariant: Old v2 rows receive the same metadata without a network refresh.
     let legacy = store::normalize_store(
         &json!({"version":2,"queries":{"q|25":{"summaries":[{"id":"old","subject":"Re: مرحبا"}],"at":1}}}),
     );

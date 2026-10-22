@@ -1,4 +1,4 @@
-//! Native reader pipeline. Raw resources and sender HTML never form UI requests.
+//! Invariant: Native reader pipeline. Raw resources and sender HTML never form UI requests.
 use super::Session;
 use crate::{cache, message};
 use serde_json::{Value, json};
@@ -179,7 +179,7 @@ pub(super) async fn registered(account: &str) -> Result<String, &'static str> {
         .ok_or("reader_account_unknown")
 }
 impl Session {
-    /// Internal full-resource read shared with AI context; never an IPC result.
+    /// Invariant: Internal full-resource read shared with AI context; never an IPC result.
     pub(crate) async fn fetch_resource(
         &self,
         account: &str,
@@ -398,8 +398,8 @@ impl Session {
                 return Ok(Value::Null);
             };
             if !cache_only && provider != "gmail" {
-                // Persistence failure does not discard a valid live read. Guarded
-                // writes cannot land after an explicit reader cancellation.
+                // Invariant: Persistence failure does not discard a valid live read. Guarded writes
+                // cannot land after an explicit reader cancellation.
                 let _ =
                     cache::resource::put_guarded(&account, &id, &resource, job.live.clone()).await;
             }
@@ -467,7 +467,7 @@ fn prepare(resource: &Value, id: &str, now: i64) -> Result<Prepared, &'static st
         })
         .unwrap_or_default();
     let has_html = !source.is_empty();
-    // Only calendar material and header metadata cross for existing invitation /
+    // Invariant: Only calendar material and header metadata cross for existing invitation /
     // unsubscribe views. MIME body and file octets remain in the native store.
     fn calendars(
         part: &Value,
@@ -523,9 +523,9 @@ fn prepare_for_store_bounded(
     now: i64,
     limit: usize,
 ) -> Result<Prepared, &'static str> {
-    // Preserve the existing accepted resource limit. A pathological charset
-    // expansion can make prepared text larger than its original resource; keep
-    // that rare entry in its old bounded form instead of rejecting valid mail.
+    // Performance: Preserve the existing accepted resource limit. A pathological charset expansion
+    // can make prepared text larger than its original resource; keep that rare entry in its old
+    // bounded form instead of rejecting valid mail.
     if serde_json::to_vec(resource.as_ref())
         .map_err(|_| "invalid_message")?
         .len()
@@ -577,8 +577,8 @@ fn render_prepared(
         renders,
         live,
     )?;
-    // QML draws both sanitized document trees. Serialized HTML copies are
-    // redundant and must not cross the process boundary a second time.
+    // Performance: QML draws both sanitized document trees. Serialized HTML copies are redundant
+    // and must not cross the process boundary a second time.
     rendered
         .as_object_mut()
         .ok_or("invalid_message")?

@@ -1,6 +1,6 @@
-//! SQLite filenames are capabilities within one pinned private directory.
-//! The owner lease excludes other processes; SQLite's locks coordinate the
-//! bounded connections in this process. WAL shared memory is never persisted.
+//! Invariant: SQLite filenames are capabilities within one pinned private directory. The owner
+//! lease excludes other processes; SQLite's locks coordinate the bounded connections in this
+//! process. WAL shared memory is never persisted.
 use crate::platform::private_fs as fs;
 use rusqlite::{Connection, OpenFlags, ffi::*};
 use std::{

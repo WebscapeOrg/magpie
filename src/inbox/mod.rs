@@ -129,7 +129,8 @@ impl Inbox {
                                     }
                                 };
                             }
-                            // Overviews are replaceable; keep a bounded recent working set.
+                            // Performance: Overviews are replaceable; keep a bounded recent working
+                            // set.
                             if saved.as_object().unwrap().len() > 5000 {
                                 let mut keys: Vec<_> = saved
                                     .as_object()
@@ -209,7 +210,7 @@ async fn overview_batch(
         let prepared = crate::message::content::prepare(&raw, now())?;
         let summary = &prepared["summary"];
         let body = prepared["body"]["text"].as_str().unwrap_or("");
-        // Preserve the opening request and the end (often where the real ask lives).
+        // Algorithm: Preserve the opening request and the end (often where the real ask lives).
         let body = if body.chars().count() > 48000 {
             let start: String = body.chars().take(36000).collect();
             let end: String = body

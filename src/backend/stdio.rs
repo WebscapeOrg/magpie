@@ -1,4 +1,4 @@
-//! Interrupt the input wait when the peer can no longer receive responses.
+//! Invariant: A failed response pipe must interrupt an otherwise idle input wait.
 use std::io::{self, BufReader, Read, Write};
 use std::sync::{
     Arc,
@@ -22,19 +22,18 @@ pub fn serve() -> io::Result<()> {
 
 #[cfg(target_os = "linux")]
 fn bind_to_parent() -> io::Result<()> {
-    // Register before the protocol starts runtime threads. This applies only
-    // to serve, not CLI commands or deliberately detached agent workers.
-    // Linux ties this to the creating parent thread, not its whole process.
-    // SIGKILL cannot be blocked/ignored by an inherited signal disposition;
-    // the kernel releases the outbox lock even if another process holds stdin.
+    // Algorithm: Register before the protocol starts runtime threads. This applies only to serve,
+    // not CLI commands or deliberately detached agent workers. Linux ties this to the creating
+    // parent thread, not its whole process. SIGKILL cannot be blocked/ignored by an inherited
+    // signal disposition; the kernel releases the outbox lock even if another process holds stdin.
     let parent = unsafe { libc::getppid() };
     if unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) } != 0 {
         return Err(io::Error::last_os_error());
     }
-    // prctl does not signal retroactively: reject a parent that died between
-    // the observation and registration. A parent lost before our first
-    // observation (including reparenting to a subreaper) cannot be identified
-    // without an identity supplied by the launcher.
+    // Algorithm: prctl does not signal retroactively: reject a parent that died between the
+    // observation and registration. A parent lost before our first observation (including
+    // reparenting to a subreaper) cannot be identified without an identity supplied by the
+    // launcher.
     if unsafe { libc::getppid() } != parent {
         return Err(io::Error::new(
             io::ErrorKind::BrokenPipe,
@@ -66,8 +65,8 @@ impl Read for Input {
             if unsafe { GetFileType(handle) } != FILE_TYPE_PIPE {
                 return input.read(bytes);
             }
-            // We are the sole reader. Read only bytes already available so an
-            // open, idle stdin cannot conceal a failed response pipe forever.
+            // Algorithm: We are the sole reader. Read only bytes already available so an open, idle
+            // stdin cannot conceal a failed response pipe forever.
             loop {
                 if self.failed.load(Ordering::Acquire) {
                     return Err(io::Error::new(io::ErrorKind::BrokenPipe, "output closed"));
@@ -122,8 +121,8 @@ impl Read for Input {
                 events: libc::POLLIN,
                 revents: 0,
             };
-            // The backend is the only stdin reader. Read the descriptor directly:
-            // a buffered Stdin reader could contain bytes invisible to poll.
+            // Algorithm: The backend is the only stdin reader. Read the descriptor directly: a
+            // buffered Stdin reader could contain bytes invisible to poll.
             let ready = unsafe { libc::poll(&mut descriptor, 1, 100) };
             if ready < 0 {
                 let error = io::Error::last_os_error();
@@ -135,7 +134,7 @@ impl Read for Input {
             if ready == 0 {
                 continue;
             }
-            // POLLHUP may accompany unread bytes. Read them before reporting EOF.
+            // Algorithm: POLLHUP may accompany unread bytes. Read them before reporting EOF.
             // SAFETY: bytes supplies a valid writable buffer of the stated size.
             let count =
                 unsafe { libc::read(libc::STDIN_FILENO, bytes.as_mut_ptr().cast(), bytes.len()) };

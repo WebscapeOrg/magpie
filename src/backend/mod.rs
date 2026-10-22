@@ -85,9 +85,8 @@ impl Default for Session {
 }
 
 impl Session {
-    // Keep provider state machines behind heap indirection. Uploaded requests
-    // re-enter this dispatcher; embedding every provider future here overflowed
-    // the worker stack in the real Quickshell large-request integration test.
+    // Performance: Heap-box provider futures because uploaded requests re-enter dispatch; embedding
+    // them overflowed the worker stack in the large-request integration test.
     pub async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
         if matches!(method, "local.watch" | "local.unwatch" | "local.refresh") {
             if params.as_object().is_none_or(|p| p.len() != 1) {
@@ -374,7 +373,7 @@ impl Session {
                 .filter(|id| !id.is_empty())
                 .ok_or("invalid_params")?;
             let token = self.gmail.access_token(account).await?;
-            // A saved grant marker is not evidence of the scopes on a refreshed token.
+            // Invariant: A saved grant marker is not evidence of the scopes on a refreshed token.
             // Scope is optional on restore; initial sign-in validates the actual response.
             return Ok(json!({"access_token":token,"expires_in":60}));
         }
@@ -716,7 +715,7 @@ pub(crate) fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-/// Both frontends use this dispatcher. Add domain operations here, never in CLI parsing.
+/// Invariant: Both frontends use this dispatcher. Add domain operations here, never in CLI parsing.
 pub fn dispatch(method: &str, params: &Value) -> Result<Value, &'static str> {
     if method == "message.parse" {
         return message::request(params);

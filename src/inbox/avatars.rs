@@ -162,7 +162,7 @@ pub async fn get(
         }
     }
     if image.is_empty() && !consumer(domain) {
-        // Query only a domain, never a mailbox address or sender-controlled image URL.
+        // Invariant: Query only a domain, never a mailbox address or sender-controlled image URL.
         let url = format!(
             "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https%3A%2F%2F{domain}&size=256"
         );

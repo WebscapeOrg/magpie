@@ -1,4 +1,4 @@
-//! Durable editor recovery. Stored attachment metadata never authorizes file IO.
+//! Invariant: Durable editor recovery. Stored attachment metadata never authorizes file IO.
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -60,8 +60,8 @@ fn draft(value: &Value) -> Result<Value> {
     ] {
         out[key] = json!(text(&value[key]));
     }
-    // Optional for legacy records. This is app-owned metadata, not text to
-    // coerce from another JSON shape; the editor still checks the exact suffix.
+    // Invariant: Optional for legacy records. This is app-owned metadata, not text to coerce from
+    // another JSON shape; the editor still checks the exact suffix.
     if let Some(quote) = value.get("bodyQuote") {
         let quote = quote.as_str().ok_or("recovery_invalid")?;
         if quote.len() > MAX_BYTES {
@@ -90,8 +90,8 @@ fn draft(value: &Value) -> Result<Value> {
     if value["deliveryUnknown"] == true {
         out["deliveryUnknown"] = json!(true);
     }
-    // Absence belongs to legacy snapshots: the UI then derives whether the
-    // draft was edited from its contents. Preserve explicit false separately.
+    // Invariant: Absence belongs to legacy snapshots: the UI then derives whether the draft was
+    // edited from its contents. Preserve explicit false separately.
     if let Some(modified) = value.get("userModified") {
         out["userModified"] = json!(modified.as_bool().ok_or("recovery_invalid_user_modified")?);
     }
@@ -135,8 +135,8 @@ fn draft(value: &Value) -> Result<Value> {
         let mut attachments = Vec::new();
         for row in rows {
             let path = text(&row["path"]);
-            // Recovery stores descriptions only. Relative/control-bearing paths
-            // cannot be handed to a later attachment reader or cleanup action.
+            // Invariant: Recovery stores descriptions only. Relative/control-bearing paths cannot
+            // be handed to a later attachment reader or cleanup action.
             if !path.is_empty()
                 && (!Path::new(&path).is_absolute()
                     || path.chars().any(char::is_control)

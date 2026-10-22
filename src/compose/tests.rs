@@ -58,7 +58,7 @@ fn invalid_or_oversized_reply_quote_never_writes_recovery() {
         (json!([]), "recovery_invalid"),
         (json!({}), "recovery_invalid"),
         (json!("x".repeat(MAX_BYTES + 1)), "recovery_too_large"),
-        // Even a field under its own bound must obey the total record bound.
+        // Invariant: Even a field under its own bound must obey the total record bound.
         (json!("x".repeat(MAX_BYTES - 1)), "recovery_too_large"),
     ] {
         for parked in [false, true] {

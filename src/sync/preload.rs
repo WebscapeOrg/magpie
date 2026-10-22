@@ -1,5 +1,5 @@
-//! A small background lane warms the same caches used by interactive readers.
-//! Provider reads remain read-only; no mark-seen operation is issued here.
+//! Invariant: A small background lane warms the same caches used by interactive readers. Provider
+//! reads remain read-only; no mark-seen operation is issued here.
 use super::*;
 use futures_util::{StreamExt, stream};
 use tokio::sync::Semaphore;

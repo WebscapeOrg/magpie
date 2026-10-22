@@ -1,4 +1,4 @@
-//! Task arguments become provider-neutral requests; domain code validates them.
+//! Invariant: Task arguments become provider-neutral requests; domain code validates them.
 use clap::{Args, ValueEnum};
 use serde_json::{Value, json};
 use std::{io::Read, path::PathBuf};
@@ -163,8 +163,8 @@ impl Send {
                     .file_name()
                     .and_then(|name| name.to_str())
                     .ok_or("mail_send_attachment_path")?;
-                // This is an input snapshot only. The mail layer securely opens the
-                // path without following symlinks and compares size before reading.
+                // Invariant: This is an input snapshot only. The mail layer securely opens the path
+                // without following symlinks and compares size before reading.
                 let size = std::fs::symlink_metadata(path)
                     .map_err(|_| "mail_send_attachment_unreadable")?
                     .len();

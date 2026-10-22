@@ -1,6 +1,6 @@
-//! Durable delayed sends. Every delivery is attempted once, in account order.
-//! A restart resumes explicitly authorized waiting mail after a connectivity check.
-//! An interrupted delivery remains unknown and is never automatically retried.
+//! Invariant: Durable delayed sends. Every delivery is attempted once, in account order. A restart
+//! resumes explicitly authorized waiting mail after a connectivity check. An interrupted delivery
+//! remains unknown and is never automatically retried.
 use futures_util::{FutureExt, future::BoxFuture};
 use serde_json::{Value, json};
 use std::{
@@ -212,8 +212,8 @@ impl Outbox {
     pub fn subscribe(&self) -> broadcast::Receiver<Value> {
         self.inner.events.subscribe()
     }
-    /// Keep the owning runtime alive through the worker's durable terminal
-    /// transition. Subscribe before inspecting state to avoid a lost wakeup.
+    /// Algorithm: Keep the owning runtime alive through the worker's durable terminal transition.
+    /// Subscribe before inspecting state to avoid a lost wakeup.
     pub(crate) async fn wait_for_send(
         &self,
         account: &str,
@@ -241,9 +241,9 @@ impl Outbox {
             }
         }
     }
-    /// Serialize explicit-ID composition with its enqueue. Replays retain the
-    /// original timestamp, MIME boundary and message ID; `call` remains the sole
-    /// owner of digest conflict checks and exactly-once queue insertion.
+    /// Invariant: Serialize explicit-ID composition with its enqueue. Replays retain the original
+    /// timestamp, MIME boundary and message ID; `call` remains the sole owner of digest conflict
+    /// checks and exactly-once queue insertion.
     pub(crate) async fn enqueue_mail(
         &self,
         prepared: crate::mail::send::Prepared,
@@ -286,8 +286,8 @@ impl Outbox {
         self.inner.call(method, params).await
     }
 
-    /// Only these idempotent, ID-bound operations may cross to the lease
-    /// owner. Retrying submission reuses the exact persisted ID and digest.
+    /// Invariant: Only these idempotent, ID-bound operations may cross to the lease owner. Retrying
+    /// submission reuses the exact persisted ID and digest.
     async fn shared_call(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
         loop {
@@ -372,8 +372,8 @@ impl Inner {
                 return Err("outbox_payload_id_required");
             }
             if state.dirty {
-                // A delivery acknowledgement is authoritative only after this
-                // transition is durable, including replies to another process.
+                // Invariant: A delivery acknowledgement is authoritative only after this transition
+                // is durable, including replies to another process.
                 save(self, &state.entries).await?;
                 state.dirty = false;
             }
@@ -570,7 +570,7 @@ impl Drop for Outbox {
 }
 async fn worker(inner: Arc<Inner>, account: String) {
     loop {
-        // Register before reading state so a concurrent undo/flush cannot lose a wake.
+        // Algorithm: Register before reading state so a concurrent undo/flush cannot lose a wake.
         let notified = inner.wake.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
@@ -684,8 +684,8 @@ async fn worker(inner: Arc<Inner>, account: String) {
                 state.entries[index]["error"] = json!("outbox_delivery_unknown");
             }
         }
-        // If this write fails, disk still says sending and restart recovers unknown.
-        // No retry is safe, regardless of whether the acknowledgement was received.
+        // Invariant: If this write fails, disk still says sending and restart recovers unknown. No
+        // retry is safe, regardless of whether the acknowledgement was received.
         state.revision += 1;
         state.dirty = save(&inner, &state.entries).await.is_err();
         emit(&inner, &state, &account);

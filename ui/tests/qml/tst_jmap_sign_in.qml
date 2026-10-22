@@ -4,24 +4,9 @@ import "transports.js" as Transports
 import "../.." as Omamail
 import "BackendFixture.js" as BackendFixture
 
-// A JMAP sign-in has to leave the account able to sign in again.
-//
-// The page saves an address, a typed server and a secret. What the check then
-// *learns* — the session URL that finally answered, the scheme the server
-// accepted and the account id its session named — is what every later request
-// needs, and none of it exists until the check has run. If nothing writes those
-// three onto the account entry, the auth object built from that entry is never
-// configured: the mailbox says "sign in first" to every fetch, starts no push
-// stream, and opens on its setup page again after every restart, however many
-// times the check succeeds.
-//
-// The route runs through the real objects on purpose — the window's setup
-// page, the service's account list, the account, its auth object and its
-// client — because every one of them was individually right while the value
-// went nowhere. The transport is the stubbed `Process` under
-// `tests/qml/imports`, which never exits on its own, so each of the two
-// requests sign-in makes is answered here by hand and nothing touches the
-// network, the keyring or the disk.
+// Invariant: Verified session URL, scheme and account ID must survive the setup
+// page and persisted account projection. Controlled native RPC replies exercise
+// the real Service, App, account, auth and client without live mail or credentials.
 Item {
   width: 900
   height: 600

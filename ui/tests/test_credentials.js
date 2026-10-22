@@ -3,7 +3,6 @@ const { load, deepEqual } = require("./load")
 
 const credentials = load("providers/Credentials.js")
 
-// ------------------------------------------------------------ client ids
 
 assert.strictEqual(credentials.isValidClientId("1234567890-abcDEF_123.apps.googleusercontent.com"), true)
 assert.strictEqual(credentials.isValidClientId("  1234-abc.apps.googleusercontent.com  "), true)
@@ -12,9 +11,7 @@ assert.strictEqual(credentials.isValidClientId("apps.googleusercontent.com"), fa
 assert.strictEqual(credentials.isValidClientId(""), false)
 assert.strictEqual(credentials.isValidClientId(null), false)
 
-// ------------------------------------------------- the downloaded JSON file
-//
-// This is the exact shape the Google Cloud console hands out for a Desktop
+// Invariant: This is the exact shape the Google Cloud console hands out for a Desktop
 // app client, so a user can paste the file without editing it first.
 
 const downloaded = JSON.stringify({
@@ -36,7 +33,7 @@ deepEqual(parsed.credentials, {
   projectId: "omarchy-gmail-42"
 })
 
-// A Web application client hands back a valid-looking id but can never
+// Invariant: A Web application client hands back a valid-looking id but can never
 // complete the loopback flow, so it is refused at paste time rather than at
 // the end of a failed sign-in.
 const web = credentials.parse(JSON.stringify({
@@ -49,14 +46,13 @@ assert.strictEqual(credentials.parse("{not json").error, "That is not valid JSON
 assert.strictEqual(credentials.parse(JSON.stringify({ installed: {} })).ok, false)
 assert.strictEqual(credentials.parse("").ok, false)
 
-// ------------------------------------------------------------ typed by hand
 
 const typed = credentials.parse("1234-abc.apps.googleusercontent.com\nGOCSPX-typed")
 assert.strictEqual(typed.ok, true)
 assert.strictEqual(typed.credentials.clientId, "1234-abc.apps.googleusercontent.com")
 assert.strictEqual(typed.credentials.clientSecret, "GOCSPX-typed")
 
-// The secret is genuinely optional: Google only requires it for some client
+// Invariant: The secret is genuinely optional: Google only requires it for some client
 // types, and a user who pastes just the id should get a working setup.
 const idOnly = credentials.parse("  1234-abc.apps.googleusercontent.com  ")
 assert.strictEqual(idOnly.ok, true)
@@ -65,11 +61,9 @@ assert.strictEqual(idOnly.credentials.clientSecret, "")
 assert.strictEqual(credentials.parse("hello world").ok, false)
 assert.ok(credentials.parse("hello world").error.indexOf(".apps.googleusercontent.com") > 0)
 
-// ----------------------------------------------------------- round tripping
 
 const serialized = credentials.serialize(parsed.credentials)
-// The payload crosses a line-oriented pipe into credentials-store.sh, whose
-// `read` stops at the first newline. Anything multi-line arrives truncated.
+// Invariant: Preserve the historical single-line credentials file format on round trips.
 assert.ok(serialized.indexOf("\n") < 0, "the serialized client must be one line")
 const reloaded = credentials.load(serialized)
 deepEqual(reloaded, parsed.credentials)
@@ -82,16 +76,13 @@ assert.strictEqual(credentials.isConfigured(parsed.credentials), true)
 assert.strictEqual(credentials.isConfigured(credentials.empty()), false)
 assert.strictEqual(credentials.isConfigured(null), false)
 
-// ---------------------------------------------------------------- display
 
 assert.strictEqual(credentials.describe(parsed.credentials), "omarchy-gmail-42 · 1234")
 assert.strictEqual(credentials.describe(credentials.empty()), "")
 assert.strictEqual(
   credentials.path("/home/jason"), "/home/jason/.config/omamail/credentials.json")
 
-// -------------------------------------------------------- built-in client
-//
-// Shipping a client is a one-constant change once the project passes Google's
+// Invariant: Shipping a client is a one-constant change once the project passes Google's
 // OAuth verification. Until then BUILTIN is empty on purpose: an unverified
 // project is stuck in "Testing", where refresh tokens expire after seven days,
 // so a shipped client would sign every user out weekly.
@@ -99,16 +90,16 @@ assert.strictEqual(
 assert.strictEqual(credentials.hasBuiltin(), false, "no client is shipped yet")
 deepEqual(credentials.builtin(), { clientId: "", clientSecret: "", projectId: "" })
 
-// With no built-in and no file, there is nothing to sign in with.
+// Invariant: With no built-in and no file, there is nothing to sign in with.
 deepEqual(credentials.effective(""), { clientId: "", clientSecret: "", projectId: "" })
 assert.strictEqual(credentials.usingBuiltin(""), false)
 
-// The user's own client always wins over anything shipped: someone who made
+// Invariant: The user's own client always wins over anything shipped: someone who made
 // one wants their own quota and their own consent screen.
 deepEqual(credentials.effective(serialized), parsed.credentials)
 assert.strictEqual(credentials.usingBuiltin(serialized), false)
 
-// Simulate the post-verification state by filling the constant the same way a
+// Invariant: Simulate the post-verification state by filling the constant the same way a
 // release would, and check the fallback actually engages.
 credentials.BUILTIN.clientId = "999-shipped.apps.googleusercontent.com"
 credentials.BUILTIN.clientSecret = "GOCSPX-shipped"
@@ -122,9 +113,7 @@ credentials.BUILTIN.clientId = ""
 credentials.BUILTIN.clientSecret = ""
 
 
-// ------------------------------------------------------ keyring attributes
-//
-// A Cloud OAuth client belongs to a project, not to a mailbox, so two accounts
+// Invariant: A Cloud OAuth client belongs to a project, not to a mailbox, so two accounts
 // may legitimately run on one. Keyed by client id alone, the second sign-in
 // would overwrite the first account's refresh token and silently sign it out.
 
@@ -142,13 +131,13 @@ deepEqual(first, [
 assert.notStrictEqual(JSON.stringify(first), JSON.stringify(second),
   "two accounts on one client must not share a keyring entry")
 
-// The lookup runs on every session restore; an attribute set that drifts
+// Invariant: The lookup runs on every session restore; an attribute set that drifts
 // between calls would look exactly like a signed-out account.
 deepEqual(credentials.keyringAttributes(sharedClient, "one@gmail.com"), first)
 deepEqual(credentials.keyringAttributes(sharedClient, "  One@Gmail.com  "), first,
   "the same mailbox typed differently is the same account")
 
-// secret-tool reads an empty attribute value as a wildcard, which would match
+// Invariant: secret-tool reads an empty attribute value as a wildcard, which would match
 // some other account's token, so no value may ever be blank.
 const attributeSets = [
   first,
@@ -175,12 +164,12 @@ deepEqual(credentials.previousGrantKeyringAttributes(sharedClient, "one@gmail.co
   "account", "one@gmail.com"
 ])
 
-// Without a client id there is nothing to look up, and an attribute-free
+// Invariant: Without a client id there is nothing to look up, and an attribute-free
 // lookup would match every token the plugin ever stored.
 deepEqual(credentials.keyringAttributes("", "one@gmail.com"), [])
 deepEqual(credentials.legacyKeyringAttributes(""), [])
 
-// The old single-account entries carry no account or grant attribute. The
+// Invariant: The old single-account entries carry no account or grant attribute. The
 // upgrade detects them separately and asks Google for Calendar permission.
 deepEqual(credentials.legacyKeyringAttributes(sharedClient), [
   "service", "omamail",
@@ -211,7 +200,7 @@ deepEqual(credentials.renamedLegacyKeyringAttributes(sharedClient), [
   "client-id", sharedClient
 ])
 
-// A rejected token must be cleared from the exact lookup stage that produced
+// Invariant: A rejected token must be cleared from the exact lookup stage that produced
 // it. Clearing only the canonical entry leaves a legacy token to be found and
 // rejected again on every restart.
 deepEqual(credentials.refreshTokenAttributes(sharedClient, "me@example.com", 0),
@@ -225,7 +214,7 @@ deepEqual(credentials.refreshTokenAttributes(sharedClient, "me@example.com", 3),
 deepEqual(credentials.refreshTokenAttributes(sharedClient, "me@example.com", 4),
   credentials.renamedLegacyKeyringAttributes(sharedClient))
 
-// A JMAP account has no OAuth client either. Its secret — an app password or
+// Invariant: A JMAP account has no OAuth client either. Its secret — an app password or
 // an API token, whichever scheme turned out to work — is keyed on the account
 // alone, under a kind of its own so the same address reached three ways is
 // three entries rather than one overwriting the other two.
@@ -239,12 +228,12 @@ deepEqual(credentials.jmapKeyringAttributes("  JMAP:Ada@Example.org  "),
   credentials.jmapKeyringAttributes("jmap:ada@example.org"),
   "an id is matched however it was cased or spaced when it was typed")
 
-// The kinds are what keep three mailboxes on one address apart.
+// Invariant: The kinds are what keep three mailboxes on one address apart.
 assert.notDeepStrictEqual(
   JSON.stringify(credentials.jmapKeyringAttributes("ada@example.org")),
   JSON.stringify(credentials.imapKeyringAttributes("ada@example.org")))
 
-// An account with no name yet gets the literal placeholder: an empty
+// Invariant: An account with no name yet gets the literal placeholder: an empty
 // attribute value is a wildcard to secret-tool, and this lookup would hand
 // back some other mailbox's secret.
 deepEqual(credentials.jmapKeyringAttributes(""), [
@@ -258,9 +247,7 @@ for (const value of credentials.jmapKeyringAttributes(undefined)) {
   assert.ok(value.length > 0, "an empty attribute value is a secret-tool wildcard")
 }
 
-// --------------------------------------------- looking before the leap
-//
-// Why the legacy read counts before it asks is in Credentials.js. What it has
+// Invariant: Why the legacy read counts before it asks is in Credentials.js. What it has
 // to get right is here: two mailboxes on one Cloud client, where the wildcard
 // over "account" matches both.
 
@@ -288,7 +275,7 @@ function attributeLines(accounts) {
   return lines
 }
 
-// The counting the QML does, line by line, so it is never holding a stream of
+// Invariant: The counting the QML does, line by line, so it is never holding a stream of
 // secrets to count.
 function countWith(predicate, lines) {
   var found = 0
@@ -308,19 +295,19 @@ function searchFound(records, accounts) {
 assert.strictEqual(searchFound(1, [null]), true,
   "one match, and no account attribute in it, is the entry the legacy read is for")
 
-// The regression. Both matches answer the legacy lookup and neither is this
+// Invariant: The regression. Both matches answer the legacy lookup and neither is this
 // account's to take.
 assert.strictEqual(searchFound(2, ["one@gmail.com", "two@gmail.com"]), false,
   "two mailboxes on one client are not a legacy entry")
 assert.strictEqual(searchFound(1, ["one@gmail.com"]), false,
   "a single named mailbox is not one either")
 
-// A nameless entry beside named ones: which one the lookup answers with cannot
+// Invariant: A nameless entry beside named ones: which one the lookup answers with cannot
 // be asked, so it is left where it is.
 assert.strictEqual(searchFound(2, [null, "two@gmail.com"]), false,
   "a legacy entry with named siblings is ambiguous, and ambiguous is refused")
 
-// The stand-in a mailbox with no address yet is stored under has an "account"
+// Invariant: The stand-in a mailbox with no address yet is stored under has an "account"
 // attribute and still no name, so it stays adoptable. Reading it once is what
 // an install from before the hold on unnamed tokens needs.
 assert.strictEqual(searchFound(1, ["default"]), true,
@@ -328,7 +315,7 @@ assert.strictEqual(searchFound(1, ["default"]), true,
 assert.strictEqual(searchFound(2, ["default", "two@gmail.com"]), false,
   "the stand-in beside a named mailbox is ambiguous like any other")
 
-// The stand-in is the whole literal value and nothing else. An address that
+// Invariant: The stand-in is the whole literal value and nothing else. An address that
 // merely starts with it, or differs in case, is a mailbox with a name: read
 // any looser, this is the line that makes a real account look nameless and
 // hands its token to another one.
@@ -340,28 +327,26 @@ assert.strictEqual(credentials.isKeyringNamedLine("attribute.account = "), true)
 
 assert.strictEqual(credentials.hasLoneLegacyEntry(0, 0, 0), false, "no match is not an entry")
 
-// Fail closed on a stream that says nothing about the match it belongs to. An
+// Invariant: Fail closed on a stream that says nothing about the match it belongs to. An
 // attribute that was never read is not an attribute that is absent, and the
 // difference between the two is whose mailbox opens.
 assert.strictEqual(credentials.hasLoneLegacyEntry(1, 0, 0), false,
   "an attribute stream that accounts for no match is not an account-less entry")
 
-// Neither stream may be read as the other's: the record lines carry no
+// Invariant: Neither stream may be read as the other's: the record lines carry no
 // attributes, and the attribute lines carry no records.
 assert.strictEqual(countWith(credentials.isKeyringMatchLine, recordLines(3)), 3)
 assert.strictEqual(countWith(credentials.isKeyringMatchLine, attributeLines([null, null])), 0)
 assert.strictEqual(countWith(credentials.isKeyringAttributedLine, recordLines(1)), 0)
 assert.strictEqual(countWith(credentials.isKeyringNamedLine, recordLines(2)), 0)
 
-// ------------------------------------------------------------ the store
-//
-// The file written before accounts existed holds one client in the console's
+// Invariant: The file written before accounts existed holds one client in the console's
 // own shape. It has to keep loading, as a single unnamed account.
 
 const legacyStore = credentials.loadStore(serialized)
 deepEqual(credentials.accountIds(legacyStore), [""])
 deepEqual(credentials.forAccount(legacyStore, ""), parsed.credentials)
-// The account learns its own address only after a sign-in, which needs the
+// Invariant: The account learns its own address only after a sign-in, which needs the
 // client this file already holds. Refusing to match it would ask a working
 // install to set its client up again.
 deepEqual(credentials.forAccount(legacyStore, "one@gmail.com"), parsed.credentials)
@@ -371,7 +356,7 @@ deepEqual(credentials.loadStore(""), { accounts: [] })
 deepEqual(credentials.loadStore("garbage"), { accounts: [] })
 deepEqual(credentials.forAccount(credentials.emptyStore(), "one@gmail.com"), credentials.empty())
 
-// One client, two mailboxes, plus a second project of its own: the shape the
+// Invariant: One client, two mailboxes, plus a second project of its own: the shape the
 // keyring scheme above exists for.
 let store = credentials.emptyStore()
 store = credentials.withAccount(store, "one@gmail.com", {
@@ -400,17 +385,17 @@ deepEqual(credentials.forAccount(roundTripped, "three@work.com"), {
 deepEqual(credentials.load(storedText, "two@gmail.com"), credentials.forAccount(store, "two@gmail.com"))
 deepEqual(credentials.effective(storedText, "three@work.com"), credentials.forAccount(store, "three@work.com"))
 
-// Naming every account rules out the pre-accounts fallback: an id nobody has
+// Invariant: Naming every account rules out the pre-accounts fallback: an id nobody has
 // heard of is a missing account, not the first one in the list.
 deepEqual(credentials.forAccount(roundTripped, "nobody@gmail.com"), credentials.empty())
 deepEqual(credentials.load(storedText, ""), credentials.empty())
 
-// Two accounts on one client each keep their own token.
+// Invariant: Two accounts on one client each keep their own token.
 assert.notStrictEqual(
   JSON.stringify(credentials.keyringAttributes(credentials.forAccount(store, "one@gmail.com").clientId, "one@gmail.com")),
   JSON.stringify(credentials.keyringAttributes(credentials.forAccount(store, "two@gmail.com").clientId, "two@gmail.com")))
 
-// Saving a client again for an account it already has must not shuffle the
+// Invariant: Saving a client again for an account it already has must not shuffle the
 // panel's order.
 const rewritten = credentials.withAccount(store, "one@gmail.com", {
   clientId: sharedClient, clientSecret: "GOCSPX-rotated", projectId: "omarchy-gmail-42"
@@ -418,14 +403,14 @@ const rewritten = credentials.withAccount(store, "one@gmail.com", {
 deepEqual(credentials.accountIds(rewritten), ["one@gmail.com", "two@gmail.com", "three@work.com"])
 assert.strictEqual(credentials.forAccount(rewritten, "one@gmail.com").clientSecret, "GOCSPX-rotated")
 
-// A lone unnamed account is still written in the console's shape, so the file
+// Invariant: A lone unnamed account is still written in the console's shape, so the file
 // stays interchangeable with a downloaded one and an older build still reads
 // it. Only a named or a second account promotes the file.
 const singleText = credentials.serialize(
   credentials.withAccount(credentials.emptyStore(), "", parsed.credentials))
 assert.strictEqual(singleText, serialized)
 
-// A hand-edited entry loses that account, not every other one.
+// Invariant: A hand-edited entry loses that account, not every other one.
 const damaged = credentials.loadStore(JSON.stringify({
   version: 2,
   accounts: [
@@ -436,7 +421,7 @@ const damaged = credentials.loadStore(JSON.stringify({
 deepEqual(credentials.accountIds(damaged), ["three@work.com"])
 
 
-// Adding a second mailbox must not send the user back through the Google Cloud
+// Invariant: Adding a second mailbox must not send the user back through the Google Cloud
 // walkthrough: a client belongs to the project, not to the address.
 {
   var shared = credentials.withAccount(credentials.emptyStore(), "one@gmail.com",

@@ -1,9 +1,11 @@
 import QtQuick 2.15
+import QtQuick.Window
 import QtTest 1.3
 import "../../components" as Omamail
 
 // Invariant: the combined row shifts account indexes; the popup consumes keys before KeyRouter.
 Item {
+  id: host
   width: 600
   height: 400
 
@@ -215,6 +217,36 @@ Item {
       compare(unifiedSpy.count, 0)
       compare(chosenSpy.count, 1)
       compare(chosenSpy.signalArguments[0][0], 0)
+    }
+
+    function test_many_mailboxes_keep_the_cursor_and_management_actions_in_view() {
+      var mailboxes = []
+      for (var mailboxIndex = 0; mailboxIndex < 20; mailboxIndex++)
+        mailboxes.push({ id: String(mailboxIndex), email: "mailbox-" + mailboxIndex + "@example.test",
+          active: mailboxIndex === 19, signedIn: true })
+      switcher.accounts = mailboxes
+      switcher.openCentered()
+      tryCompare(switcher, "opened", true)
+      wait(20)
+      var rows = accountRows()
+      compare(rows.length, 20)
+      var lastRow = rows[19]
+      var lastPosition = lastRow.mapToItem(host, 0, 0)
+      verify(lastPosition.y >= 0, "active account is above the window")
+      verify(lastPosition.y + lastRow.height <= host.height, "active account is below the window")
+      keyClick(Qt.Key_Down)
+      compare(switcher.cursorIndex, 0)
+      keyClick(Qt.Key_Down)
+      compare(switcher.cursorIndex, 1)
+      var firstPosition = rows[0].mapToItem(host, 0, 0)
+      verify(firstPosition.y >= 0 && firstPosition.y + rows[0].height <= host.height,
+        "wrapped keyboard cursor is outside the window")
+      keyClick(Qt.Key_Tab)
+      var focused = host.Window.window.activeFocusItem
+      compare(focused.text, "Add a mailbox...")
+      var actionPosition = focused.mapToItem(host, 0, 0)
+      verify(actionPosition.y >= 0 && actionPosition.y + focused.height <= host.height,
+        "focused management action is outside the window")
     }
 
     function test_typing_finds_a_mailbox_by_name_or_address() {

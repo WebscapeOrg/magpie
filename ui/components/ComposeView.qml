@@ -87,7 +87,7 @@ DropArea {
     return Agent.replyOnly(bodyEdit.text, bodyQuote) !== bodyEdit.text ? bodyQuote : ""
   }
   readonly property bool attachmentsReady: !forwardAttachmentsLoading
-    && forwardAttachmentError === "" && !attachmentHostPending
+    && forwardAttachmentError === "" && attachmentRecoveryError === "" && !attachmentHostPending
     && !attachmentReadPending && attachJobs.length === 0
 
   function outgoingEnvelope() {
@@ -164,6 +164,13 @@ DropArea {
   property bool forwardAttachmentsLoading: false
   property string forwardAttachmentError: ""
   property int forwardLoadSerial: 0
+  property string attachmentSourceMessageId: ""
+  property string attachmentRecoveryError: ""
+  property var pendingProviderLoads: []
+  property var activeAttachJob: null
+  property var attachmentReadGrants: []
+  property var attachmentRecoveryJobs: []
+  property var attachmentRecoveryFiles: []
   property var draftAttachments: []
   readonly property var attachmentPreviews: previewsFor(draftAttachments)
   function previewsFor(attachments) {
@@ -196,7 +203,7 @@ DropArea {
     settingBodyText = false
   }
 
-  function hasUserChanges() { return userModified }
+  function hasUserChanges() { return userModified || draftAttachmentsPending(snapshotDraft()) }
 
   onAccountIdChanged: noteDraftChanged()
   onModeChanged: noteDraftChanged()
@@ -208,6 +215,10 @@ DropArea {
   onFromEmailChanged: noteDraftChanged()
   onDraftAttachmentsChanged: noteDraftChanged()
   onForwardedAttachmentsChanged: noteDraftChanged()
+  onAttachJobsChanged: noteDraftChanged()
+  onActiveAttachJobChanged: noteDraftChanged()
+  onForwardAttachmentsLoadingChanged: noteDraftChanged()
+  onAttachmentRecoveryErrorChanged: noteDraftChanged()
 
   readonly property string composeDir: service && typeof service.cachePath === "function"
     ? service.cachePath("compose") : ""
@@ -288,6 +299,10 @@ DropArea {
     forwardedAttachments = []
     forwardAttachmentsLoading = false
     forwardAttachmentError = ""
+    attachmentSourceMessageId = ""
+    attachmentRecoveryError = ""
+    attachmentRecoveryJobs = []
+    attachmentRecoveryFiles = []
     var owned = draftAttachments
     draftAttachments = []
     attachJobs = []
@@ -340,6 +355,12 @@ DropArea {
   }
 
   function snapshotDraft() {
+    var jobs = attachJobs.concat(attachmentRecoveryJobs).filter(function(job) {
+      return job.mode !== "forget"
+    }).map(attachmentJobSnapshot)
+    var pending = activeAttachJob && activeAttachJob.mode !== "forget" && activeAttachJob.owner === draftKey
+      && activeAttachJob.accountId === accountId ? attachmentJobSnapshot(activeAttachJob) : null
+    if (!pending && jobs.length > 1000) pending = jobs.shift()
     return ({
       draftKey: draftKey,
       replyMessageId: replyMessageId,
@@ -367,7 +388,14 @@ DropArea {
       fromWasChosen: fromWasChosen,
       originalAttachments: originalAttachments.slice(),
       forwardedAttachments: forwardedAttachments.slice(),
-      draftAttachments: draftAttachments.slice()
+      draftAttachments: draftAttachments.concat(attachmentRecoveryFiles),
+      attachmentSourceMessageId: attachmentSourceMessageId,
+      forwardAttachmentsLoading: forwardAttachmentsLoading,
+      forwardAttachmentError: forwardAttachmentError,
+      forwardLoadSerial: forwardLoadSerial,
+      attachmentRecoveryError: attachmentRecoveryError,
+      attachJobs: jobs,
+      pendingAttachment: pending
     })
   }
 
@@ -379,6 +407,11 @@ DropArea {
     mode = String(saved.mode || "new")
     accountId = String(saved.accountId || "")
     sourceDraftId = String(saved.sourceDraftId || "")
+    attachmentSourceMessageId = String(saved.attachmentSourceMessageId || sourceDraftId || "")
+    forwardAttachmentsLoading = saved.forwardAttachmentsLoading === true
+    forwardAttachmentError = String(saved.forwardAttachmentError || "")
+    forwardLoadSerial = Math.max(0, Number(saved.forwardLoadSerial) || 0)
+    attachmentRecoveryError = String(saved.attachmentRecoveryError || "")
     threadId = String(saved.threadId || "")
     inReplyTo = String(saved.inReplyTo || "")
     ccVisible = saved.ccVisible === true
@@ -394,6 +427,11 @@ DropArea {
       ? saved.forwardedAttachments.slice() : []
     draftAttachments = Array.isArray(saved.draftAttachments)
       ? saved.draftAttachments.slice() : []
+    if ((mode === "forward" || mode === "draft") && originalAttachments.length > 0) {
+      var retained = mode === "forward" ? forwardedAttachments : draftAttachments
+      if (retained.length === 0 && saved.forwardAttachmentsLoading === undefined)
+        forwardAttachmentsLoading = true
+    }
     toField.text = String(saved.to || "")
     ccField.text = String(saved.cc || "")
     bccField.text = String(saved.bcc || "")
@@ -406,7 +444,69 @@ DropArea {
     userModified = typeof saved.userModified === "boolean"
       ? saved.userModified : hasMeaningfulDraft()
     opened = true
+    restoreAttachmentWork(saved)
     rehydrateDraftAttachments()
+  }
+
+  function attachmentJobSnapshot(job) {
+    return {mode: String(job.mode || "read"), path: String(job.path || ""),
+      owner: String(job.owner || root.draftKey), accountId: String(job.accountId || root.accountId)}
+  }
+
+  function attachmentDraft(owner, account) {
+    function matches(draft) {
+      return draft && String(draft.draftKey || "") === String(owner)
+        && (account === undefined || String(draft.accountId || "") === String(account))
+    }
+    if (root.opened && matches(root)) return root
+    if (matches(root.interruptedDraft)) return root.interruptedDraft
+    var drafts = root.recoveryDrafts.concat(root.parkedDrafts.map(function(entry) { return entry.draft }))
+    for (var draftIndex = 0; draftIndex < drafts.length; draftIndex++)
+      if (matches(drafts[draftIndex])) return drafts[draftIndex]
+    return null
+  }
+
+  function draftAttachmentsPending(draft) {
+    return !!draft && (draft.forwardAttachmentsLoading === true
+      || String(draft.forwardAttachmentError || "") !== ""
+      || String(draft.attachmentRecoveryError || "") !== ""
+      || !!draft.pendingAttachment || (Array.isArray(draft.attachJobs) && draft.attachJobs.length > 0))
+  }
+
+  function restoreAttachmentWork(saved) {
+    var jobs = Array.isArray(saved.attachJobs) ? saved.attachJobs.slice() : []
+    var pending = saved.pendingAttachment
+    var running = activeAttachJob && activeAttachJob.owner === draftKey
+      && activeAttachJob.accountId === accountId
+    if (pending && !running) jobs.unshift(pending)
+    var replay = []
+    attachmentRecoveryJobs = []
+    attachmentRecoveryFiles = []
+    for (var jobIndex = 0; jobIndex < jobs.length; jobIndex++) {
+      var job = jobs[jobIndex] || ({})
+      if (String(job.owner || "") !== draftKey || String(job.accountId || "") !== accountId) {
+        attachmentRecoveryError = "An attachment could not be restored. Choose the file again."
+        continue
+      }
+      if (["read", "recover", "recover-owned"].indexOf(String(job.mode)) < 0) {
+        attachmentRecoveryError = "Attachment selection was interrupted. Choose the files again."
+        continue
+      }
+      if (!hasAttachmentReadGrant(job)) {
+        holdAttachmentRecovery(job)
+        continue
+      }
+      replay.push(attachmentJobSnapshot(job))
+    }
+    attachJobs = replay
+    attaching = replay.length > 0 || !!running
+    pumpAttach()
+    if (!forwardAttachmentsLoading) return
+    var loadRunning = pendingProviderLoads.some(function(load) {
+      return load.owner === root.draftKey && load.accountId === root.accountId
+        && load.serial === root.forwardLoadSerial
+    })
+    if (!loadRunning) loadOriginalAttachments()
   }
 
   function rehydrateDraftAttachments() {
@@ -422,13 +522,51 @@ DropArea {
     }
     if (recover.length === 0) return
     draftAttachments = kept
-    for (var recoveryIndex = 0; recoveryIndex < recover.length; recoveryIndex++)
-      enqueueAttach(recover[recoveryIndex].owned === true ? "recover-owned" : "recover",
-        String(recover[recoveryIndex].path || ""))
+    for (var recoveryIndex = 0; recoveryIndex < recover.length; recoveryIndex++) {
+      var file = recover[recoveryIndex]
+      var job = {mode:file.owned === true ? "recover-owned" : "recover", path:String(file.path || ""),
+        owner:draftKey, accountId:accountId}
+      if (!hasAttachmentReadGrant(job)) {
+        attachmentRecoveryFiles = attachmentRecoveryFiles.concat([file])
+        updateAttachmentRecoveryMessage()
+        continue
+      }
+      enqueueAttach(job.mode, job.path)
+    }
+  }
+
+  function hasAttachmentReadGrant(job) {
+    return attachmentReadGrants.some(function(grant) {
+      return grant.owner === job.owner && grant.accountId === job.accountId && grant.path === job.path
+    })
+  }
+
+  function holdAttachmentRecovery(job) {
+    attachmentRecoveryJobs = attachmentRecoveryJobs.concat([attachmentJobSnapshot(job)])
+    updateAttachmentRecoveryMessage()
+  }
+
+  function updateAttachmentRecoveryMessage() {
+    var missing = attachmentRecoveryJobs.concat(attachmentRecoveryFiles)
+    if (missing.length === 0) { attachmentRecoveryError = ""; return }
+    var names = missing.slice(0, 3).map(function(entry) {
+      var name = String(entry.path || "").split("/").pop()
+      return name.length > 80 ? name.substring(0, 77) + "..." : name
+    }).join(", ")
+    var remaining = missing.length - 3
+    attachmentRecoveryError = "Choose these files again: " + names
+      + (remaining > 0 ? " and " + remaining + " more." : ".")
+  }
+
+  function dismissAttachmentRecovery() {
+    attachmentRecoveryJobs = []
+    attachmentRecoveryFiles = []
+    attachmentRecoveryError = ""
   }
 
   function reset() {
     clearCurrentDraft(true)
+    attachmentReadGrants = []
     for (var candidateIndex = 0; candidateIndex < parkedDrafts.length; candidateIndex++)
       forgetOwned(parkedDrafts[candidateIndex].draft ? parkedDrafts[candidateIndex].draft.draftAttachments : [])
     forgetOwned(interruptedDraft ? interruptedDraft.draftAttachments : [])
@@ -550,37 +688,38 @@ DropArea {
   }
 
   function loadForwardAttachments() {
-    if (!service || originalAttachments.length === 0) return
-    var serial = ++forwardLoadSerial
-    forwardAttachmentsLoading = true
-    forwardAttachmentError = ""
-    forwardedAttachments = []
-    service.loadAttachments(service.selectedId, originalAttachments,
-      function(loaded, error) {
-        if (serial !== root.forwardLoadSerial || !root.opened || root.mode !== "forward") return
-        root.forwardAttachmentsLoading = false
-        root.forwardAttachmentError = String(error || "")
-        root.forwardedAttachments = error ? [] : loaded
-      }, root.draftKey)
+    loadOriginalAttachments()
   }
 
   function loadDraftAttachments(messageId, attachments) {
-    var listed = Array.isArray(attachments) ? attachments.slice() : []
-    originalAttachments = listed
-    if (!service || listed.length === 0) return
-    var serial = ++forwardLoadSerial
+    attachmentSourceMessageId = String(messageId || sourceDraftId || "")
+    originalAttachments = Array.isArray(attachments) ? attachments.slice() : []
+    loadOriginalAttachments()
+  }
+
+  function loadOriginalAttachments() {
+    if (!service || originalAttachments.length === 0) return
+    if (attachmentSourceMessageId === "") {
+      forwardAttachmentsLoading = false
+      forwardAttachmentError = "The original message is unavailable. Reopen it to include its attachments."
+      return
+    }
+    var load = {owner: draftKey, accountId: accountId, serial: ++forwardLoadSerial,
+      mode: mode, messageId: attachmentSourceMessageId}
+    pendingProviderLoads = pendingProviderLoads.concat([load])
     forwardAttachmentsLoading = true
     forwardAttachmentError = ""
-    service.loadAttachments(messageId, listed, function(loaded, error) {
-      if (serial !== root.forwardLoadSerial || !root.opened || root.mode !== "draft") return
-      root.forwardAttachmentsLoading = false
-      root.forwardAttachmentError = String(error || "")
-      if (error) {
-        if (root.service && typeof root.service.fail === "function") root.service.fail(error)
-        return
-      }
-      root.draftAttachments = Array.isArray(loaded) ? loaded : []
-    }, root.draftKey)
+    if (mode === "forward") forwardedAttachments = []
+    service.loadAttachments(load.messageId, originalAttachments.slice(), function(loaded, error) {
+      root.pendingProviderLoads = root.pendingProviderLoads.filter(function(candidate) { return candidate !== load })
+      var target = root.attachmentDraft(load.owner, load.accountId)
+      if (!target || target.forwardLoadSerial !== load.serial || target.mode !== load.mode) return
+      target.forwardAttachmentsLoading = false
+      target.forwardAttachmentError = String(error || "")
+      if (load.mode === "forward") target.forwardedAttachments = error ? [] : loaded
+      else if (!error) target.draftAttachments = (target.draftAttachments || []).concat(Array.isArray(loaded) ? loaded : [])
+      if (target !== root) root.draftChanged()
+    }, load.owner, load.accountId)
   }
 
   function begin(nextMode, summary, bodyText, attachments) {
@@ -604,6 +743,7 @@ DropArea {
 
       if (mode === "forward") {
         subjectField.text = "Fwd: " + summary.subject
+        attachmentSourceMessageId = String(summary.id || "")
         originalAttachments = Array.isArray(attachments) ? attachments.slice() : []
         if (originalAttachments.length > 0) loadForwardAttachments()
       } else {
@@ -718,7 +858,7 @@ DropArea {
     if (String(subjectField.text || "").trim() !== "") return true
     if ((bodyWasEdited || String(bodyEdit.text || "") !== placedBody)
       && String(bodyEdit.text || "").trim() !== "") return true
-    return allOutgoingAttachments().length > 0
+    return allOutgoingAttachments().length > 0 || draftAttachmentsPending(snapshotDraft())
   }
 
   function fieldsForDraft(saved) {
@@ -846,7 +986,7 @@ DropArea {
 
   function interruptedFields() {
     var saved = interruptedDraft
-    if (!saved) return null
+    if (!saved || draftAttachmentsPending(saved)) return null
     return fieldsForDraft(saved)
   }
 
@@ -931,7 +1071,8 @@ DropArea {
 
   function enqueueAttach(mode, path, pasteTarget) {
     var jobs = root.attachJobs.slice()
-    jobs.push({ mode: String(mode || "read"), path: String(path || ""), pasteTarget: pasteTarget })
+    jobs.push({ mode: String(mode || "read"), path: String(path || ""), pasteTarget: pasteTarget,
+      owner: root.draftKey, accountId: root.accountId })
     root.attachJobs = jobs
     pumpAttach()
   }
@@ -939,62 +1080,77 @@ DropArea {
   function pumpAttach() {
     if (root.attachmentHostPending || root.attachmentReadPending || root.attachJobs.length === 0) return
     var job = root.attachJobs[0]
-    var owner = root.draftKey
+    var owner = String(job.owner || root.draftKey)
+    var ownerAccount = String(job.accountId || root.accountId)
+    job.owner = owner
+    job.accountId = ownerAccount
     var rest = root.attachJobs.slice(1)
     root.attachJobs = rest
+    if (job.mode !== "forget" && !attachmentDraft(owner, ownerAccount)) { pumpAttach(); return }
+    if (["read", "recover", "recover-owned"].indexOf(job.mode) >= 0 && !hasAttachmentReadGrant(job)) {
+      holdAttachmentRecovery(job)
+      root.attaching = root.attachJobs.length > 0
+      pumpAttach()
+      return
+    }
+    root.activeAttachJob = job
     root.attaching = true
     if (job.mode === "read" || job.mode === "recover" || job.mode === "recover-owned"
         || job.mode === "forget") {
       if (!root.service || !root.service.backend || !root.service.backend.ready) {
-        finishAttach(job.mode, JSON.stringify({ ok: false, error: "Mail backend unavailable" }), owner)
+        finishAttach(job.mode, JSON.stringify({ ok: false, error: "Mail backend unavailable" }), owner, undefined, ownerAccount)
         return
       }
       root.attachmentReadPending = true
-      var mailbox = typeof root.service.findAccount === "function" ? root.service.findAccount(root.accountId) : null
+      var mailbox = typeof root.service.findAccount === "function" ? root.service.findAccount(ownerAccount) : null
       var stored = job.mode !== "forget" && Number(root.service.backend.apiVersion) >= 8 && (!mailbox || mailbox.providerId !== "hey")
       var method = job.mode === "forget" ? "attachment.forget" : stored ? "attachment.import" : "attachment.read"
       var params = {path:job.path}
-      if (stored) { params.accountId = root.accountId; params.draftKey = owner }
+      if (stored) { params.accountId = ownerAccount; params.draftKey = owner }
       root.service.backend.call(method, params, function(result, error) {
         root.attachmentReadPending = false
         var code = error ? String(error.message || "") : ""
         finishAttach(job.mode, JSON.stringify(error ? { ok: false,
           error: code === "attachment_too_large" ? "That file is larger than the 20 MB send limit"
-            : "That file could not be read" } : result), owner)
+            : "That file could not be read" } : result), owner, undefined, ownerAccount)
       })
       return
     }
     if (!root.service) {
-      finishAttach(job.mode, JSON.stringify({ ok: false, error: "Attachment service unavailable" }), owner)
+      finishAttach(job.mode, JSON.stringify({ ok: false, error: "Attachment service unavailable" }), owner, undefined, ownerAccount)
       return
     }
     root.attachmentHostPending = true
     if (job.mode === "clipboard" && typeof root.service.clipboardAttachment === "function") {
       root.service.clipboardAttachment(root.composeDir, function(result) {
         root.attachmentHostPending = false
-        root.finishAttach(job.mode, JSON.stringify(result || {ok:false,error:"no-image"}), owner, job.pasteTarget)
+        root.finishAttach(job.mode, JSON.stringify(result || {ok:false,error:"no-image"}), owner, job.pasteTarget, ownerAccount)
       })
     } else if (job.mode === "pick" && typeof root.service.chooseFiles === "function") {
       root.service.chooseFiles(function(result) {
         root.attachmentHostPending = false
-        root.finishAttach(job.mode, JSON.stringify(result || {ok:false,error:"cancelled"}), owner)
+        root.finishAttach(job.mode, JSON.stringify(result || {ok:false,error:"cancelled"}), owner, undefined, ownerAccount)
       })
     } else {
       root.attachmentHostPending = false
-      finishAttach(job.mode, JSON.stringify({ ok: false, error: "Unknown attachment action" }), owner)
+      finishAttach(job.mode, JSON.stringify({ ok: false, error: "Unknown attachment action" }), owner, undefined, ownerAccount)
     }
   }
 
   property bool attachmentReadPending: false
 
-  function finishAttach(mode, text, owner, pasteTarget) {
+  function finishAttach(mode, text, owner, pasteTarget, ownerAccount) {
     var result = null
     try { result = JSON.parse(String(text || "")) }
     catch (parseError) { result = null }
 
-    // Invariant: attachment helpers outlive the form; stale completions must not enter the next
-    // draft.
-    if (mode !== "forget" && owner !== undefined && owner !== root.draftKey) {
+    // Invariant: completion belongs to its exact draft/mailbox, including an interrupted draft.
+    var target = owner === undefined ? root : attachmentDraft(owner, ownerAccount)
+    var completedJob = activeAttachJob && activeAttachJob.owner === owner
+      && (ownerAccount === undefined || activeAttachJob.accountId === ownerAccount) ? activeAttachJob : null
+    if (completedJob) activeAttachJob = null
+    if (target && target !== root) target.pendingAttachment = null
+    if (mode !== "forget" && !target) {
       if (mode === "clipboard" && result && result.ok === true && result.path)
         root.forgetOwned([{owned:true,path:result.path}])
       root.attaching = root.attachJobs.length > 0
@@ -1002,7 +1158,7 @@ DropArea {
       return
     }
 
-    if (mode === "clipboard") root.pasteInFlight = false
+    if (mode === "clipboard" && target === root) root.pasteInFlight = false
 
     if (mode === "forget") {
       root.attaching = root.attachJobs.length > 0
@@ -1013,10 +1169,8 @@ DropArea {
     if (mode === "pick" || (mode === "clipboard" && result && result.ok === true
         && Array.isArray(result.paths))) {
       root.attaching = root.attachJobs.length > 0
-      if (result && result.ok === true && Array.isArray(result.paths)) {
-        for (var candidateIndex = 0; candidateIndex < result.paths.length; candidateIndex++)
-          enqueueAttach("read", String(result.paths[candidateIndex] || ""))
-      }
+      if (result && result.ok === true && Array.isArray(result.paths))
+        queueSelectedAttachments(target, result.paths, owner, ownerAccount)
       pumpAttach()
       return
     }
@@ -1024,16 +1178,16 @@ DropArea {
     if (mode === "clipboard" && result && result.ok !== true
         && String(result.error || "") === "no-image") {
       root.attaching = root.attachJobs.length > 0
-      if (pasteTarget) pasteTarget.paste()
+      if (target === root && pasteTarget) pasteTarget.paste()
       pumpAttach()
       return
     }
 
     if (!result || result.ok !== true) {
       root.attaching = root.attachJobs.length > 0
-      if (service && typeof service.fail === "function")
-        service.fail(result && result.error ? String(result.error)
-          : "That file could not be attached")
+      var attachmentError = result && result.error ? String(result.error) : "That file could not be attached"
+      if (target !== root) target.attachmentRecoveryError = attachmentError
+      else if (service && typeof service.fail === "function") service.fail(attachmentError)
       pumpAttach()
       return
     }
@@ -1047,11 +1201,48 @@ DropArea {
       path: String(result.path || ""),
       owned: mode === "clipboard" || mode === "recover-owned"
     })
-    var next = root.draftAttachments.slice()
+    var selectedPath = completedJob ? String(completedJob.path || "") : entry.path
+    var next = (target.draftAttachments || []).filter(function(file) {
+      return String(file.path || "") !== selectedPath || String(file.data || "") !== ""
+        || String(file.handle || "") !== ""
+    })
     next.push(entry)
-    root.draftAttachments = next
-    if (mode === "read" || mode === "clipboard") noteUserModified()
+    target.draftAttachments = next
+    var unrecovered = (target === root ? attachmentRecoveryJobs : target.attachJobs || []).filter(function(job) {
+      return String(job.path || "") !== selectedPath
+    })
+    if (target === root) {
+      attachmentRecoveryJobs = unrecovered
+      attachmentRecoveryFiles = attachmentRecoveryFiles.filter(function(file) {
+        return String(file.path || "") !== selectedPath
+      })
+      updateAttachmentRecoveryMessage()
+    } else {
+      target.attachJobs = unrecovered
+      if (unrecovered.length === 0) target.attachmentRecoveryError = ""
+    }
+    if (mode === "clipboard" && entry.path !== "")
+      attachmentReadGrants = attachmentReadGrants.concat([{owner:owner,accountId:ownerAccount,path:entry.path}])
+    if (mode === "read" || mode === "clipboard") {
+      if (target === root) noteUserModified()
+      else target.userModified = true
+    }
+    if (target !== root) root.draftChanged()
     root.attaching = root.attachJobs.length > 0
+    pumpAttach()
+  }
+
+  // Invariant: only a live file selection grants path reads; persisted draft metadata never recreates a grant.
+  function queueSelectedAttachments(target, paths, owner, ownerAccount) {
+    var jobs = []
+    for (var pathIndex = 0; pathIndex < paths.length; pathIndex++) {
+      var path = String(paths[pathIndex] || "")
+      if (path === "") continue
+      attachmentReadGrants = attachmentReadGrants.concat([{owner:owner,accountId:ownerAccount,path:path}])
+      jobs.push({mode:"read",path:path,owner:owner,accountId:ownerAccount})
+    }
+    target.attachJobs = (target.attachJobs || []).concat(jobs)
+    if (target !== root) root.draftChanged()
     pumpAttach()
   }
 
@@ -1071,7 +1262,7 @@ DropArea {
     for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
       var url = String(list[entryIndex] || "")
       var path = url.indexOf("file://") === 0 ? decodeURIComponent(url.substring(7)) : url
-      if (path !== "") enqueueAttach("read", path)
+      if (path !== "") queueSelectedAttachments(root, [path], draftKey, accountId)
     }
   }
 
@@ -1602,8 +1793,45 @@ DropArea {
       }
     }
 
+    Column {
+      objectName: "compose-attachment-recovery-notice"
+      visible: root.attachmentRecoveryError !== ""
+      width: parent.width
+      leftPadding: root.formInset
+      rightPadding: root.formInset
+      spacing: MailStyle.space(6)
+
+      Text {
+        width: parent.width - parent.leftPadding - parent.rightPadding
+        text: root.attachmentRecoveryError
+        textFormat: Text.PlainText
+        color: root.textColor
+        font.family: root.panelFontFamily
+        font.pixelSize: MailStyle.bodySmall
+        wrapMode: Text.WordWrap
+      }
+      Flow {
+        width: parent.width - parent.leftPadding - parent.rightPadding
+        spacing: MailStyle.space(8)
+        Widgets.Button {
+          objectName: "compose-recovery-choose-files"
+          text: "Choose files..."
+          focusable: true
+          foreground: root.textColor
+          onClicked: root.chooseFiles()
+        }
+        Widgets.Button {
+          objectName: "compose-recovery-dismiss"
+          text: "Continue without missing files"
+          focusable: true
+          foreground: root.textColor
+          onClicked: root.dismissAttachmentRecovery()
+        }
+      }
+    }
+
     Item {
-      visible: root.mode === "forward" && root.originalAttachments.length > 0
+      visible: (root.mode === "forward" || root.mode === "draft") && root.originalAttachments.length > 0
       width: parent.width
       implicitHeight: attachmentSummary.implicitHeight + MailStyle.space(14)
 
@@ -1637,8 +1865,9 @@ DropArea {
             ? "Loading original attachments..."
             : (root.forwardAttachmentError !== ""
               ? root.forwardAttachmentError
-              : Mail.formatCount(root.forwardedAttachments.length, "original attachment")
-                + " will be forwarded")
+              : Mail.formatCount(root.mode === "forward" ? root.forwardedAttachments.length
+                  : root.originalAttachments.length, "original attachment")
+                + (root.mode === "forward" ? " will be forwarded" : " included"))
           textFormat: Text.PlainText
           color: root.forwardAttachmentError !== "" ? root.accentColor : root.textColor
           font.family: root.panelFontFamily
@@ -1673,7 +1902,8 @@ DropArea {
         foreground: root.textColor
         bordered: false
         fontSize: MailStyle.caption
-        onClicked: root.loadForwardAttachments()
+        focusable: true
+        onClicked: root.loadOriginalAttachments()
       }
 
       PanelSeparator {

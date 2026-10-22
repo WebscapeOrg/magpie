@@ -323,6 +323,8 @@ try:
     metadata = strict_json(metadata_path)
 except Exception as error:
     raise SystemExit(f"release metadata is missing or invalid: {error}")
+if not isinstance(metadata, dict) or type(metadata.get("schemaVersion")) is not int:
+    raise SystemExit("release metadata has invalid fields")
 if metadata != {"schemaVersion": 1, "name": "omamail", "version": metadata.get("version"), "target": expected_target, "topLevel": expected_top}:
     raise SystemExit("release metadata has invalid fields")
 release_version = metadata.get("version")

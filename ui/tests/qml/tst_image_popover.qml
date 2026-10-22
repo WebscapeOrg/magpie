@@ -1,5 +1,7 @@
 import QtQuick 2.15
 import QtTest 1.3
+import QtQuick.Window
+import "../../components" as Components
 
 Item {
   width: 400
@@ -17,6 +19,16 @@ Item {
     }))
   }
 
+  Components.SenderAvatar {
+    id: avatar
+    width: 40
+    height: 40
+    sender: ({display: "Synthetic Sender"})
+    foreground: Qt.rgba(1, 1, 1, 1)
+    accent: Qt.rgba(0.7, 0.8, 0.9, 1)
+    fontFamily: "monospace"
+  }
+
   TestCase {
     name: "ImagePopover"
     when: windowShown
@@ -24,6 +36,16 @@ Item {
     function popover() {
       tryVerify(function() { return popoverLoader.status === Loader.Ready }, 1000)
       return popoverLoader.item
+    }
+
+    function test_avatar_retains_only_the_pixels_needed_for_its_display() {
+      avatar.imageData = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAIAAAC2BqGFAAAA60lEQVR4nO3QAQkAIADAMPuZyRrmtYXCHTzA2Zhr60Lj+cEngQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtzqYOOv1wt5mmgAAAABJRU5ErkJggg=="
+      var picture = findChild(avatar, "sender-avatar-image")
+      tryCompare(picture, "status", Image.Ready)
+      compare(picture.sourceSize.width, Math.ceil(avatar.width * Screen.devicePixelRatio))
+      compare(picture.sourceSize.height, Math.ceil(avatar.height * Screen.devicePixelRatio))
+      compare(picture.width, avatar.width)
+      compare(picture.height, avatar.height)
     }
 
     function test_a_remote_url_is_not_an_image_source() {

@@ -71,15 +71,17 @@ Column {
 
   // Invariant: sender-name controls require both provider support and the backend revision that
   // writes them.
-  readonly property bool senderNameEditable: {
+  readonly property bool senderNameEditable: !!senderNameAccount()
+  function senderNameAccount() {
     var entry = signatureAccount(selectedNameAccountId)
-    return !!(service && service.backendCanNameSender && entry
-      && Accounts.namesSender(entry.provider))
+    return service && service.backendCanNameSender && entry
+      && Accounts.namesSender(entry.provider) ? entry : null
   }
 
   function saveSenderName() {
-    if (service && senderNameEditable)
-      service.setAccountSenderName(selectedNameAccountId, senderNameEdit.text)
+    var entry = senderNameAccount()
+    if (entry && String(entry.senderName || "") !== senderNameEdit.text)
+      service.setAccountSenderName(entry.id, senderNameEdit.text)
   }
 
   function showNameAccount(next) {
@@ -239,8 +241,8 @@ Column {
   }
 
   onSignatureAccountsChanged: {
-    ensureSignatureAccount()
-    ensureNameAccount()
+    Qt.callLater(ensureSignatureAccount)
+    Qt.callLater(ensureNameAccount)
   }
   // Invariant: the service is bound after construction and default-mail settings can change
   // externally; refresh when the page becomes visible.

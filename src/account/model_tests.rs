@@ -224,7 +224,10 @@ fn round2_rebase_refuses_nonobject_intent_entries() {
             json!({"operation":"intentsSettled","args":[{"message":entries},"message",1,true,null]}),
         ] {
             let result = std::panic::catch_unwind(|| apply(&request));
-            assert!(result.is_ok(), "malformed intent records must not unwind the backend request");
+            assert!(
+                result.is_ok(),
+                "malformed intent records must not unwind the backend request"
+            );
             assert_eq!(result.unwrap(), Err("model_invalid"));
         }
     }

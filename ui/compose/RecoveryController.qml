@@ -192,16 +192,16 @@ QtObject {
   }
 
   function parkedBesides(draft) {
-    var out = []
+    var drafts = []
     var parked = compose.parkedDrafts || []
     for (var parkedIndex = 0; parkedIndex < parked.length; parkedIndex++) {
-      if (parked[parkedIndex].draft !== draft) out.push(Object.assign({}, parked[parkedIndex].draft, {pendingSendId: String(parked[parkedIndex].sendId || "")}))
+      if (parked[parkedIndex].draft !== draft) drafts.push(Object.assign({}, parked[parkedIndex].draft, {pendingSendId: String(parked[parkedIndex].sendId || "")}))
     }
     var recovered = compose.recoveryDrafts || []
     for (var recoveredIndex = 0; recoveredIndex < recovered.length; recoveredIndex++) {
-      if (recovered[recoveredIndex] !== draft) out.push(recovered[recoveredIndex])
+      if (recovered[recoveredIndex] !== draft) drafts.push(recovered[recoveredIndex])
     }
-    return out
+    return drafts
   }
 
   function saveComposeRecovery(saved) {

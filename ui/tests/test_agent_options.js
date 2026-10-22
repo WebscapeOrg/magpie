@@ -1,7 +1,7 @@
 const assert = require('assert')
 const { load } = require('./load')
 const options = load('agent/Options.js')
-const copy = x => JSON.parse(JSON.stringify(x))
+const copy = value => JSON.parse(JSON.stringify(value))
 const payload = {messageId:'synthetic',prompt:'Question'}
 assert.deepEqual(copy(options.startOptions(payload,'System default','',5)), {params:{payload}})
 for (const [label,provider] of [['OpenCode','opencode'],['Codex','codex'],['Claude','claude']]) {
@@ -19,5 +19,5 @@ for (const input of [parent,JSON.stringify(parent)]) {
 const manifest = require('../../manifest.json')
 assert.equal(manifest.barWidget.defaults.aiAgent,'System default')
 assert.equal(manifest.barWidget.defaults.aiModel,'')
-assert.deepEqual(manifest.barWidget.schema.find(x=>x.key==='aiAgent').options,copy(options.agents()))
+assert.deepEqual(manifest.barWidget.schema.find(value=>value.key==='aiAgent').options,copy(options.agents()))
 console.log('AI agent/model selection: defaults, API gate, validation and continuation passed')

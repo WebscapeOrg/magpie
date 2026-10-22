@@ -474,13 +474,13 @@ Item {
   }
 
   function finishWrite(ok, error) {
-    var op = writeOp
+    var operation = writeOp
     eventWriting = false
     writeOp = ""
     writeSource = null
     writeEvent = null
     writeDraft = null
-    if (op === "delete") eventDeleted(ok, String(error || ""))
+    if (operation === "delete") eventDeleted(ok, String(error || ""))
     else eventUpdated(ok, String(error || ""))
     // Invariant: detail-view deletes must not signal completion of an unrelated event composer.
     if (!ok) {

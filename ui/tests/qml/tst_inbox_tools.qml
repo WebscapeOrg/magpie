@@ -28,7 +28,7 @@ Item {
     function cleanup() { backend.ready=false }
     function test_admission_failure_explains_each_affected_row_without_leaking_error() {
       backend.apiVersion=8;backend.ready=true
-      var job=backend.calls.filter(function(v){return v.method==="inbox.overviews"})[0]
+      var job=backend.calls.filter(function(request){return request.method==="inbox.overviews"})[0]
       verify(job)
       job.done(null,{message:"secret credential"})
       var overview=tools.overviewFor(service.messages[0])
@@ -45,30 +45,30 @@ Item {
       service.windowOpen=false
       backend.apiVersion=8;backend.ready=true
       tools.refresh()
-      verify(!backend.calls.some(function(v){return v.method==="inbox.overviews" || v.method==="inbox.avatar"}))
+      verify(!backend.calls.some(function(request){return request.method==="inbox.overviews" || request.method==="inbox.avatar"}))
     }
     function test_only_visible_rows_request_overviews_and_avatars() {
       tools.visibleRows=[service.messages[0]]
       backend.apiVersion=8;backend.ready=true
-      var jobs=backend.calls.filter(function(v){return v.method==="inbox.overviews" || v.method==="inbox.avatar"})
+      var jobs=backend.calls.filter(function(request){return request.method==="inbox.overviews" || request.method==="inbox.avatar"})
       compare(jobs.length,2)
-      for (var i=0;i<jobs.length;i++) compare(jobs[i].params.accountId,first.accountId)
+      for (var requestIndex=0;requestIndex<jobs.length;requestIndex++) compare(jobs[requestIndex].params.accountId,first.accountId)
     }
     function test_pause_keeps_avatars_available_and_stops_new_overview_admission() {
       tools.paused=true
       backend.apiVersion=8;backend.ready=true
       tools.refresh()
-      verify(!backend.calls.some(function(v){return v.method==="inbox.overviews"}))
-      verify(backend.calls.some(function(v){return v.method==="inbox.avatar"}))
+      verify(!backend.calls.some(function(request){return request.method==="inbox.overviews"}))
+      verify(backend.calls.some(function(request){return request.method==="inbox.avatar"}))
       tools.setPaused(false)
-      verify(backend.calls.some(function(v){return v.method==="inbox.overviews"}))
+      verify(backend.calls.some(function(request){return request.method==="inbox.overviews"}))
     }
     function test_refresh_images_ignores_stale_callbacks_and_reissues_each_account() {
       tools.paused=true;backend.apiVersion=8;backend.ready=true
-      var old=backend.calls.filter(function(v){return v.method==="inbox.avatar"})[0]
+      var old=backend.calls.filter(function(request){return request.method==="inbox.avatar"})[0]
       verify(old)
       tools.refreshAvatars()
-      var calls=backend.calls.filter(function(v){return v.method==="inbox.avatar" && v.params.refreshId!==""})
+      var calls=backend.calls.filter(function(request){return request.method==="inbox.avatar" && request.params.refreshId!==""})
       compare(calls.length,2)
       verify(/^[A-Za-z0-9-]+$/.test(calls[0].params.refreshId))
       old.done({data:"stale"},null)
@@ -80,12 +80,12 @@ Item {
     function test_overviews_with_shared_message_ids_keep_account_ownership() {
       backend.apiVersion=8;backend.ready=true
       tryVerify(function() { return backend.calls.length>0 })
-      var snapshot=backend.calls.filter(function(v){return v.method==="inbox.snapshot" && v.params.accountId==="one@example.org"})[0]
+      var snapshot=backend.calls.filter(function(request){return request.method==="inbox.snapshot" && request.params.accountId==="one@example.org"})[0]
       verify(snapshot)
       snapshot.done({overviews:{"shared-id":{text:"First account only",state:"ready"}},snoozes:[]},null)
       compare(tools.overviewFor(service.messages[0]).text,"First account only")
       compare(tools.overviewFor(service.messages[1]).text,undefined)
-      var jobs=backend.calls.filter(function(v){return v.method==="inbox.overviews"})
+      var jobs=backend.calls.filter(function(request){return request.method==="inbox.overviews"})
       verify(jobs.length>0)
       compare(jobs[0].params.accountId,"one@example.org")
       compare(jobs[0].params.ids.length,1)

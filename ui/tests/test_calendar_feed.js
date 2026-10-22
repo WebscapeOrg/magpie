@@ -9,8 +9,8 @@ const feed = load("calendar/Calendar.js")
     {uid:"future",start:{ms:300},end:{ms:400}},
     {uid:"all-day",start:{ms:0,allDay:true},end:{ms:1000,allDay:true}}
   ]
-  assert.deepStrictEqual(Array.from(feed.agendaEvents(events,200),e=>e.uid),["all-day","ongoing","future"])
-  assert.deepStrictEqual(Array.from(feed.agendaEvents(events,250),e=>e.uid),["all-day","future"])
+  assert.deepStrictEqual(Array.from(feed.agendaEvents(events,200),event=>event.uid),["all-day","ongoing","future"])
+  assert.deepStrictEqual(Array.from(feed.agendaEvents(events,250),event=>event.uid),["all-day","future"])
   assert.strictEqual(feed.agendaEvents(events,1000).length,0)
 }
 
@@ -18,9 +18,9 @@ const feed = load("calendar/Calendar.js")
   const event = (id,start,end) => ({uid:id,sourceId:"calendar",start:{ms:start},end:{ms:end}})
   const layout = feed.timedLayout([event("a",10,40),event("b",15,25),event("c",20,30),event("d",40,50)],{startMs:0,endMs:100})
   assert.deepStrictEqual(Array.from(layout,row=>row.columns),[3,3,3,1])
-  for (let i=0;i<layout.length;i++) for (let j=i+1;j<layout.length;j++) {
-    if (layout[i].start < layout[j].end && layout[j].start < layout[i].end)
-      assert.notStrictEqual(layout[i].column,layout[j].column)
+  for (let leftIndex=0;leftIndex<layout.length;leftIndex++) for (let rightIndex=leftIndex+1;rightIndex<layout.length;rightIndex++) {
+    if (layout[leftIndex].start < layout[rightIndex].end && layout[rightIndex].start < layout[leftIndex].end)
+      assert.notStrictEqual(layout[leftIndex].column,layout[rightIndex].column)
   }
   const resized = feed.gestureRange(event("resize",Date.UTC(2026,9,1,10),Date.UTC(2026,9,1,10,37)),0,19,"end")
   assert.strictEqual(resized.end,Date.UTC(2026,9,1,11))

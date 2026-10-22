@@ -74,8 +74,8 @@ Item {
       if (!item) return null
       if (item.objectName === objectName) return item
       var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
+      for (var childIndex = 0; childIndex < values.length; childIndex++) {
+        var found = named(values[childIndex], objectName)
         if (found) return found
       }
       return null

@@ -59,9 +59,9 @@ Item {
 
     // The runner is the service child that presents native jobs.
     function runner() {
-      var kids = mailService.children
-      for (var i = 0; i < kids.length; i++) {
-        var candidate = kids[i].item || kids[i]
+      var children = mailService.children
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var candidate = children[childIndex].item || children[childIndex]
         if (candidate.jobs !== undefined && candidate.pluginDir !== undefined) return candidate
       }
       return null

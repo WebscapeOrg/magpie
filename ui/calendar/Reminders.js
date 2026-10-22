@@ -7,7 +7,7 @@ function candidates(events, sources) {
   var byId = {}
   var values = sources && Array.isArray(sources.sources) ? sources.sources : []
   for (var valueIndex = 0; valueIndex < values.length; valueIndex++) byId[values[valueIndex].id] = values[valueIndex]
-  var out = [], seen = {}
+  var output = [], seen = {}
   var items = Array.isArray(events) ? events : []
   for (var itemIndex = 0; itemIndex < items.length; itemIndex++) {
     var event = items[itemIndex], source = event && byId[event.sourceId]
@@ -35,10 +35,10 @@ function candidates(events, sources) {
       var key = occurrence + "\n" + minutes
       if (seen[key]) continue
       seen[key] = true
-      out.push({ key: key, occurrence: occurrence, due: Number(event.start.ms) - minutes * 60000,
+      output.push({ key: key, occurrence: occurrence, due: Number(event.start.ms) - minutes * 60000,
         start: Number(event.start.ms), end: Number(event.end.ms), eventId: String(event.googleId || event.uid || ""),
         sourceId: String(source.id), title: String(event.summary || "Event"), accountId: String(source.accountId || "") })
     }
   }
-  return out
+  return output
 }

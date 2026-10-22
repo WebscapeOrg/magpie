@@ -12,16 +12,16 @@ function identifier(value) {
 }
 
 function settings(values, defaults) {
-  var out = {}
+  var output = {}
   var source = values || {}
   for (var key in defaults) {
     var value = source[key]
     if (typeof value !== typeof defaults[key]) continue
-    if (typeof value === "string" && value.length <= 4096) out[key] = value
-    else if (typeof value === "number" && isFinite(value)) out[key] = value
-    else if (typeof value === "boolean") out[key] = value
+    if (typeof value === "string" && value.length <= 4096) output[key] = value
+    else if (typeof value === "number" && isFinite(value)) output[key] = value
+    else if (typeof value === "boolean") output[key] = value
   }
-  return out
+  return output
 }
 
 function snapshot(value) {

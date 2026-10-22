@@ -42,8 +42,8 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(cache.load(versionOne))),
   JSON.parse(JSON.stringify(cache.emptyStore())),
   "a cache without Google item ids must be refreshed rather than restored")
 
-for (let i = 0; i < 20; i++)
-  store = cache.putRange(store, "a@example.com", i * 1000, (i + 1) * 1000, [first], i + 20)
+for (let rangeIndex = 0; rangeIndex < 20; rangeIndex++)
+  store = cache.putRange(store, "a@example.com", rangeIndex * 1000, (rangeIndex + 1) * 1000, [first], rangeIndex + 20)
 assert.ok(Object.keys(store.ranges).length <= cache.MAX_RANGES)
 
 console.log("test_calendar_cache.js ok")

@@ -427,16 +427,16 @@ function nativeCalendarFeatures(source) {
 
 function writableGroups(groups) {
   var values = Array.isArray(groups) ? groups : []
-  var out = []
+  var output = []
   for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
     var group = values[valueIndex] || {}
     var calendars = (Array.isArray(group.calendars) ? group.calendars : [])
       .filter(function(source) { return writable(source) })
     if (calendars.length === 0) continue
-    out.push({ id: group.id, providerLabel: group.providerLabel,
+    output.push({ id: group.id, providerLabel: group.providerLabel,
       accountLabel: group.accountLabel, calendars: calendars })
   }
-  return out
+  return output
 }
 
 function calendarEditorUrl(list) {

@@ -38,7 +38,7 @@ function eventsFor(store, scope, startMs, endMs, enabledSourceIds) {
       && Number(range.startMs) < Number(endMs) && Number(range.endMs) > Number(startMs)
   }).map(function(key) { return ranges[key] })
   var ids = Array.isArray(enabledSourceIds) ? enabledSourceIds : []
-  var out = []
+  var output = []
   for (var idIndex = 0; idIndex < ids.length; idIndex++) {
     var id = String(ids[idIndex])
     var sources = candidates.filter(function(range) {
@@ -63,13 +63,13 @@ function eventsFor(store, scope, startMs, endMs, enabledSourceIds) {
         if (begins >= endMs || ends <= startMs) continue
         if (covered.some(function(range) { return range.startMs < ends && range.endMs > begins })) continue
         var key = String(event.uid || event.googleId || event.href || "") + ":" + begins
-        if (!seen[key]) out.push(event)
+        if (!seen[key]) output.push(event)
         seen[key] = true
       }
       if ((source.sources || []).indexOf(id) >= 0) covered.push(source)
     }
   }
-  return out
+  return output
 }
 
 function coversSource(store,scope,startMs,endMs,id) {

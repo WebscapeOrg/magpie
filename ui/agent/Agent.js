@@ -172,13 +172,13 @@ function draftFingerprint(fields) {
 
 function chatEntries(value) {
   var rows = Array.isArray(value) ? value : []
-  var out = []
+  var output = []
   for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     var entry = rows[rowIndex]
     if (!entry || ["user", "assistant", "status"].indexOf(entry.role) < 0 || typeof entry.text !== "string") continue
-    out.push({role: entry.role, text: entry.text})
+    output.push({role: entry.role, text: entry.text})
   }
-  return out
+  return output
 }
 
 function createdOrder(job) {
@@ -283,7 +283,7 @@ function eventSuggestions(look, dismissed) {
   var gone = Array.isArray(dismissed) ? dismissed : []
   if (!isEventsJob(job) || String(job.state || "") !== "done") return []
   var events = Array.isArray(job.events) ? job.events : []
-  var out = []
+  var output = []
   for (var eventIndex = 0; eventIndex < events.length; eventIndex++) {
     var event = events[eventIndex] || {}
     var key = suggestionKey(job.id, eventIndex)
@@ -291,7 +291,7 @@ function eventSuggestions(look, dismissed) {
     var startMs = Number(event.startMs) || 0
     if (String(event.title || "").trim() === "" || startMs <= 0) continue
     var endMs = Number(event.endMs) || 0
-    out.push({
+    output.push({
       key: key, jobId: String(job.id), index: eventIndex,
       title: String(event.title).trim(),
       startMs: startMs,
@@ -301,7 +301,7 @@ function eventSuggestions(look, dismissed) {
       notes: String(event.notes || "").trim()
     })
   }
-  return out
+  return output
 }
 
 var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]

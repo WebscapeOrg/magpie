@@ -60,7 +60,7 @@ Item {
     function release() {
       var calls = held
       held = []
-      for (var i = 0; i < calls.length; i++) calls[i]({ id: "started" }, "")
+      for (var callIndex = 0; callIndex < calls.length; callIndex++) calls[callIndex]({ id: "started" }, "")
     }
   }
 
@@ -99,9 +99,9 @@ Item {
         labelIds: labels || ["INBOX"] })
     }
     function runner() {
-      var kids = mailService.children
-      for (var i = 0; i < kids.length; i++) {
-        var candidate = kids[i].item || kids[i]
+      var children = mailService.children
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var candidate = children[childIndex].item || children[childIndex]
         if (candidate.jobs !== undefined && candidate.pluginDir !== undefined) return candidate
       }
       return null
@@ -170,11 +170,11 @@ Item {
       tryVerify(function() { return bridge.starts.length > 0 }, 1000, "a look was started")
       return bridge.starts[bridge.starts.length - 1]
     }
-    function named(item, name, out) {
-      if (item.objectName === name) out.push(item)
-      var kids = item.children || []
-      for (var i = 0; i < kids.length; i++) named(kids[i], name, out)
-      return out
+    function named(item, name, output) {
+      if (item.objectName === name) output.push(item)
+      var children = item.children || []
+      for (var childIndex = 0; childIndex < children.length; childIndex++) named(children[childIndex], name, output)
+      return output
     }
 
     function init() {

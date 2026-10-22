@@ -47,16 +47,16 @@ function cleanContact(value) {
 function normalize(values) {
   var contacts = Array.isArray(values) ? values : []
   var seen = ({})
-  var out = []
+  var output = []
   for (var contactIndex = 0; contactIndex < contacts.length; contactIndex++) {
     var contact = cleanContact(contacts[contactIndex])
     if (!contact) continue
     var key = contact.email.toLowerCase()
     if (seen[key]) continue
     seen[key] = true
-    out.push(contact)
+    output.push(contact)
   }
-  return out
+  return output
 }
 
 function addressParts(text) {
@@ -162,34 +162,34 @@ function accept(text, contact) {
 }
 
 function append(text, contact) {
-  var addr = address(contact)
-  if (!addr) return String(text || "")
+  var recipient = address(contact)
+  if (!recipient) return String(text || "")
   var current = String(text || "").trim()
-  if (current === "") return addr
+  if (current === "") return recipient
   current = current.replace(/[,;]+$/, "").trim()
   var used = usedAddresses(current + ",")
   var clean = cleanContact(contact)
   if (clean && used[clean.email.toLowerCase()]) return current
-  return current + ", " + addr
+  return current + ", " + recipient
 }
 
 function filter(values, query, limit) {
   var contacts = normalize(values)
   var normalizedQuery = String(query || "").trim().toLowerCase()
-  var out = []
+  var output = []
   for (var contactIndex = 0; contactIndex < contacts.length; contactIndex++) {
     var contact = contacts[contactIndex]
     if (normalizedQuery === "" || contact.email.toLowerCase().indexOf(normalizedQuery) >= 0 || contact.name.toLowerCase().indexOf(normalizedQuery) >= 0) {
-      out.push(contact)
+      output.push(contact)
     }
   }
-  out.sort(function(left, right) {
+  output.sort(function(left, right) {
     var leftName = (left.name || left.email).toLowerCase()
     var rightName = (right.name || right.email).toLowerCase()
     return leftName < rightName ? -1 : (leftName > rightName ? 1 : 0)
   })
   if (typeof limit === "number" && limit > 0) {
-    return out.slice(0, limit)
+    return output.slice(0, limit)
   }
-  return out
+  return output
 }

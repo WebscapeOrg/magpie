@@ -1,4 +1,4 @@
-//! Synthetic regressions: no mailbox, credentials, or sender correspondence.
+//! Invariant: Synthetic regressions: no mailbox, credentials, or sender correspondence.
 use base64::{
     Engine,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
@@ -7,7 +7,7 @@ use omamail::{backend, message};
 use serde_json::{Value, json};
 
 const GREETING: &str = "Добрый день!";
-// Independently fixed bytes, not produced by the decoder being tested.
+// Invariant: Independently fixed bytes, not produced by the decoder being tested.
 const CP1251: &[u8] = b"\xc4\xee\xe1\xf0\xfb\xe9 \xe4\xe5\xed\xfc!";
 const GB2312: &[u8] =
     b"\xa7\xa5\xa7\xe0\xa7\xd2\xa7\xe2\xa7\xed\xa7\xdb \xa7\xd5\xa7\xd6\xa7\xdf\xa7\xee!";
@@ -83,7 +83,8 @@ fn genuine_legacy_bodies_and_encoded_headers_decode_over_rpc() {
                     assert_eq!(actual, &expected, "{charset} {cte} {kind} {word_encoding}");
                     assert_eq!(prepared["summary"]["subject"], GREETING);
                     assert_eq!(prepared["summary"]["from"]["name"], GREETING);
-                    // MIME normalization must retain the original octets, not transcode attachments.
+                    // Invariant: MIME normalization must retain the original octets, not transcode
+                    // attachments.
                     assert_eq!(
                         URL_SAFE_NO_PAD
                             .decode(payload["body"]["data"].as_str().unwrap())
@@ -163,7 +164,7 @@ fn malformed_legacy_sequences_are_bounded_and_unknown_labels_keep_the_fallback()
         message::content::prepare(&resource("not-a-charset", b"ASCII\xff"), 0).unwrap()["body"]["text"],
         "ASCIIÿ"
     );
-    // Not valid UTF-8: these must go through the declared legacy decoder.
+    // Invariant: Not valid UTF-8: these must go through the declared legacy decoder.
     for bytes in [
         b"\xc0\xaf".as_slice(),
         b"\xed\xa0\x80".as_slice(),
@@ -195,7 +196,7 @@ fn nested_mime_and_attachment_bytes_are_preserved() {
     );
 }
 
-// The registry lives where the platform contract puts it: macOS reads
+// Invariant: The registry lives where the platform contract puts it: macOS reads
 // ~/Library/Application Support and ignores XDG_CONFIG_HOME.
 #[cfg(target_os = "macos")]
 fn config_root(root: &std::path::Path) -> std::path::PathBuf {
@@ -215,8 +216,8 @@ fn cached_reader_redecodes_original_octets_instead_of_reusing_mojibake() {
         os::unix::fs::PermissionsExt,
         process::{Command, Stdio},
     };
-    // macOS puts TMPDIR under /var, a symlink the private_fs path walk
-    // refuses (O_NOFOLLOW), so resolve it first like the other CLI tests.
+    // Invariant: macOS puts TMPDIR under /var, a symlink the private_fs path walk refuses
+    // (O_NOFOLLOW), so resolve it first like the other CLI tests.
     let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
         "omamail-charset-cache-{}-{}",
         std::process::id(),
@@ -282,7 +283,7 @@ fn cached_reader_redecodes_original_octets_instead_of_reusing_mojibake() {
             "cache.bodyPut",
             json!({"accountId":"synthetic@example.org","id":id,"body":{"text":"stale mojibake","source":"plain"}}),
         );
-        // Pre-0.9 body caches alone must not become a permanent native reader hit.
+        // Invariant: Pre-0.9 body caches alone must not become a permanent native reader hit.
         let open = json!({"accountId":"synthetic@example.org","id":id,"requestId":"charset","now":0,"cacheOnly":true,"options":{"allowRemoteImages":false}});
         assert!(call("reader.open", open.clone()).is_null());
         let mut message = resource(charset, bytes);

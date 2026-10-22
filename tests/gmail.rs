@@ -45,7 +45,7 @@ fn mail_gmail_actions_default_to_preview_and_keep_credential_failures_explicit()
         fs::Permissions::from_mode(0o600),
     )
     .unwrap();
-    // No client file is installed: execution must fail without reaching keyring.
+    // Invariant: No client file is installed: execution must fail without reaching keyring.
     fs::write(
         dir.join("secret-tool"),
         b"#!/bin/sh\nprintf touched > \"$HOME/keyring-touched\"\nexit 9\n",

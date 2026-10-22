@@ -21,8 +21,8 @@ fn config_root(home: &std::path::Path, xdg: &std::path::Path) -> std::path::Path
 #[test]
 fn mail_actions_use_bound_official_cli_batches_and_never_retry_refusals() {
     let temp = Command::new("mktemp").arg("-d").output().unwrap();
-    // The private storage boundary refuses symlinked components, and Darwin's
-    // temporary root is an alias of /private; resolve it first.
+    // Invariant: The private storage boundary refuses symlinked components, and Darwin's temporary
+    // root is an alias of /private; resolve it first.
     let dir = std::path::PathBuf::from(String::from_utf8(temp.stdout).unwrap().trim())
         .canonicalize()
         .unwrap();

@@ -4,21 +4,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../ui"
 
 fail() { printf 'test_source.sh: %s\n' "$1" >&2; exit 1; }
 
-# Enumerated rather than globbed: the layout groups by module, and a module
-# with no QML in it (message/, today) turns a literal glob into a grep error
-# that hides whatever the check was meant to say.
-#
-# git does the enumerating rather than `find`. `--cached --others
-# --exclude-standard` is the tracked files plus the ones not committed yet —
-# this checkout's source, so a file you are still writing is checked — and
-# nothing that is ignored. `find` walks ignored paths too, and a linked
-# worktree under .claude/ is a second checkout of this same repository whose
-# copies of these files would be reported here as if they were ours.
-#
-# A read loop rather than `mapfile`, which is bash 4 and absent from the bash
-# 3.2 that macOS still ships — a check that only runs on the deployment target
-# is a check nobody runs while writing the code. NUL-separated either way, so a
-# path with a space in it stays one path.
+# Algorithm: git enumerates tracked and unignored worktree files without descending into ignored
+# checkouts. NUL-delimited read loops preserve paths and support Bash 3.2.
 QML_FILES=()
 while IFS= read -r -d '' found; do
   [ ! -f "$found" ] || QML_FILES+=("$found")
@@ -31,16 +18,13 @@ while IFS= read -r -d '' found; do
 done \
   < <(git ls-files -z --cached --others --exclude-standard -- '*.js' ':!tests/*')
 
-# A developer machine may point /bin/sh at bash while the release runner points
-# it at dash. Bash's global parameter replacement then passes locally and dies
-# only in CI with "Bad substitution". Scripts declaring /bin/sh stay within
-# POSIX parameter expansion regardless of which shell happens to own that path.
+# Invariant: Scripts declaring /bin/sh must also run under dash; Bash-only substitutions can pass
+# locally and fail in release CI.
 if grep -rnE '\$\{[A-Za-z_][A-Za-z0-9_]*//' --include='*.sh' ../scripts; then
   fail "a /bin/sh script uses bash-only global parameter replacement"
 fi
 
-# 1. No hard-coded colours in QML. Every colour comes from the active Omarchy
-#    theme, or a light theme renders unreadable text.
+# Invariant: QML chrome must inherit the active theme so light and dark themes remain readable.
 if grep -nE '(color|Color)\s*:\s*"#[0-9A-Fa-f]{3,8}"' -- "${QML_FILES[@]}"; then
   fail "hard-coded colour in QML: use Color.* or a colour passed in from App.qml"
 fi
@@ -48,19 +32,19 @@ if grep -nE ':\s*"(red|blue|green|white|black|yellow|orange|purple|gray|grey)"' 
   fail "named display colour in QML: use Color.* instead"
 fi
 
-# 2. The JS libraries are read by the QML engine, which does not accept ES6.
-#    tests/ is node-only and exempt.
+# Invariant: Maintained QML libraries use the shared ES5-compatible syntax; Node-only test harnesses
+# are exempt.
 for file in "${JS_FILES[@]}"; do
   head -1 "$file" | grep -q '^\.pragma library$' || fail "$file must start with .pragma library"
-  # Comments quote code with backticks and say things like "a => b", so the
-  # check runs on code lines only.
+  # Algorithm: Comments quote code with backticks and say things like "a => b", so the check runs on
+  # code lines only.
   if grep -vE '^\s*(//|\*|/\*)' "$file" | grep -nE '^\s*(const|let)\s|=>|`'; then
     fail "$file uses ES6 syntax the QML engine will not parse"
   fi
 done
 
-# Calendar display clocks use the locale's short format. The composer's
-# HH:mm entry convention and its validation error are deliberately separate.
+# Invariant: Calendar display clocks use the locale's short format. The composer's HH:mm entry
+# convention and its validation error are deliberately separate.
 python3 - <<'PY_CALENDAR_TIME'
 import re
 from pathlib import Path
@@ -76,11 +60,8 @@ for path in files:
             raise SystemExit("test_source.sh: %s:%d hard-codes a calendar clock; use the locale short time format" % (path, number))
 PY_CALENDAR_TIME
 
-# 3. Nothing may name a colour inside a JS library either: colours are passed
-#    in from QML, which is the only place that can read the theme.
-# Html.js is the one exception, and a narrow one: PAPER and INK are the sheet a
-# sender's HTML is printed on. They are content colours, not chrome — a
-# message that sets #24292e text needs a light ground under it or it vanishes.
+# Invariant: Theme colours enter JS from QML. Html.js may retain its reviewed paper/ink palette
+# because sender content colours need a compatible reading background.
 for file in account/Model.js providers/GmailApi.js message/Message.js; do
   if grep -vE '^\s*(//|\*|/\*)' "$file" | grep -nE '#[0-9A-Fa-f]{6}'; then
     fail "$file names a colour: pass it in from QML instead"
@@ -91,13 +72,8 @@ if grep -vE '^\s*(//|\*|/\*)' message/Html.js | grep -nE '#[0-9A-Fa-f]{6}' \
   fail "message/Html.js may only name the PAPER/INK sheet colours"
 fi
 
-# 3b. Reading mode is a rebuild, and the rebuild lives with the parse.
-#
-# `background` is an address in HTML, not a colour, and Qt fetches it. It sat in
-# the colour list because senders write it next to `bgcolor`, and with
-# `keepColors` on it survived — a real message reached its sender's host with
-# remote images off. An appearance option may never buy a network request, so
-# the resource attributes are refused before the colour question is asked.
+# Invariant: HTML background is a resource address, not a colour. Reject resource attributes before
+# consulting keepColors to prevent unexpected sender requests.
 if grep -nE '^var COLOUR_ATTRIBUTES = .*\bbackground\b' message/Html.js; then
   fail "message/Html.js treats the HTML background attribute as a colour; it is an address"
 fi
@@ -112,22 +88,18 @@ awk '
 ' message/Html.js \
   || fail "a resource attribute must be dropped before keepColors is consulted"
 
-# A text node goes back out escaped. What the tokenizer read as text is not what
-# a second reader reads once something between two pieces of it is unwrapped, and
-# a "<" that was not a tag on the way in can be one on the way out — past every
-# check here, because by then it is a string rather than an element.
+# Invariant: Escape outgoing text nodes because unwrapping adjacent elements can turn previously
+# harmless text into markup on a second parse.
 grep -q 'out.push(escapeMarkup(node.text))' message/Html.js \
   || fail "message/Html.js must escape a text node on the way out, not write it back raw"
 
-# Deciding what may be fetched and rebuilding a message for reading are one
-# file's work, and a view that called the sanitiser would be a second place
-# those decisions were made. What it may still do is fit a document it has
-# already been given to the width it has.
+# Invariant: Views consume prepared documents; sanitizer policy and reader reconstruction stay in
+# their owning renderer.
 if grep -nE 'Html\.(sanitize|readerTree)\(' components/MessageReader.qml; then
   fail "the reader view must not sanitise a body; the account renders it once"
 fi
-# Sanitization and reader reconstruction now run in the Rust worker. Only a
-# correlated, successful native result may reach the QML document properties.
+# Invariant: Sanitization and reader reconstruction now run in the Rust worker. Only a correlated,
+# successful native result may reach the QML document properties.
 python3 - <<'PY_NATIVE_RENDER'
 from pathlib import Path
 account = Path("account/MailAccount.qml").read_text()
@@ -163,23 +135,18 @@ grep -q 'function fetchDisplayImage' account/MailAccount.qml \
   || fail "a plain-text image marker must fetch through the public-host worker"
 grep -q '"public.unsubscribe"' account/Unsubscribe.qml \
   || fail "one-click unsubscribe must use the public-IP-checked native backend"
-# Redirect and DNS policy require behavioral tests, not a matching config line.
+# Invariant: Redirect and DNS policy require behavioral tests, not a matching config line.
 
-# The standing "always show images" answer is an answer about a message
-# somebody chose to read. A preview is the cursor passing over a row, and
-# fetching a picture for one would tell the sender's host that this address
-# opened this mail at this moment — the very thing the reader's own notice
-# says out loud, and the reason the read mark waits for a dwell.
+# Invariant: Cursor previews must not fetch sender images, even when explicitly opened mail may use
+# the saved always-show preference.
 grep -q 'remoteImagesAllowed = Model.showsRemoteImages(alwaysShowImages, selectionIsPreview)' account/MailAccount.qml \
   || fail "a message the cursor merely previewed must not fetch the sender's images"
 grep -q 'property string bodyMode: "reader"' Service.qml \
   || fail "a message opens in reading mode"
 grep -q 'bodyMode: root.bodyMode' Service.qml \
   || fail "each account must know which body representation is on the paint path"
-# Choosing between three readings that were all built when the body arrived is a
-# preference and nothing else. A mode switch that re-rendered would re-run the
-# image policy, and one that re-fetched would tell the sender the mail was
-# opened again.
+# Invariant: Mode changes select already prepared documents; they must not rerender or repeat
+# network reads.
 if awk '
   /function setBodyMode\(value\)/ { in_function = 1 }
   in_function && /(renderSource|select\(|getMessage|showRemoteImages)/ { found = 1 }
@@ -189,36 +156,27 @@ if awk '
   fail "changing how a message is read must not re-render or re-fetch it"
 fi
 
-# 3c. Which way a message runs is decided in one place, and the two questions it
-#     answers stay separate.
-#
-# Qt resolves a paragraph's direction from its own first strong character and is
-# good at it. Two things it cannot do are what Direction.js is for, and both are
-# easy to undo by "simplifying" the code that uses it.
 grep -q 'promoteDirection' message/Html.js \
   || fail "a CSS direction must be promoted to the dir attribute Qt actually reads"
-# The sheet's physical sides and the body's `dir` are one statement. Qt places a
-# list marker on the side the block runs from, so a sheet that indents a list
-# from the right while the block is still left-to-right does not move the bullet
-# — it drops it. Splitting these was tried; the bullets went missing.
+# Algorithm: The sheet's physical sides and the body's `dir` are one statement. Qt places a list
+# marker on the side the block runs from, so a sheet that indents a list from the right while the
+# block is still left-to-right does not move the bullet — it drops it. Splitting these was tried;
+# the bullets went missing.
 grep -q 'function baseDirectionAttribute' message/Html.js \
   || fail "the body direction and the stylesheet's sides must be written together"
 if grep -n 'palette.pinned' message/Html.js; then
   fail "a document has one direction, not a direction and a flag saying whether to mean it"
 fi
 
-# A reply prefix is Latin whatever the thread is written in, so a subject asked
-# with `resolve` rather than `resolveSubject` puts every message in a thread
-# after the first against the wrong edge — which is the bug the module exists
-# for, and the one a refactor is most likely to reintroduce.
+# Algorithm: Ignore Latin reply prefixes when resolving subject direction so every reply keeps the
+# sender-language alignment.
 for file in components/MessageRow.qml components/MessageReader.qml bar/BarPreview.qml; do
   grep -q 'subjectDirection' "$file" \
     || fail "$file must consume the native subject direction"
 done
 
-# The same mistake on the body side. The plain reading of an HTML message
-# carries this client's own `[image N]` markers in front of the sender's first
-# word, so `resolve` on it answers about a Latin "i" that omamail wrote.
+# Algorithm: Ignore app-generated image markers when resolving body direction; their Latin text is
+# not sender content.
 grep -q 'selectedBody.bodyDirection' components/MessageReader.qml \
   || fail "the reader must consume the native body direction"
 grep -q 'direction::resolve_subject' ../src/message/content.rs \
@@ -226,15 +184,12 @@ grep -q 'direction::resolve_subject' ../src/message/content.rs \
 grep -q 'direction::resolve_body' ../src/message/content.rs \
   || fail "native body preparation must resolve text through the image-marker-aware rule"
 
-# The interface is not mirrored: this setting is a fact about the mail, not
-# about the window around it. A LayoutMirroring here would be a different
-# feature wearing this one's name.
+# Invariant: Content direction must not mirror the surrounding interface.
 if grep -rn 'LayoutMirroring' -- "${QML_FILES[@]}"; then
   fail "message direction must not mirror the interface; it applies to content only"
 fi
 
-# 4. The bar switches `barForeground` when transparent mode needs contrast.
-#    `foreground` is the fixed theme value and does not follow that switch.
+# Invariant: Transparent bar contrast follows barForeground, not the fixed theme foreground.
 grep -q 'bar ? bar\.barForeground' BarWidget.qml \
   || fail "the bar icon must follow bar.barForeground in transparent mode"
 grep -q 'MagpieLogo {' components/AppMenu.qml \
@@ -244,9 +199,8 @@ grep -q 'MagpieLogo {' components/AppMenu.qml \
 grep -q 'color: Commons.Color.accent' BarWidget.qml \
   || fail "the unread marker must use the active theme accent"
 
-# IconTextButton has no separate hover glyph colour. Assigning one makes the
-# whole component type unavailable at runtime, and App.qml then cannot be
-# instantiated when the bar icon asks the shell to open it.
+# Invariant: Assigning an unknown IconTextButton property makes its parent component unavailable at
+# runtime.
 if awk '
   /^[[:space:]]*IconTextButton[[:space:]]*\{/ { in_button = 1; next }
   in_button && /^[[:space:]]*hoverColor:/ { print NR ":" $0; found = 1 }
@@ -281,9 +235,7 @@ awk '
 ' components/MessageReader.qml \
   || fail "the reader toolbar control frames must share the status-bar inset"
 
-# A trigger holds a selected style while what it opened is on screen. The bar
-# icon is the only trigger the window has, so without this there is nothing on
-# screen saying which icon put it there.
+# Invariant: The bar trigger stays selected while its window is open.
 grep -q 'windowOpen' BarWidget.qml \
   || fail "the bar icon must show an active style while the window is open"
 grep -q 'KeyboardPanel {' BarWidget.qml \
@@ -301,9 +253,8 @@ pressed = pressed[:pressed.index("\n    }")]
 if "buttonCode === Qt.LeftButton" not in pressed or "root.openWindow()" not in pressed:
     raise SystemExit("test_source.sh: left-clicking the bar icon must open Omamail")
 PY
-# The shell marks an open bar panel with a short accent line on the bar's inner
-# edge. Omamail's main window is not a bar popout, so its widget draws the same
-# indicator itself instead of substituting an unrelated grey square.
+# Invariant: An open window uses the shell-style inner accent line; a filled glyph square conveys a
+# different state.
 grep -q 'id: openIndicator' BarWidget.qml \
   || fail "the open Omamail window must use the bar's accent-line indicator"
 if grep -q 'id: openFill' BarWidget.qml; then
@@ -313,20 +264,14 @@ if grep -vE '^[[:space:]]*//' BarWidget.qml | grep -n 'activeColor'; then
   fail "BarWidget must not paint its glyph with the bar's urgent-derived activeColor"
 fi
 
-# The mouse must not move the keyboard's cursor. Qt re-reports hover when
-# content moves under a still pointer, and the list scrolls to follow the
-# keyboard — so a hover that wrote cursorId pulled it back to whatever the mouse
-# was resting on, and j and k stuck on a few rows. A row shows its own hover
-# (MessageRow.hot); that is the whole of what hover is for here.
+# Algorithm: Qt can report hover when keyboard scrolling moves content under a stationary pointer.
+# Hover styling must never move the keyboard cursor.
 if grep -n 'onRowHovered' App.qml; then
   fail "hovering a row must not move the keyboard cursor"
 fi
 
-# The context owns the keyboard. Every context that is not text entry parks the
-# focus on a plain Item, because forceActiveFocus on the focus scope itself is a
-# no-op — it re-elects the scope's current focus item, which is the field being
-# left, so a dismissed compose field goes on swallowing every bare key. Nothing
-# warns about this: the keys simply stop arriving.
+# Invariant: Park keyboard focus on a plain Item. Focusing the scope reselects its previous text
+# field and leaves bare shortcuts swallowed.
 grep -q 'onKeyContextChanged' App.qml \
   || fail "the key context must move the keyboard when it changes"
 grep -q 'function parkKeyboard' App.qml \
@@ -335,7 +280,7 @@ if grep -vE '^[[:space:]]*//' App.qml | grep -n 'focusScope\.forceActiveFocus'; 
   fail "forceActiveFocus on the focus scope re-elects the field being left; park the keyboard instead"
 fi
 
-# Hidden items can still hold focus; the key context owns focus placement.
+# Invariant: Hidden items can still hold focus; the key context owns focus placement.
 if grep -rn '^\s*focus: true\s*$' components/ComposeView.qml; then
   fail "ComposeView must not hold the focus unconditionally"
 fi
@@ -352,10 +297,8 @@ grep -q 'NumberField {' components/SettingsPage.qml \
 grep -q 'setUndoSendSeconds' components/SettingsPage.qml \
   || fail "the in-app settings page must save the undo window"
 
-# The IMAP server disclosure always reserves an icon slot. Both names selected
-# by its state must have artwork, or the slot is blank in one or both states.
-# (tests/test_icons.js checks every name the views use; this is the pair a
-# state machine selects at runtime, which a literal scan cannot see.)
+# Invariant: Runtime-selected disclosure icon names need explicit coverage because literal icon
+# scans cannot discover both states.
 for icon in chevronLeft chevronRight chevronDown mail; do
   if ! grep -qE "^  $icon: \"[a-z-]+\"" components/Icons.js; then
     fail "Icons.js does not define the $icon icon"
@@ -375,8 +318,8 @@ right = text.index('anchors.right: parent.right')
 if today > right:
     raise SystemExit("test_source.sh: Go to today must sit with the date on the left")
 today_block = text[today:text.index('}', today)]
-# A ghost: no box at rest. `ghost: true` is the icon buttons' look; a plain
-# `bordered: false` is the older text-only form and still counts.
+# Invariant: A ghost: no box at rest. `ghost: true` is the icon buttons' look; a plain `bordered:
+# false` is the older text-only form and still counts.
 if 'ghost: true' not in today_block and 'bordered: false' not in today_block:
     raise SystemExit("test_source.sh: Go to today must be a text-only action")
 if 'iconName: "refresh"' in text:
@@ -406,17 +349,13 @@ if "onAccountChosen" not in text or "root.switchAccount(index)" not in text:
 service = Path("Service.qml").read_text()
 if "accountId: root.calendarAccountId" not in service:
     raise SystemExit("test_source.sh: the visible Calendar must be told which account is displayed")
-# What the calendar depends on is what its cache is keyed by, and under the
-# unified view that is not the mailbox: the same calendars are shown whichever
-# one is open. Keying by the account there stored a copy of the same events per
-# account and turned every mailbox switch into a cache miss and a full refetch.
+# Performance: Unified calendars share a scope across mailbox switches; caching by mailbox
+# duplicates events and forces redundant fetches.
 controller = Path("calendar/CalendarController.qml").read_text()
 if "cachedEventsFor(refreshScope" not in controller or "eventCache.get(scope" not in controller or "eventCache.put(refreshScope" not in controller:
     raise SystemExit("test_source.sh: the event cache must be keyed by the calendar scope, not the mailbox")
-# The reload watches the scope rather than the two things that go into it. A
-# mailbox switch under the unified view changes nothing on screen, and neither
-# does the setting for a controller that had no mailbox to follow — watching the
-# inputs separately got those two wrong in opposite directions.
+# Algorithm: Reload on the derived calendar scope, not its individual inputs, so unchanged unified
+# views stay cached.
 if "onCalendarScopeChanged: reloadVisibleRange()" not in controller:
     raise SystemExit("test_source.sh: the visible range must reload on a change of scope, not of mailbox")
 if "onAccountIdChanged" in controller or "onUnifiedCalendarViewChanged" in controller:
@@ -578,9 +517,8 @@ if awk '
 ' components/CalendarView.qml; then
   fail "activating a calendar event must not jump to its provider"
 fi
-# The overview is an entry on the navigation stack, so Back reaches it before
-# the calendar under it; `back()` asks the view to close it and the view's own
-# change pops the entry.
+# Invariant: The overview is an entry on the navigation stack, so Back reaches it before the
+# calendar under it; `back()` asks the view to close it and the view's own change pops the entry.
 grep -q 'leaving.kind === "calendarDetail"' App.qml \
   || fail "Escape must close the native calendar event overview first"
 if grep -q 'Shortcut { sequence: "Escape"' components/CalendarEventComposer.qml; then
@@ -610,8 +548,8 @@ fi
 grep -q 'id: dayHeaders' components/WeekCalendarView.qml \
   || fail "the week view must label each day"
 
-# Row fills reach the list/reader divider; content padding belongs inside a
-# row, not in a gutter that cuts every selected background short.
+# Invariant: Row fills reach the list/reader divider; content padding belongs inside a row, not in a
+# gutter that cuts every selected background short.
 grep -q 'width: root.width$' components/MessageList.qml \
   || fail "message rows must reach the list column edge"
 grep -q 'leadingBoundaryOverlap: listSplitter.visible ? listSplitter.width : 0' App.qml \
@@ -626,8 +564,8 @@ awk '
   END { exit !found }
 ' App.qml || fail "the list divider must sit on the splitter edge beside row fills"
 
-# Initial loading is represented by rows shaped like the content that will
-# arrive, rather than a lone Loading label that makes the column jump.
+# Performance: Initial loading is represented by rows shaped like the content that will arrive,
+# rather than a lone Loading label that makes the column jump.
 grep -q 'ListSkeleton {' components/MessageList.qml \
   || fail "an initially empty message list needs its skeleton"
 grep -q 'Model\.showInitialListSkeleton' components/MessageList.qml \
@@ -636,7 +574,7 @@ if grep -q 'implicitHeight: childrenRect\.height' components/ListSkeleton.qml; t
   fail "Column.implicitHeight is read-only and makes ListSkeleton unavailable"
 fi
 
-# Provider DSL and capability ceilings are native; UI files retain presentation.
+# Invariant: Provider DSL and capability ceilings are native; UI files retain presentation.
 if grep -Eq 'Provider\.(query|labelQuery|addressQuery|webMessageUrl|webBoxUrl)\(' \
     account/MailAccount.qml account/LabelActions.qml App.qml components/MailboxSidebar.qml; then
   fail "provider query and message URL construction must use the native domain"
@@ -648,10 +586,9 @@ fi
 grep -q 'capabilities: capabilities(facts.capabilities)' providers/Registry.js \
   || fail "UI capability ceilings must come from the generated native snapshot"
 
-# A first-time search paints what every cached mailbox page already knows, then
-# accepts provider results without waiting for the last metadata request. The
-# progress argument is part of the shared client interface, not a Gmail branch
-# in MailAccount.
+# Performance: A first-time search paints what every cached mailbox page already knows, then accepts
+# provider results without waiting for the last metadata request. The progress argument is part of
+# the shared client interface, not a Gmail branch in MailAccount.
 grep -q 'cacheStore.getPreview(effectiveQuery, maxMessages,' account/MailAccount.qml \
   || fail "typed searches must inspect eligible cached message summaries first"
 grep -q 'eligible(provider, source_query(key), row)' ../src/cache/query.rs \
@@ -678,18 +615,15 @@ for client in providers/GmailApiClient.qml providers/HeyClient.qml providers/Ima
   grep -q 'function getMessages(ids, full, callback, existingHandle, progress)' "$client" \
     || fail "$client must expose the shared progressive list interface"
 done
-# The conversation rail asks every client for the members of the open thread and
-# draws whatever comes back. A provider that does not collapse its listing has
-# nothing to say and answers with an empty list — but it has to answer, or the
-# reader would need to know which provider it is looking at.
+# Invariant: Every provider answers the conversation-member callback, returning an empty list when
+# conversation expansion is unsupported.
 for client in providers/GmailApiClient.qml providers/HeyClient.qml \
     providers/ImapClient.qml providers/JmapClient.qml; do
   grep -q 'function getSummaries(ids, callback)' "$client" \
     || fail "$client must expose the shared conversation-member interface"
 done
-# A member is a message and a stop must tell the truth about that message. A
-# thread block speaks for the whole conversation, so putting one on a member
-# would draw a stop bold because a different message in the thread is unread.
+# Invariant: A conversation member uses its own unread state; a thread aggregate cannot stand in for
+# that message.
 awk '
   /function getSummaries\(/ { in_members = 1 }
   in_members && /^  function getMessages\(/ { exit }
@@ -709,8 +643,8 @@ grep -q 'continuation' ../src/providers/imap/read.rs \
   || fail "native streamed IMAP reads must continue through opaque bounded batches"
 grep -q 'fetchQueue\.push(wanted)' account/MailAccount.qml \
   || fail "streamed metadata reads need one shared queue"
-# Native intent preparation owns row/member updates, scoped rollback and
-# conversation expansion. QML still owns queueing provider writes and navigation.
+# Invariant: Native intent preparation owns row/member updates, scoped rollback and conversation
+# expansion. QML still owns queueing provider writes and navigation.
 python3 - <<'PY_NATIVE_INTENTS'
 from pathlib import Path
 account = Path("account/MailAccount.qml").read_text()
@@ -775,14 +709,14 @@ grep -q 'progressTimerComponent' providers/GmailApiClient.qml \
 grep -q 'MAX_SUMMARIES_PER_QUERY' cache/Cache.js \
   || fail "each cached query needs a row cap"
 
-# New-mail notifications use the application's own mark, not the desktop's
-# generic unread-mail glyph.
+# Invariant: New-mail notifications use the application's own mark, not the desktop's generic
+# unread-mail glyph.
 grep -q 'assets/magpie.svg' ../scripts/notify-mail.py \
   || fail "new-mail notifications need the Omamail app icon"
 [ -f assets/magpie.svg ] || fail "the notification app icon is missing"
 
-# Account actions live on the account's edit page. The switcher only changes
-# accounts and leads to management; the management list only leads to editing.
+# Invariant: Account actions live on the account's edit page. The switcher only changes accounts and
+# leads to management; the management list only leads to editing.
 grep -q 'text: "Manage accounts\.\.\."' components/AccountSwitcher.qml \
   || fail "the account switcher needs a Manage accounts... entry"
 if grep -q 'removeAccountRequested' components/AccountSwitcher.qml; then
@@ -796,8 +730,8 @@ fi
 grep -q 'signal removeRequested()' components/ImapSetupPage.qml \
   || fail "the IMAP edit page needs to own account removal"
 
-# The tested protocol helper owns the setup decision; the form must not grow a
-# second, untested copy that can drop Proton Bridge's local transport again.
+# Invariant: The tested protocol helper owns the setup decision; the form must not grow a second,
+# untested copy that can drop Proton Bridge's local transport again.
 grep -q 'return Imap\.setupSettings({' components/ImapSetupPage.qml \
   || fail "the IMAP setup form must use the tested settings builder"
 grep -q 'service\.discardCurrentDraft()' App.qml \
@@ -811,15 +745,15 @@ if awk '
   fail "Add account must not persist its blank draft"
 fi
 
-# An IMAP address is account identity; its login username may legitimately be
-# different and must never replace it while editing or loading the profile.
+# Invariant: An IMAP address is account identity; its login username may legitimately be different
+# and must never replace it while editing or loading the profile.
 grep -q 'addressField\.text = service ? service\.accountAddress' components/ImapSetupPage.qml \
   || fail "IMAP Edit must read the saved account address separately from username"
 grep -q 'email: root\.configuredEmail' account/MailAccount.qml \
   || fail "the IMAP profile must preserve the configured account address"
 
-# Destructive account actions consume the semantic danger role passed from the
-# app. Calling it dim or urgent at the button loses the action's meaning.
+# Invariant: Destructive account actions consume the semantic danger role passed from the app.
+# Calling it dim or urgent at the button loses the action's meaning.
 for page in components/SetupPage.qml components/ImapSetupPage.qml; do
   grep -q 'required property color dangerColor' "$page" \
     || fail "$page must receive the semantic danger colour"
@@ -831,7 +765,7 @@ for page in components/SetupPage.qml components/ImapSetupPage.qml; do
   ' "$page" || fail "$page Remove account must be a danger button"
 done
 
-# Removing a mailbox is destructive. The edit pages may request it, but only a
+# Invariant: Removing a mailbox is destructive. The edit pages may request it, but only a
 # confirmation owned by App may call the service after naming the target.
 grep -q 'AccountRemovalDialog {' App.qml \
   || fail "account removal needs a confirmation dialog"
@@ -844,39 +778,22 @@ if awk '
   fail "requesting account removal must not remove it immediately"
 fi
 
-# The fix for a hanging request that looks right and does nothing.
-#
-# Qt's QML XMLHttpRequest has no `timeout` and no `ontimeout`: the properties do
-# not exist, and assigning one reads back exactly what was written — so this
-# line passes review, passes a read-through, and leaves the request hanging
-# exactly as before. Measured, not read from a specification: `"timeout" in
-# xhr` is false, and a request against a socket that accepts and never answers
-# was still going after eight seconds. A Timer calling abort() is what there is.
-#
-# Only the trap is checked here. "This request has a deadline" is not something
-# grep can ask — a file may hold several Timers and only one of them may be the
-# one that matters — so that invariant lives in AGENTS.md and in the offscreen
-# harness that measured it, not in a test that would pass whatever happened.
+# Invariant: Qt QML XMLHttpRequest requires a Timer that aborts; assigning timeout does not impose a
+# deadline. Source checks catch that misuse; controlled-network tests prove actual timing.
 if grep -rnE '\.timeout[[:space:]]*=' --include=*.qml . | grep -v '^./tests/'; then
   fail "XMLHttpRequest.timeout does not exist in Qt's QML engine; use a Timer that aborts"
 fi
 
-# A mailbox names itself the way the account list names it.
-#
-# An id is the bare address only for the default provider; every other one
-# carries its provider in front. Assigning the address alone is also an
-# assignment rather than a binding, so it replaced the id the list had given —
-# and `Service.findAccount` compares the two. A HEY mailbox called itself
-# `you@hey.com` while the list called it `hey:you@hey.com`, nothing matched, and
-# switching to it silently fell back to whichever mailbox was first.
+# Invariant: MailAccount identity must match Accounts.accountId, including provider prefixes;
+# assigning the bare address can silently select another mailbox.
 if grep -nE 'accountId = accountEmail' account/MailAccount.qml; then
   fail "a mailbox's id must come from Accounts.accountId, not from the address alone"
 fi
 grep -q 'accountId = Accounts.accountId(accountEmail, providerId)' account/MailAccount.qml \
   || fail "MailAccount must name itself through Accounts.accountId"
 
-# Native desktop controls retain the arrow cursor. A pointing hand is reserved
-# for actual links such as URLs inside the message reader.
+# Invariant: Native desktop controls retain the arrow cursor. A pointing hand is reserved for actual
+# links such as URLs inside the message reader.
 for file in components/IconButton.qml components/IconTextButton.qml components/AppMenu.qml \
   components/MessageMenu.qml components/AccountSwitcher.qml components/ProviderPicker.qml \
   components/MailboxSidebar.qml; do
@@ -885,8 +802,8 @@ for file in components/IconButton.qml components/IconTextButton.qml components/A
   fi
 done
 
-# Labels say when an action leaves the app and use three periods for the
-# established workflow suffix. Busy state is status, not decorative prose.
+# Invariant: Labels say when an action leaves the app and use three periods for the established
+# workflow suffix. Busy state is status, not decorative prose.
 if grep -rnE 'Checking…|Fetching the mailbox…|Not signed in yet|Open in Gmail|text: "(Shortcuts|GitHub|Twitter)"' \
   App.qml components; then
   fail "UI copy does not follow the project action and status vocabulary"
@@ -921,8 +838,8 @@ if awk '
   fail "the window status line must not repeat the list result count"
 fi
 
-# Both action menus own navigation locally because Qt popups intercept window
-# shortcuts. Placement happens after opening and whenever content is measured.
+# Invariant: Both action menus own navigation locally because Qt popups intercept window shortcuts.
+# Placement happens after opening and whenever content is measured.
 for file in components/AppMenu.qml components/MessageMenu.qml; do
   grep -q 'Keys.onPressed' "$file" \
     || fail "$file needs popup-local keyboard navigation"
@@ -937,10 +854,8 @@ for file in components/AppMenu.qml components/MessageMenu.qml; do
   fi
 done
 
-# A row that is drawn but left out of `menuRows` is mouse-only: the cursor is an
-# index into that array, so j and k step over the row, Enter can never reach it,
-# and `MenuActionRow.selected` never matches. "Move to Inbox" was added to the
-# column and left out of the array.
+# Invariant: Every drawn action row must be in menuRows or keyboard selection and Enter cannot reach
+# it.
 python3 - <<'MENUROWS'
 import re
 from pathlib import Path
@@ -958,8 +873,8 @@ for name in ("components/AppMenu.qml", "components/MessageMenu.qml"):
                          % (name, ", ".join(missing)))
 MENUROWS
 
-# Feature views receive semantic colours from App. Reading theme roles locally
-# makes the same concept drift between pages and prevents App from naming it.
+# Invariant: Feature views receive semantic colours from App. Reading theme roles locally makes the
+# same concept drift between pages and prevents App from naming it.
 for file in components/AppMenu.qml components/MessageMenu.qml components/AccountSwitcher.qml \
   components/ProviderPicker.qml components/MailboxTabs.qml components/SetupPage.qml \
   components/ImapSetupPage.qml components/ImagePopover.qml \
@@ -969,7 +884,7 @@ for file in components/AppMenu.qml components/MessageMenu.qml components/Account
   fi
 done
 
-# Row actions must meet the compact desktop hit-target floor.
+# Invariant: Row actions must meet the compact desktop hit-target floor.
 if grep -n 'size: Style\.space(20)' components/MessageRow.qml; then
   fail "message row actions need at least a 24px hit target"
 fi
@@ -1019,8 +934,8 @@ awk '
 ' components/ComposeView.qml \
   || fail "the From dropdown must share the TextField fill and vertical sizing"
 
-# Sign out and removal are peer account actions. Removal stays last in the
-# action row instead of falling onto a detached row beneath it.
+# Invariant: Sign out and removal are peer account actions. Removal stays last in the action row
+# instead of falling onto a detached row beneath it.
 awk '
   /text: "Sign out"/ { saw_sign_out = 1 }
   saw_sign_out && /text: "Remove account"/ { saw_remove_after = 1 }
@@ -1035,10 +950,8 @@ awk '
 ' components/ImapSetupPage.qml \
   || fail "IMAP Remove account must not be detached from the account action row"
 
-# A mailbox row is the selected one only when no search is standing on top of
-# it, and that guard is a continuation line. Inserting a binding between the two
-# lines silently reparented the guard onto the new property — every row on the
-# rail then numbered itself 1, and nothing failed.
+# Invariant: The mailbox selected expression includes its search continuation; an intervening
+# binding silently attaches that guard to another property.
 awk '
   /selected: !!root.service && root.service.mailboxKey/ {
     getline
@@ -1047,23 +960,8 @@ awk '
 ' components/MailboxSidebar.qml \
   || fail "the mailbox row's selected guard lost its search continuation line"
 
-# 5. Nothing tracked may be large. This plugin is installed by cloning it, so
-#    every megabyte in the tree is a megabyte between the user and a working
-#    mailbox — and the things that get big are never the source. A published
-#    design canvas with the editor bundled into it was 805 KB of the 1.4 MB a
-#    clone cost, for content that was already in the repo beside it as six
-#    small files, and an unreferenced screenshot was another 320 KB.
-#
-#    Anything genuinely large belongs somewhere a clone does not have to carry:
-#    a release asset, or GitHub's own attachment host, which is where the
-#    README's screenshots already live.
-#
-#    preview.png is the one exception, and it is named rather than waved
-#    through by raising the ceiling. The marketplace catalog rebuilds from
-#    branch HEAD and takes a plugin's card image from a root file, so this one
-#    has to be in the tree or the card falls back to a placeholder. It gets a
-#    ceiling of its own instead of none: a card image that grew to a megabyte
-#    would still be a megabyte every user clones.
+# Performance: Repository assets ship with every plugin clone. Keep explicit bounded exceptions for
+# marketplace preview art and the pinned bundle icon.
 limit=$((128 * 1024))
 preview_limit=$((384 * 1024))
 oversized=$(cd ..
@@ -1097,10 +995,7 @@ done <<'FONT_CHECKSUMS'
 a6de4cfc8a01d6e1271370e35591e23e696c84c52e36929b55d719916ada6b08 app/assets/fonts/SymbolsNerdFontMono-Regular.ttf
 FONT_CHECKSUMS
 
-# The macOS bundle icon is generated from the small reviewed SVG beside it.
-# Keep the binary exception pinned to its exact bytes and documented recipe;
-# changing the artwork or encoder must be an explicit review rather than an
-# accidental expansion of the repository-wide asset ceiling.
+# Invariant: Generated bundle icons must match their reviewed size, checksum and provenance recipe.
 icon_provenance=app/resources/macos/ICON-PROVENANCE.md
 [ -f "../$icon_provenance" ] || fail "the macOS icon must record its provenance"
 mac_icon=app/resources/macos/omamail.icns
@@ -1124,12 +1019,11 @@ grep -q "$windows_icon_checksum" "../$icon_provenance" \
 grep -q '3c780a0881ca98ffb717eb2877bf2e8a877deb9ddc3593a2bcca1d19139616e4' "../$icon_provenance" \
   || fail "the canonical Omamail logo checksum is missing from icon provenance"
 
-# The compose form, account boundary and raw-message builder must keep the
-# selected send-as address all the way to the provider. A missing link silently
-# falls back to a default address and makes the selector lie.
-# A mailto: link is a draft, not a page. The desktop handler summons the
-# window with the URL; open() turns that into compose fields. Toggle would
-# close a mailbox that is already on screen.
+# Invariant: The compose form, account boundary and raw-message builder must keep the selected
+# send-as address all the way to the provider. A missing link silently falls back to a default
+# address and makes the selector lie. A mailto: link is a draft, not a page. The desktop handler
+# summons the window with the URL; open() turns that into compose fields. Toggle would close a
+# mailbox that is already on screen.
 grep -q 'import "message/Mailto.js" as Mailto' App.qml \
   || fail "App.qml must parse mailto payloads through Mailto.js"
 grep -q 'Mailto.draftFromPayload(payload)' App.qml \
@@ -1202,10 +1096,8 @@ for client in providers/GmailApiClient.qml providers/ImapClient.qml; do
     || fail "$client must implement the provider-neutral sender-list operation"
 done
 
-# Qt FileDialog under QT_QPA_PLATFORMTHEME=gtk3 aborts the whole shell inside
-# GLib/DBus. The window is owned by Quickshell (`quickshell,Attach files`).
-# Attach has to pick files in a child process; opening Omafiles and hoping
-# the user pastes is not a picker.
+# Invariant: Attach files uses a child-process picker because Qt FileDialog under the gtk3 platform
+# theme aborts the host shell.
 if grep -nE 'FileDialog|QtQuick\.Dialogs' -- "${QML_FILES[@]}"; then
   fail "QML must not open FileDialog: it crashes Quickshell under the gtk3 platform theme"
 fi
@@ -1224,19 +1116,14 @@ if "FileDialog" in block or "execDetached" in block:
     )
 PY
 
-# The JMAP transport script builds the credential itself: `user = "name:secret"`
-# for Basic and an Authorization header for Bearer, and it refuses any other
-# scheme before curl runs. QML assembling one would be a second place the rule
-# lived, and the one that could get it wrong without a shell test noticing —
-# the script's own tests assert the config bytes, and nothing asserts a header
-# QML wrote.
+# Invariant: JMAP transport owns credential construction and scheme validation; QML must not create
+# a second Authorization policy.
 python3 - <<'PY1'
 from pathlib import Path
 import re
 
 for name in ("providers/JmapClient.qml", "providers/JmapAuth.qml",
              "components/JmapSetupPage.qml"):
-    # Comments say what the rule is; only code can break it.
     code = re.sub(r"//[^\n]*", "", Path(name).read_text())
     for literal in re.findall(r'"(?:[^"\\]|\\.)*"', code):
         if re.search(r"Authorization|Basic |Bearer ", literal):
@@ -1246,9 +1133,8 @@ for name in ("providers/JmapClient.qml", "providers/JmapAuth.qml",
             )
 PY1
 
-# The secret is an app password or an API token and it lives in the keyring.
-# accounts.json is world-readable, so the settings a JMAP account keeps are the
-# four things sign-in learned and nothing that could authenticate with them.
+# Invariant: Credentials stay in the keyring; persisted JMAP settings are not an authentication
+# store.
 python3 - <<'PY2'
 from pathlib import Path
 import re
@@ -1270,11 +1156,8 @@ from pathlib import Path
 
 source = Path("Service.qml").read_text()
 
-# A merged list may offer only what every mailbox in it can honour, and a
-# mailbox is not its provider: a host narrows the provider by the refusals its
-# server reported and the mailboxes it turned out not to have. Asking the
-# provider ids reintroduced an Archive button for an account whose own view
-# hides it, so the intersection is taken over the hosts' own answers.
+# Invariant: Unified capabilities intersect live mailbox answers, including server refusals;
+# provider-wide ceilings alone can expose unsupported actions.
 block = re.search(r"readonly property var unifiedAbilities: \{(.*?)\n  \}", source, re.S)
 if not block:
     raise SystemExit("test_source.sh: the merged capabilities must be read off the hosts "
@@ -1309,18 +1192,15 @@ if "decodeURIComponent" not in source:
     raise SystemExit("test_source.sh: Service must decode its resolved filesystem path")
 PLUGINDIR
 
-# A preview is drawn the same as an open and must be marked read differently.
-# The gate is one condition in the detail callback and it has no unit test that
-# can reach it — the panel-level test asserts only that a flag was passed.
 python3 - <<'PREVIEWREAD'
 import re
 from pathlib import Path
 
 source = Path("account/MailAccount.qml").read_text()
 
-# The read mark on arrival must ask whether this was a preview. The decision
-# itself lives in `Model.marksReadOnArrival`, where it is unit-tested; what is
-# guarded here is that the call site still asks it.
+# Invariant: The read mark on arrival must ask whether this was a preview. The decision itself lives
+# in `Model.marksReadOnArrival`, where it is unit-tested; what is guarded here is that the call site
+# still asks it.
 mark = re.search(r"if \((?:!markedRead && )?Model\.marksReadOnArrival\([^)]*\)\)\s*\n?\s*(?:markedRead = )?root\.act\([^)]*markRead",
                  source)
 if not mark:
@@ -1330,11 +1210,8 @@ if "selectionIsPreview" not in mark.group(0):
                      "(`root.selectionIsPreview`), or stepping a list reads it")
 PREVIEWREAD
 
-# The backend a QML file calls is the contract's, by name: a method that is
-# not declared cannot be called at all, and one the checkout has not shipped
-# yet is declared unreleased so `Backend` can refuse it on the pinned binary.
-# Feature requirements are fixed API revisions and survive release folding;
-# their connected-version behavior is covered by QML compatibility tests.
+# Invariant: Backend calls must be declared in the contract and gated on fixed feature revisions
+# that survive release folding.
 python3 - <<'CONTRACTCALLS' || exit 1
 import json, pathlib, re
 root = pathlib.Path("..")
@@ -1351,8 +1228,8 @@ if unknown:
                      + ", ".join(m + " (" + ", ".join(sorted(called[m])) + ")" for m in unknown))
 
 CONTRACTCALLS
-# Credential metadata and secret values cross one typed backend RPC. Provider
-# and calendar QML must never regain a platform command or keyring helper.
+# Invariant: Credential metadata and secret values cross one typed backend RPC. Provider and
+# calendar QML must never regain a platform command or keyring helper.
 if grep -E 'secret-tool|scripts/keyring-(lookup|store|clear)\.sh' \
     providers/*.qml calendar/*.qml >/dev/null; then
   fail "QML credential paths must use the typed backend credential RPC"

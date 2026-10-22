@@ -32,6 +32,7 @@ Item {
     labelId = String(id || "")
     targets = Array.isArray(rows) ? rows : []
     cursorIndex = 0
+    flick.contentY = 0
     menu.open()
   }
 
@@ -41,6 +42,12 @@ Item {
     var count = targets.length
     if (count === 0) return
     cursorIndex = Model.wrappedIndex(cursorIndex, delta, count)
+    var row = targetRows.itemAt(cursorIndex)
+    if (!row) return
+    if (row.y < flick.contentY) flick.contentY = row.y
+    else if (row.y + row.height > flick.contentY + flick.height) {
+      flick.contentY = row.y + row.height - flick.height
+    }
   }
 
   function choose(index) {
@@ -68,6 +75,7 @@ Item {
 
     contentItem: Flickable {
       id: flick
+      objectName: "label-move-scroll"
       WheelScroller { view: flick }
       contentWidth: width
       contentHeight: list.implicitHeight
@@ -103,6 +111,8 @@ Item {
         }
 
         Repeater {
+          id: targetRows
+          objectName: "label-move-targets"
           model: root.targets
 
           Rectangle {

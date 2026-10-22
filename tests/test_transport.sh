@@ -133,6 +133,10 @@ check "Graph keeps its transfer deadline" "$config" 'max-time = 60'
 check_absent "Graph does not emit --next sections" "$config" 'next'
 refuses_without_curl "Graph send rejects another address before curl" \
   "graph-send $(b64 'https://evil.example.net/sendMail') $(b64 't') $(b64 'x')"
+refuses_without_curl "Graph rejects invalid MIME base64 before curl" \
+  "graph-send $(b64 'https://graph.microsoft.com/v1.0/me/sendMail') $(b64 't') %%%"
+refuses_without_curl "Graph rejects a decoded MIME prefix followed by invalid base64 before curl" \
+  "graph-send $(b64 'https://graph.microsoft.com/v1.0/me/sendMail') $(b64 't') $(b64 'Subject: partial')%%%"
 refuses_without_curl "SMTP cannot address Graph" \
   "smtp $(b64 'https://graph.microsoft.com/v1.0/me/sendMail') $(b64 'u:p') $(b64 'a@b') $(b64 'x') $(b64 'c@d')"
 

@@ -263,3 +263,8 @@ assert.strictEqual(oauth.byteLength(""), 0)
 }
 
 console.log("test_oauth.js ok")
+
+for (const field of ['refresh_token', 'access_token', 'client_secret', 'id_token', 'code_verifier']) {
+  const raw = JSON.stringify({ [field]: 'synthetic"private-suffix\\secret' })
+  assert.strictEqual(oauth.redact(raw), JSON.stringify({ [field]: "[redacted]" }))
+}

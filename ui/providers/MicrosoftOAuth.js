@@ -181,7 +181,7 @@ function parseJson(text) {
 function redact(text) {
   return OAuth.redact(text)
     .replace(/(device_code|user_code)=[^&\s"']+/gi, "$1=[redacted]")
-    .replace(/"(device_code|user_code)"\s*:\s*"[^"]*"/gi, "\"$1\":\"[redacted]\"")
+    .replace(/"(device_code|user_code)"\s*:\s*"(?:\\.|[^"\\])*"/gi, "\"$1\":\"[redacted]\"")
     .replace(/\beyJ[A-Za-z0-9._-]{20,}/g, "[redacted]")
 }
 

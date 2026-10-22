@@ -194,3 +194,8 @@ assert.ok(microsoft.otherAccountMessage("bob@example.test", "alice@example.test"
 assert.strictEqual(microsoft.parseTokenResponse(200, JSON.stringify({ access_token: "a", id_token: "h.p.s" }), "").idToken, "h.p.s")
 assert.ok(microsoft.refreshTokenBody(clientId, "r", microsoft.SCOPES).indexOf("graph.microsoft.com") < 0,
   "a refresh names the mail resource alone; two resources in one token request are refused")
+
+for (const field of ['device_code', 'user_code']) {
+  const raw = JSON.stringify({ [field]: 'synthetic"private-suffix\\secret' })
+  assert.strictEqual(microsoft.redact(raw), JSON.stringify({ [field]: "[redacted]" }))
+}

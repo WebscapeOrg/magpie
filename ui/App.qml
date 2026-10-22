@@ -32,8 +32,7 @@ Item {
   property var shell: null
   property var manifest: null
   property var service: null
-  // The standalone host supplies its own client-side title bar. The Omarchy
-  // shell keeps ownership of plugin window chrome and leaves this disabled.
+  // Invariant: The standalone host enables client-side chrome; the Omarchy shell owns plugin chrome.
   property bool standaloneWindowChrome: false
   property bool opened: false
   property bool closingFromHost: false
@@ -68,7 +67,7 @@ Item {
   property var composeReceiptAckBusy: ({})
   property var composeDeliveryStates: ({})
 
-  // Only a native normalized record is restored; the editor owns its live fields.
+  // Invariant: Recovery accepts native-normalized records; live editor fields remain editor-owned.
   function loadComposeRecovery(record) {
     composeRecovery = record && typeof record === "object" ? record : Recovery.empty()
     lastComposeRecoveryText = composeRecovery.active === true ? JSON.stringify(composeRecovery) : ""
@@ -120,7 +119,6 @@ Item {
   readonly property color danger: Commons.Color.urgent
   readonly property color popupBackground: Commons.Color.popups.background
   readonly property color popupBorder: Commons.Color.popups.border
-  // Shared themed border for mail and standalone window chrome.
   readonly property color borderColor: Style.normalBorderColor
   readonly property int borderWidth: Style.normalBorderWidth
   readonly property color calendarBorder: Style.normalBorderColor
@@ -186,22 +184,11 @@ Item {
   readonly property bool singleContent: singlePane || compact
 
   property string cursorId: ""
-  // The rows ticked for a bulk action, by id. Like the cursor, a fact about
-  // this window rather than about the mailbox, and pruned the same way when
-  // the list under it changes. Only the list acts on it: in the reader there
-  // is one message and it is the one open.
+  // Invariant: Selection belongs to the window. Reader-only actions target the open message.
   property var checkedIds: []
-  // The mailbox the ticks belong to. An IMAP id is a UID and a folder, unique
-  // only inside one account, so a tick carried across an account switch
-  // would name whatever the other mailbox keeps under the same id — and a
-  // batch dispatched through it would act on that. The ticks are bound to
-  // the account they were made in and dropped the moment it changes, from
-  // any path, before a batch can run.
+  // Invariant: IMAP message IDs are account-local; clear checked IDs before acting through another account.
   property string checkedAccountId: ""
-  // Ticked rows mean the selection whenever the list is on screen: alone, or
-  // beside the reader in a wide window. A plain click opens a message and
-  // puts the window in the reader view, so a click, a Shift+click and `d`
-  // used to trash only the open message — the ticks were there and ignored.
+  // Invariant: Visible list selections remain active beside the reader in split view.
   readonly property bool listOnScreen: currentView === "list"
     || (currentView === "reader" && !singleContent)
   readonly property bool selectionActive: checkedIds.length > 0 && listOnScreen
@@ -214,7 +201,6 @@ Item {
     return true
   }
 
-  // Ticks made in another mailbox are not this one's: start over.
   function claimChecks() {
     var owner = service ? String(service.activeAccountId || "") : ""
     if (checkedAccountId !== owner) checkedIds = []
@@ -227,8 +213,7 @@ Item {
     checkedAccountId = owner
   }
 
-  // Shift+click applies the endpoint's next checked state across the range.
-  // The cursor moves here so the next stretch starts where this one ended.
+  // Invariant: Shift selection uses the endpoint's next state and makes that endpoint the next range anchor.
   function checkRange(id) {
     if (!service) return false
     var key = String(id || "")
@@ -239,8 +224,6 @@ Item {
     return true
   }
 
-  // Every loaded row, or none when every one is already ticked: one key that
-  // means "all of these" has to be able to mean "none of them" as well.
   function checkAll() {
     if (!service) return false
     claimChecks()
@@ -252,8 +235,6 @@ Item {
   Account.UnifiedBatchSelection { id: batchSelection; app: root; service: root.service }
   function actOnChecked(action) {
     if (!service || checkedIds.length === 0) return false
-    // Never through another mailbox: a switch that reached the service by
-    // any road drops the ticks before a batch can be built from them.
     if (checkedAccountId !== String(service.activeAccountId || "")) {
       checkedIds = []
       return false
@@ -262,8 +243,6 @@ Item {
     var leaves = !Model.survivesAction(service.mailboxKey, action,
       service.rawQuery, service.hasLabels, service.rawLabelId)
     var next = leaves ? Model.cursorAfterRemovals(service.messages, ids, cursorId) : cursorId
-    // The open message going with the selection closes the reader, the way
-    // acting on it alone does: it is about to leave this list.
     var wasOpen = currentView === "reader" && ids.indexOf(service.selectedId) >= 0
     var scope = batchSelection.scope
     var completion = service.unified ? function(result) {
@@ -282,14 +261,10 @@ Item {
     return true
   }
 
-  // Kept across messages, and across the window being closed: how somebody
-  // reads their mail is a fact about them, not about the message that made them
-  // reach for it. The service holds it because that is what writes it to disk.
+  // Invariant: The service persists reading mode and zoom across messages and window lifetimes.
   readonly property string bodyMode: service ? service.bodyMode : "reader"
   readonly property real bodyZoom: service ? service.bodyZoom : 1.0
-  // 0 means "proportional"; anything else is a width somebody dragged to.
-  // Where the two dividers were dragged to, or 0 for each pane's own default.
-  // Seeded from the service's window file and written back when a drag ends.
+  // Invariant: Zero selects the proportional pane width; positive widths persist completed drags.
   property real listWidth: 0
   property real sidebarWidth: 0
   readonly property real sidebarMinWidth: MailStyle.space(110)
@@ -302,8 +277,7 @@ Item {
   function zoomBy(step) {
     if (service) service.setBodyZoom(Model.zoomAfterStep(service.bodyZoom, step))
   }
-  // ---------------------------------------------------------- navigation
-  // Views own overlay state; the navigation stack follows their open/close.
+  // Invariant: Views own overlay open state; navigation follows their open/close signals.
   property var nav: Nav.rootFor(({}))
   readonly property var navKinds: Nav.kinds(nav)
   readonly property var navPage: Nav.page(nav)
@@ -316,7 +290,6 @@ Item {
   readonly property bool showSettings: page === "settings"
   readonly property bool showPicker: page === "picker"
   readonly property bool showSetup: page === "setup"
-  // Anything the window goes *into*. The mail chrome stands down for all of it.
   readonly property bool showPage: showSettings || showPicker || showSetup
   onComposingChanged: { if (!composing) composeAgent.close(); else agentPrompt.close() }
   onShowPageChanged: if (showPage) { agentPrompt.close(); composeAgent.close() }
@@ -325,8 +298,7 @@ Item {
   readonly property string editingProvider: page === "setup" ? String(navPage.provider || "") : ""
   readonly property bool accountDraftOpen: page === "setup" && navPage.draft === true
 
-  // Readiness rebuilds the root. Before sign-in, account changes rebuild only
-  // an untouched root, so saving an address cannot reopen a dismissed form.
+  // Invariant: Pre-sign-in account changes rebuild only untouched navigation, so saving an address cannot reopen a dismissed form.
   readonly property var rootState: ({
     anyReady: anyReady,
     accountReady: ready,
@@ -349,7 +321,7 @@ Item {
   }
   function resetNavigation() {
     var next = Nav.rootFor(rootState)
-    // Open drafts emit no openedChanged here. Restore them with new return depths.
+    // Invariant: Already-open drafts emit no openedChanged during root reset; restore their navigation entries explicitly.
     if (compose && compose.opened) next = Nav.push(next, Nav.entry("compose"))
     if (eventComposer && eventComposer.opened) next = Nav.push(next, Nav.entry("eventComposer"))
     nav = next
@@ -365,13 +337,10 @@ Item {
     nav = Nav.push(nav, Nav.entry(kind, fields))
   }
 
-  // Mouse navigation does not move focus. Leave search context so mailbox keys
-  // act on the opened message rather than typing into the search field.
+  // Invariant: Mouse navigation does not move focus; release the search field before mailbox shortcuts resume.
   onNavChanged: if (searchBar.fieldFocused) focusScope.parkKeyboard()
 
-  // An overlay whose view has closed, wherever it sits. Usually the top; a
-  // draft can also finish under the shortcut sheet, and then the sheet goes
-  // with it — it was drawn over a place that no longer exists.
+  // Invariant: Closing an underlying overlay also removes overlays opened above it.
   function dropOverlay(kind) {
     var stack = nav
     if (Nav.top(stack).kind === kind) {
@@ -388,10 +357,6 @@ Item {
     }
   }
 
-  // Back. Whatever is on top is asked to leave; a view that owns its own open
-  // state closes and pops itself, everything else pops here. Nothing to pop
-  // means the root, and Back on the root is the way out of the window — after
-  // clearing a search, which is the nearer thing to leave.
   function back() {
     var leaving = Nav.top(nav)
     pendingComposeReturnTo = -1
@@ -427,16 +392,13 @@ Item {
     else openHelp()
   }
 
-  // The pages a mailbox stands behind. Each is a push, so Back retraces it.
   function addMailbox() {
     dismissHelp()
     pushEntry("picker")
   }
   function chooseProvider(providerId) {
     if (!service) return
-    // On first run the row already exists and only needs its kind; after
-    // that, adding a mailbox is what makes one — and that row is a draft
-    // until it is saved, so backing out of its form discards it.
+    // Invariant: First-run setup reuses the existing account row; later additions remain discardable drafts until saved.
     var draft = service.hasSavedAccounts === true
     if (draft) service.addAccount(providerId)
     else service.configureCurrentAccount({ provider: providerId })
@@ -449,29 +411,15 @@ Item {
     service.switchTo(gmailId)
     pushEntry("setup", { provider: "gmail", draft: false })
   }
-  // Something the window needs to say that no account is reporting — refusing a
-  // duplicate mailbox, for one. Cleared on a timer so it cannot outlive its
-  // moment on the status line.
   property string notice: ""
   onNoticeChanged: if (notice !== "") noticeTimer.restart()
-  // Open by default, but narrow. The longest mailbox name is "All mail" — at
-  // 11px monospace that needs about 116px including the icon, the gaps and a
-  // count, so the rail costs little enough to leave standing.
-  //
-  // The service owns it, because the service is what outlives the window: the
-  // rail used to come back open on every restart, which is a preference the
-  // user had already expressed and the window kept forgetting.
+  // Invariant: Sidebar visibility belongs to the persistent service, not the window lifetime.
   readonly property bool sidebarCollapsed: !!service && service.sidebarCollapsed
   function toggleSidebar() {
     if (service) service.setSidebarCollapsed(!service.sidebarCollapsed)
   }
 
-  // Entered at the top. The page keeps its scroll for as long as it is in
-  // history — Back from a mailbox's form returns to the row that opened it —
-  // but a page that was left and entered again is a new visit, and one that
-  // opened where the last visit ended looked like the calendar had been
-  // opened instead of settings, because that is the section a scroll past
-  // Mailboxes lands in.
+  // Invariant: A new Settings visit starts at the top; returning through history preserves its scroll position.
   function openSettings() {
     dismissHelp()
     if (page === "settings") return
@@ -481,11 +429,9 @@ Item {
   }
 
   readonly property bool ready: !!service && service.ready
-  // The walkthrough is for having no mailbox at all. A mailbox that has been
-  // added but not signed in yet belongs in settings, next to the ones that are.
+  // Invariant: An added but unsigned-in mailbox belongs in Settings rather than first-run setup.
   readonly property bool anyReady: !!service && service.anyAccountReady
-  // A setup already part-done answers the question by itself: an account with
-  // credentials has had its kind chosen, whether or not this window asked.
+  // Invariant: Existing credentials imply that provider selection is already complete.
   readonly property bool setupUnderway: !!service && !!service.auth
     && service.auth.credentialsPresent === true
 
@@ -521,16 +467,13 @@ Item {
     var draft = Mailto.draftFromPayload(payload)
     if (draft) root.openDraft(draft)
     Qt.callLater(root.restoreComposeRecovery)
-    // The list is usually already loaded by the time the window is summoned —
-    // the service keeps running while it is shut — so waiting for the next
-    // change to seat the cursor leaves the first j with nowhere to move from.
+    // Invariant: The service may load the list while this window is closed; seed the cursor without waiting for another change.
     cursorId = Model.cursorAfterReload(service ? service.messages : [], cursorId)
-    // A stub service in the tests carries no widths; a real one always does.
     if (service && service.sidebarWidth !== undefined) {
       sidebarWidth = service.sidebarWidth
       listWidth = service.listWidth
     }
-    // Jobs finish while the window is shut; the rows say so as soon as it opens.
+    // Invariant: Jobs can finish while the window is closed; refresh their state on open.
     if (service && typeof service.refreshAgentJobs === "function") service.refreshAgentJobs()
     Qt.callLater(function() { focusScope.applyContextFocus() })
   }
@@ -538,9 +481,7 @@ Item {
   function close() {
     closingFromHost = true
     composeExitDialog.close()
-    // Escape at the list root closes the window without clearing what the
-    // cursor had previewed, so it reopened showing a stale message beside the
-    // list. A preview is not a place the window was left in.
+    // Invariant: A preview is not a saved reader location; clear it when closing from the list root.
     if (service && service.selectionIsPreview) service.clearSelection()
     if (compose.opened || compose.parkedForSend) saveComposeRecovery()
     opened = false
@@ -553,7 +494,7 @@ Item {
     else close()
   }
 
-  // The rich-document override belongs to one message.
+  // Invariant: The rich-document override applies to one message only.
   function openMessage(id) {
     if (!service) return
     pendingComposeMode = ""
@@ -561,23 +502,12 @@ Item {
     reader.forceRichAnyway = false
     cursorId = String(id || "")
     service.select(cursorId)
-    // A message opens over the list. From anywhere else — a notification
-    // arriving while Settings is up — it opens over a fresh list, because
-    // Back from a message means the list it came from.
+    // Invariant: Opening a message from another page creates a list return target.
     if (page !== "list" && page !== "reader") nav = Nav.resetTo(nav, "list")
     pushEntry("reader", { id: cursorId })
   }
 
-  // One member of the conversation the reader is inside, opened in the same
-  // reader. `openMessage` and nothing else: the header paints from the member's
-  // summary at once, the body from the cache or the network, and the navigation
-  // stack replaces a reader entry with a reader entry, so Back still lands on
-  // the list from any member.
-  //
-  // The one thing that does not happen is the cursor moving. `cursorId` is
-  // where the keyboard stands in the *list*, and a member is not a row — the
-  // list is one row per conversation — so leaving the cursor on a message the
-  // list has never drawn would send the next `j` back to the top of it.
+  // Invariant: Conversation members have no list row; preserve the list cursor while replacing the reader entry.
   function openMember(id) {
     var member = String(id || "")
     if (!service || member === "") return
@@ -586,9 +516,6 @@ Item {
     cursorId = cursor
   }
 
-  // Along the rail by keyboard: `n` to the next member, `p` to the previous,
-  // stopping at the ends rather than wrapping. `j` and `k` instead move the
-  // mailbox cursor and open that row's representative.
   function stepMember(delta) {
     if (!service || !service.showsRail) return
     var projection = service.conversationProjection || ({})
@@ -618,9 +545,7 @@ Item {
     return true
   }
 
-  // The list, fresh: what a mailbox switch, a search, a queued send and the
-  // reader's own "back to list" keys all mean. Not a Back — the history is
-  // dropped because the list under it has changed.
+  // Invariant: A changed mailbox or query invalidates reader history; return to a fresh list.
   function backToList() {
     pendingComposeMode = ""
     pendingDraftId = ""
@@ -640,9 +565,7 @@ Item {
     if (list.visible) list.reveal(cursorId)
   }
 
-  // Keyboard selection is explicit reading, with the same cache, network and
-  // mark-read behavior as opening a row. Cursor and reader move together while
-  // the cursor remains the anchor for the next key press.
+  // Invariant: Keyboard navigation explicitly opens and marks the message read; it is not a preview.
   function moveCursor(delta) {
     if (!service || (focusScope.keyContext !== "list" && focusScope.keyContext !== "reader")
         || labelPicker.opened) return
@@ -654,20 +577,13 @@ Item {
       openMessage(next)
   }
 
-  // An answer needs the message it is answering, and opening one only starts
-  // the fetch — select() clears the summary and the body first. Beginning the
-  // draft in the same breath addressed nobody and quoted nothing, which is what
-  // the list row's own Reply menu did. Held until the fetch lands instead.
+  // Invariant: Selecting a message clears its old summary and body; defer reply creation until both new values arrive.
   property string pendingComposeMode: ""
   property string pendingDraftId: ""
-  // Where the draft will return to, recorded before anything is pushed on its
-  // behalf. Answering from the list opens the message being answered — that
-  // is the reply's doing, not somewhere the reader asked to be — so the depth
-  // to come back to is taken before the reader goes on. -1 means "wherever
-  // the draft opens", which `push` fills in.
+  // Invariant: Capture the return depth before opening a reply's reader. A value of -1 uses the depth when the draft opens.
   property int pendingComposeReturnTo: -1
 
-  // Push the draft after it opens; a deferred reply already holds its return depth.
+  // Invariant: The opened signal owns the navigation push; deferred replies already captured their return depth.
   function trackComposeOpened() {
     var fields = {}
     if (pendingComposeReturnTo >= 0) fields.returnTo = pendingComposeReturnTo
@@ -675,7 +591,6 @@ Item {
     pushEntry("compose", fields)
   }
 
-  // Recovery records whether closing the draft returns to a reader or the list.
   function composeReturnView() {
     for (var entryIndex = nav.length - 1; entryIndex >= 0; entryIndex--) {
       if (nav[entryIndex].kind !== "compose") continue
@@ -694,8 +609,7 @@ Item {
   }
   function startCompose(mode) { pendingCompose.start(mode) }
 
-  // A mailto: URL, or the blank draft `compose: true` asks for. The window is
-  // already open when this runs — summon delivers the payload to open().
+  // Invariant: openDraft receives payloads after the window has opened.
   function openDraft(draft) {
     if (!draft) return
     pendingDraftId = ""
@@ -714,24 +628,16 @@ Item {
       service.selectedBody.text), messageId, service.selectedAttachments)
   }
 
-  // Answering from the list opens what is being answered first, the way the
-  // row's own menu does. Anything already open is left alone: re-selecting it
-  // would throw away the body that is on screen and fetch it again.
+  // Performance: Keep an already-open message selected; selecting it again discards and refetches its body.
   function composeFromCursor(mode) {
     if (!service || cursorId === "") return
     pendingComposeReturnTo = Nav.depth(nav)
-    // A preview satisfies the id test while pushing no `reader` entry, so
-    // without the second half `r` on a previewed row answered a message that
-    // was never opened: nothing marked it read, and closing the draft landed
-    // on the list instead of on the message being answered.
+    // Invariant: A matching preview must become a reader entry before replying, so mark-read and the draft return target are established.
     if (service.selectedId !== cursorId || service.selectionIsPreview)
       openMessage(cursorId)
     startCompose(mode)
   }
 
-  // A draft closed by its own Back, by Escape, by Discard, or by having been
-  // sent. All four are the same question: where was this raised from — and
-  // the entry knows.
   function leaveCompose() {
     pendingComposeReturnTo = -1
     dropOverlay("compose")
@@ -816,13 +722,13 @@ Item {
     onTriggered: root.draftSavedToast = ""
   }
 
-  // Opened on a message outside the ticks, the picker moves that one alone.
+  // Invariant: A label picker opened outside the checked selection acts on that message alone.
   property bool labelPickerOnlyCursor: false
 
   function openLabelPicker(onlyCursor) {
     if (!service || (cursorId === "" && !selectionActive)) return false
     labelPickerOnlyCursor = onlyCursor === true
-    // Labels belong to one mailbox. Other refusals use the provider guard.
+    // Invariant: Label operations target one account; provider-specific refusals remain with the provider guard.
     if (service.unified) {
       service.fail("Moving to a label needs one mailbox on screen")
       return false
@@ -832,9 +738,7 @@ Item {
     return true
   }
 
-  // A row's own button: the selection when the row is ticked, that row alone
-  // when it is not — the rule the row menu follows, so a click and a key on
-  // the same row cannot mean different sets of messages.
+  // Invariant: Row actions target the checked selection only when that row belongs to it.
   function actFromRow(id, action) {
     if (!service) return false
     var outside = checkedIds.indexOf(id) < 0
@@ -848,7 +752,6 @@ Item {
     return actOnCursor(action, outside)
   }
 
-  // The subject the popup names, from the row or the open message.
   function agentSubjectFor(id) {
     if (!service) return ""
     var index = Model.indexById(service.messages, id)
@@ -858,7 +761,6 @@ Item {
     return ""
   }
 
-  // With rows ticked, the ask is about all of them, one job with a count.
   function openAgentAt(id, sceneX, sceneY) {
     if (!service || !service.hasAgent || service.agentAvailable === false) return false
     if (selectionActive && checkedIds.indexOf(String(id || "")) >= 0) {
@@ -887,44 +789,24 @@ Item {
     return openAgentAt(id, sceneX, sceneY)
   }
 
-  // Acting on the open message closes it: it is about to leave this list.
-  //
-  // With rows ticked, the key means all of them rather than the one under the
-  // cursor — the same key, the same guard in `MailAccount`, one more row in
-  // the request. `onlyCursor` is for the row menu opened on a row outside the
-  // selection, which means that row and nothing else.
+  // Invariant: onlyCursor limits an action to a row outside the checked selection.
   function actOnCursor(action, onlyCursor) {
     if (!service) return false
     if (selectionActive && onlyCursor !== true) return actOnChecked(action)
     if (cursorId === "") return false
     var acted = cursorId
     var row = service.messages[Model.indexById(service.messages, acted)]
-    // "Was open" is the conversation's: with the rail up the reader can be
-    // showing a member of the acted row rather than the row itself, and
-    // archiving from a member has to open the next row or go back rather than
-    // leave a message that has just moved on screen.
-    //
-    // And a preview is not open at all. It satisfies "is this the selected
-    // one" without having been opened, which made `e` on a previewed row call
-    // `openMessage` on the *next* one — an archive that reads a message, which
-    // is the fault this feature exists to avoid.
+    // Invariant: An open reader can show a member of the acted conversation. A preview must not open and mark the next row read after a mutation.
     var wasOpen = currentView === "reader" && !service.selectionIsPreview
       && (service.selectedId === acted || Model.rowHoldsMember(row, service.selectedId))
-    // Worked out before the action, while the row still has neighbours.
+    // Invariant: Resolve the next row before the action removes its current neighbor.
     var next = Model.cursorAfterRemoval(service.messages, acted)
-    // The same six facts `MailAccount.act` decides with. Asking with three of
-    // them made the cursor repair disagree with the list it repairs: moving a
-    // message back to the inbox removes the row on a provider that moves, and
-    // this read it as staying. The row itself is the sixth: a conversation
-    // answers on its recomputed block, so a mark-read in the Unread view keeps
-    // the row while a reply is still unread.
+    // Invariant: Cursor repair must use the same mailbox, query, label, provider, and conversation facts as MailAccount.act.
     var leaves = !Model.survivesAction(service.mailboxKey, action,
       service.rawQuery, service.hasLabels, service.rawLabelId, row)
     if (!service.act(acted, action)) return false
     if (!leaves) return true
-    // The row is going and the cursor must not go with it: a cursor on a
-    // message that is no longer listed cannot be found, so the next j restarts
-    // at the top. Archiving one message used to send it back to the first row.
+    // Invariant: Repair a departing cursor before the next keyboard move tries to locate it.
     if (wasOpen) {
       if (next !== "") openMessage(next)
       else backToList()
@@ -935,17 +817,12 @@ Item {
     return true
   }
 
-  // Acting on one member from its stop on the rail: the one message and not
-  // the conversation, whichever member it is. If it was the message on screen
-  // and the action takes it out of this view, the reader moves to the
-  // neighbouring stop — the newer one above, else the older below — rather
-  // than sitting on a message that has just left; a conversation with no other
-  // stop goes back to the list, as the list's own delete does.
+  // Invariant: Member actions target one message. If it leaves, prefer the newer neighbor, then the older neighbor, then the list.
   function actOnMember(action, id) {
     var member = String(id || "")
     if (!service || member === "") return false
     var wasOpen = currentView === "reader" && service.selectedId === member
-    // Worked out before the action, while the member is still a stop.
+    // Invariant: Resolve the adjacent member before the action changes the conversation.
     var projection = service.conversationProjection || ({})
     var stop = (projection.navigation || ({}))[member]
     var next = stop ? String(stop.neighbor || "") : ""
@@ -966,9 +843,7 @@ Item {
     backToList()
   }
 
-  // The rail as the keys see it: one numbered list, the same one the badges
-  // are drawn from, so the number beside a row and the row a number opens are
-  // the same fact rather than two.
+  // Invariant: Rail badges and numeric shortcuts share the same ordered slots.
   readonly property var sidebarSlots: service
     ? Model.sidebarSlots(service.mailboxes, service.visibleLabels, 9) : []
 
@@ -976,23 +851,18 @@ Item {
     if (!service || index < 0 || index >= sidebarSlots.length) return
     var slot = sidebarSlots[index]
     if (slot.kind === "mailbox") return goMailbox(slot.key)
-    // Not a search: the provider decides what selecting a label means, and on
-    // IMAP it is a folder rather than a term to look for.
+    // Invariant: The provider resolves label selection; an IMAP label is a folder.
     service.selectLabel(slot.name, slot.id)
     backToList()
   }
 
-  // One answer per key id. The ids come from keys/Keymap.js; adding a key is a
-  // row there and a case here, and nothing else. The sequence says which key of
-  // a row fired, for the rows that bind more than one meaning.
+  // Invariant: Key IDs come from keys/Keymap.js; sequence distinguishes bindings sharing an ID.
   function runShortcut(id, sequence) {
     if (id === "assistantSend") return activeAssistant ? activeAssistant.submitCurrent() : false
     if (id === "assistantChooseCommand") return activeAssistant ? activeAssistant.chooseCommand() : false
     if (id === "assistantCommandNext") return activeAssistant ? activeAssistant.moveCommand(1) : false
     if (id === "assistantCommandPrevious") return activeAssistant ? activeAssistant.moveCommand(-1) : false
-    // The sheet is on top, so moving moves it. It is a plain overlay rather
-    // than a popup, which is why its keys can come from here at all — the
-    // switcher's cannot, and answers them itself.
+    // Invariant: The help sheet is an overlay; QQC popups route their own keys.
     if (shortcutHelpVisible) {
       if (id === "cursorDown") return shortcutHelp.scrollBy(1)
       if (id === "cursorUp") return shortcutHelp.scrollBy(-1)
@@ -1003,9 +873,7 @@ Item {
     if (id === "cursorUp") return moveCursor(-1)
     if (id === "scrollDown") return reader.scrollBy(1)
     if (id === "scrollUp") return reader.scrollBy(-1)
-    // In Drafts, opening a draft from the keyboard is editing it: the
-    // message is what was being written. A click still previews, so the
-    // list can be read through without a composer opening on every row.
+    // Invariant: Opening Drafts from the keyboard edits the draft; clicking a row can still preview it.
     if (id === "open") return openOrEdit(cursorId)
     if (id === "openReader") return openOrEdit(cursorId)
     if (id === "backToList") return backToList()
@@ -1013,14 +881,7 @@ Item {
     if (id === "previousMember") return stepMember(-1)
     if (id === "archive") return actOnCursor("archive")
     if (id === "trash") return actOnCursor("trash")
-    // Through the same guard actOnCursor applies rather than around it:
-    // starring with nothing selected used to call through with an empty id.
-    //
-    // In the reader the star is the open message's own. Every reader action
-    // resolves through the selected id and every list action through the
-    // cursor, and this is the key where the difference shows: the cursor stays
-    // on the row while `n` and `p` walk the rail, so `s` would otherwise star
-    // the representative rather than the message on screen.
+    // Invariant: Reader starring targets the selected member; list starring targets the cursor or checked selection.
     if (id === "star") {
       if (selectionActive)
         return actOnChecked(Model.starActionFor(Model.summariesById(service.messages, checkedIds)))
@@ -1102,9 +963,7 @@ Item {
     if (id === "back") return goBack()
   }
 
-  // Escape. The row menu, the app menu and the account switcher are absent on
-  // purpose: a QQC.Popup with CloseOnEscape consumes the key itself, so a
-  // branch for them here would never run. Everything else is the history.
+  // Invariant: QQC.Popup with CloseOnEscape consumes Escape before this handler.
   function goBack() {
     if (eventComposer.guestSuggestionsOpen) { eventComposer.dismissGuestSuggestions(); return }
     if (calendarView.dismissPreview()) return
@@ -1113,19 +972,12 @@ Item {
     if (activeAssistant && activeAssistant.interrupt()) return
     if (composeAgent.opened) { composeAgent.close(); return }
     if (agentPrompt.opened) { agentPrompt.close(); return }
-    // A query being typed is the nearest thing to leave: clear it if there is
-    // one, then hand the keyboard back. Parked directly rather than through
-    // applyContextFocus, which would still read the context as "search" —
-    // the field has not lost the focus yet at this point. This used to live
-    // in SearchBar as its own Keys handler, which a window Shortcut silently
-    // beats.
+    // Invariant: Park focus directly after leaving search; applyContextFocus still sees search until the field loses focus.
     if (searchBar.fieldFocused) {
       if (searchBar.queryText !== "") searchBar.clear()
       focusScope.parkKeyboard()
       return
     }
-    // A selection is the next nearest thing: Escape with rows ticked unticks
-    // them and goes nowhere, which is what every file manager does with it.
     if (selectionActive) {
       checkedIds = []
       return
@@ -1138,7 +990,7 @@ Item {
     ignoreUnknownSignals: true
     function onReplySent(sendId) {
       if (!compose.completePendingSend(sendId)) return
-      // Other sends may still be parked: recovery keeps holding them.
+      // Invariant: Other parked sends still own their recovery records.
       if (compose.opened || compose.parkedForSend) root.scheduleComposeRecovery()
       else root.clearComposeRecovery()
     }
@@ -1146,7 +998,7 @@ Item {
       if (!root.restoreParkedDraft(sendId, true)) return
       root.scheduleComposeRecovery()
     }
-    // A held reply needs both summary and body, whichever arrives last.
+    // Invariant: A deferred reply needs both summary and body, whichever arrives last.
     function onSelectedBodyChanged() { Qt.callLater(function() {
       root.resumeHeldCompose()
       root.resumeHeldDraft()
@@ -1156,14 +1008,12 @@ Item {
       root.resumeHeldDraft()
     }) }
 
-    // The cursor is an id too, and an IMAP id names a different message in
-    // another mailbox: it is dropped with the ticks, so the next `d` after
-    // a switch acts on nothing rather than on whatever shares the id.
+    // Invariant: IMAP cursor IDs are account-local; clear the cursor before shortcuts can act through another account.
     function onActiveAccountIdChanged() {
       root.clearChecksIfForeign()
       root.cursorId = ""
       root.closeLabelPopups()
-      // The agent popup is about one account's message too.
+      // Invariant: Assistant popups remain bound to the account that opened them.
       agentPrompt.close()
       composeAgent.close()
       composeExitDialog.close()
@@ -1180,13 +1030,9 @@ Item {
     function onDuplicateAccount(email) {
       root.notice = email + " is already added"
     }
-    // accountAdded is not handled here on purpose: the chooser that added the
-    // row pushes its form itself, so the stack says where the user is going
-    // before the service has finished making the row.
+    // Invariant: The chooser pushes its form before asynchronous account creation finishes; do not push again on accountAdded.
   }
 
-  // The setup pages. Built by the Loader above, one at a time, so the ones not
-  // in use hold no half-typed fields and no state to go stale.
   Component {
     id: providerPickerPage
 
@@ -1195,8 +1041,6 @@ Item {
       dimColor: root.dim
       accentColor: root.accent
       panelFontFamily: root.fontFamily
-      // Back is shown wherever there is something to go back to — which on
-      // first run, where the chooser is the root, there is not.
       onChosen: function(providerId) { root.chooseProvider(providerId) }
     }
   }
@@ -1276,18 +1120,13 @@ Item {
     }
   }
 
-  // Every mailbox at once. The rail it lands on has to be one they all have,
-  // so a row only some of them offered — Gmail's own Archive beside an IMAP
-  // mailbox — does not leave the list asking for something nothing can serve.
+  // Invariant: Unified view selects a mailbox available across its accounts.
   function chooseUnified() {
     if (!service) return false
     var keepCalendar = calendarVisible
     var mailbox = service.mailboxKey
     service.setUnifiedMailboxes(true)
-    // The rail row is chosen either way. Returning early with the calendar up
-    // left every mailbox on whatever it had been showing while the rail
-    // claimed one, so coming back from the calendar landed on a list that was
-    // not the row highlighted beside it.
+    // Invariant: Select the new mailbox even while Calendar is visible, so the rail and returning list agree.
     var target = Model.mailboxAfterAccountSwitch(mailbox, service.mailboxes)
     service.selectMailbox(target !== "" ? target : "inbox")
     if (keepCalendar) {
@@ -1302,9 +1141,6 @@ Item {
     if (!service) return false
     var keepCalendar = calendarVisible
     var mailbox = service.mailboxKey
-    // Choosing one mailbox is choosing to be in it, so the combined view goes
-    // off. Leaving it on would have named an account in the bar and gone on
-    // showing every one of them.
     if (service.unifiedMailboxes) service.setUnifiedMailboxes(false)
     if (service.switchToIndex(index) !== true) return false
     if (keepCalendar) {
@@ -1327,10 +1163,7 @@ Item {
     return true
   }
 
-  // The row this page is editing, not the mailbox the id happens to name: with
-  // a freshly added draft on screen those are different rows, and asking for
-  // the second one is how Remove came to delete a working account while the
-  // page in front of the user showed an empty form.
+  // Invariant: Remove the row being edited; a pending draft can share an account ID with a saved row.
   function removeCurrentAccountFromEditor() {
     if (!service || service.accountCount <= 1) return
     var index = service.editingIndex()
@@ -1341,11 +1174,7 @@ Item {
       accountRemovalDialog.openFor(request)
       return
     }
-    // No request means there is no mailbox id a confirmation can name. For the
-    // form's pending row that is expected: cancel it and leave the page, the
-    // way Back does. An idless persisted mailbox is different — if its damaged
-    // address could not be repaired it stays here for correction rather than
-    // being silently removed and mistaken for canceled setup state.
+    // Invariant: An unnamed pending row may be discarded. An unnamed persisted account remains available for repair.
     if (service.discardCurrentDraft() !== true) return
     navUntouched = false
     nav = Nav.push(Nav.resetTo(nav, rootKind()), Nav.entry("settings"))
@@ -1356,14 +1185,11 @@ Item {
     var index = Accounts.confirmRemoval({ accounts: service.accountSummaries || [] }, request)
     if (index < 0) return
     service.removeAccountAt(index)
-    // The editor's page is gone with its account. Settings is where the rest
-    // of them are, over a fresh root: the list underneath may have changed
-    // mailbox with the removal.
+    // Invariant: Account removal invalidates its editor and underlying mailbox history.
     navUntouched = false
     nav = Nav.push(Nav.resetTo(nav, rootKind()), Nav.entry("settings"))
   }
 
-  // Confirm the named event or series before deleting it.
   function requestEventDelete(sourceId, event) {
     if (event && service) confirmDeleteDialog.openFor(service.calendarController.deleteRequest(sourceId, event))
   }
@@ -1377,14 +1203,8 @@ Item {
     if (request.kind === "label" && request.labelId) service.deleteLabel(request.labelId, request.accountId)
   }
 
-  // ------------------------------------------------------------ labels
+  // Invariant: Label popups retain their opening account ID and close on account switches; IMAP folder IDs can collide across accounts.
 
-  // Every label popup — the menu, the name prompt, the move picker, the
-  // delete confirmation — is opened for one account and answers to it by
-  // id, whatever the window has switched to since. An IMAP label id is a
-  // folder name, which another account may well have too, so the open
-  // account is no guide to whose folder was meant. And a switch closes
-  // them: a prompt about a mailbox no longer on screen is a trap.
   function openLabelMenu(labelId, path, sceneX, sceneY) {
     if (!service) return
     labelMenu.accountId = service.activeAccountId
@@ -1410,8 +1230,6 @@ Item {
     return label ? String(label.name || label.rawName || "") : ""
   }
 
-  // A name asked for, then handed to the service with what it was for. The
-  // prompt is one component serving three asks, told apart by `kind`.
   function askLabelName(kind, subject, title, initial, hint, accountId) {
     namePrompt.accountId = String(accountId || "")
     namePrompt.openFor(kind, subject, title, initial, hint)
@@ -1425,8 +1243,7 @@ Item {
 
   function copyAddress(address) {
     var text = String(address || "").trim()
-    // The host owns the platform clipboard. An address that starts with a
-    // dash is still refused before it crosses that boundary.
+    // Invariant: Refuse leading-dash addresses before passing them to the host clipboard boundary.
     if (text === "" || text.charAt(0) === "-") return
     if (service && typeof service.copyText === "function") service.copyText(text)
     notice = "Copied " + text
@@ -1493,18 +1310,8 @@ Item {
       anchors.margins: MailStyle.space(6)
       focus: true
 
-      // Where the window is, and the only thing that says what a key means.
-      // A page is a form before it is anything else, a draft beats reading, a
-      // query being typed beats the list underneath it.
-      // Holding Ctrl names every row on the rail, so the digits are read rather
-      // than remembered. A `Keys` handler, which bindings may not use — but a
-      // modifier on its own cannot be a `Shortcut`, so there is no binding to
-      // route and nothing for `KeyRouter` to own. It accepts nothing: whatever
-      // follows Ctrl still goes exactly where it went before.
-      //
-      // `activeFocus` is what clears it. Ctrl+Tab can leave the window with Ctrl
-      // down and the release can land somewhere else, so waiting for a release
-      // that is never coming would paint the numbers on permanently.
+      // Invariant: A modifier alone cannot use Shortcut; observe Ctrl without accepting its key events.
+      // Invariant: Clear Ctrl state on focus loss because its release may arrive in another window.
       property bool ctrlDown: false
       readonly property bool ctrlHeld: ctrlDown && activeFocus
         && (keyContext === "list" || keyContext === "reader")
@@ -1530,7 +1337,6 @@ Item {
         sendPending: !!root.service && root.service.sendPending
       }))
 
-      // Context changes move or park focus so dismissed fields cannot eat keys.
       onKeyContextChanged: Qt.callLater(applyContextFocus)
       function focusWithin(container) {
         var item = focusScope.Window.activeFocusItem
@@ -1555,21 +1361,17 @@ Item {
         else parkKeyboard()
       }
 
-      // forceActiveFocus on the scope itself is a no-op: it re-elects the
-      // scope's current focus item, which is the very field being left. It has
-      // to land on a plain Item for the field to actually let go.
+      // Invariant: Focusing a FocusScope reselects its current field; use a plain Item to release that field's focus.
       function parkKeyboard() {
         keyboardHome.forceActiveFocus()
       }
 
-      // Where the keyboard lives when nothing is being typed into.
       Item {
         id: keyboardHome
         width: 1
         height: 1
       }
 
-      // ------------------------------------------------------------ header
 
       Item {
         id: header
@@ -1587,7 +1389,6 @@ Item {
           nativeWindow: header.Window.window
         }
 
-        // App identity precedes the current view's controls.
         Row {
           id: headerLeft
           anchors.left: parent.left
@@ -1631,10 +1432,7 @@ Item {
           }
         }
 
-        // The slot is whatever the two clusters leave, so the field shrinks with
-        // the window instead of running underneath Check mail. Centring it in
-        // the header and reserving a fixed width could not work: the reserve is
-        // split evenly either side, while the controls are all on the left.
+        // Invariant: Search uses the space between control clusters, whose widths can differ.
         Item {
           id: searchSlot
           anchors.left: headerLeft.right
@@ -1647,25 +1445,17 @@ Item {
           SearchBar {
             id: searchBar
             anchors.verticalCenter: parent.verticalCenter
-            // Centred on the header rather than on the gap, so it lines up with
-            // the window instead of with whatever the controls happen to leave.
-            // Clamped into the slot, which is what keeps it off Check mail when
-            // the two clusters are not the same width.
+            // Invariant: Center search on the header, then clamp it to the available slot to avoid overlapping controls.
             x: Math.max(0, Math.min(parent.width - width,
               (header.width - width) / 2 - parent.x))
-            // Capped well short of the gap it is given: a search field as wide
-            // as the window looks like the window's main event, and it is not.
             width: Math.min(MailStyle.space(340), parent.width)
-            // Below this it is a slot too small to type in; the shortcut still
-            // works and reopens it as the window grows.
             visible: !root.showPage && !root.composing && !root.calendarVisible
               && parent.width >= MailStyle.space(120)
           textColor: root.foreground
           accentColor: root.accent
           panelFontFamily: root.fontFamily
           serverSearching: !!root.service && root.service.serverSearchLoading
-          // A search replaces the list, so the message still open in the
-          // reader is almost certainly not in the results any more.
+          // Invariant: Search replaces the list and invalidates its open reader history.
           onSubmitted: function(query) {
             if (!root.service) return
             root.service.search(query)
@@ -1768,7 +1558,6 @@ Item {
         }
       }
 
-      // Reparent the AI control into the composer's header.
       Item {
         id: composeAiSlot
         anchors.top: parent.top
@@ -1790,7 +1579,6 @@ Item {
         }
       }
 
-      // -------------------------------------------------------------- body
 
       Item {
         id: body
@@ -1826,8 +1614,7 @@ Item {
             root.showCalendar()
             calendarView.refresh()
           }
-          // Not a search: the provider decides what selecting a label means,
-          // and on IMAP it is a folder rather than a term to look for.
+          // Invariant: The provider resolves label selection; an IMAP label is a folder.
           onLabelSelected: function(labelId, name) {
             root.service.selectLabel(name, labelId)
             root.backToList()
@@ -1838,8 +1625,6 @@ Item {
           }
         }
 
-        // Narrow windows lose the sidebar; the same mailboxes come back as a
-        // scrolling strip above the list.
         MailboxTabs {
           id: tabs
           anchors.top: parent.top
@@ -1850,17 +1635,13 @@ Item {
           textColor: root.foreground
           accentColor: root.accent
           panelFontFamily: root.fontFamily
-          // The account's own mailboxes, not a fixed set: this row and the
-          // sidebar it replaces on a narrow window must offer the same ones.
+          // Invariant: Compact tabs and the sidebar use the same provider mailbox list.
           allMailboxes: root.service ? root.service.mailboxes : []
           current: root.service ? root.service.mailboxKey : "inbox"
           unread: root.service ? root.service.inboxUnread : 0
           onSelected: function(key) { root.goMailbox(key) }
         }
 
-        // The rail's own divider, the same shape as the list's: a hairline
-        // that meets the rail's edge and a few pixels of drag target beside it.
-        // Only while the rail is open — collapsed, its width is the glyph's.
         Item {
           id: sidebarSplitter
           anchors.left: sidebar.right
@@ -1896,8 +1677,7 @@ Item {
 
         Item {
           id: listColumn
-          // The splitter's drag target overlays the edge instead of leaving
-          // an empty strip before the row's selection control.
+          // Invariant: The splitter hit target overlaps the list edge so it adds no gap before row selection controls.
           anchors.left: sidebar.visible ? sidebar.right : parent.left
           anchors.top: tabs.visible ? tabs.bottom : parent.top
           anchors.bottom: parent.bottom
@@ -1956,9 +1736,7 @@ Item {
 
         }
 
-        // The divider between the list and the message, and the handle that
-        // moves it. A hairline is the right thing to look at and the wrong
-        // thing to aim at, so the grab area is wider than the rule it draws.
+        // Invariant: The divider hit target is wider than its visible line.
         Item {
           id: listSplitter
           anchors.left: listColumn.right
@@ -1969,8 +1747,6 @@ Item {
           z: 5
 
           PanelSeparator {
-            // The visible rule meets the list edge. The rest of the splitter's
-            // width remains to its right as an easy drag target.
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
@@ -1994,8 +1770,6 @@ Item {
               root.listWidth = grabbedWidth + moved
             }
             onReleased: root.persistPaneWidths()
-            // Back to the proportional default, which is what most people
-            // want after one bad drag.
             onDoubleClicked: {
               root.listWidth = 0
               root.persistPaneWidths()
@@ -2054,17 +1828,9 @@ Item {
           }
           onActionRequested: function(action) {
             if (!root.service || root.service.selectedId === "") return
-            // The toolbar acts on the message it is under, which is normally
-            // the row the cursor is on — but with the rail up the reader can be
-            // showing a *member*, and the list has no row for one. Moving the
-            // cursor onto it would leave `j` unable to find where it stands, so
-            // the cursor is only followed to a message the list actually drew;
-            // from a member the action lands on the row the conversation was
-            // opened from, which is where the reader came from. Which members
-            // an action reaches from there is "Actions on a conversation row".
+            // Invariant: Conversation members have no list row; toolbar actions keep the list cursor on the conversation representative.
             var outside = root.checkedIds.indexOf(root.service.selectedId) < 0
-            // A star stays on the open member unless it belongs to the visible
-            // selection. It never moves the list's independent cursor.
+            // Invariant: Star the open member unless it belongs to the visible selection; preserve the list cursor.
             if (action === "star") {
               if (root.selectionActive && !outside)
                 root.actOnChecked(Model.starActionFor(Model.summariesById(
@@ -2081,8 +1847,7 @@ Item {
           }
         }
 
-        // Composing takes the whole body. Omarchy's panel mechanism would give
-        // a second window its own region, which is not what a reply is.
+        // Invariant: Compose stays in this window; a second Omarchy panel would receive a separate region.
         ComposeView {
           id: compose
           anchors.fill: parent
@@ -2102,7 +1867,7 @@ Item {
           popupBorderColor: root.popupBorder
           panelFontFamily: root.fontFamily
           contentDirection: root.service ? root.service.contentDirection : ""
-          // Parked sends close without emitting `closed`; navigation follows opened.
+          // Invariant: Parked sends close without emitting closed; navigation follows opened.
           onOpenedChanged: {
             if (opened) root.trackComposeOpened()
             else root.leaveCompose()
@@ -2161,9 +1926,7 @@ Item {
             calendarTodayBackgroundColor: root.calendarTodayBackground
             calendarBorderWidth: root.calendarBorderWidth
             panelFontFamily: root.fontFamily
-            // An event opened for reading is a place, so Back closes it before
-            // it leaves the calendar. The view owns the open state; the stack
-            // follows it.
+            // Invariant: CalendarView owns detail open state; navigation follows it so Back closes detail first.
             onDetailOpenChanged: {
               if (detailOpen) { if (root.page !== "calendarDetail") root.pushEntry("calendarDetail", {}) }
               else if (root.page === "calendarDetail") { root.navUntouched = false; root.nav = Nav.pop(root.nav) }
@@ -2174,17 +1937,10 @@ Item {
           }
         }
 
-        // The one Back for every page the window goes into — settings, the
-        // chooser, a form. Always at the same height, and always on the left
-        // edge of the page's own block — the rail's edge on Settings, the
-        // form's on the rest — so it belongs to the page rather than to the
-        // window's corner, and going a level deeper never moves it up or
-        // down. A page that is the root (first run's chooser) has nothing
-        // behind it and shows none.
         BackBar {
           id: pageBack
           objectName: "page-back"
-          // Keep the fixed Back hit target above the full-height settings viewport.
+          // Invariant: Keep the Back hit target above the full-height Settings viewport.
           z: 2
           parent: root.showSettings && root.compact ? settingsHolder : body
           x: (root.showSettings && root.compact ? 0 : MailStyle.space(18))
@@ -2197,12 +1953,9 @@ Item {
           panelFontFamily: root.fontFamily
           onActivated: root.back()
         }
-        // Where a page's content starts: under the Back when there is one.
         readonly property real pageTop: MailStyle.space(18)
           + (pageBack.visible ? pageBack.height + MailStyle.space(16) : 0)
 
-        // Setup takes the whole body: there is nothing else to look at until
-        // the mailbox is connected.
         Flickable {
           id: setupFlick
 
@@ -2210,8 +1963,7 @@ Item {
           anchors.fill: parent
           anchors.margins: MailStyle.space(18)
           anchors.topMargin: parent.pageTop
-          // The chooser and the forms share this page: the Loader below picks
-          // which. Hiding it for one of them is a blank window.
+          // Invariant: Both the provider chooser and setup forms need this viewport visible.
           visible: root.showSetup || root.showPicker
           contentWidth: width
           contentHeight: setupHolder.implicitHeight
@@ -2219,29 +1971,19 @@ Item {
           boundsBehavior: Flickable.StopAtBounds
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-          // A holder the width of the viewport, so the page below can centre
-          // against something real. Anchoring beats arithmetic here: a
-          // Flickable reparents its children, and an x binding written against
-          // the Flickable's own width lands before that reparenting settles.
+          // Invariant: Flickable reparents children; center against a viewport-sized holder to avoid transient parent geometry.
           Item {
             id: setupHolder
             width: setupFlick.width
             implicitHeight: setup.implicitHeight
 
-          // Setups that share nothing but their place on screen: a chooser for
-          // a mailbox whose kind is not settled yet, then whichever page that
-          // kind needs — a Cloud walkthrough, a program and a button, or a
-          // server and a password. A Loader rather than four visibilities, so
-          // the pages not in use hold no fields and no state.
+          // Invariant: Load one setup page at a time so inactive provider forms retain no fields or state.
           Loader {
             id: setup
             objectName: "setup-page"
-            // A measure this long is unreadable across a wide window, so it is
-            // capped rather than stretched.
             anchors.horizontalCenter: parent.horizontalCenter
             width: Math.min(setupHolder.width, MailStyle.space(560))
-            // The provider is on the entry, so a service that briefly reports
-            // Gmail while it rebuilds an account host cannot swap the page.
+            // Invariant: The navigation entry owns provider choice while the service rebuilds an account host.
             readonly property string kind: root.editingProvider !== "" ? root.editingProvider : "gmail"
             sourceComponent: root.showPicker
               ? providerPickerPage
@@ -2253,10 +1995,6 @@ Item {
           }
         }
 
-        // The settings page, which is where mailboxes are added and removed.
-        // One long page with a rail of its section names beside it: the rail
-        // scrolls the page, it does not split it. Below `compact` there is no
-        // room for a rail, and the page scrolls as it always did.
         Item {
           id: settingsArea
           anchors.fill: parent
@@ -2264,9 +2002,6 @@ Item {
           anchors.rightMargin: MailStyle.space(18)
           visible: root.showSettings
 
-          // The rail and the page are one block, centred together: the rail
-          // sits against the page's left edge rather than against the
-          // window's, so the two read as one thing with two columns.
           readonly property real railWidth: settingsRail.visible
             ? settingsRail.width + MailStyle.space(18) : 0
           readonly property real pageWidth: Math.min(width - railWidth, MailStyle.space(560))
@@ -2276,8 +2011,7 @@ Item {
             id: settingsRail
             objectName: "settings-sidebar"
             visible: !root.compact
-            // Above the Flickable, which spans the whole block and would
-            // otherwise take the clicks meant for the rail under it.
+            // Invariant: Keep the rail above the full-block Flickable so it receives clicks.
             z: 1
             x: settingsArea.blockLeft
             anchors.top: parent.top
@@ -2299,8 +2033,7 @@ Item {
             }
           }
 
-          // A slide rather than a jump, so the eye can follow where the page
-          // went. Not a Behavior on contentY: that would also slow the wheel.
+          // Performance: Animate section navigation only; a Behavior on contentY would also delay wheel scrolling.
           NumberAnimation {
             id: settingsScroll
             target: settingsFlick
@@ -2313,8 +2046,7 @@ Item {
           id: settingsFlick
 
           WheelScroller { view: settingsFlick }
-          // The whole width, rail included: the wheel scrolls the page from
-          // anywhere in the block, and the scrollbar keeps the window's edge.
+          // Invariant: The viewport spans the rail so wheel input anywhere in the block scrolls Settings.
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.top: parent.top
@@ -2328,15 +2060,14 @@ Item {
           Item {
             id: settingsHolder
             width: settingsFlick.width
-            // Padded under the page so the last section can reach the top,
-            // which is what makes a click on it land where it says.
+            // Invariant: Bottom padding lets the last section align with the top after rail navigation.
             implicitHeight: body.pageTop + Model.settingsContentHeight(settings.sections,
               settings.implicitHeight, Math.max(0, settingsFlick.height - body.pageTop))
 
             SettingsPage {
               id: settings
               objectName: "settings-page"
-              // Initial spacing scrolls with the content; clipping starts at the header.
+              // Invariant: Initial spacing scrolls with content; clipping starts at the header.
               y: body.pageTop
               x: settingsArea.blockLeft + settingsArea.railWidth
               width: settingsArea.pageWidth
@@ -2355,7 +2086,6 @@ Item {
                 root.showCalendar()
                 calendarView.refresh()
               }
-              // Which kind first, then the form for it.
               onAddRequested: root.addMailbox()
               onEditRequested: function(index) { root.editAccount(index) }
             }
@@ -2453,7 +2183,6 @@ Item {
         onSnoozed: function(id,until) { if (tools) tools.snooze(id,until) }
       }
 
-      // The window menu is opened by the menu button beside the mark.
       AppMenu {
         id: appMenu
         objectName: "app-menu"
@@ -2497,7 +2226,6 @@ Item {
         }
       }
 
-      // Every mailbox, opened from the address in the status bar.
       Timer {
         id: noticeTimer
         interval: 6000
@@ -2775,8 +2503,7 @@ Item {
           root.startCompose(mode)
         }
         onActionRequested: function(action, id) {
-          // On a ticked row the menu means the selection; on any other row it
-          // means that row alone, whatever else is ticked.
+          // Invariant: A checked row menu acts on the selection; any other row menu acts on that row alone.
           var outside = root.checkedIds.indexOf(id) < 0
           root.cursorId = id
           if (action === "moveToLabel") return root.openLabelPicker(outside)
@@ -2784,8 +2511,7 @@ Item {
             return root.actOnChecked(Model.starActionFor(Model.summariesById(root.service.messages, root.checkedIds)))
           root.actOnCursor(action, outside)
         }
-        // From a stop on the rail. A member is not a row, so the cursor stays
-        // where the list has it and the action reaches the one message.
+        // Invariant: A member menu acts on one message and preserves the independent list cursor.
         onMemberComposeRequested: function(mode, id) {
           root.pendingComposeReturnTo = Nav.depth(root.nav)
           root.openMember(id)
@@ -2808,7 +2534,6 @@ Item {
         onDismissed: root.dismissHelp()
       }
 
-      // ---------------------------------------------------------- keyboard
 
       KeyRouter {
         id: keyRouter

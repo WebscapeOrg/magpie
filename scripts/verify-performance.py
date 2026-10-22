@@ -14,9 +14,16 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "aeac13160f70a86f6419eaf2ceb1695fad078c7c"
+
+
+class Gate(NamedTuple):
+    name: str
+    command: list[str]
+    requirements: tuple[str, ...] | list[str] = ()
 
 
 def qt_tool(name):
@@ -115,48 +122,47 @@ def stages(profile, output, baseline):
             "APP_BACKEND=" + str(ROOT / "target/debug/omamail")]
     isolated = ["dbus-run-session", "--"]
     runtime = ["tcp", "unix", "ownership", "dbus"]
-    gate = lambda name, command, needs=(): (name, command, list(needs))
     if profile == "benchmarks":
         return [
-            gate("build-benchmarks", ["cargo", "test", "--release", "--locked", "--lib", "--no-run"], ["cargo"]),
-            gate("list-before-after", [sys.executable, "benchmarks/mail/compare_ui.py",
+            Gate("build-benchmarks", ["cargo", "test", "--release", "--locked", "--lib", "--no-run"], ["cargo"]),
+            Gate("list-before-after", [sys.executable, "benchmarks/mail/compare_ui.py",
                                       "--baseline", baseline, "--runner", qml,
                                       "--output", str(output / "before-after.json")], ["qmltestrunner"]),
-            *[gate(name, ["cargo", "test", "--release", "--locked", "--lib",
+            *[Gate(name, ["cargo", "test", "--release", "--locked", "--lib",
                           "local_mail::tests::benchmark_local_queries", "--", "--ignored", "--nocapture"],
                    ["cargo"]) for name in ("database-idle", "database-background", "database-million")],
         ]
     gates = [
-        gate("build", ["cargo", "build", "--locked", "--bin", "omamail"], ["cargo"]),
-        gate("offline-recovery", ["cargo", "test", "--locked", "--lib", "local_mail::recovery_tests"], ["cargo"]),
-        gate("provider-recovery", ["cargo", "test", "--locked", "--lib", "local_mail::provider_tests"], ["cargo"] + runtime),
-        gate("send-recovery", ["cargo", "test", "--locked", "--lib", "outbox::tests::recorder_confirms"], ["cargo"] + runtime),
-        gate("retained-attachments", isolated + [sys.executable, "tests/test_attachment_handles_rpc.py"], runtime),
-        gate("low-space", [sys.executable, "scripts/test-low-space.py"], ["cargo", "low-space-sandbox"] + runtime),
-        gate("subprocess", ["cargo", "test", "--locked", "--lib", "process::"], ["cargo"]),
-        gate("rust", isolated + make + ["test-rust"], ["cargo", "pdf-sandbox"] + runtime),
-        gate("javascript", make + ["test-js"], ["node"]),
-        gate("source", ["bash", "tests/test_source.sh"]),
-        gate("shell-independent", make + ["test-shell-independent"], ["node"]),
-        gate("shell", isolated + make + ["test-shell-portable"], ["node"] + runtime),
-        gate("qml", isolated + make + ["test-qml"], ["cargo", "qmltestrunner"] + runtime),
-        gate("qml-components", [sys.executable, "tests/run_qml_components.py", "--runner", qml,
+        Gate("build", ["cargo", "build", "--locked", "--bin", "omamail"], ["cargo"]),
+        Gate("offline-recovery", ["cargo", "test", "--locked", "--lib", "local_mail::recovery_tests"], ["cargo"]),
+        Gate("provider-recovery", ["cargo", "test", "--locked", "--lib", "local_mail::provider_tests"], ["cargo"] + runtime),
+        Gate("send-recovery", ["cargo", "test", "--locked", "--lib", "outbox::tests::recorder_confirms"], ["cargo"] + runtime),
+        Gate("retained-attachments", isolated + [sys.executable, "tests/test_attachment_handles_rpc.py"], runtime),
+        Gate("low-space", [sys.executable, "scripts/test-low-space.py"], ["cargo", "low-space-sandbox"] + runtime),
+        Gate("subprocess", ["cargo", "test", "--locked", "--lib", "process::"], ["cargo"]),
+        Gate("rust", isolated + make + ["test-rust"], ["cargo", "pdf-sandbox"] + runtime),
+        Gate("javascript", make + ["test-js"], ["node"]),
+        Gate("source", ["bash", "tests/test_source.sh"]),
+        Gate("shell-independent", make + ["test-shell-independent"], ["node"]),
+        Gate("shell", isolated + make + ["test-shell-portable"], ["node"] + runtime),
+        Gate("qml", isolated + make + ["test-qml"], ["cargo", "qmltestrunner"] + runtime),
+        Gate("qml-components", [sys.executable, "tests/run_qml_components.py", "--runner", qml,
                                 "--output", str(output / "qml-components")], ["qmltestrunner"]),
-        gate("standalone-qml", make + ["test-app-qml"], ["cmake", "qmltestrunner"]),
-        gate("native-host", ["ctest", "--test-dir", "app/build",
+        Gate("standalone-qml", make + ["test-app-qml"], ["cmake", "qmltestrunner"]),
+        Gate("native-host", ["ctest", "--test-dir", "app/build",
                             "--output-on-failure", "--no-tests=error"], ["cmake"]),
-        gate("qml-lint", make + ["qml-check"], ["qmllint"]),
-        gate("api-inventory", [sys.executable, "scripts/package-backend.py", "check-api"]),
-        gate("api-contract", isolated + [sys.executable, "tests/test_backend_api.py",
+        Gate("qml-lint", make + ["qml-check"], ["qmllint"]),
+        Gate("api-inventory", [sys.executable, "scripts/package-backend.py", "check-api"]),
+        Gate("api-contract", isolated + [sys.executable, "tests/test_backend_api.py",
                                          "--binary", "target/debug/omamail"], runtime),
-        gate("native-agent", isolated + [sys.executable, "tests/test_agent_native_bridge.py"], runtime),
-        gate("diff", ["git", "diff", "--check"]),
+        Gate("native-agent", isolated + [sys.executable, "tests/test_agent_native_bridge.py"], runtime),
+        Gate("diff", ["git", "diff", "--check"]),
     ]
     if profile == "desktop":
         gates.extend([
-            gate("validate", isolated + make + ["validate"], ["cargo", "cmake", "qmltestrunner",
+            Gate("validate", isolated + make + ["validate"], ["cargo", "cmake", "qmltestrunner",
                                                               "qmllint", "omarchy", "pdf-sandbox"] + runtime),
-            gate("quickshell-bridge", isolated + make + ["test-backend-process"], ["qs", "cargo"] + runtime),
+            Gate("quickshell-bridge", isolated + make + ["test-backend-process"], ["qs", "cargo"] + runtime),
         ])
     return gates
 

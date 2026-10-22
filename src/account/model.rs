@@ -526,6 +526,9 @@ pub fn apply(params: &Value) -> Result<Value, &'static str> {
     } else {
         &Value::Null
     };
+    if rows(replay_entries).iter().any(|entry| !entry.is_object()) {
+        return Err("model_invalid");
+    }
     let entry_count = rows(replay_entries).len();
     if entry_count > 128
         || (entry_count > 0

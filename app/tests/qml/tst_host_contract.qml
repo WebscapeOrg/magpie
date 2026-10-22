@@ -149,6 +149,18 @@ TestCase {
     verify(findChild(button, "omamail-tooltip-label"))
   }
 
+  function test_default_stderr_reuses_the_bounded_native_tail() {
+    var native = createTemporaryObject(nativeProcessComponent, testCase)
+    var process = createTemporaryObject(processComponent, testCase, { nativeProcess: native })
+    verify(process)
+    native.stderrText = "retained diagnostic tail"
+    for (var lineIndex = 0; lineIndex < 4096; lineIndex++)
+      native.stderrLine("discarded old diagnostic " + lineIndex)
+    compare(process.stderr.text, native.stderrText)
+    native.stderrText = ""
+    compare(process.stderr.text, "")
+  }
+
   function test_environment_and_detached_operations_use_native_host() {
     compare(Quickshell.env("HOME"), "/fixture/home")
     Quickshell.execDetached(["xdg-open", "https://example.test/path"])

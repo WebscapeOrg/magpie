@@ -10,7 +10,9 @@ Item {
   property bool stdinEnabled: false
   property string jobMode: ""
   property var stdout: StdioCollector {}
-  property var stderr: StdioCollector {}
+  property var stderr: QtObject {
+    readonly property string text: root.nativeProcess ? root.nativeProcess.stderrText : ""
+  }
   property var nativeProcess: null
   readonly property string written: ""
   property bool _syncingRunning: false

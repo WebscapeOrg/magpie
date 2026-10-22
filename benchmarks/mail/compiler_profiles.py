@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare two release mail_bench executables without changing release settings."""
+"""Invariant: profile comparison never changes the release build settings."""
 import argparse
 import hashlib
 import json

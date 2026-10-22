@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare frozen Qt JS with actual QML→Rust→QML processing, including uploads."""
+"""Invariant: native timings include QML→Rust→QML transport and uploads."""
 import argparse,hashlib,json,os,platform,shutil,signal,subprocess,tempfile,time,tomllib
 from pathlib import Path
 from corpus import corpus
@@ -82,7 +82,7 @@ Scope {
    if(root.sampleIndex<root.sampleCount){root.nextNative();return}
    var row={name:root.cases[root.caseIndex].name,phase:root.phases[root.phaseIndex],
     qml:root.oldRow,native:{coldUs:root.cold,batch:root.batch,samplesUs:root.samples,result:root.result}}
-   // Logging/validation is outside measured operations, split into bounded lines.
+   // Performance: logging and validation stay outside timed operations; transfer uses bounded lines.
    var text=JSON.stringify(row), total=Math.ceil(text.length/32768)
    for(var i=0;i<total;i++)console.log("ROUNDTRIP_PART "+JSON.stringify({index:i,total:total,data:text.slice(i*32768,(i+1)*32768)}))
    console.log("ROUNDTRIP_PROGRESS "+row.name+"/"+row.phase)

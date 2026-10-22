@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure a synthetic native window through physical or virtual display capture."""
+"""Invariant: display measurements use a synthetic mailbox in a private session."""
 import argparse
 import base64
 from contextlib import ExitStack

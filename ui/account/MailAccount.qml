@@ -1753,37 +1753,37 @@ Item {
     var loaded = new Array(listed.length)
     var handles = []
     var firstError = ""
-    for (var attachmentIndex = 0; attachmentIndex < listed.length; attachmentIndex++) {
-      (function(index) {
-        var source = listed[index] || ({})
-        if (draftKey && backend && backend.ready && Number(backend.apiVersion)>=8 && providerId!=="hey") {
-          handles.push(backend.call("attachment.retain",{accountId:accountId,draftKey:String(draftKey),
-            messageId:String(messageId),attachmentId:String(source.attachmentId || ""),
-            filename:String(source.filename || "attachment"),mimeType:String(source.mimeType || "application/octet-stream")},function(result,error) {
-              if (error && firstError === "") firstError = "Could not include " + String(source.filename || "an attachment")
-              loaded[index] = result
-              remaining--
-              if (remaining === 0 && typeof callback === "function") callback(loaded,firstError)
-          }))
-          return
-        }
-        handles.push(api.getAttachment(messageId, String(source.attachmentId || ""),
-          function(data, error) {
-            if (error && firstError === "")
-              firstError = "Could not include " + String(source.filename || "an attachment")
-                + ": " + error
-            loaded[index] = ({
-              filename: String(source.filename || "attachment"),
-              mimeType: String(source.mimeType || "application/octet-stream"),
-              size: Math.max(0, Math.floor(Number(source.size) || 0)),
-              data: String(data || "")
-            })
+    function loadAttachment(index) {
+      var source = listed[index] || ({})
+      if (draftKey && backend && backend.ready && Number(backend.apiVersion)>=8 && providerId!=="hey") {
+        handles.push(backend.call("attachment.retain",{accountId:accountId,draftKey:String(draftKey),
+          messageId:String(messageId),attachmentId:String(source.attachmentId || ""),
+          filename:String(source.filename || "attachment"),mimeType:String(source.mimeType || "application/octet-stream")},function(result,error) {
+            if (error && firstError === "") firstError = "Could not include " + String(source.filename || "an attachment")
+            loaded[index] = result
             remaining--
-            if (remaining === 0 && typeof callback === "function")
-              callback(loaded, firstError)
-          }))
-      })(attachmentIndex)
+            if (remaining === 0 && typeof callback === "function") callback(loaded,firstError)
+        }))
+        return
+      }
+      handles.push(api.getAttachment(messageId, String(source.attachmentId || ""),
+        function(data, error) {
+          if (error && firstError === "")
+            firstError = "Could not include " + String(source.filename || "an attachment")
+              + ": " + error
+          loaded[index] = ({
+            filename: String(source.filename || "attachment"),
+            mimeType: String(source.mimeType || "application/octet-stream"),
+            size: Math.max(0, Math.floor(Number(source.size) || 0)),
+            data: String(data || "")
+          })
+          remaining--
+          if (remaining === 0 && typeof callback === "function")
+            callback(loaded, firstError)
+        }))
     }
+    for (var attachmentIndex = 0; attachmentIndex < listed.length; attachmentIndex++)
+      loadAttachment(attachmentIndex)
     return handles
   }
 

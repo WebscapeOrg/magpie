@@ -23,9 +23,9 @@ Item {
     property var createdFields: null
     property var transferCallback: null
     function findSource(id) {
-      for (var i=0;i<writableSourceGroups.length;i++)
-        for (var j=0;j<writableSourceGroups[i].calendars.length;j++)
-          if (writableSourceGroups[i].calendars[j].id === id) return writableSourceGroups[i].calendars[j]
+      for (var groupIndex=0;groupIndex<writableSourceGroups.length;groupIndex++)
+        for (var calendarIndex=0;calendarIndex<writableSourceGroups[groupIndex].calendars.length;calendarIndex++)
+          if (writableSourceGroups[groupIndex].calendars[calendarIndex].id === id) return writableSourceGroups[groupIndex].calendars[calendarIndex]
       return null
     }
     function transferEvent(sourceId, destinationId, event, callback) {

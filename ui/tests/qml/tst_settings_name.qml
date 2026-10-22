@@ -16,10 +16,10 @@ Item {
     id: fakeBackend
     property bool ready: true
     property string method: ""
-    property var params: null
+    property var parameters: null
     property var callback: null
-    function call(method, params, callback) {
-      fakeBackend.method = method; fakeBackend.params = params; fakeBackend.callback = callback
+    function call(method, parameters, callback) {
+      fakeBackend.method = method; fakeBackend.parameters = parameters; fakeBackend.callback = callback
     }
   }
   QtObject {
@@ -140,7 +140,7 @@ Item {
       page.importing = true
       page.finishImport(JSON.stringify({ok: true, mimeType: "image/png", data: "iVBORw0KGgoAAA=="}))
       compare(fakeBackend.method, "message.signatureImport")
-      compare(fakeBackend.params.kind, "image")
+      compare(fakeBackend.parameters.kind, "image")
       compare(page.importing, true)
       compare(fakeService.signatureHtml, "")
       page.selectedSignatureAccountId = "b@example.net"

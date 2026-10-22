@@ -888,4 +888,15 @@ for (const folder of ["constructor", "__proto__", "toString"]) {
     [{ folder, uids: [7, 8] }], "server folder names are dictionary keys")
 }
 
+
+for (const key of ['password', 'pass', 'pwd']) {
+  const secret = 'synthetic"private-suffix\\secret with space'
+  const redacted = imap.redact(JSON.stringify({[key]: secret}))
+  assert.ok(!redacted.includes("private-suffix") && !redacted.includes("synthetic"), "quoted credentials must be fully removed")
+}
+
+for (const line of ['A1 LOGIN "user name" "synthetic private-suffix"', 'A1 AUTHENTICATE PLAIN "synthetic private-suffix"']) {
+  assert.ok(!imap.redact(line).includes("private-suffix"), "quoted protocol credentials must be fully removed")
+}
+
 console.log("ImapProtocol.js ok")

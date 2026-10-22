@@ -34,6 +34,7 @@ function redact(text) {
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
     .replace(/\bBasic\s+\S+/gi, "Basic [redacted]")
     .replace(/(https?:\/\/)[^\s/@]*:[^\s/@]*@/gi, "$1[redacted]@")
+    .replace(/("?(?:password|secret|token|apiKey)"?\s*[=:]\s*)"(?:[^"\\]|\\.)*(?:"|$)/gi, "$1[redacted]")
     .replace(/("?)(password|secret|token|apiKey)\1\s*[=:]\s*"?[^\s",}]*/gi, "$2=[redacted]")
 }
 

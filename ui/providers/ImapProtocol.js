@@ -1327,9 +1327,10 @@ function transportError(status, response, detail, fallback) {
  */
 function redact(text) {
   return String(text === undefined || text === null ? "" : text)
-    .replace(/\b(LOGIN)\s+\S+\s+\S+/gi, "$1 [redacted]")
-    .replace(/\b(AUTHENTICATE)\s+\w+\s+\S+/gi, "$1 [redacted]")
+    .replace(/\b(LOGIN)[ \t]+[^\r\n]*/gi, "$1 [redacted]")
+    .replace(/\b(AUTHENTICATE)[ \t]+[^\r\n]*/gi, "$1 [redacted]")
     .replace(/(imaps?|smtps?):\/\/[^\s/@]*:[^\s/@]*@/gi, "$1://[redacted]@")
+    .replace(/("?(?:password|pass|pwd)"?\s*[=:]\s*)"(?:[^"\\]|\\.)*(?:"|$)/gi, "$1[redacted]")
     .replace(/(password|pass|pwd)\s*[=:]\s*\S+/gi, "$1=[redacted]")
 }
 

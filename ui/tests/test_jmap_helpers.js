@@ -183,4 +183,11 @@ assert.strictEqual(jmap.bodyValueFor({}, "__proto__"), null)
 deepEqual(jmap.extraHeaders({ headers: [{ name: "constructor", value: "kept" }] }),
   [{ name: "constructor", value: "kept" }])
 
+
+for (const key of ['password', 'secret', 'token', 'apiKey']) {
+  const secret = 'synthetic"private-suffix\\secret with space'
+  const redacted = jmap.redact(JSON.stringify({[key]: secret}))
+  assert.ok(!redacted.includes("private-suffix") && !redacted.includes("synthetic"), "quoted credentials must be fully removed")
+}
+
 console.log("jmap helpers ok")

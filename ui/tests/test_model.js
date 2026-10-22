@@ -288,12 +288,12 @@ assert.strictEqual(model.actionScope("unstar"), "conversation")
 assert.strictEqual(model.actionScope("star"), "message")
 assert.strictEqual(model.actionScope(""), "message")
 
-const block = (over) => Object.assign(
+const block = (overrides) => Object.assign(
   { id: "t1", count: 3, unread: true, flagged: false,
-    memberIds: ["m1", "m2", "m3"] }, over || {})
-const conversation = (over) => Object.assign(
+    memberIds: ["m1", "m2", "m3"] }, overrides || {})
+const conversation = (overrides) => Object.assign(
   { id: "m1", labelIds: ["INBOX"], unread: true, starred: false, inInbox: true,
-    thread: block() }, over || {})
+    thread: block() }, overrides || {})
 
 // Expansion is a property of the row. Every counted member for a
 // conversation-scoped verb, the representative alone for star.
@@ -328,11 +328,11 @@ assert.strictEqual(model.rowHoldsMember(null, "m1"), false)
 // The block after one member changed. A member's own flag is read from its
 // labels: `unread` on a summary is already the OR with its conversation, so
 // reading that would keep the row unread for ever.
-const members = (over) => Object.assign({
+const members = (overrides) => Object.assign({
   m1: { id: "m1", labelIds: ["INBOX"] },
   m2: { id: "m2", labelIds: ["INBOX", "UNREAD"] },
   m3: { id: "m3", labelIds: ["INBOX"] }
-}, over || {})
+}, overrides || {})
 
 // All three known and one still unread: the row stays unread.
 deepEqual(model.threadAfterMemberChange(conversation(), members()),
@@ -634,34 +634,34 @@ assert.strictEqual(model.pluralize(0, "message"), "0 messages")
   // A 100-tall viewport over 500 of content, rows 20 tall, 4px of margin.
   const view = 100
   const content = 500
-  const pad = 4
+  const viewportMargin = 4
 
   assert.strictEqual(
-    model.contentYToReveal(0, view, 40, 20, content, pad), 0,
+    model.contentYToReveal(0, view, 40, 20, content, viewportMargin), 0,
     "a row already on screen does not move the list under the reader")
 
   assert.strictEqual(
-    model.contentYToReveal(0, view, 90, 20, content, pad), 14,
+    model.contentYToReveal(0, view, 90, 20, content, viewportMargin), 14,
     "a row off the bottom scrolls just far enough, plus the margin")
 
   assert.strictEqual(
-    model.contentYToReveal(200, view, 180, 20, content, pad), 176,
+    model.contentYToReveal(200, view, 180, 20, content, viewportMargin), 176,
     "a row off the top scrolls back to it, plus the margin")
 
   assert.strictEqual(
-    model.contentYToReveal(10, view, 0, 20, content, pad), 0,
+    model.contentYToReveal(10, view, 0, 20, content, viewportMargin), 0,
     "the top of the list is as far up as it goes: no negative offset")
 
   assert.strictEqual(
-    model.contentYToReveal(380, view, 480, 20, content, pad), 400,
+    model.contentYToReveal(380, view, 480, 20, content, viewportMargin), 400,
     "the bottom clamps to the last screenful rather than scrolling past it")
 
   assert.strictEqual(
-    model.contentYToReveal(0, view, 40, 300, content, pad), 36,
+    model.contentYToReveal(0, view, 40, 300, content, viewportMargin), 36,
     "a row taller than the viewport shows its top rather than its bottom")
 
   assert.strictEqual(
-    model.contentYToReveal(0, 500, 40, 20, 400, pad), 0,
+    model.contentYToReveal(0, 500, 40, 20, 400, viewportMargin), 0,
     "content shorter than the viewport never scrolls")
 }
 
@@ -774,7 +774,7 @@ assert.strictEqual(model.pluralize(0, "message"), "0 messages")
 
   // The ceiling is where a row stops having a key, not where the rail stops.
   const many = []
-  for (let i = 0; i < 14; i++) many.push({ id: "L" + i, name: "n" + i, rawName: "n" + i })
+  for (let sampleIndex = 0; sampleIndex < 14; sampleIndex++) many.push({ id: "L" + sampleIndex, name: "n" + sampleIndex, rawName: "n" + sampleIndex })
   assert.strictEqual(model.sidebarSlots(boxes, many, 9).length, 9)
   assert.strictEqual(model.slotNumberOf(model.sidebarSlots(boxes, many, 9), "label", "L6"), 0,
     "past the ninth row there is no digit left to offer: Ctrl+0 belongs to the zoom")
@@ -988,9 +988,9 @@ assert.strictEqual(model.detailSummary(grouped, {
   }
   const settled = { id: "rep", unread: false, starred: false, labelIds: ["INBOX"],
     thread: { id: "d", count: 2, unread: false, flagged: false, memberIds: ["rep", "reply"] } }
-  const rep = model.cachedDetailSummary(settled, filed)
-  assert.strictEqual(rep.unread, false)
-  assert.strictEqual(rep.thread.unread, false, "the row's block replaced the file's")
+  const representative = model.cachedDetailSummary(settled, filed)
+  assert.strictEqual(representative.unread, false)
+  assert.strictEqual(representative.thread.unread, false, "the row's block replaced the file's")
   const replyStillUnread = { ...settled, thread: { ...settled.thread, unread: true } }
   assert.strictEqual(model.cachedDetailSummary(replyStillUnread, filed).unread, true)
   // A count of 0 in hand is no block at all, so the file's stays.
@@ -1116,9 +1116,9 @@ assert.strictEqual(model.WHEEL_PIXELS_PER_NOTCH, 120,
   "and it is three lines of text, which is what a GTK application moves")
 
 // The same turn, chopped up the way a high-resolution wheel reports it.
-let fine = 0
-for (let i = 0; i < 8; i++) fine += model.wheelDistance(-NOTCH / 8)
-assert.strictEqual(fine, -120, "eight fractions of a notch are still one notch")
+let fractionalDistance = 0
+for (let sampleIndex = 0; sampleIndex < 8; sampleIndex++) fractionalDistance += model.wheelDistance(-NOTCH / 8)
+assert.strictEqual(fractionalDistance, -120, "eight fractions of a notch are still one notch")
 
 assert.strictEqual(model.wheelDistance(-3 * NOTCH), -360, "three notches")
 assert.strictEqual(model.wheelDistance(0), 0)
@@ -1129,9 +1129,9 @@ assert.strictEqual(model.wheelDistance(null), 0)
 // as one event, and a bound would have moved it a notch and a half while the
 // same ten notches arriving as ten events moved ten.
 assert.strictEqual(model.wheelDistance(-10 * NOTCH), -1200)
-let asTen = 0
-for (let i = 0; i < 10; i++) asTen += model.wheelDistance(-NOTCH)
-assert.strictEqual(asTen, model.wheelDistance(-10 * NOTCH),
+let separateNotchDistance = 0
+for (let sampleIndex = 0; sampleIndex < 10; sampleIndex++) separateNotchDistance += model.wheelDistance(-NOTCH)
+assert.strictEqual(separateNotchDistance, model.wheelDistance(-10 * NOTCH),
   "ten notches move the same distance however they arrive")
 
 // Where the view lands, inside what it can actually reach.

@@ -1,7 +1,7 @@
 mod avatars;
 mod snooze;
 mod store;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 
@@ -158,7 +158,9 @@ fn claim_overviews(
         if old["text"].as_str().is_some_and(|s| !s.is_empty()) && old["version"] == 1 {
             continue;
         }
-        if !retry && old["state"] == "failed" && at - old["updated"].as_i64().unwrap_or(0) < 900_000
+        if !retry
+            && old["state"] == "failed"
+            && at.saturating_sub(old["updated"].as_i64().unwrap_or(0)) < 900_000
         {
             continue;
         }
@@ -174,6 +176,9 @@ fn finish_overviews(
     chosen: &[String],
     result: &Result<Value, &'static str>,
 ) -> Result<(), &'static str> {
+    if !saved.is_object() {
+        return Err("inbox_storage_invalid");
+    }
     for id in chosen {
         let text = result
             .as_ref()
@@ -270,5 +275,77 @@ mod overview_failure_tests {
         assert!(overview_failure(Some("overview_ai_unavailable")).contains("respond"));
         assert!(!overview_failure(Some("secret mail or credential")).contains("secret"));
         assert!(overview_failure(None).contains("omitted"));
+    }
+}
+
+#[cfg(all(test, feature = "agent", unix))]
+mod overview_storage_tests {
+    use super::{claim_overviews, finish_overviews};
+    use serde_json::{json, Value};
+
+    #[test]
+    fn expired_overview_failure_accepts_the_full_persisted_timestamp_range() {
+        let mut saved = json!({"message": {"state":"failed", "updated":i64::MIN}});
+        let ids = vec!["message".to_owned()];
+        assert_eq!(
+            claim_overviews(&mut saved, &ids, false, 1_000_000).unwrap(),
+            ids
+        );
+        assert_eq!(saved["message"]["state"], "running");
+    }
+
+    #[test]
+    fn overview_completion_rejects_nonobject_storage_without_mutation() {
+        for mut saved in [Value::Null, json!([]), json!("replaced"), json!(7)] {
+            let before = saved.clone();
+            assert_eq!(
+                finish_overviews(&mut saved, &["message".into()], &Ok(json!([]))),
+                Err("inbox_storage_invalid")
+            );
+            assert_eq!(saved, before);
+        }
+    }
+
+    #[test]
+    fn overview_claim_preserves_ready_results_and_observes_retry_cooldown() {
+        let original = json!({
+            "ready": {"text":"saved summary", "version":1},
+            "recent": {"state":"failed", "updated":100_001},
+            "expired": {"state":"failed", "updated":100_000}
+        });
+        let ids = vec!["ready".into(), "recent".into(), "expired".into()];
+        let mut saved = original.clone();
+        assert_eq!(
+            claim_overviews(&mut saved, &ids, false, 1_000_000).unwrap(),
+            vec!["expired"]
+        );
+        assert_eq!(saved["ready"], original["ready"]);
+        assert_eq!(saved["recent"], original["recent"]);
+        saved = original.clone();
+        assert_eq!(
+            claim_overviews(&mut saved, &ids, true, 1_000_000).unwrap(),
+            vec!["recent", "expired"]
+        );
+        assert_eq!(saved["ready"], original["ready"]);
+    }
+
+    #[test]
+    fn overview_completion_keeps_recent_results_when_pruning_old_records() {
+        let mut saved = json!({});
+        for index in 0..5001 {
+            saved[index.to_string()] = json!({"updated":index});
+        }
+        finish_overviews(
+            &mut saved,
+            &["message".into()],
+            &Ok(json!([{"id":"message", "text":"fresh summary"}])),
+        )
+        .unwrap();
+        assert_eq!(saved.as_object().unwrap().len(), 4002);
+        assert!(saved.get("0").is_none());
+        assert!(saved.get("999").is_none());
+        assert!(saved.get("1000").is_some());
+        assert_eq!(saved["message"]["state"], "ready");
+        assert_eq!(saved["message"]["text"], "fresh summary");
     }
 }

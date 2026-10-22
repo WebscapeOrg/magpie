@@ -48,6 +48,7 @@ Item {
     }
 
     function init() {
+      failOnWarning(/Unable to assign \[undefined\]/)
       // Invariant: Settle deferred load requests before starting the next test's counters.
       fakeService.hasMore = false
       fakeService.listLoading = false

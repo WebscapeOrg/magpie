@@ -199,6 +199,14 @@ assert.strictEqual(parsed[0].sourceId, "work")
 assert.strictEqual(parsed[0].href, "/cal/a.ics")
 assert.strictEqual(parsed[1].start.allDay, true)
 
+const scalarXml = xml.replace("SUMMARY:A &amp; B", "SUMMARY:Launch &#x1F680; &#128640;")
+assert.strictEqual(feed.eventsFromCaldav(scalarXml, "work")[0].summary, "Launch 🚀 🚀",
+  "CalDAV numeric references preserve complete Unicode code points")
+assert.strictEqual(feed.tagText("<name>&#x110000; &#55296;</name>", "name"), "&#x110000; &#55296;",
+  "invalid Unicode scalar references remain text instead of truncating or throwing")
+assert.strictEqual(feed.tagText("<name>&#38;#x41; &amp;lt; &LT;</name>", "name"), "&#x41; &lt; &LT;",
+  "XML entity decoding is a single case-sensitive pass")
+
 // A server may send the calendar object in a CDATA section instead of escaping
 // it, which RFC 4791 allows and DAViCal and iCloud do. Unwrapped, its first
 // line reads `<![CDATA[BEGIN:VCALENDAR` and the collection parses to nothing.

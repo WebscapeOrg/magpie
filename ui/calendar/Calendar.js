@@ -24,18 +24,15 @@ function caldavReport(startMs, endMs) {
 }
 
 function decodeXml(value) {
-  return String(value || "")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, function(_whole, digits) {
-      return String.fromCharCode(Number(digits))
+  var named = { lt: "<", gt: ">", quot: "\"", apos: "'", amp: "&" }
+  return String(value || "").replace(/&(lt|gt|quot|apos|amp|#\d+|#[xX][0-9a-fA-F]+);/g,
+    function(whole, reference) {
+      if (reference[0] !== "#") return named[reference]
+      var hexadecimal = reference[1].toLowerCase() === "x"
+      var scalar = parseInt(reference.substring(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10)
+      if (scalar > 0x10ffff || (scalar >= 0xd800 && scalar <= 0xdfff)) return whole
+      return String.fromCodePoint(scalar)
     })
-    .replace(/&#x([0-9a-f]+);/gi, function(_whole, digits) {
-      return String.fromCharCode(parseInt(digits, 16))
-    })
-    .replace(/&amp;/g, "&")
 }
 
 // Invariant: CalDAV XML text may use entities or CDATA; entity decoding inside CDATA would corrupt event text.

@@ -511,6 +511,70 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn queued_cleanup_checks_retirement_and_rejection_before_connecting() {
+        let (mut peer, session, client, port) =
+            tokio::task::spawn_blocking(mailbox::tests::mailbox_peer)
+                .await
+                .unwrap();
+        let context = session.context("jmap:user@example.test").unwrap();
+        let snapshot = session
+            .snapshot("jmap:user@example.test", &context)
+            .await
+            .unwrap();
+        let mut outcomes = Vec::new();
+        for state in ["active", "retired", "rejected"] {
+            context
+                .retired
+                .store(false, std::sync::atomic::Ordering::Release);
+            context
+                .rejected
+                .store(false, std::sync::atomic::Ordering::Release);
+            let held = snapshot.slots.acquire_many(4).await.unwrap();
+            let cleanup = session.destroy(&context, &snapshot, "original");
+            tokio::pin!(cleanup);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(20), &mut cleanup)
+                    .await
+                    .is_err()
+            );
+            if state == "retired" {
+                context
+                    .retired
+                    .store(true, std::sync::atomic::Ordering::Release);
+            }
+            if state == "rejected" {
+                context
+                    .rejected
+                    .store(true, std::sync::atomic::Ordering::Release);
+            }
+            drop(held);
+            outcomes.push((state, cleanup.await));
+        }
+        let bytes = client
+            .get(format!("https://localhost:{port}/report"))
+            .send()
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let requests: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(peer.0.wait().unwrap().success());
+        assert_eq!(
+            requests.as_array().unwrap().len(),
+            1,
+            "only the active cleanup may contact the server"
+        );
+        assert_eq!(
+            outcomes,
+            vec![
+                ("active", Ok(())),
+                ("retired", Err("jmap_cancelled")),
+                ("rejected", Err("jmap_unauthorized"))
+            ]
+        );
+    }
     #[test]
     fn encoded_from_names_select_only_the_actual_jmap_identity() {
         let identities = json!([{"id":"victim","email":"victim@example.org","isDefault":true},{"id":"alias","email":"alias@example.org"}]);

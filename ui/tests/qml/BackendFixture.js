@@ -7,8 +7,8 @@
 function findPipe(item) {
   if (item.command && item.command[1] === "serve") return item
   var children = item.children || []
-  for (var i = 0; i < children.length; i++) {
-    var found = findPipe(children[i])
+  for (var childIndex = 0; childIndex < children.length; childIndex++) {
+    var found = findPipe(children[childIndex])
     if (found) return found
   }
   return null
@@ -19,15 +19,15 @@ var installed = []
 function install(service) {
   var pipe = findPipe(service.backend)
   if (!pipe) throw new Error("No backend fixture pipe")
-  for (var i = 0; i < installed.length; i++)
-    if (installed[i].service === service) return installed[i].listener
+  for (var fixtureIndex = 0; fixtureIndex < installed.length; fixtureIndex++)
+    if (installed[fixtureIndex].service === service) return installed[fixtureIndex].listener
   var listener = Qt.createQmlObject('import QtQuick; Connections { target: null; objectName: "native-domain-fixture"; property var handler; property var requests: []; property var answers: ({}); property var record: ({active:false,returnView:"",draft:null,parked:[]}); property int revision: 1; function onWrittenChanged() { handler(target.written) } }', service)
   var offset = pipe.written.length
   listener.handler = function(written) {
     var lines = written.slice(offset).split("\n")
     offset = written.length - lines[lines.length - 1].length
-    for (var i = 0; i < lines.length - 1; i++) {
-      var request = JSON.parse(lines[i])
+    for (var lineIndex = 0; lineIndex < lines.length - 1; lineIndex++) {
+      var request = JSON.parse(lines[lineIndex])
       listener.requests = listener.requests.concat([request])
       var result = NativeDomain.answer(request.method, request.params || {})
       if (request.method === "compose.recoveryRead") result = {record:listener.record,revision:String(listener.revision)}

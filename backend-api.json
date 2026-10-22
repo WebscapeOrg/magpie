@@ -1592,6 +1592,523 @@
       "types": {
         "contractHash": "string"
       }
+    },
+    {
+      "name": "Attachment recovery preserves source and owned pending work",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "attachmentSourceMessageId": "contract-source",
+            "forwardAttachmentsLoading": true,
+            "forwardAttachmentError": "",
+            "forwardLoadSerial": 2147483647,
+            "attachmentRecoveryError": "",
+            "attachJobs": [
+              {
+                "mode": "read",
+                "path": "/synthetic/contract-attachment.bin",
+                "owner": "contract-draft",
+                "accountId": "contract@example.org"
+              },
+              {
+                "mode": "recover",
+                "path": "/synthetic/contract-attachment.bin",
+                "owner": "contract-draft",
+                "accountId": "contract@example.org"
+              },
+              {
+                "mode": "recover-owned",
+                "path": "/synthetic/contract-attachment.bin",
+                "owner": "contract-draft",
+                "accountId": "contract@example.org"
+              }
+            ],
+            "pendingAttachment": {
+              "mode": "read",
+              "path": "/synthetic/contract-attachment.bin",
+              "owner": "contract-draft",
+              "accountId": "contract@example.org"
+            }
+          },
+          "parked": [
+            {
+              "draftKey": "contract-draft",
+              "accountId": "contract@example.org",
+              "attachmentSourceMessageId": "contract-source",
+              "forwardAttachmentsLoading": true,
+              "forwardAttachmentError": "",
+              "forwardLoadSerial": 2147483647,
+              "attachmentRecoveryError": "",
+              "attachJobs": [
+                {
+                  "mode": "read",
+                  "path": "/synthetic/contract-attachment.bin",
+                  "owner": "contract-draft",
+                  "accountId": "contract@example.org"
+                },
+                {
+                  "mode": "recover",
+                  "path": "/synthetic/contract-attachment.bin",
+                  "owner": "contract-draft",
+                  "accountId": "contract@example.org"
+                },
+                {
+                  "mode": "recover-owned",
+                  "path": "/synthetic/contract-attachment.bin",
+                  "owner": "contract-draft",
+                  "accountId": "contract@example.org"
+                }
+              ],
+              "pendingAttachment": {
+                "mode": "read",
+                "path": "/synthetic/contract-attachment.bin",
+                "owner": "contract-draft",
+                "accountId": "contract@example.org"
+              }
+            }
+          ]
+        }
+      },
+      "equals": {
+        "record.active": true,
+        "record.draft.body": "",
+        "record.draft.draftKey": "contract-draft",
+        "record.draft.accountId": "contract@example.org",
+        "record.draft.attachmentSourceMessageId": "contract-source",
+        "record.draft.forwardAttachmentsLoading": true,
+        "record.draft.forwardAttachmentError": "",
+        "record.draft.forwardLoadSerial": 2147483647,
+        "record.draft.attachmentRecoveryError": "",
+        "record.draft.attachJobs.length": 3,
+        "record.draft.attachJobs.0.mode": "read",
+        "record.draft.attachJobs.1.mode": "recover",
+        "record.draft.attachJobs.2.mode": "recover-owned",
+        "record.draft.pendingAttachment.mode": "read",
+        "record.draft.pendingAttachment.owner": "contract-draft",
+        "record.draft.pendingAttachment.accountId": "contract@example.org",
+        "record.parked.0.attachmentSourceMessageId": "contract-source",
+        "record.parked.0.forwardAttachmentsLoading": true,
+        "record.parked.0.attachJobs.length": 3
+      }
+    },
+    {
+      "name": "Attachment recovery reads source and owned pending work",
+      "method": "compose.recoveryRead",
+      "params": {},
+      "equals": {
+        "record.active": true,
+        "record.draft.body": "",
+        "record.draft.draftKey": "contract-draft",
+        "record.draft.accountId": "contract@example.org",
+        "record.draft.attachmentSourceMessageId": "contract-source",
+        "record.draft.forwardAttachmentsLoading": true,
+        "record.draft.forwardAttachmentError": "",
+        "record.draft.forwardLoadSerial": 2147483647,
+        "record.draft.attachmentRecoveryError": "",
+        "record.draft.attachJobs.length": 3,
+        "record.draft.attachJobs.0.mode": "read",
+        "record.draft.attachJobs.1.mode": "recover",
+        "record.draft.attachJobs.2.mode": "recover-owned",
+        "record.draft.pendingAttachment.mode": "read",
+        "record.draft.pendingAttachment.owner": "contract-draft",
+        "record.draft.pendingAttachment.accountId": "contract@example.org",
+        "record.parked.0.attachmentSourceMessageId": "contract-source",
+        "record.parked.0.forwardAttachmentsLoading": true,
+        "record.parked.0.attachJobs.length": 3
+      }
+    },
+    {
+      "name": "Attachment recovery preserves the bounded maximum job queue",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "attachJobs": [
+              {
+                "mode": "recover-owned",
+                "path": "/synthetic/contract-attachment.bin",
+                "owner": "contract-draft",
+                "accountId": "contract@example.org"
+              }
+            ]
+          },
+          "parked": []
+        }
+      },
+      "equals": {
+        "record.active": true,
+        "record.draft.attachJobs.length": 1000,
+        "record.draft.attachJobs.999.owner": "contract-draft",
+        "record.draft.attachJobs.999.accountId": "contract@example.org"
+      }
+    },
+    {
+      "name": "Attachment recovery reads the bounded maximum job queue",
+      "method": "compose.recoveryRead",
+      "params": {},
+      "equals": {
+        "record.active": true,
+        "record.draft.attachJobs.length": 1000,
+        "record.draft.attachJobs.999.owner": "contract-draft",
+        "record.draft.attachJobs.999.accountId": "contract@example.org"
+      }
+    },
+    {
+      "name": "Attachment recovery preserves pending and error-only snapshots",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "attachmentRecoveryError": "Choose the file again"
+          },
+          "parked": [
+            {
+              "draftKey": "contract-draft",
+              "accountId": "contract@example.org",
+              "attachJobs": [
+                {
+                  "mode": "recover-owned",
+                  "path": "/synthetic/contract-attachment.bin",
+                  "owner": "contract-draft",
+                  "accountId": "contract@example.org"
+                }
+              ]
+            },
+            {
+              "draftKey": "contract-draft",
+              "accountId": "contract@example.org",
+              "pendingAttachment": {
+                "mode": "read",
+                "path": "/synthetic/contract-attachment.bin",
+                "owner": "contract-draft",
+                "accountId": "contract@example.org"
+              }
+            },
+            {
+              "draftKey": "contract-draft",
+              "accountId": "contract@example.org",
+              "forwardAttachmentError": "Original attachments could not be loaded"
+            },
+            {
+              "draftKey": "contract-draft",
+              "accountId": "contract@example.org",
+              "attachmentSourceMessageId": "contract-source"
+            }
+          ]
+        }
+      },
+      "equals": {
+        "record.active": true,
+        "record.draft.body": "",
+        "record.draft.attachmentRecoveryError": "Choose the file again",
+        "record.parked.length": 4,
+        "record.parked.0.attachJobs.length": 1,
+        "record.parked.1.pendingAttachment.mode": "read",
+        "record.parked.2.forwardAttachmentError": "Original attachments could not be loaded",
+        "record.parked.3.attachmentSourceMessageId": "contract-source"
+      }
+    },
+    {
+      "name": "Attachment recovery reads pending and error-only snapshots",
+      "method": "compose.recoveryRead",
+      "params": {},
+      "equals": {
+        "record.active": true,
+        "record.draft.body": "",
+        "record.draft.attachmentRecoveryError": "Choose the file again",
+        "record.parked.length": 4,
+        "record.parked.0.attachJobs.length": 1,
+        "record.parked.1.pendingAttachment.mode": "read",
+        "record.parked.2.forwardAttachmentError": "Original attachments could not be loaded",
+        "record.parked.3.attachmentSourceMessageId": "contract-source"
+      }
+    },
+    {
+      "name": "Attachment recovery turns interrupted host selection into recoverable error",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "attachJobs": [
+              {
+                "mode": "pick",
+                "path": "",
+                "owner": "contract-draft",
+                "accountId": "contract@example.org"
+              }
+            ],
+            "pendingAttachment": {
+              "mode": "clipboard",
+              "path": "",
+              "owner": "contract-draft",
+              "accountId": "contract@example.org"
+            }
+          },
+          "parked": []
+        }
+      },
+      "equals": {
+        "record.active": true,
+        "record.draft.body": "",
+        "record.draft.attachJobs": [],
+        "record.draft.pendingAttachment": null,
+        "record.draft.attachmentRecoveryError": "Attachment selection was interrupted. Choose the files or paste the image again."
+      }
+    },
+    {
+      "name": "Attachment recovery does not replay interrupted host selection",
+      "method": "compose.recoveryRead",
+      "params": {},
+      "equals": {
+        "record.active": true,
+        "record.draft.body": "",
+        "record.draft.attachJobs": [],
+        "record.draft.pendingAttachment": null,
+        "record.draft.attachmentRecoveryError": "Attachment selection was interrupted. Choose the files or paste the image again."
+      }
+    },
+    {
+      "name": "Attachment recovery rejects a foreign draft owner",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "attachJobs": [
+              {
+                "mode": "recover-owned",
+                "path": "/synthetic/contract-attachment.bin",
+                "owner": "foreign-draft",
+                "accountId": "contract@example.org"
+              }
+            ]
+          },
+          "parked": []
+        },
+        "expectedRevision": "unused"
+      },
+      "equals": {
+        "message": "recovery_invalid"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Attachment recovery rejects a foreign pending account",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "pendingAttachment": {
+              "mode": "recover-owned",
+              "path": "/synthetic/contract-attachment.bin",
+              "owner": "contract-draft",
+              "accountId": "foreign@example.org"
+            }
+          },
+          "parked": []
+        },
+        "expectedRevision": "unused"
+      },
+      "equals": {
+        "message": "recovery_invalid"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Attachment recovery rejects traversal before file effects",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "pendingAttachment": {
+              "mode": "recover-owned",
+              "path": "/synthetic/../outside",
+              "owner": "contract-draft",
+              "accountId": "contract@example.org"
+            }
+          },
+          "parked": []
+        },
+        "expectedRevision": "unused"
+      },
+      "equals": {
+        "message": "recovery_attachment_path_invalid"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Attachment recovery rejects source provenance without an owner",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "accountId": "contract@example.org",
+            "attachmentSourceMessageId": "contract-source",
+            "forwardAttachmentsLoading": true
+          },
+          "parked": []
+        },
+        "expectedRevision": "unused"
+      },
+      "equals": {
+        "message": "recovery_invalid"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Attachment recovery rejects a serial outside the QML integer range",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "forwardLoadSerial": 2147483648,
+            "attachmentRecoveryError": "Choose again"
+          },
+          "parked": []
+        },
+        "expectedRevision": "unused"
+      },
+      "equals": {
+        "message": "recovery_invalid"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Attachment recovery rejects unrecognized pending actions",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "pendingAttachment": {
+              "mode": "shell",
+              "path": "/synthetic/contract-attachment.bin",
+              "owner": "contract-draft",
+              "accountId": "contract@example.org"
+            }
+          },
+          "parked": []
+        },
+        "expectedRevision": "unused"
+      },
+      "equals": {
+        "message": "recovery_invalid"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Attachment recovery rejects unexpected pending job controls",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "pendingAttachment": {
+              "mode": "recover-owned",
+              "path": "/synthetic/contract-attachment.bin",
+              "owner": "contract-draft",
+              "accountId": "contract@example.org",
+              "command": "forbidden"
+            }
+          },
+          "parked": []
+        },
+        "expectedRevision": "unused"
+      },
+      "equals": {
+        "message": "recovery_invalid"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Attachment recovery rejects nonboolean source loading state",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "attachmentSourceMessageId": "contract-source",
+            "forwardAttachmentsLoading": "true"
+          },
+          "parked": []
+        },
+        "expectedRevision": "unused"
+      },
+      "equals": {
+        "message": "recovery_invalid"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Attachment recovery rejects an oversized pending queue",
+      "method": "compose.recoverySave",
+      "params": {
+        "record": {
+          "version": 1,
+          "active": true,
+          "draft": {
+            "draftKey": "contract-draft",
+            "accountId": "contract@example.org",
+            "attachJobs": [
+              {
+                "mode": "recover-owned",
+                "path": "/synthetic/contract-attachment.bin",
+                "owner": "contract-draft",
+                "accountId": "contract@example.org"
+              }
+            ]
+          },
+          "parked": []
+        },
+        "expectedRevision": "unused"
+      },
+      "equals": {
+        "message": "recovery_too_large"
+      },
+      "errorCode": -32000
     }
   ],
   "unreleased": {
@@ -1648,7 +2165,24 @@
       "Native Google calendar parsing retains display data",
       "Native calendar parser refuses document type expansion",
       "Shared calendar ranges have an independent namespace",
-      "Unreleased handshake identifies its exact API contract"
+      "Unreleased handshake identifies its exact API contract",
+      "Attachment recovery preserves source and owned pending work",
+      "Attachment recovery reads source and owned pending work",
+      "Attachment recovery preserves the bounded maximum job queue",
+      "Attachment recovery reads the bounded maximum job queue",
+      "Attachment recovery preserves pending and error-only snapshots",
+      "Attachment recovery reads pending and error-only snapshots",
+      "Attachment recovery turns interrupted host selection into recoverable error",
+      "Attachment recovery does not replay interrupted host selection",
+      "Attachment recovery rejects a foreign draft owner",
+      "Attachment recovery rejects a foreign pending account",
+      "Attachment recovery rejects traversal before file effects",
+      "Attachment recovery rejects source provenance without an owner",
+      "Attachment recovery rejects a serial outside the QML integer range",
+      "Attachment recovery rejects unrecognized pending actions",
+      "Attachment recovery rejects unexpected pending job controls",
+      "Attachment recovery rejects nonboolean source loading state",
+      "Attachment recovery rejects an oversized pending queue"
     ]
   }
 }

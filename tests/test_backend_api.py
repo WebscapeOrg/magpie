@@ -235,6 +235,27 @@ function storageSnapshot(directory = process.env.HOME) {
           fs.writeFileSync(directory+'/'+name,JSON.stringify(value),{mode:0o600});
       }
     }
+    const attachmentRecovery = fixture.name.startsWith('Attachment recovery ');
+    if (attachmentRecovery) {
+      // The stored path is a description, never authority to open or remove a file.
+      const fixturePath = path.join(process.env.HOME, 'attachment-recovery-sentinel');
+      if (!fs.existsSync(fixturePath)) fs.writeFileSync(fixturePath, 'synthetic-attachment-preserve', {mode:0o600});
+      const drafts = fixture.params.record
+        ? [fixture.params.record.draft, ...(fixture.params.record.parked || [])] : [];
+      for (const draft of drafts) {
+        for (const job of [...(draft.attachJobs || []), ...(draft.pendingAttachment ? [draft.pendingAttachment] : [])]) {
+          if (job.path === '/synthetic/contract-attachment.bin') job.path = fixturePath;
+        }
+      }
+      const jobCount = fixture.name === 'Attachment recovery preserves the bounded maximum job queue' ? 1000
+        : fixture.name === 'Attachment recovery rejects an oversized pending queue' ? 1001 : 0;
+      if (jobCount) {
+        const job = fixture.params.record.draft.attachJobs[0];
+        fixture.params.record.draft.attachJobs = Array.from({length:jobCount}, () => ({...job}));
+      }
+      if (fixture.method === 'compose.recoverySave' && fixture.errorCode === undefined)
+        fixture.params.expectedRevision = (await call('compose.recoveryRead', {})).revision;
+    }
     const registryPath = process.env.CONTRACT_REGISTRY_PATH;
     const emptyRegistry = fixture.name === 'mail list requires an account';
     const registryBefore = emptyRegistry ? fs.readFileSync(registryPath) : null;
@@ -242,7 +263,8 @@ function storageSnapshot(directory = process.env.HOME) {
     // The full isolated HOME includes seeded cache/config/state sentinels,
     // credential helper effects and any newly created outbox/draft files.
     const noWrites = fixture.method.startsWith('mail.') || fixture.name === 'recovery rejects invalid edit history'
-      || fixture.name === 'AI recovery refuses nontext quote metadata';
+      || fixture.name === 'AI recovery refuses nontext quote metadata'
+      || (attachmentRecovery && fixture.errorCode !== undefined);
     const before = noWrites ? storageSnapshot() : null;
     if (fixture.name === 'AI recovery preserves app-owned quote metadata')
       fixture.params.expectedRevision = (await call('compose.recoveryRead', {})).revision;
@@ -259,6 +281,22 @@ function storageSnapshot(directory = process.env.HOME) {
       const actual = at(value, path);
       const type = Array.isArray(actual) ? 'array' : actual === null ? 'null' : typeof actual;
       assert.equal(type, expected, fixture.name + ': ' + path);
+    }
+    if (attachmentRecovery) {
+      const fixturePath = path.join(process.env.HOME, 'attachment-recovery-sentinel');
+      assert.equal(fs.readFileSync(fixturePath, 'utf8'), 'synthetic-attachment-preserve', fixture.name + ': attachment bytes are untouched');
+      if (!fixture.errorCode) {
+        const drafts = [value.record.draft, ...(value.record.parked || [])].filter(Boolean);
+        for (const draft of drafts) {
+          for (const job of [...(draft.attachJobs || []), ...(draft.pendingAttachment ? [draft.pendingAttachment] : [])]) {
+            assert.equal(job.path, fixturePath, fixture.name + ': pending path is preserved as metadata');
+            assert.equal(job.owner, draft.draftKey, fixture.name + ': pending owner matches its draft');
+            assert.equal(job.accountId, draft.accountId, fixture.name + ': pending account matches its draft');
+            assert.deepEqual(Object.keys(job).sort(), ['accountId','mode','owner','path']);
+          }
+        }
+        assert.ok(!JSON.stringify(value).includes('synthetic-attachment-preserve'), fixture.name + ': recovery never imports file bytes');
+      }
     }
     if (fixture.name === 'recovery reads edit history')
       assert.equal(value.record.parked[1].userModified, undefined, 'legacy edit history remains absent');

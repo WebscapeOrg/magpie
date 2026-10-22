@@ -160,6 +160,8 @@ async fn execute_with_backoff(
                 Err(error) => {
                     observed.reason = if error == "gmail_session_invalidated" {
                         "sessionInvalidated"
+                    } else if error == "gmail_server_rate_limited" {
+                        "serverCooldown"
                     } else {
                         "localBudget"
                     };
@@ -192,7 +194,7 @@ async fn execute_with_backoff(
         );
         let wait = (backoff.saturating_mul(1 << retry) + jitter)
             .max(observed.retry_after.unwrap_or_default());
-        if answer == Err("gmail_rate_limited") {
+        if answer == Err("gmail_server_rate_limited") {
             if let Some((budget, _)) = &request.budget {
                 budget.cool_down(wait).await;
             }
@@ -207,7 +209,7 @@ async fn execute_with_backoff(
             answer.as_ref().map(|_| ()).map_err(|e| *e),
         )
         .await;
-        if answer != Err("gmail_rate_limited")
+        if answer != Err("gmail_server_rate_limited")
             || retry == RATE_LIMIT_RETRIES
             || started.elapsed() + wait >= deadline
         {
@@ -316,12 +318,12 @@ async fn attempt(
                     "rateLimitExceeded" | "userRateLimitExceeded"
                 ) =>
                 {
-                    "gmail_rate_limited"
+                    "gmail_server_rate_limited"
                 }
                 403 => "gmail_forbidden",
                 404 => "gmail_not_found",
                 411 => "gmail_length_required",
-                429 => "gmail_rate_limited",
+                429 => "gmail_server_rate_limited",
                 _ => "gmail_http_failed",
             });
         }

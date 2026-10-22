@@ -31,7 +31,11 @@ Column {
         return "Downloads paused: free at least 1 GB of disk space. Saved mail is available."
       if (root.status.error === "gmail_unauthorized" || root.status.error === "gmail_invalid_token")
         return "Sign in to Gmail again to resume syncing. Saved mail and queued changes are kept."
+      if (root.status.error === "gmail_request_deferred")
+        return "Magpie is spacing out mail requests. Sync will continue automatically. Saved mail is available."
       if (root.status.error === "gmail_rate_limited")
+        return "Mail requests are temporarily limited. Sync will retry automatically. Saved mail is available."
+      if (root.status.error === "gmail_server_rate_limited")
         return "Gmail is limiting requests. Sync will retry automatically. Saved mail is available."
       if (root.status.error) return "Downloads are waiting for Gmail. Saved mail is available."
       if (root.status.paused) return "Mail downloads paused. Saved mail is available."

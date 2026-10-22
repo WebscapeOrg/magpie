@@ -64,7 +64,11 @@ Item {
       return "Gmail authorization expired. Sign in again."
     if (code === "gmail_forbidden") return "Gmail refused this request (HTTP 403). Check account permissions."
     if (code === "gmail_length_required") return "Gmail rejected the request format (HTTP 411)."
-    if (code === "gmail_rate_limited") return "Gmail requests are temporarily limited. Try again later."
+    if (code === "gmail_request_deferred" && backend && Number(backend.apiVersion) >= 8)
+      return "Magpie is spacing out mail requests. Try again shortly."
+    if (code === "gmail_server_rate_limited" && backend && Number(backend.apiVersion) >= 8)
+      return "Gmail is limiting requests. Try again later."
+    if (code === "gmail_rate_limited") return "Mail requests are temporarily limited. Try again later."
     if (code === "gmail_queue_full") return "Too many changes are still waiting for Gmail. Wait a moment, then try again."
     if (code === "gmail_queue_lost") return "The change was not sent before the mail backend stopped"
     if (code === "gmail_draft_missing") return "That draft is no longer in the mailbox"

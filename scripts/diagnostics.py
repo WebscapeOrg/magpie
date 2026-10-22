@@ -73,7 +73,7 @@ gmail_account_unknown gmail_client_invalid gmail_client_missing gmail_client_per
 gmail_client_too_large gmail_client_unreadable gmail_draft_missing gmail_forbidden
 gmail_http_failed gmail_invalid_input gmail_invalid_response gmail_invalid_token
 gmail_keyring_failed gmail_length_required gmail_queue_dropped gmail_queue_full
-gmail_rate_limited gmail_response_too_large gmail_session_invalidated gmail_session_limit
+gmail_rate_limited gmail_request_deferred gmail_server_rate_limited gmail_response_too_large gmail_session_invalidated gmail_session_limit
 gmail_timeout gmail_token_account_invalid gmail_token_invalid gmail_token_missing
 gmail_unauthorized
 hey_account_mismatch hey_invalid_response hey_program_mismatch hey_unavailable
@@ -178,7 +178,7 @@ messages.list messages.get.full messages.get.metadata messages.attachments.get
 threads.get.full threads.get.metadata drafts.list messages.send messages.batchModify
 messages.modify messages.trash messages.untrash labels.create labels.update labels.delete
 drafts.create drafts.update drafts.delete oauth.refresh gmail.request'''.split())
-GMAIL_REASONS = {'unknown', 'localBudget', 'rateLimitExceeded', 'userRateLimitExceeded',
+GMAIL_REASONS = {'unknown', 'localBudget', 'serverCooldown', 'rateLimitExceeded', 'userRateLimitExceeded',
                  'dailyLimitExceeded', 'insufficientPermissions', 'domainPolicy', 'authError', 'sessionInvalidated'}
 
 
@@ -210,7 +210,7 @@ def clean_gmail(event):
     vocabularies = {'operation': GMAIL_OPERATIONS,
                     'reason': GMAIL_REASONS,
                     'lane': {'interactive', 'background', 'poll', 'queue', 'auth'},
-                    'outcome': {'ok', 'gmail_not_found', 'gmail_rate_limited', 'gmail_unauthorized',
+                    'outcome': {'ok', 'gmail_not_found', 'gmail_rate_limited', 'gmail_request_deferred', 'gmail_server_rate_limited', 'gmail_unauthorized',
                                 'gmail_forbidden', 'gmail_length_required', 'gmail_http_failed',
                                 'gmail_timeout', 'gmail_response_too_large', 'gmail_invalid_response', 'gmail_session_invalidated'}}
     for key, allowed in vocabularies.items():

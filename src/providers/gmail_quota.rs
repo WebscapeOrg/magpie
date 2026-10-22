@@ -95,21 +95,23 @@ impl Budget {
         };
         let mut permit = Some(if background {
             if self.foreground.load(Ordering::Relaxed) != 0 {
-                return Err("gmail_rate_limited");
+                return Err("gmail_request_deferred");
             }
-            self.slots.try_acquire().map_err(|_| "gmail_rate_limited")?
+            self.slots
+                .try_acquire()
+                .map_err(|_| "gmail_request_deferred")?
         } else {
             tokio::time::timeout_at(deadline, self.slots.acquire())
                 .await
-                .map_err(|_| "gmail_rate_limited")?
-                .map_err(|_| "gmail_rate_limited")?
+                .map_err(|_| "gmail_request_deferred")?
+                .map_err(|_| "gmail_request_deferred")?
         });
         loop {
             if !self.valid.load(Ordering::Acquire) {
                 return Err("gmail_session_invalidated");
             }
             let now = Instant::now();
-            let wait = {
+            let (wait, server_cooldown) = {
                 let mut state = self.state.lock().await;
                 state.units = (state.units
                     + now.duration_since(state.updated).as_secs_f64() * UNITS_PER_SECOND)
@@ -126,10 +128,14 @@ impl Budget {
                         _foreground: waiting,
                     });
                 }
-                wait
+                (wait, state.cooldown > now)
             };
             if now + wait >= deadline {
-                return Err("gmail_rate_limited");
+                return Err(if server_cooldown {
+                    "gmail_server_rate_limited"
+                } else {
+                    "gmail_request_deferred"
+                });
             }
             if background {
                 drop(permit.take());
@@ -137,9 +143,13 @@ impl Budget {
             tokio::time::sleep(wait).await;
             if background {
                 if self.foreground.load(Ordering::Relaxed) != 0 {
-                    return Err("gmail_rate_limited");
+                    return Err("gmail_request_deferred");
                 }
-                permit = Some(self.slots.try_acquire().map_err(|_| "gmail_rate_limited")?);
+                permit = Some(
+                    self.slots
+                        .try_acquire()
+                        .map_err(|_| "gmail_request_deferred")?,
+                );
             }
         }
     }
@@ -299,7 +309,7 @@ mod tests {
             Duration::ZERO,
             "the browsing reserve is available immediately"
         );
-        assert_eq!(background.await.unwrap(), Err("gmail_rate_limited"));
+        assert_eq!(background.await.unwrap(), Err("gmail_request_deferred"));
         drop(browsing);
     }
 

@@ -344,10 +344,10 @@ async fn auth_and_invalid_json_return_only_static_errors() {
         (403, "synthetic-secret", "gmail_forbidden"),
         (403, scope, "gmail_forbidden"),
         (403, daily, "gmail_forbidden"),
-        (403, limited, "gmail_rate_limited"),
-        (403, global, "gmail_rate_limited"),
+        (403, limited, "gmail_server_rate_limited"),
+        (403, global, "gmail_server_rate_limited"),
         (411, "synthetic-secret", "gmail_length_required"),
-        (429, "synthetic-secret", "gmail_rate_limited"),
+        (429, "synthetic-secret", "gmail_server_rate_limited"),
         (200, "[]", "gmail_invalid_response"),
         (200, "synthetic-secret", "gmail_invalid_response"),
     ] {
@@ -516,7 +516,7 @@ async fn rate_limited_requests_back_off_and_resend_within_the_deadline() {
             Duration::from_millis(1)
         )
         .await,
-        Err("gmail_rate_limited")
+        Err("gmail_server_rate_limited")
     );
     assert_eq!(
         target.requests.lock().unwrap().len(),
@@ -591,11 +591,11 @@ async fn server_cooldown_prevents_retries_and_sibling_network_requests() {
     let before = std::time::Instant::now();
     assert_eq!(
         execute(&client, request.clone(), Duration::from_secs(1)).await,
-        Err("gmail_rate_limited")
+        Err("gmail_server_rate_limited")
     );
     assert_eq!(
         execute(&client, request, Duration::from_secs(1)).await,
-        Err("gmail_rate_limited")
+        Err("gmail_server_rate_limited")
     );
     assert!(before.elapsed() < Duration::from_secs(1));
     assert_eq!(
@@ -746,7 +746,7 @@ async fn diagnostics_store_safe_transport_fields_without_credentials_or_mail() {
             budget.cool_down(Duration::from_secs(90)).await;
             assert_eq!(
                 execute(&client, request, Duration::from_secs(1)).await,
-                Err("gmail_rate_limited")
+                Err("gmail_server_rate_limited")
             );
         })
         .await;
@@ -772,7 +772,8 @@ async fn diagnostics_store_safe_transport_fields_without_credentials_or_mail() {
     assert_eq!(rows[0]["operation"], "messages.get.full");
     assert_eq!(rows[0]["cost"], 60);
     assert!(rows[1]["status"].is_null());
-    assert_eq!(rows[1]["reason"], "localBudget");
+    assert_eq!(rows[1]["reason"], "serverCooldown");
+    assert_eq!(rows[1]["outcome"], "gmail_server_rate_limited");
 }
 
 #[tokio::test]
@@ -1179,4 +1180,82 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
         "the message trashed after snoozing must never return"
     );
     assert_eq!(wake["addLabelIds"], json!(["INBOX", "UNREAD"]));
+}
+
+#[tokio::test]
+async fn contract_distinguishes_local_admission_server_refusal_and_cooldown_without_private_data() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let fixture =
+        crate::mail::tests::account_fixture(serde_json::json!({"version":1,"accounts":[]}));
+    let contract: Value = serde_json::from_str(include_str!("../../backend-api.json")).unwrap();
+    let cases = contract["unreleased"]["gmailErrorCases"]
+        .as_array()
+        .unwrap();
+    assert_eq!(cases.len(), 3);
+    let body = r#"{"error":{"errors":[{"domain":"usageLimits","reason":"userRateLimitExceeded","message":"synthetic-private-server-detail"}]}}"#;
+    let peer = server(
+        format!(
+            "HTTP/1.1 403 Limited\r\nRetry-After: 90\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes(),
+        Duration::ZERO,
+    )
+    .await;
+    let client = client_builder().https_only(false).build().unwrap();
+    let budget = Arc::new(Budget::default());
+    let held = budget
+        .acquire(
+            1,
+            Lane::Interactive,
+            tokio::time::Instant::now() + Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+    let mut request = local(&peer, get_request());
+    request.budget = Some((Arc::clone(&budget), Lane::Background));
+    diagnostics::ENABLED
+        .scope((), async {
+            let outcome = execute(&client, request.clone(), Duration::from_secs(1)).await;
+            assert_eq!(outcome.unwrap_err(), cases[0]["error"].as_str().unwrap());
+            assert_eq!(
+                peer.connections.load(Ordering::SeqCst),
+                0,
+                "local admission cannot contact Gmail"
+            );
+            drop(held);
+            request.budget = Some((Arc::clone(&budget), Lane::Interactive));
+            let outcome = execute(&client, request.clone(), Duration::from_secs(1)).await;
+            assert_eq!(outcome.unwrap_err(), cases[1]["error"].as_str().unwrap());
+            let outcome = execute(&client, request, Duration::from_secs(1)).await;
+            assert_eq!(outcome.unwrap_err(), cases[2]["error"].as_str().unwrap());
+        })
+        .await;
+    assert_eq!(
+        peer.requests.lock().unwrap().len(),
+        1,
+        "the shared server cooldown cannot send another request"
+    );
+    diagnostics::flush().await;
+    let saved =
+        std::fs::read_to_string(fixture.state.join("omamail/diagnostics/gmail.json")).unwrap();
+    for forbidden in [
+        "synthetic-token",
+        "synthetic-private-server-detail",
+        "Bearer",
+        "http://",
+        "https://",
+    ] {
+        assert!(!saved.contains(forbidden), "diagnostics leaked {forbidden}");
+    }
+    let rows: Value = serde_json::from_str(&saved).unwrap();
+    assert_eq!(rows.as_array().unwrap().len(), cases.len());
+    for (row, case) in rows.as_array().unwrap().iter().zip(cases) {
+        assert_eq!(row["reason"], case["reason"]);
+        assert_eq!(row["status"], case["status"]);
+        assert_eq!(row["outcome"], case["error"]);
+        assert_eq!(case["retryable"], true);
+    }
 }

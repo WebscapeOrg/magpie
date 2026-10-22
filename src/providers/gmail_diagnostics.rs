@@ -74,6 +74,7 @@ impl Event {
                 self.reason.as_str(),
                 "unknown"
                     | "localBudget"
+                    | "serverCooldown"
                     | "rateLimitExceeded"
                     | "userRateLimitExceeded"
                     | "dailyLimitExceeded"
@@ -85,6 +86,8 @@ impl Event {
             && matches!(
                 self.outcome.as_str(),
                 "ok" | "gmail_rate_limited"
+                    | "gmail_request_deferred"
+                    | "gmail_server_rate_limited"
                     | "gmail_not_found"
                     | "gmail_unauthorized"
                     | "gmail_forbidden"

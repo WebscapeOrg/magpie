@@ -77,12 +77,24 @@ Item {
       mailbox.status=({complete:true,paused:true})
       verify(notice.visible)
       verify(findText(notice,"Resume downloads"))
-      mailbox.status=({complete:true,error:"gmail_rate_limited"})
+      mailbox.status=({complete:true,error:"gmail_server_rate_limited"})
       verify(notice.visible)
       verify(findText(notice,"Gmail is limiting requests. Sync will retry automatically. Saved mail is available."))
       mailbox.error="This search needs Gmail. Choose Search online to continue."
       verify(notice.visible)
       verify(findText(notice,mailbox.error))
+    }
+    function test_local_pacing_and_legacy_limits_do_not_blame_gmail() {
+      mailbox.status=({complete:false,error:"gmail_request_deferred"})
+      verify(notice.visible)
+      verify(findText(notice,"Magpie is spacing out mail requests. Sync will continue automatically. Saved mail is available."))
+      verify(!findText(notice,"Gmail is limiting requests. Sync will retry automatically. Saved mail is available."))
+      mailbox.status=({complete:false,error:"gmail_rate_limited"})
+      verify(findText(notice,"Mail requests are temporarily limited. Sync will retry automatically. Saved mail is available."))
+      mailbox.status=({complete:false,error:"",textComplete:502,estimatedTotal:1200})
+      verify(findText(notice,"502 of about 1200 messages saved for offline use."))
+      mailbox.status=({complete:true,error:""})
+      verify(!notice.visible)
     }
   }
 }

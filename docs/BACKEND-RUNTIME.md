@@ -133,6 +133,9 @@ Search includes aggregate All Mail destinations and excludes Trash/Junk membersh
 
 The unreleased API 8 contract also includes `local.*` replica/watch/intent methods, `reader.prefetch`, account-scoped attachment import/preview/download/retain, `outbox.compose`, `draft.compose`, `calendar.read` and `calendar.parse`. Current QML gates these dependencies on revision 8; the pinned release continues to use its existing paths. `calendar-shared` is a separate cache namespace. See [local mail](LOCAL-MAIL.md) for durable-data and retry semantics. These changes do not update `backend-version` or install a development binary.
 
+API 8 distinguishes `gmail_request_deferred` (Magpie deferred a request before HTTP) from `gmail_server_rate_limited` (Google refused a request, or an active cooldown follows that refusal). Both are retryable within the existing bounded queue and sync schedules. API-7 `gmail_rate_limited` and persisted earlier API-8 values remain ambiguous, so the UI describes those without attributing the limit to Gmail. The named `unreleased.gmailErrorCases` fixtures are exercised by the Gmail transport and QML error tests; these semantics do not change the released binary pin.
+
+
 ## Released and unreleased: one step ahead of the pin
 
 Backends ship in batches, not per merge, so `main` may implement an API the pinned

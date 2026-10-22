@@ -288,3 +288,49 @@ fn saved_bodies_counts_and_undo_remain_available_after_sync_auth_failure() {
     );
     assert_eq!(store.overview().unwrap()["unread"], 1);
 }
+
+#[tokio::test]
+async fn pausing_downloads_clears_sync_warnings_without_losing_saved_mail() {
+    for error in [
+        "gmail_request_deferred",
+        "gmail_server_rate_limited",
+        "gmail_rate_limited",
+    ] {
+        let mailbox = Mailbox::new();
+        let store = mailbox.open();
+        store.put(&message("saved", "offline body"), 1).unwrap();
+        set(&store, "paused", "true");
+        set(&store, "error", error);
+        let (events, mut updates) = tokio::sync::broadcast::channel(4);
+        let worker = tokio::spawn(sync::watch(
+            Arc::clone(&store),
+            Arc::new(crate::providers::gmail::Session::default()),
+            "sync@example.org".into(),
+            events,
+        ));
+        let update = tokio::time::timeout(std::time::Duration::from_secs(2), updates.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        worker.abort();
+        let _ = worker.await;
+        assert_eq!(update["params"]["status"]["error"], "");
+        assert_eq!(store.status().unwrap()["error"], "");
+        assert_eq!(store.status().unwrap()["paused"], true);
+        assert!(store.complete_resource("saved").unwrap().is_some());
+    }
+}
+
+#[test]
+fn local_admission_deferrals_are_pending_downloads_without_counting_as_failures() {
+    let mailbox = Mailbox::new();
+    let store = mailbox.open();
+    store.write(|db| {
+        store::sql(db.execute("INSERT INTO jobs(id,error) VALUES('waiting','gmail_request_deferred'),('failed','gmail_http_failed')", []))?;
+        Ok(())
+    }).unwrap();
+    let status = store.status().unwrap();
+    assert_eq!(status["pending"], 2);
+    assert_eq!(status["failed"], 1);
+    assert_eq!(status["complete"], false);
+}

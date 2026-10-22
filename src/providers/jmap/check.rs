@@ -23,11 +23,13 @@ impl Session {
 
     pub(super) async fn document(
         &self,
+        context: &mailbox::Context,
         verb: &str,
         endpoint: &str,
         credential: &Value,
         body: Option<String>,
     ) -> Result<Value, &'static str> {
+        mailbox::active(context)?;
         let params = json!({"verb":verb,"url":endpoint,"credential":credential,"body":body.unwrap_or_default()});
         let request = prepare(&params)?;
         let client = self.client.as_ref().map_err(|e| *e)?;
@@ -37,10 +39,12 @@ impl Session {
                 .acquire()
                 .await
                 .map_err(|_| "jmap_transport_unavailable")?;
+            mailbox::active(context)?;
             execute(client, request).await
         })
         .await
         .map_err(|_| "jmap_timeout")??;
+        mailbox::active(context)?;
         if reply["status"] == 401 {
             return Err("jmap_unauthorized");
         }

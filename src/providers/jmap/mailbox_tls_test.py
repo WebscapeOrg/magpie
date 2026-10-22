@@ -42,6 +42,22 @@ def members(thread):
     if scenario == "repeated": return ["e1", "e2"]
     if scenario == "bad-member": return ["e1", 123]
     return ["e1", "e2", "e3"]
+def acknowledgement(path, args):
+    case = path.rsplit("/", 1)[-1]
+    updating = "update" in args
+    success = "updated" if updating else "destroyed"
+    failure = "notUpdated" if updating else "notDestroyed"
+    ids = list(args["update"]) if updating else args["destroy"]
+    accepted = {key: None for key in ids} if updating else ids
+    if case == "missing": return {}
+    if case == "wrong-shape": return {success: [] if updating else {ids[0]: None}}
+    if case == "foreign": return {success: {"foreign": None} if updating else ["foreign"]}
+    if case == "overlap": return {success: accepted, failure: {ids[0]: {"type": "notFound"}}}
+    if case == "failure-shape": return {success: accepted, failure: []}
+    if case == "not-found": return {failure: {key: {"type": "notFound"} for key in ids}}
+    return {success: accepted}
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def parse_request(self):
         parsed = super().parse_request()
@@ -58,6 +74,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path=="/report":
             # Invariant: Omit only this final harness read from the returned snapshot.
             self.answer(requests[:-1]);threading.Thread(target=self.server.shutdown,daemon=True).start();return
+        if self.path.startswith("/refused-blob/"):
+            self.answer({},401);return
         if self.path=="/events":
             payload=b'event: state\r\ndata: {"changed":{"account":{"Email":"e2","Mailbox":"m2"}}}\r\n\r\n'
             self.send_response(200);self.send_header("Content-Type","text/event-stream");self.send_header("Content-Length",str(len(payload)));self.end_headers();self.wfile.write(payload);return
@@ -87,6 +105,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 email_gets += 1
                 if id=="3": replies.append(["error",{"type":"requestTooLarge"},id]);continue
                 result={"list":[email(v) for v in args.get("ids",["e1"])],"state":"e1"}
+                if self.path == "/repair-auth":
+                    for entry in result["list"]:
+                        entry["bodyStructure"] = {"type":"multipart/mixed", "subParts":[{"partId":str(part), "blobId":str(part), "type":"text/plain", "size":20} for part in (1,2)]}
+                        entry["bodyValues"] = {str(part):{"value":"short", "isTruncated":True} for part in (1,2)}
                 if scenario=="unsolicited-email": result["list"].append(email("unrequested"))
                 if scenario=="missing-email": result["list"]=[]
                 if scenario=="duplicate-email": result["list"].append(result["list"][0])
@@ -105,6 +127,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif method=="EmailSubmission/set" and mode=="uncertain":
                 self.connection.shutdown(socket.SHUT_RDWR);self.connection.close();return
             elif method=="EmailSubmission/set": result={"notCreated":{"send":{"type":"forbiddenToSend"}}} if mode=="fail" else {"created":{"send":{"id":"submitted"}}}
+            elif method=="Email/set" and self.path.startswith("/ack/"): result=acknowledgement(self.path,args)
             elif method=="Email/set" and args.get("destroy")==["old-fail"]: result={"notDestroyed":{"old-fail":{"type":"forbidden"}}}
             elif method=="Email/set" and scenario=="action-unknown" and "e2" in args.get("update",{}): result={"updated":[]}
             elif method=="Email/set" and scenario=="action-failed": result={"notUpdated":{key:{"type":"forbidden","description":"synthetic-secret"} for key in args.get("update",{})}}

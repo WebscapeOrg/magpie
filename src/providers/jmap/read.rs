@@ -239,30 +239,38 @@ impl Session {
             if part["size"].as_u64().is_some_and(|size| size > cap as u64) {
                 continue;
             }
-            if let Ok(blob) = self
-                .attachment_limited(snapshot, string(&part["blobId"]), cap)
+            match self
+                .attachment_limited(context, snapshot, string(&part["blobId"]), cap)
                 .await
             {
-                let data = string(&blob["data"]);
-                budget = budget.saturating_sub(data.len());
-                super::resource::substitute_part(&mut message["payload"], part, data);
+                Ok(blob) => {
+                    let data = string(&blob["data"]);
+                    budget = budget.saturating_sub(data.len());
+                    super::resource::substitute_part(&mut message["payload"], part, data);
+                }
+                Err(error @ ("jmap_unauthorized" | "jmap_cancelled")) => return Err(error),
+                Err(_) => (),
             }
         }
         Ok(message)
     }
     pub(super) async fn attachment(
         &self,
+        context: &Context,
         snapshot: &Snapshot,
         blob: &str,
     ) -> Result<Value, &'static str> {
-        self.attachment_limited(snapshot, blob, MAX_BODY).await
+        self.attachment_limited(context, snapshot, blob, MAX_BODY)
+            .await
     }
     async fn attachment_limited(
         &self,
+        context: &Context,
         snapshot: &Snapshot,
         blob: &str,
         limit: usize,
     ) -> Result<Value, &'static str> {
+        mailbox::active(context)?;
         if blob.is_empty() || blob.len() > 4096 {
             return Err("invalid_params");
         }
@@ -282,7 +290,9 @@ impl Session {
             .acquire()
             .await
             .map_err(|_| "session_failed")?;
+        mailbox::active(context)?;
         let reply = execute_bounded(self.client.as_ref().map_err(|e| *e)?, request, limit).await?;
+        mailbox::active(context)?;
         if reply["status"] == 401 {
             return Err("jmap_unauthorized");
         }

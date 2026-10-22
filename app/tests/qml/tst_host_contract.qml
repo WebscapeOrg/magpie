@@ -232,8 +232,8 @@ TestCase {
 
   function test_clipboard_option_terminator_keeps_text_verbatim() {
     var subjects = ["--version", "--clear", "-p", "田中 \"quoted\" \\ body\nline two", ""]
-    for (var i = 0; i < subjects.length; i++)
-      verify(Quickshell.execDetached(["wl-copy", "--", subjects[i]]))
+    for (var subjectIndex = 0; subjectIndex < subjects.length; subjectIndex++)
+      verify(Quickshell.execDetached(["wl-copy", "--", subjects[subjectIndex]]))
     compare(host.copied, subjects)
     verify(!Quickshell.execDetached(["wl-copy", "--type", "text/html"]))
     verify(!Quickshell.execDetached(["wl-copy", "--", "text", "extra"]))

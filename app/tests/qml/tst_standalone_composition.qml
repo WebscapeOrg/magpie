@@ -271,8 +271,8 @@ TestCase {
     // findChild cannot see them; the window's content lists them directly.
     function resizeCorner(name) {
       var items = composition.contentItem.children
-      for (var i = 0; i < items.length; i++)
-        if (items[i].objectName === "standalone-resize-corner-" + name) return items[i]
+      for (var itemIndex = 0; itemIndex < items.length; itemIndex++)
+        if (items[itemIndex].objectName === "standalone-resize-corner-" + name) return items[itemIndex]
       return null
     }
     for (var name in corners) {
@@ -394,9 +394,9 @@ TestCase {
       if (!item) return null
       if (item.keyContext !== undefined && typeof item.applyContextFocus === "function")
         return item
-      var kids = item.children || []
-      for (var i = 0; i < kids.length; i++) {
-        var found = walk(kids[i])
+      var children = item.children || []
+      for (var childIndex = 0; childIndex < children.length; childIndex++) {
+        var found = walk(children[childIndex])
         if (found) return found
       }
       return null

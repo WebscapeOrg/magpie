@@ -92,7 +92,7 @@ QtObject {
     }
     var next = ({})
     var keys = Object.keys(files)
-    for (var i = 0; i < keys.length; i++) next[keys[i]] = files[keys[i]]
+    for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) next[keys[keyIndex]] = files[keys[keyIndex]]
     next[String(path)] = String(text)
     files = next
     return ({ ok: true, error: "", atomic: !!atomic })
@@ -100,7 +100,7 @@ QtObject {
   function watch(path, enabled) {
     var next = ({})
     var keys = Object.keys(watched)
-    for (var i = 0; i < keys.length; i++) next[keys[i]] = watched[keys[i]]
+    for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) next[keys[keyIndex]] = watched[keys[keyIndex]]
     next[String(path)] = !!enabled
     watched = next
   }

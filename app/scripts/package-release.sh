@@ -121,17 +121,17 @@ if [ "$target" = macos-aarch64 ]; then
     else deploy=$(command -v macdeployqt || true)
     fi
     [ -n "$deploy" ] || { printf 'macdeployqt is required\n' >&2; exit 1; }
-    qt_libs=$(qt_query QT_INSTALL_LIBS)
-    [ -d "$qt_libs" ] || { printf 'Qt library directory is missing: %s\n' "$qt_libs" >&2; exit 1; }
-    svg_framework="$qt_libs/QtSvg.framework/Versions/A/QtSvg"
+    qt_libraries=$(qt_query QT_INSTALL_LIBS)
+    [ -d "$qt_libraries" ] || { printf 'Qt library directory is missing: %s\n' "$qt_libraries" >&2; exit 1; }
+    svg_framework="$qt_libraries/QtSvg.framework/Versions/A/QtSvg"
     if [ -f "$svg_framework" ]; then
       svg_framework=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$svg_framework")
-      svg_libs=$(dirname "$(dirname "$(dirname "$(dirname "$svg_framework")")")")
+      svg_libraries=$(dirname "$(dirname "$(dirname "$(dirname "$svg_framework")")")")
       "$deploy" "$app" -qmldir="$app/Contents/Resources" \
-        -libpath="$qt_libs" -libpath="$svg_libs" -always-overwrite
+        -libpath="$qt_libraries" -libpath="$svg_libraries" -always-overwrite
     else
       "$deploy" "$app" -qmldir="$app/Contents/Resources" \
-        -libpath="$qt_libs" -always-overwrite
+        -libpath="$qt_libraries" -always-overwrite
     fi
     [ -f "$app/Contents/PlugIns/platforms/libqcocoa.dylib" ] || { printf 'macdeployqt omitted the Cocoa platform plugin\n' >&2; exit 1; }
     command -v codesign >/dev/null 2>&1 || { printf 'codesign is required\n' >&2; exit 1; }
@@ -169,13 +169,13 @@ EOF
     command -v patchelf >/dev/null 2>&1 || { printf 'patchelf is required\n' >&2; exit 1; }
     qt_plugins=$(qt_query QT_INSTALL_PLUGINS)
     qt_qml=$(qt_query QT_INSTALL_QML)
-    qt_libs=$(qt_query QT_INSTALL_LIBS)
-    qt_libexecs=$(qt_query QT_INSTALL_LIBEXECS)
+    qt_libraries=$(qt_query QT_INSTALL_LIBS)
+    qt_library_executables=$(qt_query QT_INSTALL_LIBEXECS)
     [ -f "$qt_plugins/platforms/libqxcb.so" ] || { printf 'Qt xcb platform plugin is missing\n' >&2; exit 1; }
     for plugin_dir in platforms platforminputcontexts xcbglintegrations imageformats iconengines networkinformation tls; do
       [ ! -d "$qt_plugins/$plugin_dir" ] || cp -R "$qt_plugins/$plugin_dir" "$app/plugins/"
     done
-    scanner="$qt_libexecs/qmlimportscanner"
+    scanner="$qt_library_executables/qmlimportscanner"
     [ -x "$scanner" ] || scanner=$(command -v qmlimportscanner || true)
     [ -n "$scanner" ] || { printf 'qmlimportscanner is required\n' >&2; exit 1; }
     "$scanner" -rootPath "$qml" -importPath "$qt_qml" > "$stage/qml-app.json"
@@ -202,11 +202,11 @@ for inventory in sys.argv[3:]:
             raise SystemExit(f"QML import is missing: {source}")
         shutil.copytree(source, destination / relative, dirs_exist_ok=True, symlinks=False)
 PY
-    python3 - "$app" "$qt_libs" <<'PY'
+    python3 - "$app" "$qt_libraries" <<'PY'
 import os, pathlib, shutil, subprocess, sys
 app = pathlib.Path(sys.argv[1]).resolve()
-qt_libs = pathlib.Path(sys.argv[2]).resolve()
-libdir = app / "lib"
+qt_libraries = pathlib.Path(sys.argv[2]).resolve()
+library_directory = app / "lib"
 allowed = {
     "linux-vdso.so.1", "libc.so.6", "libm.so.6", "libdl.so.2", "librt.so.1",
     "libpthread.so.0", "libgcc_s.so.1", "libstdc++.so.6", "ld-linux-x86-64.so.2",
@@ -222,7 +222,7 @@ def binaries():
         except OSError:
             pass
 def dependencies(path):
-    environment = dict(os.environ, LD_LIBRARY_PATH=os.pathsep.join((str(libdir), str(qt_libs))))
+    environment = dict(os.environ, LD_LIBRARY_PATH=os.pathsep.join((str(library_directory), str(qt_libraries))))
     result = subprocess.run(["ldd", str(path)], text=True, capture_output=True, env=environment)
     if result.returncode:
         raise SystemExit(f"ldd failed for {path}: {result.stderr.strip()}")
@@ -237,17 +237,17 @@ while True:
     changed = False
     for binary in list(binaries()):
         for dependency in dependencies(binary):
-            if dependency.name in allowed or (libdir / dependency.name).exists():
+            if dependency.name in allowed or (library_directory / dependency.name).exists():
                 continue
-            target = libdir / dependency.name
+            target = library_directory / dependency.name
             shutil.copy2(dependency.resolve(), target)
             changed = True
     if not changed:
         break
 for binary in binaries():
-    relative = os.path.relpath(libdir, binary.parent)
+    relative = os.path.relpath(library_directory, binary.parent)
     subprocess.run(["patchelf", "--set-rpath", "$ORIGIN/" + relative, str(binary)], check=True)
-environment = dict(os.environ, LD_LIBRARY_PATH=str(libdir))
+environment = dict(os.environ, LD_LIBRARY_PATH=str(library_directory))
 for binary in binaries():
     result = subprocess.run(["ldd", str(binary)], text=True, capture_output=True, env=environment)
     if result.returncode or "not found" in result.stdout:

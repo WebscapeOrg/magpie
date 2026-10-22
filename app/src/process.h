@@ -52,7 +52,7 @@ private:
     void start();
     void stopTree();
     void killTree();
-    void consume(QByteArray &pending, const QByteArray &data, bool standardError);
+    void consume(QByteArray &pending, const QByteArray &bytes, bool standardError);
     void emitLine(QByteArray line, bool standardError);
     void finishPendingLines();
     void setRunningValue(bool running);

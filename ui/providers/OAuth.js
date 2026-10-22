@@ -151,7 +151,7 @@ function parseJson(text, fallback) {
 function redact(text) {
   return String(text === undefined || text === null ? "" : text)
     .replace(/(refresh_token|access_token|code_verifier|client_secret|id_token)=[^&\s"']+/gi, "$1=[redacted]")
-    .replace(/"(refresh_token|access_token|code_verifier|client_secret|id_token)"\s*:\s*"[^"]*"/gi, "\"$1\":\"[redacted]\"")
+    .replace(/"(refresh_token|access_token|code_verifier|client_secret|id_token)"\s*:\s*"(?:\\.|[^"\\])*"/gi, "\"$1\":\"[redacted]\"")
     .replace(/\bya29\.[A-Za-z0-9._-]+/g, "[redacted]")
     .replace(/\b1\/\/[A-Za-z0-9._-]{20,}/g, "[redacted]")
     .replace(/\bGOCSPX-[A-Za-z0-9._-]+/g, "[redacted]")

@@ -128,8 +128,7 @@ def build_backend():
                  and item.get('target',{}).get('name')=='omamail'
                  and item.get('target',{}).get('kind')==['bin'] and item.get('executable')]
     if len(executables)!=1:raise RuntimeError('Expected one built omamail executable')
-    binary=Path(executables[0])
-    return binary
+    return Path(executables[0])
 
 
 def roundtrip_results(output,cases):

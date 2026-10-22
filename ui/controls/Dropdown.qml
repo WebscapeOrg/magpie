@@ -33,11 +33,11 @@ Item {
   signal changed(string value)
   signal hovered(bool isHovered)
 
-  function optionValue(o) {
-    return (o && typeof o === "object") ? String(o.value) : String(o)
+  function optionValue(option) {
+    return (option && typeof option === "object") ? String(option.value) : String(option)
   }
-  function optionLabel(o) {
-    return (o && typeof o === "object") ? String(o.label) : String(o)
+  function optionLabel(option) {
+    return (option && typeof option === "object") ? String(option.label) : String(option)
   }
   function currentLabel() {
     for (var optionIndex = 0; optionIndex < options.length; optionIndex++) {

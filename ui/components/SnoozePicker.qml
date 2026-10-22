@@ -30,9 +30,9 @@ Item {
   signal snoozed(string id, double until)
   anchors.fill: parent
   z: 60
-  function openAt(id,x,y) {
+  function openAt(id,sceneX,sceneY) {
     messageId = id; choices = Snooze.options(new Date()); custom = false; scheduled = false
-    var local = mapFromGlobal(x,y); anchorX = local.x; anchorY = local.y
+    var local = mapFromGlobal(sceneX,sceneY); anchorX = local.x; anchorY = local.y
     dateField.text = Qt.formatDate(choices[0].date,"yyyy-MM-dd"); hour.value = 8; minute.value = 0
     popup.open(); place()
   }

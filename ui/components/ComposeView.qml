@@ -309,13 +309,13 @@ DropArea {
     var previous = bodyEdit.text
     var previouslyEdited = bodyWasEdited
     var previousSubject = subjectField.text
-    var params = { signature: accountSignature, quote: bodyQuote }
+    var parameters = { signature: accountSignature, quote: bodyQuote }
     if (pendingQuoteSummary) {
-      params.summary = pendingQuoteSummary
-      params.body = pendingQuoteText
+      parameters.summary = pendingQuoteSummary
+      parameters.body = pendingQuoteText
     }
     if (!service || !service.backend) return
-    service.backend.call("message.composeText", params, function(result, error) {
+    service.backend.call("message.composeText", parameters, function(result, error) {
       if (serial !== root.composeTextSerial || account !== root.accountId || !root.opened) return
       if (error || !result) {
         if (root.service && typeof root.service.fail === "function") root.service.fail("Could not prepare the message text")
@@ -327,7 +327,7 @@ DropArea {
       root.pendingQuoteText = ""
       root.placedBody = root.bodyPrefix + String(result.body || "")
       root.setBodyText(root.placedBody)
-      if (params.summary && (root.mode === "reply" || root.mode === "replyAll") && subjectField.text === previousSubject)
+      if (parameters.summary && (root.mode === "reply" || root.mode === "replyAll") && subjectField.text === previousSubject)
         subjectField.text = String(result.replySubject || previousSubject)
     })
   }

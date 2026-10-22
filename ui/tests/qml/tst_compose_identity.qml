@@ -28,9 +28,9 @@ Item {
     id: mailService
     property bool holdNativeText: false
     property var pendingNativeText: []
-    property var backend: ({call: function(method, params, callback) {
+    property var backend: ({call: function(method, parameters, callback) {
       if (method !== "message.composeText") return
-      var result = {body: String(params.signature || ""), quote: "", replySubject: "Re: Invoice"}
+      var result = {body: String(parameters.signature || ""), quote: "", replySubject: "Re: Invoice"}
       if (mailService.holdNativeText) mailService.pendingNativeText.push({callback:callback,result:result})
       else callback(result, null)
     }})
@@ -61,18 +61,18 @@ Item {
     ]
 
     function signatureFor(id) {
-      var want = String(id || "")
-      for (var i = 0; i < accountSignatures.length; i++)
-        if (accountSignatures[i].id === want)
-          return String(accountSignatures[i].signature || "")
+      var accountId = String(id || "")
+      for (var accountIndex = 0; accountIndex < accountSignatures.length; accountIndex++)
+        if (accountSignatures[accountIndex].id === accountId)
+          return String(accountSignatures[accountIndex].signature || "")
       return ""
     }
 
     function accountEmailFor(id) {
-      var want = String(id || "")
-      for (var i = 0; i < accountSignatures.length; i++)
-        if (accountSignatures[i].id === want)
-          return String(accountSignatures[i].email || "")
+      var accountId = String(id || "")
+      for (var accountIndex = 0; accountIndex < accountSignatures.length; accountIndex++)
+        if (accountSignatures[accountIndex].id === accountId)
+          return String(accountSignatures[accountIndex].email || "")
       return ""
     }
 
@@ -270,8 +270,8 @@ Item {
       var field = findChild(compose, "compose-body-editor")
       verify(field !== null)
       field.text = "Text entered while the backend was preparing the quote"
-      for (var i = 0; i < mailService.pendingNativeText.length; i++) {
-        var pending = mailService.pendingNativeText[i]
+      for (var requestIndex = 0; requestIndex < mailService.pendingNativeText.length; requestIndex++) {
+        var pending = mailService.pendingNativeText[requestIndex]
         pending.callback(pending.result, null)
       }
       compare(field.text, "Text entered while the backend was preparing the quote")

@@ -140,7 +140,7 @@ Item {
       view.visibleMonth = new Date(2026,9,1)
       view.setView("month")
       var values = []
-      for (var i = 0; i < 20; i++) values.push(event("keys-" + i))
+      for (var eventIndex = 0; eventIndex < 20; eventIndex++) values.push(event("keys-" + eventIndex))
       fixture.events = values
       wait(0)
       var day = findChild(view,"calendar-month-day-2026-10-25")
@@ -159,7 +159,7 @@ Item {
       view.visibleMonth = new Date(2026,9,1)
       view.setView("month")
       var values = []
-      for (var i = 0; i < 20; i++) values.push(event("busy-" + i))
+      for (var eventIndex = 0; eventIndex < 20; eventIndex++) values.push(event("busy-" + eventIndex))
       fixture.events = values
       wait(0)
       var day = findChild(view,"calendar-month-day-2026-10-25")

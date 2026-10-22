@@ -205,7 +205,7 @@ Item {
         if (!item) return
         if (item.objectName === "calendar-source-remove") removes.push(item)
         if (item.objectName === "calendar-source-detail") details.push(item)
-        for (var i = 0; i < item.children.length; i++) collect(item.children[i])
+        for (var childIndex = 0; childIndex < item.children.length; childIndex++) collect(item.children[childIndex])
       }
       collect(settings)
       compare(removes.length, 2)

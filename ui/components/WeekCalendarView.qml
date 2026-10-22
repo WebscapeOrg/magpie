@@ -201,8 +201,8 @@ Item {
             hoverEnabled: true
             cursorShape: Qt.CrossCursor
             preventStealing: true
-            function selectTo(x, y) {
-              var point = mapToItem(allDayColumns, x, y)
+            function selectTo(pointerX, pointerY) {
+              var point = mapToItem(allDayColumns, pointerX, pointerY)
               root.allDayDragEnd = Math.max(0, Math.min(root.days.length - 1, Math.floor(point.x / allDayColumn.width)))
             }
             onPressed: {
@@ -393,9 +393,9 @@ Item {
               preventStealing: true
               property real initialY: 0
               property var selection: null
-              function selectTo(y) {
-                var first = Calendar.slotStart(dayColumn.modelData, Math.min(initialY, y), root.firstHour, timeline.hourHeight, 15)
-                var last = Calendar.slotStart(dayColumn.modelData, Math.max(initialY, y) + timeline.hourHeight / 8,
+              function selectTo(pointerY) {
+                var first = Calendar.slotStart(dayColumn.modelData, Math.min(initialY, pointerY), root.firstHour, timeline.hourHeight, 15)
+                var last = Calendar.slotStart(dayColumn.modelData, Math.max(initialY, pointerY) + timeline.hourHeight / 8,
                   root.firstHour, timeline.hourHeight, 15)
                 last = Math.min(dayColumn.modelData.endMs, Math.max(first + 900000, last))
                 selection = { start: first, end: last }

@@ -8,6 +8,8 @@ import "GmailApi.js" as Api
 Item {
   id: root
 
+  Deferred { id: deferred }
+
   visible: false
   width: 0
   height: 0
@@ -73,7 +75,7 @@ Item {
     var handle = newHandle()
     var account = auth ? String(auth.accountId || "") : ""
     if (!usesBackend() || !auth || !auth.loggedIn || account === "") {
-      Qt.callLater(function() {
+      deferred.call(function() {
         if (!handle.aborted && typeof callback === "function")
           callback(null, !usesBackend() ? "Mail backend is unavailable" : "Sign in to the configured Gmail account first")
       })
@@ -198,7 +200,7 @@ Item {
    */
   function getSummaries(ids, callback) {
     var handle = newHandle()
-    Qt.callLater(function() {
+    deferred.call(function() {
       if (!root || handle.aborted || typeof callback !== "function") return
       callback([], "")
     })
@@ -321,7 +323,7 @@ Item {
       var handle = newHandle()
       var session = auth
       var profile = Api.parseProfile(auth.signedInProfile)
-      Qt.callLater(function() {
+      deferred.call(function() {
         if (!handle.aborted && root.auth === session && session.loggedIn)
           callback(profile, "")
       })
@@ -370,7 +372,7 @@ Item {
     var remaining = list.length
     var firstError = ""
     if (!remaining) {
-      Qt.callLater(function() { if (!handle.aborted && typeof callback === "function") callback(null, "") })
+      deferred.call(function() { if (!handle.aborted && typeof callback === "function") callback(null, "") })
       return handle
     }
     for (var itemIndex = 0; itemIndex < list.length; itemIndex++) {

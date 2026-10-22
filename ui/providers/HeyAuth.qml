@@ -3,6 +3,8 @@ import QtQuick
 // Invariant: The backend supervises the official HEY CLI; that CLI owns its credentials.
 Item {
   id: root
+
+  Deferred { id: deferred }
   visible: false
   width: 0
   height: 0
@@ -33,7 +35,7 @@ Item {
       if (root && generation === root.sessionGeneration) callback(result, error)
     }
     if (!backend || !backend.ready) {
-      Qt.callLater(function() { deliver(null, "Mail backend unavailable") })
+      deferred.call(function() { deliver(null, "Mail backend unavailable") })
       return
     }
     backend.call(method, {}, function(result, error) {

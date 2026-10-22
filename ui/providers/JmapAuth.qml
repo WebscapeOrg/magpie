@@ -7,6 +7,8 @@ import "JmapProtocol.js" as Jmap
 Item {
   id: root
 
+  Deferred { id: deferred }
+
   visible: false
   width: 0
   height: 0
@@ -243,7 +245,7 @@ Item {
     // Emitting in the same turn would have `MailAccount` start fetching
     // against settings that had not landed yet.
     var completedGeneration = sessionGeneration
-    Qt.callLater(function() {
+    deferred.call(function() {
       if (root && root.sessionGeneration === completedGeneration && root.loggedIn) root.loginSucceeded()
     })
   }

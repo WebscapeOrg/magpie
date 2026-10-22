@@ -5,6 +5,8 @@ import "JmapProtocol.js" as Jmap
 // backoff. This view only translates delivered changes into UI invalidations.
 Item {
   id: root
+
+  Deferred { id: deferred }
   visible: false
   width: 0
   height: 0
@@ -74,7 +76,7 @@ Item {
         if (event.kind === "connected") root.remoteChanged({ mail: true, mailboxes: true })
         if (event.kind === "change") root.remoteChanged(event.plan)
       }
-      Qt.callLater(function() { if (root) root.poll(generation) })
+      deferred.call(function() { if (root) root.poll(generation) })
     })
   }
 

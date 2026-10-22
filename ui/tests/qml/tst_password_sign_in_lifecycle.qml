@@ -48,6 +48,8 @@ Item {
   }
   Component { id: jmapClientFactory; Providers.JmapClient { backend: fakeBackend } }
 
+  Loader { id: lifecycleLoader; active: false; sourceComponent: jmapAuthFactory }
+
   TestCase {
     name: "PasswordSignInLifecycle"
     function init() { credentials.writes = []; credentials.lookups = []; fakeBackend.requests = [] }
@@ -68,6 +70,19 @@ Item {
       request.callback(protocol === "imap"
         ? { folders: [], special: {}, capabilities: [], labels: [] }
         : { session: {}, sessionUrl: "https://mail.example.test/session", accountId: "one", mailboxes: [] }, null)
+    }
+    function test_removed_jmap_owner_does_not_announce_deferred_sign_in() {
+      failOnWarning(/.?/)
+      var successes = 0
+      lifecycleLoader.active = true
+      var auth = lifecycleLoader.item
+      verify(auth)
+      auth.loginSucceeded.connect(function() { successes++ })
+      verify(auth.signIn("synthetic"))
+      auth.completeSignIn(true, {}, "", false, auth.sessionGeneration)
+      lifecycleLoader.active = false
+      wait(10)
+      compare(successes, 0)
     }
     function test_cancel_discards_verification_data() { return providers() }
     function test_cancel_discards_verification(data) {

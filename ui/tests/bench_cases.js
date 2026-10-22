@@ -75,10 +75,10 @@ function run(html, log) {
     var source = outlookMail(sizes[caseIndex])
     var ready = openOnce(html, source, palette)
 
-    var open = timed(function() { openOnce(html, source, palette) })
+    var openMs = timed(function() { openOnce(html, source, palette) })
     // Performance: A drag walks through widths; the document is not reparsed for any of them.
     var step = 0
-    var relayout = timed(function() {
+    var relayoutMs = timed(function() {
       palette.maxImageWidth = 300 + (step++ % 30) * 20
       html.readerDocumentFor(ready.reader.document, palette)
     })
@@ -91,8 +91,8 @@ function run(html, log) {
       + pad(kibibytes(ready.html) + " KiB", 9)
       + pad(ready.complexity.tags, 10)
       + pad(ready.reader.complexity.tags, 9)
-      + pad(open.toFixed(2) + "ms", 10)
-      + pad(relayout.toFixed(2) + "ms", 10)
+      + pad(openMs.toFixed(2) + "ms", 10)
+      + pad(relayoutMs.toFixed(2) + "ms", 10)
       + (refused === "" ? "" : "   refused: " + refused))
   }
 

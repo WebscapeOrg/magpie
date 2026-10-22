@@ -354,13 +354,10 @@ fn context_message_ids(context: &Value) -> Value {
     }
 }
 pub(super) fn same_conversation(job: &Value, other: &Value) -> Result<()> {
-    let conversation = |record: &Value| {
-        record
-            .get("conversationId")
-            .unwrap_or(&record["id"])
-            .clone()
-    };
-    if job["accountId"] != other["accountId"] || conversation(job) != conversation(other) {
+    if job["accountId"] != other["accountId"]
+        || job.get("conversationId").unwrap_or(&job["id"])
+            != other.get("conversationId").unwrap_or(&other["id"])
+    {
         return Err("agent_context_owner_mismatch");
     }
     Ok(())

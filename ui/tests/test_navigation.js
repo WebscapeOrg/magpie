@@ -5,7 +5,7 @@ const nav = load("account/Navigation.js")
 
 // A stack is only ever handed around, never edited in place, so every check
 // below that a function left its input alone compares against this snapshot.
-function frozen(stack) {
+function serializedSnapshot(stack) {
   return JSON.stringify(stack)
 }
 
@@ -220,9 +220,9 @@ deepEqual(nav.kinds(nav.rootFor({ anyReady: false, hasSavedAccounts: true, setup
 // ---------------------------------------------------------- immutability
 
 const before = [nav.entry("list"), nav.entry("reader", { id: "m1" }), nav.entry("compose", { returnTo: 1 })]
-const snapshot = frozen(before)
+const snapshot = serializedSnapshot(before)
 const draft = nav.entry("compose")
-const draftSnapshot = frozen(draft)
+const draftSnapshot = serializedSnapshot(draft)
 
 nav.push(before, draft)
 nav.push(before, nav.entry("reader", { id: "m2" }))
@@ -235,8 +235,8 @@ nav.top(before)
 nav.page(before)
 nav.overlay(before)
 nav.kinds(before)
-assert.strictEqual(frozen(before), snapshot, "no function edits the stack it was given")
-assert.strictEqual(frozen(draft), draftSnapshot, "push fills returnTo on a copy, not on the caller's entry")
+assert.strictEqual(serializedSnapshot(before), snapshot, "no function edits the stack it was given")
+assert.strictEqual(serializedSnapshot(draft), draftSnapshot, "push fills returnTo on a copy, not on the caller's entry")
 
 // Every mutator hands back a different array, and the entries in it are not
 // the caller's objects either: a stack on screen must not change under it.

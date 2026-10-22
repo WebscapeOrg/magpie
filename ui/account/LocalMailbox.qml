@@ -144,15 +144,15 @@ Item {
   Connections {
     target: root.backend
     ignoreUnknownSignals: true
-    function onNotification(method, params) {
-      if (method !== "local.changed" || params.accountId !== root.account.accountId) return
+    function onNotification(method, parameters) {
+      if (method !== "local.changed" || parameters.accountId !== root.account.accountId) return
       var previous = root.status
-      root.status = params.status || ({})
-      if (params.changed) root.refreshOverview(false)
+      root.status = parameters.status || ({})
+      if (parameters.changed) root.refreshOverview(false)
       if (previous.pendingEdits !== root.status.pendingEdits) root.refreshEdits()
       if (root.account.active && root.account.windowOpen && !root.account.listLoading
           && (previous.stored !== root.status.stored || previous.pendingEdits !== root.status.pendingEdits
-            || params.changed === true)) refreshList.start()
+            || parameters.changed === true)) refreshList.start()
     }
   }
   Timer { id: refreshList; interval: 150; onTriggered: root.account.loadMessages(false,true) }

@@ -26,13 +26,13 @@ function runUpload(raw, options = {}) {
   const calls = []
   let output
   let completions = 0
-  upload.parse(raw, (method, params, done) => {
-    calls.push({ method, params })
+  upload.parse(raw, (method, parameters, done) => {
+    calls.push({ method, params: parameters })
     queue.push(() => {
       if (method === "upload.begin") done({ upload: "u", chunkSize: options.chunkSize === undefined ? 65536 : options.chunkSize }, null)
       else if (method === "upload.append") {
         if (options.error) done(null, { code: -1, message: "Rejected" })
-        else done({ offset: params.offset + Buffer.from(params.data, "base64url").length + (options.badOffset ? 1 : 0) }, null)
+        else done({ offset: parameters.offset + Buffer.from(parameters.data, "base64url").length + (options.badOffset ? 1 : 0) }, null)
       } else if (method === "message.parseUpload") done({ mimeType: "text/plain" }, null)
       else if (method === "upload.discard") done({ discarded: true }, null)
       else assert.fail(method)
@@ -81,14 +81,14 @@ for (const change of [{id:"x"}, {method:"other"}, {params:[]}, {result:{}}, {jso
 const body = { text: "世界\n\u0000", source: "📨", html: "<p>مرحبا</p>" }
 const uploaded = []
 let committed
-upload.putBody("a@example.org", "1:Inbox", body, (method, params, callback) => {
+upload.putBody("a@example.org", "1:Inbox", body, (method, parameters, callback) => {
   if (method === "upload.begin") callback({upload:"body-1", chunkSize:7}, null)
   else if (method === "upload.append") {
-    const bytes = Buffer.from(params.data, "base64url")
+    const bytes = Buffer.from(parameters.data, "base64url")
     uploaded.push(bytes)
-    callback({offset:params.offset + bytes.length}, null)
+    callback({offset:parameters.offset + bytes.length}, null)
   } else if (method === "cache.bodyPutUpload") {
-    committed = params
+    committed = parameters
     callback({stored:true}, null)
   } else throw new Error(method)
 }, () => true, (result, error) => { assert.strictEqual(error, null); assert(result.stored) })
@@ -98,13 +98,13 @@ assert.strictEqual(committed.id, "1:Inbox")
 
 const changed = {jsonrpc:"2.0",method:"accounts.changed",params:{revision:"a".repeat(64)}}
 assert.deepStrictEqual(JSON.parse(JSON.stringify(wire.notification(JSON.stringify(changed)))), changed)
-for (const params of [{revision:""},{revision:"a".repeat(63)},{revision:"G".repeat(64)},{revision:42},{revision:"a".repeat(64),registry:{clientSecret:"forbidden"}}])
-  assert.strictEqual(wire.notification(JSON.stringify({...changed,params})),null)
+for (const parameters of [{revision:""},{revision:"a".repeat(63)},{revision:"G".repeat(64)},{revision:42},{revision:"a".repeat(64),registry:{clientSecret:"forbidden"}}])
+  assert.strictEqual(wire.notification(JSON.stringify({...changed,params: parameters})),null)
 
 const settled = {jsonrpc:"2.0",method:"gmail.settled",params:{accountId:"a@example.org",ticket:"7",method:"gmail.trash",ok:false,error:"gmail_rate_limited"}}
 assert.deepStrictEqual(JSON.parse(JSON.stringify(wire.notification(JSON.stringify(settled)))), settled)
-for (const params of [{ticket:7,ok:true,error:"",accountId:"a"},{ticket:"7",ok:"yes",error:"",accountId:"a"},{ticket:"7",ok:true,accountId:"a"},{ticket:"7",ok:true,error:""}])
-  assert.strictEqual(wire.notification(JSON.stringify({...settled,params})),null)
+for (const parameters of [{ticket:7,ok:true,error:"",accountId:"a"},{ticket:"7",ok:"yes",error:"",accountId:"a"},{ticket:"7",ok:true,accountId:"a"},{ticket:"7",ok:true,error:""}])
+  assert.strictEqual(wire.notification(JSON.stringify({...settled,params: parameters})),null)
 
 // Exercise Backend.receive itself and count actual parser calls in each module.
 const fs = require('fs')
@@ -121,7 +121,7 @@ function receiver() {
   const events=[], replies=[], failures=[]
   const context = {Chunks:chunks,Wire:wire,responseTransfer:null,ready:true,stopping:false,
     pending:{x:{callback:(result,error)=>replies.push({result,error})}},
-    notification:(method,params)=>events.push({method,params}),
+    notification:(method,parameters)=>events.push({method,params: parameters}),
     stopForFailure:error=>failures.push(error),maybeRequestQuit:()=>{},drainRequests:()=>{}}
   vm.createContext(context)
   vm.runInContext(receiveSource,context)

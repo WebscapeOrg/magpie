@@ -87,9 +87,9 @@ var ALL = [define(Gmail), define(Outlook), define(Hey), define(Jmap), define(Ima
 var DEFAULT_ID = "gmail"
 
 function ids() {
-  var out = []
-  for (var providerIndex = 0; providerIndex < ALL.length; providerIndex++) out.push(ALL[providerIndex].id)
-  return out
+  var result = []
+  for (var providerIndex = 0; providerIndex < ALL.length; providerIndex++) result.push(ALL[providerIndex].id)
+  return result
 }
 
 function get(id) {
@@ -138,14 +138,14 @@ function mailboxes(id, absent, apiVersion) {
   var missing = Array.isArray(absent) ? absent : []
   var drop = []
   for (var missingIndex = 0; missingIndex < missing.length; missingIndex++) drop.push(String(missing[missingIndex]))
-  var out = []
+  var result = []
   for (var currentMailboxIndex = 0; currentMailboxIndex < list.length; currentMailboxIndex++) {
     if (drop.indexOf(list[currentMailboxIndex].key) < 0
         && (apiVersion === undefined || Number(apiVersion) >= Number(list[currentMailboxIndex].minimumApiVersion || 0))
         && (!list[currentMailboxIndex].maximumApiVersion || (apiVersion !== undefined && Number(apiVersion) <= list[currentMailboxIndex].maximumApiVersion)))
-      out.push(list[currentMailboxIndex])
+      result.push(list[currentMailboxIndex])
   }
-  return out
+  return result
 }
 
 function mailboxIndex(id, key) {

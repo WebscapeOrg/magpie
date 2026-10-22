@@ -473,13 +473,13 @@ function compareLabelNames(left, right) {
 // can sit between them: this is one alphabet, not a tree.
 function railLabels(labels) {
   var all = Array.isArray(labels) ? labels : []
-  var out = []
+  var result = []
   for (var labelIndex = 0; labelIndex < all.length; labelIndex++) {
     if (!all[labelIndex] || all[labelIndex].system === true) continue
-    out.push(all[labelIndex])
+    result.push(all[labelIndex])
   }
-  out.sort(compareLabelNames)
-  return out
+  result.sort(compareLabelNames)
+  return result
 }
 
 // Which capability an action needs, or "" for the ones every provider has.
@@ -516,11 +516,11 @@ function actionUnavailable(action, provider) {
 // exists to stop, made one line lower down.
 function unavailableActions(capabilities) {
   var caps = capabilities || {}
-  var out = []
-  if (caps.archive !== true) out.push("archive")
-  if (caps.star !== true) out.push("star")
-  if (caps.move !== true) out.push("move")
-  return out
+  var result = []
+  if (caps.archive !== true) result.push("archive")
+  if (caps.star !== true) result.push("star")
+  if (caps.move !== true) result.push("move")
+  return result
 }
 
 // A row carrying a block, with its own flags read the way `Message.summarize`
@@ -639,12 +639,12 @@ function paneWidth(value) {
 
 function stringList(value) {
   var list = Array.isArray(value) ? value : []
-  var out = []
+  var result = []
   for (var entryIndex = 0; entryIndex < list.length; entryIndex++) {
     var item = String(list[entryIndex] === undefined || list[entryIndex] === null ? "" : list[entryIndex])
-    if (item !== "" && out.indexOf(item) < 0) out.push(item)
+    if (item !== "" && result.indexOf(item) < 0) result.push(item)
   }
-  return out
+  return result
 }
 
 function windowPrefs(raw) {
@@ -762,12 +762,12 @@ function sameSummaries(previous, next) {
 
 function removeById(list, id) {
   var source = Array.isArray(list) ? list : []
-  var out = []
+  var result = []
   for (var sourceIndex = 0; sourceIndex < source.length; sourceIndex++) {
     if (source[sourceIndex] && source[sourceIndex].id === id) continue
-    out.push(source[sourceIndex])
+    result.push(source[sourceIndex])
   }
-  return out
+  return result
 }
 
 // A failed row goes back where the settled order says: before the first of
@@ -825,12 +825,12 @@ function listAfterRestore(list, row, removed, stillRemoved, order, index) {
 
 function withoutIntent(entries, token) {
   var list = Array.isArray(entries) ? entries : []
-  var out = []
+  var result = []
   for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
     if (!list[rowIndex] || list[rowIndex].token === token) continue
-    out.push(list[rowIndex])
+    result.push(list[rowIndex])
   }
-  return out
+  return result
 }
 
 // The intents left after `token` failed, rebased, and the summary they add up
@@ -842,16 +842,16 @@ function rebaseIntents(entries, token) {
     if (list[rowIndex] && list[rowIndex].token === token) { at = rowIndex; break }
   }
   if (at < 0) return null
-  var out = list.slice(0, at)
+  var result = list.slice(0, at)
   var summary = list[at].before
   for (var followingIndex = at + 1; followingIndex < list.length; followingIndex++) {
     var entry = {}
     for (var key in list[followingIndex]) entry[key] = list[followingIndex][key]
     entry.before = summary
     summary = typeof entry.apply === "function" ? entry.apply(summary) : summary
-    out.push(entry)
+    result.push(entry)
   }
-  return { entries: out, summary: summary }
+  return { entries: result, summary: summary }
 }
 
 // The held intents with one more, by the id of the summary it changed.
@@ -923,11 +923,11 @@ function previewAfterRestore(list, row, present, order, index) {
 
 function replaceById(list, summary) {
   var source = Array.isArray(list) ? list : []
-  var out = []
+  var result = []
   for (var rowIndex = 0; rowIndex < source.length; rowIndex++) {
-    out.push(source[rowIndex] && summary && source[rowIndex].id === summary.id ? summary : source[rowIndex])
+    result.push(source[rowIndex] && summary && source[rowIndex].id === summary.id ? summary : source[rowIndex])
   }
-  return out
+  return result
 }
 
 // Search starts with rows found in the query cache, then learns live rows from
@@ -954,16 +954,16 @@ function mergeSearchResults(cached, live) {
   }
 
   merged.sort(function(left, right) {
-    var aTime = left.row && left.row.date && typeof left.row.date.getTime === "function"
+    var leftTimeMs = left.row && left.row.date && typeof left.row.date.getTime === "function"
       ? Number(left.row.date.getTime()) : 0
-    var bTime = right.row && right.row.date && typeof right.row.date.getTime === "function"
+    var rightTimeMs = right.row && right.row.date && typeof right.row.date.getTime === "function"
       ? Number(right.row.date.getTime()) : 0
-    if (aTime !== bTime) return bTime - aTime
+    if (leftTimeMs !== rightTimeMs) return rightTimeMs - leftTimeMs
     return left.order - right.order
   })
-  var out = []
-  for (var mergedIndex = 0; mergedIndex < merged.length; mergedIndex++) out.push(merged[mergedIndex].row)
-  return out
+  var result = []
+  for (var mergedIndex = 0; mergedIndex < merged.length; mergedIndex++) result.push(merged[mergedIndex].row)
+  return result
 }
 
 // Cached matches are only a preview. Once the provider has answered, its ids
@@ -1099,12 +1099,12 @@ function messageById(primary, fallback, id) {
 // row simply has no number: a mailbox nobody can reach by keyboard is honest,
 // and renumbering the rail every time the server reports a label would not be.
 function sidebarSlots(mailboxes, labels, limit) {
-  var max = Math.max(0, Math.floor(Number(limit) || 0))
-  var out = []
+  var maximum = Math.max(0, Math.floor(Number(limit) || 0))
+  var result = []
   var boxes = Array.isArray(mailboxes) ? mailboxes : []
-  for (var mailboxIndex = 0; mailboxIndex < boxes.length && out.length < max; mailboxIndex++) {
+  for (var mailboxIndex = 0; mailboxIndex < boxes.length && result.length < maximum; mailboxIndex++) {
     if (!boxes[mailboxIndex] || !boxes[mailboxIndex].key) continue
-    out.push({ kind: "mailbox", key: String(boxes[mailboxIndex].key), name: String(boxes[mailboxIndex].label || ""),
+    result.push({ kind: "mailbox", key: String(boxes[mailboxIndex].key), name: String(boxes[mailboxIndex].label || ""),
       icon: String(boxes[mailboxIndex].icon || "mail") })
   }
   // The labels in the order given, which is the order the rail draws them:
@@ -1114,12 +1114,12 @@ function sidebarSlots(mailboxes, labels, limit) {
   // rail draws them the other way round, and the digit beside a row would
   // open a different one. System labels are not rows and get no number.
   var all = Array.isArray(labels) ? labels : []
-  for (var labelIndex = 0; labelIndex < all.length && out.length < max; labelIndex++) {
+  for (var labelIndex = 0; labelIndex < all.length && result.length < maximum; labelIndex++) {
     if (!all[labelIndex] || all[labelIndex].system === true) continue
-    out.push({ kind: "label", id: String(all[labelIndex].id || ""),
+    result.push({ kind: "label", id: String(all[labelIndex].id || ""),
       name: String(all[labelIndex].rawName || all[labelIndex].name || "") })
   }
-  return out
+  return result
 }
 
 // What a row's badge says, and 0 for a row past the last. One-based, because
@@ -1204,13 +1204,13 @@ function contentYToReveal(contentY, viewportHeight, itemY, itemHeight,
   var view = Number(viewportHeight) || 0
   var itemTop = Number(itemY) || 0
   var height = Number(itemHeight) || 0
-  var pad = Number(margin) || 0
+  var padding = Number(margin) || 0
   var next = top
   // A row that cannot fit shows its beginning. Aligning its bottom, which is
   // what the off-the-bottom rule would do, pushes the part being read away.
-  if (height + pad + pad > view) next = itemTop - pad
-  else if (itemTop - pad < top) next = itemTop - pad
-  else if (itemTop + height + pad > top + view) next = itemTop + height + pad - view
+  if (height + padding + padding > view) next = itemTop - padding
+  else if (itemTop - padding < top) next = itemTop - padding
+  else if (itemTop + height + padding > top + view) next = itemTop + height + padding - view
   // The same range the wheel is held to. Callers that scroll a plain
   // Flickable pass no origin or margins and get the range they had.
   return clampContentY(next, contentYBounds(originY, contentHeight, view,
@@ -1503,8 +1503,8 @@ function splitBrand(title, brand) {
 
 function truncate(text, limit) {
   var value = String(text || "")
-  var max = Math.max(4, Math.floor(Number(limit) || 80))
-  return value.length <= max ? value : value.substring(0, max - 1) + "…"
+  var maximum = Math.max(4, Math.floor(Number(limit) || 80))
+  return value.length <= maximum ? value : value.substring(0, maximum - 1) + "…"
 }
 
 // ------------------------------------------------------- settings sidebar
@@ -1579,11 +1579,11 @@ function contentYBounds(originY, contentHeight, viewportHeight, topMargin, botto
   var view = Number(viewportHeight) || 0
   var top = Number(topMargin) || 0
   var bottom = Number(bottomMargin) || 0
-  var min = origin - top
+  var minimum = origin - top
   // Content shorter than its own view has one position rather than a negative
   // range, and that position is the top of it.
-  var max = Math.max(min, origin + content + bottom - view)
-  return { min: min, max: max }
+  var maximum = Math.max(minimum, origin + content + bottom - view)
+  return { min: minimum, max: maximum }
 }
 
 function clampContentY(value, bounds) {
@@ -1730,18 +1730,18 @@ function idsBetween(list, fromId, toId) {
   if (toIndex < 0) toIndex = fromIndex
   var firstIndex = Math.min(fromIndex, toIndex)
   var lastIndex = Math.max(fromIndex, toIndex)
-  var out = []
-  for (var rowIndex = firstIndex; rowIndex <= lastIndex; rowIndex++) out.push(source[rowIndex].id)
-  return out
+  var result = []
+  for (var rowIndex = firstIndex; rowIndex <= lastIndex; rowIndex++) result.push(source[rowIndex].id)
+  return result
 }
 
 function unionIds(ids, more) {
-  var out = Array.isArray(ids) ? ids.slice() : []
+  var result = Array.isArray(ids) ? ids.slice() : []
   var extra = Array.isArray(more) ? more : []
   for (var labelIndex = 0; labelIndex < extra.length; labelIndex++) {
-    if (out.indexOf(extra[labelIndex]) < 0) out.push(extra[labelIndex])
+    if (result.indexOf(extra[labelIndex]) < 0) result.push(extra[labelIndex])
   }
-  return out
+  return result
 }
 
 // Shift-click applies the endpoint's next checked state to the whole range.
@@ -1751,11 +1751,11 @@ function toggleRange(ids, list, fromId, toId) {
   if (indexById(list, toId) < 0) return checked.slice()
   var range = idsBetween(list, fromId, toId)
   if (checked.indexOf(toId) < 0) return unionIds(checked, range)
-  var out = []
+  var result = []
   for (var messageIndex = 0; messageIndex < checked.length; messageIndex++) {
-    if (range.indexOf(checked[messageIndex]) < 0) out.push(checked[messageIndex])
+    if (range.indexOf(checked[messageIndex]) < 0) result.push(checked[messageIndex])
   }
-  return out
+  return result
 }
 
 // The checked ids that are still listed. A reload, a search or an action can
@@ -1764,29 +1764,29 @@ function toggleRange(ids, list, fromId, toId) {
 function retainIds(ids, list) {
   var source = Array.isArray(list) ? list : []
   var checked = Array.isArray(ids) ? ids : []
-  var out = []
+  var result = []
   for (var messageIndex = 0; messageIndex < checked.length; messageIndex++) {
-    if (indexById(source, checked[messageIndex]) >= 0) out.push(checked[messageIndex])
+    if (indexById(source, checked[messageIndex]) >= 0) result.push(checked[messageIndex])
   }
-  return out
+  return result
 }
 
 function allIds(list) {
   var source = Array.isArray(list) ? list : []
-  var out = []
-  for (var rowIndex = 0; rowIndex < source.length; rowIndex++) out.push(source[rowIndex].id)
-  return out
+  var result = []
+  for (var rowIndex = 0; rowIndex < source.length; rowIndex++) result.push(source[rowIndex].id)
+  return result
 }
 
 function summariesById(list, ids) {
   var source = Array.isArray(list) ? list : []
   var checked = Array.isArray(ids) ? ids : []
-  var out = []
+  var result = []
   for (var messageIndex = 0; messageIndex < checked.length; messageIndex++) {
     var index = indexById(source, checked[messageIndex])
-    if (index >= 0) out.push(source[index])
+    if (index >= 0) result.push(source[index])
   }
-  return out
+  return result
 }
 
 // Where the cursor goes when several rows leave at once: the first survivor
@@ -1920,7 +1920,7 @@ function labelTree(labels, collapsedPaths) {
     return sum
   }
 
-  var out = []
+  var result = []
   function walk(node, depth) {
     var names = node.order.slice().sort(function(leftName, rightName) {
       var left = leftName.toLowerCase(), right = rightName.toLowerCase()
@@ -1930,7 +1930,7 @@ function labelTree(labels, collapsedPaths) {
       var child = node.children[names[nameIndex]]
       var hasChildren = child.order.length > 0
       var expanded = !hasChildren || folded.indexOf(child.path) < 0
-      out.push({
+      result.push({
         id: child.label ? String(child.label.id || "") : "",
         rawName: child.label ? String(child.label.rawName || child.label.name || "") : "",
         name: child.name,
@@ -1945,7 +1945,7 @@ function labelTree(labels, collapsedPaths) {
     }
   }
   walk(root, 0)
-  return out
+  return result
 }
 
 // The labels in the order the rail draws them, folded rows left out — what
@@ -1959,13 +1959,13 @@ function visibleLabels(labels, collapsedPaths) {
   for (var listIndex = 0; listIndex < all.length; listIndex++) {
     if (all[listIndex] && byId[String(all[listIndex].id || "")] === undefined) byId[String(all[listIndex].id || "")] = all[listIndex]
   }
-  var out = []
+  var result = []
   for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     if (!rows[rowIndex].selectable) continue
     var label = byId[rows[rowIndex].id]
-    if (label !== undefined) out.push(label)
+    if (label !== undefined) result.push(label)
   }
-  return out
+  return result
 }
 
 // The separator a provider nests with: its own where it reported one, "/"
@@ -2050,9 +2050,9 @@ function labelMoveTargets(labels, movingPath, delimiter) {
   var all = Array.isArray(labels) ? labels : []
   var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
   var moving = String(movingPath || "")
-  var out = [{ id: "", name: "Top level", path: "" }]
+  var result = [{ id: "", name: "Top level", path: "" }]
   // No hierarchy: the top level is the only place, and the label is there.
-  if (sep === "") return out
+  if (sep === "") return result
   for (var accountIndex = 0; accountIndex < all.length; accountIndex++) {
     var label = all[accountIndex]
     if (!label || label.system) continue
@@ -2060,9 +2060,9 @@ function labelMoveTargets(labels, movingPath, delimiter) {
     if (path === "" || path === moving) continue
     if (moving !== "" && path.indexOf(moving + sep) === 0) continue
     if (path === labelParent(moving, sep)) continue
-    out.push({ id: String(label.id || ""), name: path, path: path })
+    result.push({ id: String(label.id || ""), name: path, path: path })
   }
-  return out
+  return result
 }
 
 // The watched ids after a folder was renamed or moved, or deleted. An IMAP
@@ -2103,11 +2103,11 @@ function pathAfterLabelMoves(id, moves) {
 function migrateMonitoredChanges(monitored, moves, after) {
   var ids = Array.isArray(monitored) ? monitored : []
   var now = Array.isArray(after) ? after : []
-  var out = []
+  var result = []
   for (var idIndex = 0; idIndex < ids.length; idIndex++) {
     var id = String(ids[idIndex] || "")
     if (id === "") continue
-    if (indexById(now, id) >= 0) { out.push(id); continue }
+    if (indexById(now, id) >= 0) { result.push(id); continue }
     var path = pathAfterLabelMoves(id, moves)
     if (path === "") continue
     for (var labelIndex = 0; labelIndex < now.length; labelIndex++) {
@@ -2115,13 +2115,13 @@ function migrateMonitoredChanges(monitored, moves, after) {
       var labelPath = label ? String(label.name || label.rawName || "") : ""
       var labelId = String(label && label.id || "")
       if (labelPath !== path || labelId === "") continue
-      if (out.indexOf(labelId) < 0) out.push(labelId)
+      if (result.indexOf(labelId) < 0) result.push(labelId)
       break
     }
   }
-  if (out.length !== ids.length) return out
+  if (result.length !== ids.length) return result
   for (var comparisonIndex = 0; comparisonIndex < ids.length; comparisonIndex++)
-    if (out[comparisonIndex] !== ids[comparisonIndex]) return out
+    if (result[comparisonIndex] !== ids[comparisonIndex]) return result
   return ids
 }
 
@@ -2175,7 +2175,7 @@ function fuzzyScore(query, text) {
 function filterRows(rows, query) {
   var list = Array.isArray(rows) ? rows : []
   var typed = String(query || "").trim()
-  var out = []
+  var result = []
   for (var rowIndex = 0; rowIndex < list.length; rowIndex++) {
     var row = list[rowIndex]
     if (!row) continue
@@ -2186,8 +2186,8 @@ function filterRows(rows, query) {
     for (var key in row) kept[key] = row[key]
     kept.sourceIndex = rowIndex
     kept.score = score
-    out.push(kept)
+    result.push(kept)
   }
-  if (typed !== "") out.sort(function(left, right) { return right.score - left.score || left.sourceIndex - right.sourceIndex })
-  return out
+  if (typed !== "") result.sort(function(left, right) { return right.score - left.score || left.sourceIndex - right.sourceIndex })
+  return result
 }

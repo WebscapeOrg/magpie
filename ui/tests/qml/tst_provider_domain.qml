@@ -11,8 +11,8 @@ Item {
       property bool ready: true
       property var protocolInfo: ({ methods: [] })
       property var requests: []
-      function call(method, params, done) {
-        if (method === "providers.resolve") requests = requests.concat([{ params: params, done: done }])
+      function call(method, parameters, done) {
+        if (method === "providers.resolve") requests = requests.concat([{ params: parameters, done: done }])
       }
     }
   }

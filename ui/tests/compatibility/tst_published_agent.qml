@@ -21,7 +21,7 @@ Item {
     property var rpcErrors: []
     property var requests: []
     readonly property string owner: "imap:ada@example.test"
-    function forward(params, request) {
+    function forward(parameters, request) {
       requests = requests.concat([request])
       var xhr = new XMLHttpRequest()
       xhr.open("POST", Quickshell.env("OMAMAIL_TEST_AGENT_URL"))
@@ -43,9 +43,9 @@ Item {
       var methods = ["agent.jobStart", "agent.jobsList", "agent.jobShow", "agent.jobsProjection"]
       if (publishedApi >= 6) methods.push("agent.providerStatus")
       for (var methodIndex = 0; methodIndex < methods.length; methodIndex++) answers[methods[methodIndex]] = forward
-      answers["agent.context"] = function(params) {
+      answers["agent.context"] = function(parameters) {
         return {payload:{accountId:owner,account:"ada@example.test",messageId:"1:INBOX",
-          subject:"Thursday",message:"Can we meet Thursday at 10?",prompt:params.prompt}}
+          subject:"Thursday",message:"Can we meet Thursday at 10?",prompt:parameters.prompt}}
       }
       fixture.answers = answers
       BackendFixture.markReady(service, publishedApi)

@@ -18,26 +18,26 @@ Item {
     property var cacheRequests: []
     property var requests: []
     property var cancellations: []
-    function preparedResource(message, params) {
-      return Native.readerProjection(message, params || {accountId:account.accountId})
+    function preparedResource(message, parameters) {
+      return Native.readerProjection(message, parameters || {accountId:account.accountId})
     }
-    function call(method, params, callback) {
-      requests.push({method:method,params:JSON.parse(JSON.stringify(params))})
+    function call(method, parameters, callback) {
+      requests.push({method:method,params:JSON.parse(JSON.stringify(parameters))})
       if (method === "reader.open") {
-        if (params.cacheOnly) {
-          if (holdCache) cacheRequests.push({params:params,callback:callback})
-          else callback(cached ? preparedResource(cached, params) : null, null)
+        if (parameters.cacheOnly) {
+          if (holdCache) cacheRequests.push({params:parameters,callback:callback})
+          else callback(cached ? preparedResource(cached, parameters) : null, null)
         } else {
           transport.reads++
-          transport.pending[params.id]=function(message,error) {
-            callback(message ? preparedResource(message,params) : null,error ? {code:"read_failed"} : null)
+          transport.pending[parameters.id]=function(message,error) {
+            callback(message ? preparedResource(message,parameters) : null,error ? {code:"read_failed"} : null)
           }
         }
       } else if (method === "reader.cancel") {
-        cancellations.push(params)
+        cancellations.push(parameters)
         callback({cancelled:true},null)
       } else {
-        var result=Native.answer(method,params)
+        var result=Native.answer(method,parameters)
         if (result !== undefined) callback(result,null)
       }
     }

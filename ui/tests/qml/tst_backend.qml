@@ -126,18 +126,18 @@ Item {
       var cursor = 1
       while (cursor < requests(process).length) {
         var request = requests(process)[cursor++]
-        var params = request.params
+        var parameters = request.params
         if (request.method === "upload.begin") {
           verify(Object.keys(uploads).length < 8)
           var id = "upload-" + (++nextUpload)
           uploads[id] = true
           reply(process, request, { upload: id, chunkSize: 65536 })
         } else if (request.method === "upload.append") {
-          verify(uploads[params.upload])
-          reply(process, request, { offset: params.offset + Math.floor(params.data.length * 3 / 4) })
+          verify(uploads[parameters.upload])
+          reply(process, request, { offset: parameters.offset + Math.floor(parameters.data.length * 3 / 4) })
         } else {
-          verify(uploads[params.upload])
-          delete uploads[params.upload]
+          verify(uploads[parameters.upload])
+          delete uploads[parameters.upload]
           reply(process, request, { ok: true })
         }
       }
@@ -194,10 +194,10 @@ Item {
       var backend = makeBackend()
       var process = makeReady(backend)
       for (var requestIndex = 0; requestIndex < 64; requestIndex++) backend.call("providers.list", {}, function() {})
-      var params = {accountId:"first@example.org", resource:{subject:"original"}}
-      backend.call("cache.resourcePut", params, function() {})
-      params.accountId = "second@example.org"
-      params.resource.subject = "changed"
+      var parameters = {accountId:"first@example.org", resource:{subject:"original"}}
+      backend.call("cache.resourcePut", parameters, function() {})
+      parameters.accountId = "second@example.org"
+      parameters.resource.subject = "changed"
       reply(process, requests(process)[1], {})
       var written = requests(process)[65].params
       compare(written.accountId, "first@example.org")

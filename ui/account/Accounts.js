@@ -488,12 +488,12 @@ function discardDraftAt(list, index) {
 
 function idList(value) {
   var list = Array.isArray(value) ? value : []
-  var out = []
+  var result = []
   for (var aliasIndex = 0; aliasIndex < list.length; aliasIndex++) {
     var item = trimmed(list[aliasIndex])
-    if (item !== "" && out.indexOf(item) < 0) out.push(item)
+    if (item !== "" && result.indexOf(item) < 0) result.push(item)
   }
-  return out
+  return result
 }
 
 // The watched list replaced whole: what a rename or a move leaves it as,

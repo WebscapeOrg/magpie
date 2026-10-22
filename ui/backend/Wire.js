@@ -1,7 +1,7 @@
 .pragma library
 
-function request(id, method, params) {
-  return JSON.stringify({ jsonrpc: "2.0", id: id, method: method, params: params }) + "\n"
+function request(id, method, parameters) {
+  return JSON.stringify({ jsonrpc: "2.0", id: id, method: method, params: parameters }) + "\n"
 }
 
 function response(line) {

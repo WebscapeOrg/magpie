@@ -75,22 +75,22 @@ Item {
     ]
 
     function rows(count) {
-      var out = []
+      var result = []
       for (var messageIndex = 0; messageIndex < count; messageIndex++)
-        out.push({ id: "m" + messageIndex, subject: "Message " + messageIndex, unread: false, labelIds: ["INBOX"] })
-      return out
+        result.push({ id: "m" + messageIndex, subject: "Message " + messageIndex, unread: false, labelIds: ["INBOX"] })
+      return result
     }
 
     // The list requests the account sent since `before`, with the count each
     // asked for. The unread count asks `jmap.list` too, for three rows, and
     // is not a reload.
     function listAsks(before) {
-      var out = []
+      var result = []
       var sent = Transports.newSince(account.api, before)
       for (var requestIndex = 0; requestIndex < sent.length; requestIndex++)
         if (sent[requestIndex].method === "jmap.list" && sent[requestIndex].params.maxResults !== 3)
-          out.push(sent[requestIndex].params.maxResults)
-      return out
+          result.push(sent[requestIndex].params.maxResults)
+      return result
     }
 
     function test_reload_asks_for_the_depth_reached_and_navigation_for_a_page() {

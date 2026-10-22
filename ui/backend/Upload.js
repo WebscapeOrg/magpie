@@ -24,9 +24,9 @@ function parse(raw, call, connected, callback, queue) {
   }, callback, MAX_MESSAGE, queue)
 }
 
-function request(method, params, call, connected, callback, queue) {
+function request(method, parameters, call, connected, callback, queue) {
   var raw
-  try { raw = Message.bytesToLatin1(Message.utf8Bytes(JSON.stringify(params))) }
+  try { raw = Message.bytesToLatin1(Message.utf8Bytes(JSON.stringify(parameters))) }
   catch (error) { callback(null, {code:-32602,message:"Invalid upload params"}); return }
   return transfer(raw, call, connected, function(upload, done) {
     return call("request.upload", {method:method, upload:upload}, done)

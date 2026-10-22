@@ -50,7 +50,7 @@ function queryFromKey(key) {
 
 function dehydrate(summaries) {
   var list = Array.isArray(summaries) ? summaries : []
-  var out = []
+  var result = []
   for (var keyIndex = 0; keyIndex < list.length; keyIndex++) {
     var entry = {}
     for (var key in list[keyIndex]) {
@@ -59,14 +59,14 @@ function dehydrate(summaries) {
     }
     var at = list[keyIndex].date ? list[keyIndex].date.getTime() : NaN
     entry.dateMs = isFinite(at) ? at : null
-    out.push(entry)
+    result.push(entry)
   }
-  return out
+  return result
 }
 
 function hydrate(entries) {
   var list = Array.isArray(entries) ? entries : []
-  var out = []
+  var result = []
   for (var keyIndex = 0; keyIndex < list.length; keyIndex++) {
     var summary = {}
     for (var key in list[keyIndex]) {
@@ -75,9 +75,9 @@ function hydrate(entries) {
     }
     var at = Number(list[keyIndex].dateMs)
     summary.date = isFinite(at) && at > 0 ? new Date(at) : null
-    out.push(summary)
+    result.push(summary)
   }
-  return out
+  return result
 }
 
 // ---------------------------------------------------------------- queries
@@ -244,14 +244,14 @@ function searchSummaries(store, query, includes) {
     if (candidates[candidate].matched) found.push(candidates[candidate])
   }
   found.sort(function(left, right) {
-    var aTime = left.row && left.row.date ? Number(left.row.date.getTime()) : 0
-    var bTime = right.row && right.row.date ? Number(right.row.date.getTime()) : 0
-    if (aTime !== bTime) return bTime - aTime
+    var leftTimeMs = left.row && left.row.date ? Number(left.row.date.getTime()) : 0
+    var rightTimeMs = right.row && right.row.date ? Number(right.row.date.getTime()) : 0
+    if (leftTimeMs !== rightTimeMs) return rightTimeMs - leftTimeMs
     return left.order - right.order
   })
-  var out = []
-  for (var resultIndex = 0; resultIndex < found.length; resultIndex++) out.push(found[resultIndex].row)
-  return out
+  var result = []
+  for (var resultIndex = 0; resultIndex < found.length; resultIndex++) result.push(found[resultIndex].row)
+  return result
 }
 
 

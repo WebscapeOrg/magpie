@@ -9,7 +9,7 @@ function account(email, extra) {
 
 // A list is only ever handed around, never edited in place, so every check
 // below that a mutator left its input alone compares against this snapshot.
-function frozen(list) {
+function serializedSnapshot(list) {
   return JSON.stringify(list)
 }
 
@@ -90,10 +90,10 @@ assert.strictEqual(accounts.active(one).id, "ada@example.com")
 assert.strictEqual(accounts.find(one, "ada@example.com").clientId, "cid")
 assert.strictEqual(accounts.find(one, "ADA@example.com"), null, "ids are looked up as stored")
 
-const beforeAdd = frozen(one)
+const beforeAdd = serializedSnapshot(one)
 let two = accounts.add(one, account("bob@example.com", { label: "Personal" }))
 assert.notStrictEqual(two, one)
-assert.strictEqual(frozen(one), beforeAdd, "add leaves its input alone")
+assert.strictEqual(serializedSnapshot(one), beforeAdd, "add leaves its input alone")
 assert.strictEqual(accounts.count(two), 2)
 assert.strictEqual(two.activeId, "ada@example.com", "a second account does not steal the selection")
 
@@ -143,7 +143,7 @@ assert.strictEqual(accounts.count(settled), 3)
 
 let three = accounts.add(corrected, account("cid@example.com"))
 assert.strictEqual(accounts.count(three), 3)
-const beforeRemove = frozen(three)
+const beforeRemove = serializedSnapshot(three)
 
 // Removing an account is destructive and happens in two steps. The first
 // step only describes the target; it never mutates the list. A stale target
@@ -154,7 +154,7 @@ deepEqual(removal, {
   email: "ADA@example.com",
   index: 0
 })
-assert.strictEqual(frozen(three), beforeRemove)
+assert.strictEqual(serializedSnapshot(three), beforeRemove)
 assert.strictEqual(accounts.removalRequest(three, -1), null)
 assert.strictEqual(accounts.removalRequest(three, 99), null)
 assert.strictEqual(accounts.removalRequest(one, 0), null,
@@ -166,7 +166,7 @@ assert.strictEqual(accounts.confirmRemoval(three, { id: "gone@example.com", inde
 assert.strictEqual(accounts.confirmRemoval(three, removal), 0)
 
 let withoutBob = accounts.remove(three, "bob@example.com")
-assert.strictEqual(frozen(three), beforeRemove, "remove leaves its input alone")
+assert.strictEqual(serializedSnapshot(three), beforeRemove, "remove leaves its input alone")
 assert.strictEqual(accounts.count(withoutBob), 2)
 assert.strictEqual(accounts.find(withoutBob, "bob@example.com"), null)
 assert.strictEqual(withoutBob.activeId, "ada@example.com", "removing another account keeps the selection")
@@ -197,9 +197,9 @@ assert.notStrictEqual(accounts.remove(three, "nobody@example.com"), three)
 
 // --------------------------------------------------------------- setActive
 
-const beforeSet = frozen(three)
+const beforeSet = serializedSnapshot(three)
 let switched = accounts.setActive(three, "cid@example.com")
-assert.strictEqual(frozen(three), beforeSet, "setActive leaves its input alone")
+assert.strictEqual(serializedSnapshot(three), beforeSet, "setActive leaves its input alone")
 assert.strictEqual(switched.activeId, "cid@example.com")
 assert.strictEqual(accounts.active(switched).id, "cid@example.com")
 assert.strictEqual(accounts.count(switched), 3)
@@ -693,11 +693,11 @@ assert.strictEqual(accounts.count(accounts.discardDraftAt(pendingList, 0)), 3)
   }).signature, "Maarten\nmadra.nl", "the ends are trimmed, the middle is not")
 
   const list = accounts.add(accounts.emptyList(), account("jane@gmail.com"))
-  const before = frozen(list)
+  const before = serializedSnapshot(list)
 
   const signed = accounts.setSignature(list, "jane@gmail.com", "Jane\nRoe")
   assert.strictEqual(accounts.find(signed, "jane@gmail.com").signature, "Jane\nRoe")
-  assert.strictEqual(frozen(list), before, "the list handed in is not edited")
+  assert.strictEqual(serializedSnapshot(list), before, "the list handed in is not edited")
 
   // Setting one must not disturb the rest of the entry, which is the whole
   // account: a signature edit that dropped an OAuth client would sign the user
@@ -714,8 +714,8 @@ assert.strictEqual(accounts.count(accounts.discardDraftAt(pendingList, 0)), 3)
 
   // An id the list does not hold is a caller acting on a list that has moved
   // on — the same rule the other mutators follow, so it changes nothing.
-  assert.strictEqual(frozen(accounts.setSignature(list, "nobody@gmail.com", "x")), before)
-  assert.strictEqual(frozen(accounts.setSignature(list, "", "x")), before)
+  assert.strictEqual(serializedSnapshot(accounts.setSignature(list, "nobody@gmail.com", "x")), before)
+  assert.strictEqual(serializedSnapshot(accounts.setSignature(list, "", "x")), before)
 
   // A signature is the one field here that legitimately contains newlines, and
   // the file crosses a line-oriented pipe on the way to disk. JSON escaping is
@@ -779,11 +779,11 @@ const trio = accounts.add(accounts.add(accounts.add(accounts.emptyList(),
   account("cid@example.com", { provider: "jmap" }))
 const bobActive = accounts.setActive(trio, "imap:bob@example.com")
 const cidActive = accounts.setActive(trio, "jmap:cid@example.com")
-const beforeReplace = frozen(cidActive)
+const beforeReplace = serializedSnapshot(cidActive)
 
 const cidEdited = accounts.replaceAt(cidActive, 2,
   Object.assign({}, cidActive.accounts[2], { jmap: { sessionUrl: "https://mail.example.com/jmap/session" } }))
-assert.strictEqual(frozen(cidActive), beforeReplace, "replaceAt leaves its input alone")
+assert.strictEqual(serializedSnapshot(cidActive), beforeReplace, "replaceAt leaves its input alone")
 assert.strictEqual(accounts.count(cidEdited), 3)
 assert.strictEqual(cidEdited.activeId, "jmap:cid@example.com",
   "editing the active row keeps it active")
@@ -839,8 +839,8 @@ const nothingActive = accounts.replaceAt(
 assert.strictEqual(nothingActive.activeId, "eve@example.com")
 
 // Out of range is no edit.
-assert.strictEqual(frozen(accounts.replaceAt(cidActive, 3, account("x@example.com"))), beforeReplace)
-assert.strictEqual(frozen(accounts.replaceAt(cidActive, -1, account("x@example.com"))), beforeReplace)
+assert.strictEqual(serializedSnapshot(accounts.replaceAt(cidActive, 3, account("x@example.com"))), beforeReplace)
+assert.strictEqual(serializedSnapshot(accounts.replaceAt(cidActive, -1, account("x@example.com"))), beforeReplace)
 // Monitored labels ride with the mailbox and survive its other edits.
 {
   const watched = accounts.toggleMonitored(named, "me@gmail.com", "Label_7")
@@ -879,7 +879,7 @@ assert.strictEqual(frozen(accounts.replaceAt(cidActive, -1, account("x@example.c
 
   const named = accounts.setSenderName(imap, id, "  Jane   Example ")
   assert.strictEqual(named.accounts[0].senderName, "Jane Example")
-  assert.strictEqual(frozen(imap), frozen(accounts.add(accounts.emptyList(),
+  assert.strictEqual(serializedSnapshot(imap), serializedSnapshot(accounts.add(accounts.emptyList(),
     { email: "me@example.org", provider: "imap", imap: { username: "me@example.org" } })),
     "the input list is left alone")
   assert.strictEqual(accounts.load(accounts.serialize(named)).accounts[0].senderName, "Jane Example",

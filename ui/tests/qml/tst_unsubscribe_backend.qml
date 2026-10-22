@@ -8,8 +8,8 @@ Item {
     property bool ready: true
     property var calls: []
     property var done: null
-    function call(method, params, callback) {
-      calls = calls.concat([{method: method, params: params}])
+    function call(method, parameters, callback) {
+      calls = calls.concat([{method: method, params: parameters}])
       done = callback
     }
   }

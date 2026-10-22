@@ -11,11 +11,11 @@ Item {
   QtObject {
     id: backend
     property bool ready: true
-    function call(method, params, done) {
-      if (method === "attachment.download") { fixture.downloads.push(params); return }
+    function call(method, parameters, done) {
+      if (method === "attachment.download") { fixture.downloads.push(parameters); return }
       if (method !== "model.apply") return
-      if (params.operation === "searchProgress") {
-        fixture.painted = fixture.painted.concat(params.args[2])
+      if (parameters.operation === "searchProgress") {
+        fixture.painted = fixture.painted.concat(parameters.args[2])
         done({live: fixture.painted, visible: fixture.painted}, null)
       }
     }

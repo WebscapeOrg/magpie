@@ -381,6 +381,27 @@ def cli_installed():
         return False
 
 
+def manage(command, required, architecture):
+    with locked():
+        if command == "install":
+            install(required, architecture)
+            return required
+        if command == "install-local":
+            return install_local(required)
+        if command == "uninstall":
+            safe_path(BINARY)
+            safe_path(LOCAL_BUILD)
+            LOCAL_BUILD.unlink(missing_ok=True)
+            BINARY.unlink(missing_ok=True)
+            return required
+        if command == "enable-cli":
+            require(version_of(BINARY) == required, "Install the required backend before enabling the CLI.")
+            cli_link(True)
+            return required
+        cli_link(False)
+        return required
+
+
 def run(command):
     result = dict(state="error", requiredVersion="", requiredApiVersion=0, latestApiVersion=0, unreleasedMethods=[], contractHash="", installedVersion="", executable=str(BINARY), error="", cliInstalled=False)
     try:
@@ -406,23 +427,8 @@ def run(command):
         else:
             require(executable.is_absolute(), "OMAMAIL_BIN must be an absolute executable path.")
         if command != "status":
-            with locked():
-                if command == "install":
-                    install(required, architecture)
-                elif command == "install-local":
-                    required = install_local(required)
-                    result["requiredVersion"] = required
-                elif command == "uninstall":
-                    safe_path(BINARY)
-                    local_build = LOCAL_BUILD
-                    safe_path(local_build)
-                    local_build.unlink(missing_ok=True)
-                    BINARY.unlink(missing_ok=True)
-                elif command == "enable-cli":
-                    require(version_of(BINARY) == required, "Install the required backend before enabling the CLI.")
-                    cli_link(True)
-                else:
-                    cli_link(False)
+            required = manage(command, required, architecture)
+            result["requiredVersion"] = required
         # Invariant: the candidate was verified before the atomic commit. A second execution
         # must not turn a completed replacement into a reported install failure.
         installed = required if command in ("install", "install-local") else version_of(executable)

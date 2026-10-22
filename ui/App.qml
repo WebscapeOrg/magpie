@@ -655,6 +655,12 @@ Item {
   function saveAndLeaveCompose(force) {
     if (!compose.opened) return
     if (!service) return
+    if (!compose.attachmentsReady) {
+      var attachmentError = String(compose.forwardAttachmentError || compose.attachmentRecoveryError || "")
+      service.fail(attachmentError !== "" ? "Resolve the attachment error before saving this draft"
+        : "Wait for attachments to finish loading before saving this draft")
+      return
+    }
     if (force !== true && !compose.hasMeaningfulDraft()) {
       compose.finish()
       return

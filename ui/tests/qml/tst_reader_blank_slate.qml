@@ -56,24 +56,13 @@ Item {
     name: "ReaderBlankSlate"
     when: windowShown
 
-    function named(item, objectName) {
-      if (!item) return null
-      if (item.objectName === objectName) return item
-      var values = item.children || []
-      for (var i = 0; i < values.length; i++) {
-        var found = named(values[i], objectName)
-        if (found) return found
-      }
-      return null
-    }
-
     function slate() {
       tryCompare(blankSlateLoader, "status", Loader.Ready)
       return blankSlateLoader.item
     }
 
     function version() {
-      var label = named(slate(), "reader-version")
+      var label = findChild(slate(), "reader-version")
       verify(label, "the blank slate must carry an identifiable version label")
       return label
     }
@@ -163,7 +152,7 @@ Item {
 
     function test_says_nothing_without_a_service() {
       tryCompare(serviceless, "status", Loader.Ready)
-      var label = named(serviceless.item, "reader-version")
+      var label = findChild(serviceless.item, "reader-version")
       verify(label, "the label exists even with no service behind it")
       verify(!label.visible)
     }

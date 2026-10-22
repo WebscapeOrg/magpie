@@ -753,3 +753,16 @@ for (const response of ["constructor", "__proto__"]) {
 }
 
 console.log("test_calendar.js ok")
+
+{
+  const overflowDuration = "P" + "9".repeat(400) + "D"
+  assert.strictEqual(calendar.parseDuration(overflowDuration), 0)
+  const parsed = calendar.invitationFrom([
+    "BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:overflow-duration",
+    "DTSTART:20261022T120000Z", "DURATION:" + overflowDuration,
+    "END:VEVENT", "END:VCALENDAR"
+  ].join("\r\n"))
+  assert.ok(parsed.start)
+  assert.strictEqual(parsed.end, null, "an unrepresentable duration cannot create an infinite endpoint")
+  assert.strictEqual(calendar.parseDuration("PT90M"), 5400000)
+}

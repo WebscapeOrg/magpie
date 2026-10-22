@@ -59,20 +59,51 @@ function normalize(values) {
   return out
 }
 
-function currentToken(text) {
+function addressParts(text) {
   var value = String(text || "")
-  var comma = value.lastIndexOf(",")
-  var semicolon = value.lastIndexOf(";")
-  return value.substring(Math.max(comma, semicolon) + 1).trim()
+  var parts = []
+  var start = 0
+  var angleStart = -1
+  var angleEnd = -1
+  var quoted = false
+  var escaped = false
+  var bracketed = false
+  function finish(end) {
+    var text = value.substring(start, end)
+    var mailbox = angleStart >= start && angleEnd >= angleStart
+      ? value.substring(angleStart, angleEnd) : text
+    parts.push({start: start, text: text, mailbox: mailbox})
+    start = end + 1
+    angleStart = -1
+    angleEnd = -1
+  }
+  for (var index = 0; index < value.length; index++) {
+    var character = value.charAt(index)
+    if (escaped) { escaped = false; continue }
+    if (quoted && character === "\\") { escaped = true; continue }
+    if (character === "\"") { quoted = !quoted; continue }
+    if (quoted) continue
+    if (character === "<") angleStart = index + 1
+    else if (character === ">") angleEnd = index
+    else if (character === "[") bracketed = true
+    else if (character === "]") bracketed = false
+    else if ((character === "," || character === ";") && !bracketed
+        && (angleStart < 0 || angleEnd >= angleStart)) finish(index)
+  }
+  finish(value.length)
+  return parts
+}
+
+function currentToken(text) {
+  var parts = addressParts(text)
+  return parts[parts.length - 1].text.trim()
 }
 
 function usedAddresses(text) {
-  var parts = String(text || "").split(/[,;]/)
+  var parts = addressParts(text)
   var used = ({})
   for (var partIndex = 0; partIndex < parts.length - 1; partIndex++) {
-    var angle = parts[partIndex].match(/<([^>]+)>/)
-    var email = angle ? angle[1] : parts[partIndex]
-    used[String(email || "").trim().toLowerCase()] = true
+    used[parts[partIndex].mailbox.trim().toLowerCase()] = true
   }
   return used
 }
@@ -124,10 +155,9 @@ function address(contact) {
 
 function accept(text, contact) {
   var value = String(text || "")
-  var comma = value.lastIndexOf(",")
-  var semicolon = value.lastIndexOf(";")
-  var split = Math.max(comma, semicolon)
-  var prefix = split >= 0 ? value.substring(0, split + 1).trim() + " " : ""
+  var parts = addressParts(value)
+  var start = parts[parts.length - 1].start
+  var prefix = start > 0 ? value.substring(0, start).trim() + " " : ""
   return prefix + address(contact)
 }
 

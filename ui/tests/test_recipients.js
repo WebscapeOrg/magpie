@@ -98,5 +98,13 @@ for (const email of ['"quoted,local"@example.test', '"space local"@example.test'
 }
 assert.strictEqual(recipients.address({name: "Team: Ada; Bob", email: "visible@example.test"}),
   '"Team: Ada; Bob" <visible@example.test>', "display names cannot introduce group syntax")
+for (const email of ['"quoted,local"@example.test', '"angle<local"@example.test']) {
+  const formatted = recipients.address({name: "Name <with> punctuation", email})
+  assert.strictEqual(recipients.append(formatted, {email}), formatted,
+    "quoted commas and angles do not hide an existing recipient from deduplication")
+  assert.strictEqual(recipients.accept(email, {email: "replacement@example.test"}), "replacement@example.test",
+    "accepting a contact replaces the complete token, including quoted punctuation")
+  assert.strictEqual(recipients.currentToken(email), email)
+}
 
 console.log("recipient tests passed")

@@ -293,7 +293,9 @@ if [ "$mode" = "graph-send" ]; then
   # The token arrived in the credentials field, like a password would.
   graph_token=$credentials
   # Graph takes the MIME base64-encoded, as the body of a text/plain POST.
-  decode "$1" | base64 | tr -d '\n' > "$work/message"
+  decode "$1" > "$work/mime"
+  base64 < "$work/mime" > "$work/encoded"
+  tr -d '\n' < "$work/encoded" > "$work/message"
 elif [ "$sending" = 1 ]; then
   [ $# -ge 3 ] || fail 'mail-transport.sh: smtp needs a sender, a message and a recipient'
   decode "$2" > "$work/message"

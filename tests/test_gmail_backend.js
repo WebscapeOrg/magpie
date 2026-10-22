@@ -15,8 +15,7 @@ context.root = context
 vm.createContext(context)
 for (const name of ["newHandle", "abortRequest", "listMessages", "getMessage", "getAttachment"])
   vm.runInContext(method(name), context)
-// Load additional real helpers when present; the pre-migration implementation
-// fails at the forbidden network path, not because a helper is missing.
+// Invariant: historical implementations fail on forbidden HTTP, not a missing helper.
 for (const name of ["usesBackend", "invalidateBackend", "backendError", "backendRequest"])
   if (source.includes("  function " + name + "(")) vm.runInContext(method(name), context)
 let pending, request, calls = 0
@@ -122,7 +121,7 @@ const beforeBootstrap = calls
 context.getProfile((profile,error) => { assert.strictEqual(error, ""); assert.strictEqual(profile.email, "new@example.org") })
 assert.strictEqual(calls, beforeBootstrap, "initial identity comes from the native completed grant before registry creation")
 
-// A later UI selection cannot retarget an already captured destructive action.
+// Invariant: later UI selection cannot retarget an already captured destructive action.
 for (const name of ['trashMessage','untrashMessage','trashEach'])
   vm.runInContext(method(name),context)
 const trashRequests=[]

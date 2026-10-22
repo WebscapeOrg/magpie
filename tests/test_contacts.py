@@ -46,7 +46,6 @@ with tempfile.TemporaryDirectory() as temporary:
         ],
     )
 
-    # Also create omamail cache and contacts.json
     cache_dir = home / ".cache" / "omamail"
     cache_dir.mkdir(parents=True)
     (cache_dir / "account-test.json").write_text(
@@ -95,11 +94,6 @@ with tempfile.TemporaryDirectory() as temporary:
     ]
 
 
-# --------------------------------------------------------------- the readers
-#
-# These read files this program did not write, so each one is checked against
-# the shape somebody would plausibly produce rather than only the shape the
-# happy path above builds.
 
 import importlib.util
 
@@ -110,9 +104,7 @@ spec.loader.exec_module(harvester)
 with tempfile.TemporaryDirectory() as temporary:
     scratch = Path(temporary)
 
-    # A wrapped address book. Asking whether str(value) contains an "@" is true
-    # of a stringified list, and what came out was a contact named "contacts"
-    # whose address was the whole serialised array.
+    # Invariant: a stringified nested record must never become an email address.
     wrapped = scratch / "wrapped.json"
     wrapped.write_text(
         json.dumps({"contacts": [{"name": "A", "email": "a@example.com"}]}),
@@ -120,7 +112,6 @@ with tempfile.TemporaryDirectory() as temporary:
     )
     assert harvester.json_contacts(wrapped) == [], harvester.json_contacts(wrapped)
 
-    # The two shapes that are an address book.
     listed = scratch / "listed.json"
     listed.write_text(
         json.dumps([{"name": "Ada", "email": "ada@example.com"},
@@ -139,9 +130,7 @@ with tempfile.TemporaryDirectory() as temporary:
         {"name": "Grace", "email": "grace@example.com"},
     ]
 
-    # A folded vCard, and a malformed property after it. The fold has to be
-    # rejoined before the value is read, and the bad line must not take the
-    # cards that follow it with it.
+    # Invariant: unfold values and reject malformed properties without losing later cards.
     folded = scratch / "book.vcf"
     folded.write_text(
         "BEGIN:VCARD\r\n"
@@ -161,8 +150,7 @@ with tempfile.TemporaryDirectory() as temporary:
         {"name": "Second Card", "email": "second@example.com"},
     ], harvester.parse_vcf(folded)
 
-    # A bulk send is not a room full of the user's contacts, and a display name
-    # the parser filled in from the local part is not a name anybody wrote.
+    # Invariant: exclude bulk recipients and fabricated local-part display names.
     cache = scratch / "cache"
     cache.mkdir()
     bulk = [{"name": "P%d" % i, "email": "p%d@example.com" % i} for i in range(20)]

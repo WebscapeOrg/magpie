@@ -64,6 +64,21 @@ fn base64_bytes(data: &str) -> usize {
         usize::from(s.ends_with('='))
     })
 }
+fn displayable_image(data: &str) -> bool {
+    use base64::{
+        Engine, alphabet,
+        engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig},
+    };
+    let decoder = GeneralPurpose::new(
+        &alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+    );
+    decoder
+        .decode(clean(data))
+        .ok()
+        .and_then(|bytes| crate::raster::decoded_bytes(&bytes))
+        .is_some()
+}
 pub fn import_image(data: &str, options: &Value) -> Value {
     let mime = raster_kind(data);
     if mime.is_empty() {
@@ -72,6 +87,9 @@ pub fn import_image(data: &str, options: &Value) -> Value {
     let max = limit(options, "maxImageBytes", MAX_IMAGE_BYTES);
     if base64_bytes(data) > max {
         return json!({"html":"","plain":"","problem":format!("That image is larger than {} KB",(max as f64/1024.0).round() as usize)});
+    }
+    if !displayable_image(data) {
+        return json!({"html":"","plain":"","problem":"That image cannot be safely displayed"});
     }
     json!({"html":format!("<p><img src=\"data:{mime};base64,{}\"></p>",clean(data)),"plain":"","dropped":0,"images":1,"problem":""})
 }
@@ -84,6 +102,7 @@ pub fn data_image_ok(value: &str, max: usize) -> bool {
     };
     let kind = raster_kind(&c[2]);
     base64_bytes(&c[2]) <= max
+        && displayable_image(&c[2])
         && !kind.is_empty()
         && (kind == c[1].to_lowercase()
             || (kind == "image/jpeg" && c[1].eq_ignore_ascii_case("image/jpg")))
@@ -349,6 +368,22 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn round2_signature_import_refuses_unrenderable_image_metadata() {
+        use base64::Engine;
+        let huge = base64::engine::general_purpose::STANDARD
+            .encode(b"GIF89a\xff\xff\xff\xff\x80\x00\x00\x00\x00\x00\xff\xff\xff\x3b");
+        for data in [huge.as_str(), "iVBORw0KGgo="] {
+            let result = import_image(data, &Value::Null);
+            assert_eq!(result["html"], "");
+            assert_eq!(result["problem"], "That image cannot be safely displayed");
+            assert!(!data_image_ok(
+                &format!("data:{};base64,{data}", raster_kind(data)),
+                MAX_IMAGE_BYTES
+            ));
+        }
+    }
+
     #[test]
     fn rejects_non_raster_and_bounds_source() {
         assert!(!data_image_ok("data:image/png;base64,PHN2Zz4=", 512000));

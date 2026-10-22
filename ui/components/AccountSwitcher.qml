@@ -31,6 +31,7 @@ Item {
   // Invariant: keyboard position must not follow passive hover; Qt replays hover when content moves
   // beneath a stationary pointer.
   property int cursorIndex: 0
+  onCursorIndexChanged: revealCursor()
 
   property bool unifiedActive: false
 
@@ -82,6 +83,17 @@ Item {
     cursorIndex = Model.wrappedIndex(cursorIndex, delta, root.rowCount)
   }
 
+  function revealCursor() {
+    var rowHeight = MailStyle.space(40)
+    var cursorTop = root.cursorIndex * (rowHeight + accountRows.spacing)
+    var viewportTop = accountsViewport.contentY
+    if (cursorTop < viewportTop) accountsViewport.contentY = cursorTop
+    else if (cursorTop + rowHeight > viewportTop + accountsViewport.height)
+      accountsViewport.contentY = cursorTop + rowHeight - accountsViewport.height
+    accountsViewport.contentY = Math.max(0, Math.min(accountsViewport.contentY,
+      accountsViewport.contentHeight - accountsViewport.height))
+  }
+
   function chooseCursor() {
     if (cursorIndex < 0 || cursorIndex >= root.rowCount) return
     menu.close()
@@ -109,7 +121,7 @@ Item {
 
   QQC.Popup {
     id: menu
-    width: MailStyle.space(250)
+    width: Math.min(MailStyle.space(250), root.width)
     implicitHeight: rows.implicitHeight + MailStyle.space(8)
     padding: MailStyle.space(4)
     modal: false
@@ -121,6 +133,7 @@ Item {
       root.restCursorOnActive()
       root.place()
       search.takeFocus()
+      root.revealCursor()
     }
     background: Rectangle {
       radius: Style.cornerRadius
@@ -150,214 +163,241 @@ Item {
         onChosen: root.chooseCursor()
       }
 
-      Rectangle {
-        id: unifiedRow
-        visible: root.unifiedOffered
-
-        readonly property bool hasCursor: root.cursorIndex === 0
-
-        width: menu.width - menu.leftPadding - menu.rightPadding
-        implicitHeight: visible ? MailStyle.space(40) : 0
-        radius: Style.cornerRadius
-        color: root.unifiedActive
-          ? Style.selectedFillFor(root.textColor, root.accentColor)
-          : (unifiedHover.hovered || hasCursor
-            ? Style.hoverFillFor(root.textColor, root.accentColor) : "transparent")
-        border.width: hasCursor ? Style.normalBorderWidth : 0
-        border.color: Style.hoverBorderFor(root.textColor, root.accentColor)
-
-        Rectangle {
-          id: unifiedAvatar
-          anchors.left: parent.left
-          anchors.leftMargin: MailStyle.space(8)
-          anchors.verticalCenter: parent.verticalCenter
-          width: MailStyle.space(22)
-          height: width
-          radius: width / 2
-          color: Style.selectedFillFor(root.textColor, root.accentColor)
-
-          ActionIcon {
-            anchors.centerIn: parent
-            name: "inbox"
-            color: root.textColor
-            iconSize: MailStyle.caption
-          }
-        }
+      Flickable {
+        id: accountsViewport
+        width: parent.width
+        height: Math.min(accountRows.implicitHeight, Math.max(0,
+          root.height - search.height - managementRows.height - rows.spacing * 2
+            - menu.topPadding - menu.bottomPadding))
+        contentWidth: width
+        contentHeight: accountRows.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        onHeightChanged: root.revealCursor()
+        onContentHeightChanged: root.revealCursor()
+        WheelScroller { view: accountsViewport }
+        QQC.ScrollBar.vertical: QQC.ScrollBar { policy: QQC.ScrollBar.AsNeeded }
 
         Column {
-          anchors.left: unifiedAvatar.right
-          anchors.leftMargin: MailStyle.space(9)
-          anchors.right: parent.right
-          anchors.rightMargin: MailStyle.space(10)
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: MailStyle.space(1)
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: Model.UNIFIED_LABEL
-            color: root.textColor
-            font.family: root.panelFontFamily
-            font.pixelSize: MailStyle.bodySmall
-            font.bold: root.unifiedActive
-            elide: Text.ElideRight
-          }
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: root.accountRowCount + " mailboxes in one list"
-            color: root.dimColor
-            font.family: root.panelFontFamily
-            font.pixelSize: MailStyle.caption
-            elide: Text.ElideRight
-          }
-        }
-
-        HoverHandler { id: unifiedHover }
-        TapHandler {
-          onTapped: {
-            menu.close()
-            root.unifiedChosen()
-          }
-        }
-      }
-
-      Repeater {
-        model: root.shownAccounts
-
-        Rectangle {
-          id: row
-          objectName: "account-row"
-          required property var modelData
-          required property int index
-
-          readonly property bool hasCursor: root.cursorIndex === row.index + root.rowOffset
-
-          readonly property bool named: modelData.name !== undefined
-            && String(modelData.name) !== ""
-
-          readonly property string primaryText: {
-            if (row.named) return String(modelData.name)
-            return modelData.email !== "" ? modelData.email : "New account"
-          }
-
-          readonly property string secondaryText: {
-            if (modelData.error !== undefined && modelData.error !== "")
-              return String(modelData.error)
-            if (!modelData.signedIn) return "Signed out"
-            if (modelData.busy) return "Checking"
-            return row.named ? String(modelData.email || "") : ""
-          }
-
-          // Invariant: unified view retains an active sending account; only the unified row is
-          // selected for reading.
-          readonly property bool inUse: modelData.active && !root.unifiedActive
-
-          width: menu.width - menu.leftPadding - menu.rightPadding
-          implicitHeight: MailStyle.space(40)
-          radius: Style.cornerRadius
-          color: row.inUse
-            ? Style.selectedFillFor(root.textColor, root.accentColor)
-            : (rowHover.hovered || hasCursor
-              ? Style.hoverFillFor(root.textColor, root.accentColor) : "transparent")
-          // Invariant: draw the keyboard cursor with a border so it remains distinct on the
-          // selected account.
-          border.width: hasCursor ? Style.normalBorderWidth : 0
-          border.color: Style.hoverBorderFor(root.textColor, root.accentColor)
-
-          Rectangle {
-            id: rowAvatar
-            anchors.left: parent.left
-            anchors.leftMargin: MailStyle.space(8)
-            anchors.verticalCenter: parent.verticalCenter
-            width: MailStyle.space(22)
-            height: width
-            radius: width / 2
-            color: Style.selectedFillFor(root.textColor, root.accentColor)
-
-            Text {
-              anchors.centerIn: parent
-              textFormat: Text.PlainText
-              text: {
-                if (row.named) return String(row.modelData.name).charAt(0).toUpperCase()
-                return row.modelData.email === ""
-                  ? "+" : row.modelData.email.charAt(0).toUpperCase()
-              }
-              color: root.textColor
-              font.family: root.panelFontFamily
-              font.pixelSize: MailStyle.caption
-              font.bold: true
-            }
-          }
-
-          Column {
-            anchors.left: rowAvatar.right
-            anchors.leftMargin: MailStyle.space(9)
-            anchors.right: parent.right
-            anchors.rightMargin: MailStyle.space(10)
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: MailStyle.space(1)
-
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              text: row.primaryText
-              color: root.textColor
-              font.family: root.panelFontFamily
-              font.pixelSize: MailStyle.bodySmall
-              font.bold: row.inUse
-              elide: Text.ElideMiddle
-            }
-
-            Text {
-              width: parent.width
-              visible: text !== ""
-              textFormat: Text.PlainText
-              text: row.secondaryText
-              color: row.modelData.error !== undefined && row.modelData.error !== ""
-                ? root.urgentColor : root.dimColor
-              font.family: root.panelFontFamily
-              font.pixelSize: MailStyle.caption
-              elide: Text.ElideRight
-            }
-          }
-
-          HoverHandler { id: rowHover }
-          TapHandler {
-            gesturePolicy: TapHandler.ReleaseWithinBounds
-            onTapped: {
-              menu.close()
-              root.accountChosen(row.modelData.sourceIndex)
-            }
-          }
-        }
-      }
-
-      Item {
-        width: menu.width - menu.leftPadding - menu.rightPadding
-        implicitHeight: MailStyle.space(7)
-
-        PanelSeparator {
-          anchors.verticalCenter: parent.verticalCenter
+          id: accountRows
           width: parent.width
-          foreground: root.textColor
+          spacing: rows.spacing
+          Rectangle {
+            id: unifiedRow
+            visible: root.unifiedOffered
+
+            readonly property bool hasCursor: root.cursorIndex === 0
+
+            width: menu.width - menu.leftPadding - menu.rightPadding
+            implicitHeight: visible ? MailStyle.space(40) : 0
+            radius: Style.cornerRadius
+            color: root.unifiedActive
+              ? Style.selectedFillFor(root.textColor, root.accentColor)
+              : (unifiedHover.hovered || hasCursor
+                ? Style.hoverFillFor(root.textColor, root.accentColor) : "transparent")
+            border.width: hasCursor ? Style.normalBorderWidth : 0
+            border.color: Style.hoverBorderFor(root.textColor, root.accentColor)
+
+            Rectangle {
+              id: unifiedAvatar
+              anchors.left: parent.left
+              anchors.leftMargin: MailStyle.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+              width: MailStyle.space(22)
+              height: width
+              radius: width / 2
+              color: Style.selectedFillFor(root.textColor, root.accentColor)
+
+              ActionIcon {
+                anchors.centerIn: parent
+                name: "inbox"
+                color: root.textColor
+                iconSize: MailStyle.caption
+              }
+            }
+
+            Column {
+              anchors.left: unifiedAvatar.right
+              anchors.leftMargin: MailStyle.space(9)
+              anchors.right: parent.right
+              anchors.rightMargin: MailStyle.space(10)
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: MailStyle.space(1)
+
+              Text {
+                width: parent.width
+                textFormat: Text.PlainText
+                text: Model.UNIFIED_LABEL
+                color: root.textColor
+                font.family: root.panelFontFamily
+                font.pixelSize: MailStyle.bodySmall
+                font.bold: root.unifiedActive
+                elide: Text.ElideRight
+              }
+
+              Text {
+                width: parent.width
+                textFormat: Text.PlainText
+                text: root.accountRowCount + " mailboxes in one list"
+                color: root.dimColor
+                font.family: root.panelFontFamily
+                font.pixelSize: MailStyle.caption
+                elide: Text.ElideRight
+              }
+            }
+
+            HoverHandler { id: unifiedHover }
+            TapHandler {
+              onTapped: {
+                menu.close()
+                root.unifiedChosen()
+              }
+            }
+          }
+
+          Repeater {
+            model: root.shownAccounts
+
+            Rectangle {
+              id: row
+              objectName: "account-row"
+              required property var modelData
+              required property int index
+
+              readonly property bool hasCursor: root.cursorIndex === row.index + root.rowOffset
+
+              readonly property bool named: modelData.name !== undefined
+                && String(modelData.name) !== ""
+
+              readonly property string primaryText: {
+                if (row.named) return String(modelData.name)
+                return modelData.email !== "" ? modelData.email : "New account"
+              }
+
+              readonly property string secondaryText: {
+                if (modelData.error !== undefined && modelData.error !== "")
+                  return String(modelData.error)
+                if (!modelData.signedIn) return "Signed out"
+                if (modelData.busy) return "Checking"
+                return row.named ? String(modelData.email || "") : ""
+              }
+
+              // Invariant: unified view retains an active sending account; only the unified row is
+              // selected for reading.
+              readonly property bool inUse: modelData.active && !root.unifiedActive
+
+              width: menu.width - menu.leftPadding - menu.rightPadding
+              implicitHeight: MailStyle.space(40)
+              radius: Style.cornerRadius
+              color: row.inUse
+                ? Style.selectedFillFor(root.textColor, root.accentColor)
+                : (rowHover.hovered || hasCursor
+                  ? Style.hoverFillFor(root.textColor, root.accentColor) : "transparent")
+              // Invariant: draw the keyboard cursor with a border so it remains distinct on the
+              // selected account.
+              border.width: hasCursor ? Style.normalBorderWidth : 0
+              border.color: Style.hoverBorderFor(root.textColor, root.accentColor)
+
+              Rectangle {
+                id: rowAvatar
+                anchors.left: parent.left
+                anchors.leftMargin: MailStyle.space(8)
+                anchors.verticalCenter: parent.verticalCenter
+                width: MailStyle.space(22)
+                height: width
+                radius: width / 2
+                color: Style.selectedFillFor(root.textColor, root.accentColor)
+
+                Text {
+                  anchors.centerIn: parent
+                  textFormat: Text.PlainText
+                  text: {
+                    if (row.named) return String(row.modelData.name).charAt(0).toUpperCase()
+                    return row.modelData.email === ""
+                      ? "+" : row.modelData.email.charAt(0).toUpperCase()
+                  }
+                  color: root.textColor
+                  font.family: root.panelFontFamily
+                  font.pixelSize: MailStyle.caption
+                  font.bold: true
+                }
+              }
+
+              Column {
+                anchors.left: rowAvatar.right
+                anchors.leftMargin: MailStyle.space(9)
+                anchors.right: parent.right
+                anchors.rightMargin: MailStyle.space(10)
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: MailStyle.space(1)
+
+                Text {
+                  width: parent.width
+                  textFormat: Text.PlainText
+                  text: row.primaryText
+                  color: root.textColor
+                  font.family: root.panelFontFamily
+                  font.pixelSize: MailStyle.bodySmall
+                  font.bold: row.inUse
+                  elide: Text.ElideMiddle
+                }
+
+                Text {
+                  width: parent.width
+                  visible: text !== ""
+                  textFormat: Text.PlainText
+                  text: row.secondaryText
+                  color: row.modelData.error !== undefined && row.modelData.error !== ""
+                    ? root.urgentColor : root.dimColor
+                  font.family: root.panelFontFamily
+                  font.pixelSize: MailStyle.caption
+                  elide: Text.ElideRight
+                }
+              }
+
+              HoverHandler { id: rowHover }
+              TapHandler {
+                gesturePolicy: TapHandler.ReleaseWithinBounds
+                onTapped: {
+                  menu.close()
+                  root.accountChosen(row.modelData.sourceIndex)
+                }
+              }
+            }
+          }
+
         }
       }
 
-      MenuRow {
-        text: "Add a mailbox..."
-        onActivated: {
-          menu.close()
-          root.addAccountRequested()
-        }
-      }
+      Column {
+        id: managementRows
+        width: parent.width
+        spacing: rows.spacing
+        Item {
+          width: menu.width - menu.leftPadding - menu.rightPadding
+          implicitHeight: MailStyle.space(7)
 
-      MenuRow {
-        text: "Manage accounts..."
-        onActivated: {
-          menu.close()
-          root.manageRequested()
+          PanelSeparator {
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width
+            foreground: root.textColor
+          }
+        }
+
+        MenuRow {
+          text: "Add a mailbox..."
+          onActivated: {
+            menu.close()
+            root.addAccountRequested()
+          }
+        }
+
+        MenuRow {
+          text: "Manage accounts..."
+          onActivated: {
+            menu.close()
+            root.manageRequested()
+          }
         }
       }
     }

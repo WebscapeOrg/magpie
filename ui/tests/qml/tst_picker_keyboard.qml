@@ -16,7 +16,7 @@ Rectangle {
   property int contactSelections: 0
   readonly property var contact: ({ name: "Alex Example", email: "alex@example.test" })
   readonly property var suggestion: ({ key: "suggestion-1", jobId: "job-1",
-    title: "Project review", start: "2026-10-23T10:00:00Z", end: "2026-10-23T10:30:00Z",
+    title: "Project review", startMs: Date.UTC(2026, 9, 23, 10), endMs: Date.UTC(2026, 9, 23, 10, 30),
     location: "Meeting room", notes: "Synthetic meeting" })
 
   Item { id: parking; width: 1; height: 1 }
@@ -100,6 +100,7 @@ Rectangle {
       contacts.close()
       host.mode = ""
       events.expanded = false
+      events.width = 520
       host.selected = []
       host.contactSelections = 0
       host.applicationActivations = 0
@@ -211,6 +212,38 @@ Rectangle {
       keyClick(Qt.Key_Return)
       compare(host.selected, [host.suggestion])
       compare(host.applicationActivations, 0)
+    }
+
+    function test_event_heading_fits_a_narrow_reader() {
+      activate("events")
+      events.width = 380
+      events.expanded = true
+      wait(20)
+      var heading = findChild(events, "suggestionHeading")
+      var fold = findChild(events, "suggestionFold")
+      var headingPosition = heading.mapToItem(events, 0, 0)
+      var foldPosition = fold.mapToItem(events, 0, 0)
+      verify(headingPosition.x + heading.width <= foldPosition.x,
+        "heading overlaps the collapse control")
+      keyClick(Qt.Key_Tab)
+      keyClick(Qt.Key_Space)
+      compare(events.expanded, false)
+      compare(host.selected, [])
+    }
+
+    function test_event_actions_wrap_inside_a_narrow_reader() {
+      activate("events")
+      events.width = 320
+      events.expanded = true
+      wait(20)
+      var add = findChild(events, "suggestionAdd")
+      var dismiss = findChild(events, "suggestionDismiss")
+      var addPosition = add.mapToItem(events, 0, 0)
+      var dismissPosition = dismiss.mapToItem(events, 0, 0)
+      verify(dismissPosition.x + dismiss.width <= events.width,
+        "dismiss action is outside the reader")
+      verify(dismissPosition.y >= addPosition.y + add.height,
+        "the second action wraps below the first when the row does not fit")
     }
 
     function test_link_preserves_global_modified_keys() {

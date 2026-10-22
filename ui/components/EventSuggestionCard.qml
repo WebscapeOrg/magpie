@@ -52,9 +52,14 @@ Rectangle {
       implicitHeight: Math.max(heading.implicitHeight, Style.font.icon)
 
       Row {
+        id: headerContent
+        anchors.left: parent.left
+        anchors.right: fold.left
+        anchors.rightMargin: MailStyle.space(6)
         spacing: MailStyle.space(6)
         anchors.verticalCenter: parent.verticalCenter
         ActionIcon {
+          id: calendarIcon
           name: "calendar"
           iconSize: Style.font.icon
           color: root.accentColor
@@ -63,16 +68,19 @@ Rectangle {
         Text {
           id: heading
           objectName: "suggestionHeading"
+          width: Math.max(0, headerContent.width - calendarIcon.width - headerContent.spacing)
           text: root.rows.length === 1 ? "The agent found an event in this message"
             : "The agent found " + root.rows.length + " events in this message"
           color: root.textColor
           font.family: root.panelFontFamily
           font.pixelSize: MailStyle.bodySmall
           textFormat: Text.PlainText
+          wrapMode: Text.WordWrap
           anchors.verticalCenter: parent.verticalCenter
         }
       }
       ActionIcon {
+        id: fold
         objectName: "suggestionFold"
         name: root.expanded ? "chevronDown" : "chevronRight"
         iconSize: Style.font.icon
@@ -136,7 +144,8 @@ Rectangle {
           elide: Text.ElideRight
           textFormat: Text.PlainText
         }
-        Row {
+        Flow {
+          width: parent.width
           spacing: MailStyle.space(8)
           topPadding: MailStyle.space(2)
           IconTextButton {

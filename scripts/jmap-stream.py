@@ -33,19 +33,19 @@ def forward(source, destination):
             previous_cr = byte == 13
             if len(event) >= MAX_EVENT_BYTES:
                 raise EventTooLarge
-            if byte in (10, 13):
-                event.append(10)
-                if line_empty:
-                    # Empty segments are not consumed by SplitParser. Never
-                    # send blank-only events that could accumulate in it.
-                    if len(event) > 1:
-                        destination.write(event)
-                        destination.flush()
-                    event.clear()
-                line_empty = True
-            else:
+            if byte not in (10, 13):
                 event.append(byte)
                 line_empty = False
+                continue
+            event.append(10)
+            if not line_empty:
+                line_empty = True
+                continue
+            # Invariant: blank-only events would accumulate in SplitParser.
+            if len(event) > 1:
+                destination.write(event)
+                destination.flush()
+            event.clear()
     if event:
         # curl's write-out trailer has one newline, not an SSE blank line.
         destination.write(event)

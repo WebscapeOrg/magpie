@@ -2,6 +2,8 @@ use super::dates;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
+const MAX_DATE_MS: i64 = 8_640_000_000_000_000;
+
 #[derive(Clone, Default)]
 pub(super) struct Property {
     pub name: String,
@@ -237,9 +239,15 @@ pub(super) fn events(calendar: &Component) -> Result<Vec<Value>, &'static str> {
         let start = dates::moment(event.property("DTSTART"), calendar);
         let mut end = dates::moment(event.property("DTEND"), calendar);
         let duration = dates::duration(event.text("DURATION"));
-        if end.is_null() && start.is_object() && duration > 0 {
+        if end.is_null()
+            && duration > 0
+            && let Some(end_ms) = start["ms"]
+                .as_i64()
+                .and_then(|start_ms| start_ms.checked_add(duration))
+                .filter(|end_ms| (-MAX_DATE_MS..=MAX_DATE_MS).contains(end_ms))
+        {
             end = start.clone();
-            end["ms"] = json!(start["ms"].as_i64().unwrap_or(0).saturating_add(duration));
+            end["ms"] = json!(end_ms);
         }
         let excluded: Vec<_> = event
             .properties

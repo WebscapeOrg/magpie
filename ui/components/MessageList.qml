@@ -5,7 +5,6 @@ import qs.Commons
 import qs.Ui
 import "../account/Model.js" as Model
 import "../account/Unified.js" as Unified
-import "../agent/Agent.js" as Agent
 
 ListView {
   id: root
@@ -93,9 +92,6 @@ ListView {
       dimColor: root.dimColor
       urgentColor: root.urgentColor
       panelFontFamily: root.panelFontFamily
-      agentState: Agent.glyphState(root.service.agentJobs[modelData.id])
-      agentProgress: Agent.progressText(root.service.agentJobs[modelData.id])
-      agentAttention: root.service.agentAttentionByMessage[modelData.id] === true
       hasCursor: root.cursorId === modelData.id
       selected: root.service.selectedId === modelData.id
       checked: root.checkedIds.indexOf(modelData.id) >= 0

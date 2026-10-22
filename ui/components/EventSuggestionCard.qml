@@ -2,7 +2,6 @@ import QtQuick
 import "../controls" as Widgets
 import "../settings"
 import qs.Commons
-import qs.Ui
 import "../agent/Agent.js" as Agent
 
 // Invariant: suggestions only prefill a human-submitted event; all model-supplied strings remain

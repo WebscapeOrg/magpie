@@ -2,7 +2,6 @@ import QtQuick
 import "../controls" as Widgets
 import "../settings"
 import qs.Commons
-import qs.Ui
 import "../providers/Registry.js" as Provider
 
 Column {

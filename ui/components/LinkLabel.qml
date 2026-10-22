@@ -1,7 +1,6 @@
 import QtQuick
 import "../controls" as Widgets
 import qs.Commons
-import qs.Ui
 
 // Invariant: real links stay underlined and use a pointing cursor; color alone must not convey the
 // affordance.

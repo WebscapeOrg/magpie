@@ -59,8 +59,8 @@ Item {
       if (!node) return found
       if (node.objectName === "account-row") found.push(node)
       var children = node.children || []
-      for (var index = 0; index < children.length; index++)
-        found = found.concat(accountRows(children[index]))
+      for (var childIndex = 0; childIndex < children.length; childIndex++)
+        found = found.concat(accountRows(children[childIndex]))
       return found
     }
 

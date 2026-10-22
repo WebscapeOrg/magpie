@@ -1,4 +1,5 @@
 import QtQuick
+import "../controls" as Widgets
 import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
@@ -362,32 +363,17 @@ Item {
     }
   }
 
-  component MenuRow: Rectangle {
-    id: plainRow
-    required property string text
+  component MenuRow: Widgets.Button {
     signal activated()
-
     width: menu.width - menu.leftPadding - menu.rightPadding
     implicitHeight: Style.spacing.popupRowHeight
-    radius: Style.cornerRadius
-    color: plainHover.hovered
-      ? Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.08)
-      : "transparent"
-
-    Text {
-      anchors.left: parent.left
-      anchors.leftMargin: MailStyle.space(9)
-      anchors.right: parent.right
-      anchors.rightMargin: MailStyle.space(9)
-      anchors.verticalCenter: parent.verticalCenter
-      text: plainRow.text
-      color: root.textColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.bodySmall
-      elide: Text.ElideRight
-    }
-
-    HoverHandler { id: plainHover }
-    TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: plainRow.activated() }
+    focusable: true
+    leftAlign: true
+    horizontalPadding: MailStyle.space(9)
+    foreground: root.textColor
+    accent: root.accentColor
+    fontFamily: root.panelFontFamily
+    fontSize: MailStyle.bodySmall
+    onClicked: activated()
   }
 }

@@ -38,6 +38,7 @@ Item {
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape
     onClosed: root.request = null
+    onOpened: cancelButton.forceActiveFocus()
     background: Rectangle {
       radius: Style.cornerRadius
       color: root.popupBackgroundColor
@@ -70,12 +71,20 @@ Item {
         anchors.right: parent.right
         spacing: MailStyle.space(8)
         Widgets.Button {
+          id: cancelButton
+          focusable: true
+          KeyNavigation.tab: removeButton
+          KeyNavigation.backtab: removeButton
           text: "Cancel"
           foreground: root.textColor
           bordered: false
           onClicked: dialog.close()
         }
         Widgets.Button {
+          id: removeButton
+          focusable: true
+          KeyNavigation.tab: cancelButton
+          KeyNavigation.backtab: cancelButton
           text: "Remove"
           foreground: root.dangerColor
           bordered: false

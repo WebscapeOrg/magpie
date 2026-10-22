@@ -221,6 +221,9 @@ Item {
 
             Widgets.Button {
               text: "+ To"
+              focusable: true
+              Accessible.name: "Add " + String(contactRow.modelData.email || "contact") + " to To"
+              onActiveFocusChanged: if (activeFocus) contactsList.positionViewAtIndex(contactRow.index, ListView.Contain)
               bordered: false
               fontSize: MailStyle.caption
               foreground: root.accentColor
@@ -232,6 +235,9 @@ Item {
 
             Widgets.Button {
               text: "+ Cc"
+              focusable: true
+              Accessible.name: "Add " + String(contactRow.modelData.email || "contact") + " to Cc"
+              onActiveFocusChanged: if (activeFocus) contactsList.positionViewAtIndex(contactRow.index, ListView.Contain)
               bordered: false
               fontSize: MailStyle.caption
               foreground: root.dimColor
@@ -243,6 +249,9 @@ Item {
 
             Widgets.Button {
               text: "+ Bcc"
+              focusable: true
+              Accessible.name: "Add " + String(contactRow.modelData.email || "contact") + " to Bcc"
+              onActiveFocusChanged: if (activeFocus) contactsList.positionViewAtIndex(contactRow.index, ListView.Contain)
               bordered: false
               fontSize: MailStyle.caption
               foreground: root.dimColor

@@ -19,8 +19,15 @@ Text {
     cursorShape: Qt.PointingHandCursor
   }
 
-  TapHandler {
-    onTapped: root.activated()
+  Widgets.Button {
+    anchors.fill: parent
+    focusable: true
+    foreground: root.color
+    color: "transparent"
+    borderSpec: activeFocus ? Border.controlSpec("focus", root.color, root.color) : Border.none()
+    Accessible.role: Accessible.Link
+    Accessible.name: root.text
+    onClicked: root.activated()
   }
 
   Widgets.PanelToolTip {

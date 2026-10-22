@@ -753,7 +753,8 @@ Item {
         return item.text === "Manage accounts..." && typeof item.activated === "function"
       })
       verify(manage && manage.visible, "the switcher offers Manage accounts...")
-      mouseClick(manage)
+      verify(waitForRendering(manage))
+      mouseClick(manage, manage.width / 2, manage.height / 2)
       tryCompare(switcher, "opened", false)
       compare(app.page, "settings", "which opens Settings")
       compare(kinds(), "calendar,settings", "over the root it was opened on")

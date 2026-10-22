@@ -72,6 +72,8 @@ function importImage(base64, options) {
   var size = base64Bytes(base64)
   if (size > limit) return { html: "", plain: "", problem: "That image is larger than " + Math.round(limit / 1024) + " KB" }
   var clean = String(base64 || "").replace(/[^A-Za-z0-9+\/=]/g, "")
+  if (!Html.isRasterDataImage("data:" + mime + ";base64," + clean))
+    return { html: "", plain: "", problem: "That image cannot be safely displayed" }
   return { html: "<p><img src=\"data:" + mime + ";base64," + clean + "\"></p>", plain: "", dropped: 0, images: 1, problem: "" }
 }
 
@@ -81,6 +83,7 @@ function dataImageOk(value, limit) {
   if (base64Bytes(match[2]) > limit) return false
   var kind = rasterKind(match[2])
   return kind !== "" && (kind === match[1].toLowerCase() || (kind === "image/jpeg" && /jpe?g/i.test(match[1])))
+    && Html.isRasterDataImage(value)
 }
 
 function hrefOk(value) {

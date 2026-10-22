@@ -90,4 +90,19 @@ assert.strictEqual(signature.importNote({ problem: "", images: 0, dropped: 3 }),
 assert.strictEqual(signature.importNote({ problem: "", images: 0, dropped: 0 }), "Imported")
 assert.strictEqual(signature.importNote({ problem: "bad" }), "bad")
 
+{
+  const oversized = Buffer.from(GIF, "base64")
+  oversized.writeUInt16LE(65535, 6)
+  oversized.writeUInt16LE(65535, 8)
+  const unsupported = [oversized.toString("base64"), Buffer.from("GIF89a").toString("base64")]
+  for (const data of unsupported) {
+    const imported = signature.importImage(data)
+    assert.strictEqual(imported.problem, "That image cannot be safely displayed")
+    assert.strictEqual(imported.html, "", "an unusable image must not become a stored signature")
+    assert.strictEqual(imported.plain, "")
+    assert.strictEqual(signature.dataImageOk("data:image/gif;base64," + data, 512 * 1024), false)
+  }
+  assert.strictEqual(signature.importImage(GIF).problem, "", "a complete small raster still imports")
+}
+
 console.log("test_signature.js ok")

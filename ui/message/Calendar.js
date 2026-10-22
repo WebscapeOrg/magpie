@@ -1053,7 +1053,7 @@ function displayNameOf(me) {
 
 function normalizedResponse(value) {
   var text = String(value || "").toLowerCase().trim()
-  return PARTSTATS[text] ? text : ""
+  return Object.prototype.hasOwnProperty.call(PARTSTATS, text) ? text : ""
 }
 
 function foldIcsLine(line) {

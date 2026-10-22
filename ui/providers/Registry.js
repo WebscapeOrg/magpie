@@ -1,7 +1,5 @@
 .pragma library
 
-// Presentation adapters over generated native mail facts. Dynamic query and
-// message URL construction uses providers.resolve; no provider DSL runs here.
 
 .import "NativeDomain.js" as NativeDomain
 .import "Gmail.js" as Gmail

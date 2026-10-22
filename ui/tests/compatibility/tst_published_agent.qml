@@ -5,9 +5,7 @@ import "../.." as Omamail
 import "../../account/Accounts.js" as Accounts
 import "../qml/BackendFixture.js" as BackendFixture
 
-// Run with tests/test_agent_published_qml.py and the actual pinned executable.
-// Only mail-context loading and the shell are synthetic; all job RPC reaches
-// that executable, which launches the isolated fake Claude supplied by Python.
+// Docs: Run through tests/test_agent_published_qml.py with the pinned executable; shell, mail context and Claude are synthetic while job RPC is real.
 Item {
   width: 1000; height: 720
   QtObject { id: shellStore; function updateEntryInline(id, entry) {} }

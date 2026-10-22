@@ -3,7 +3,6 @@ import Quickshell
 import Quickshell.Io
 import "Model.js" as Model
 
-// Each account owns its notifications, even while another mailbox is visible.
 Item {
   id: root
   visible: false
@@ -16,8 +15,7 @@ Item {
   property bool pluginNotifications: true
   signal activated(string targetAccountId, string messageId)
 
-  // Each notification owns its waiter and target. A later poll must not replace
-  // the message an earlier notification will open.
+  // Invariant: Each notification retains its own message target; a later poll must not redirect an earlier notification click.
   Component {
     id: notificationProcessComponent
     Process {
@@ -40,7 +38,6 @@ Item {
     if (list.length === 0) return
     var title = Model.notificationTitle(list[0])
     var body = Model.notificationBody(list[0])
-    // One notification per batch; clicking reads its newest message.
     if (list.length > 1) {
       var names = []
       for (var messageIndex = 0; messageIndex < list.length && messageIndex < 3; messageIndex++) names.push(Model.notificationTitle(list[messageIndex]))
@@ -53,7 +50,7 @@ Item {
       return
     }
     if (!pluginNotifications) return
-    // Sender-authored text stays behind "--", never in options or shell code.
+    // Invariant: Sender-controlled text stays behind the -- option separator and never enters shell code.
     var request = notificationProcessComponent.createObject(root, {
       targetAccountId: root.accountId,
       messageId: String(list[0].id || ""),

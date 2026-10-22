@@ -1,7 +1,6 @@
 import QtQuick
 
-// Rendering and callback correlation only. The backend owns undo deadlines,
-// serial delivery, cancellation and durable recovery after a restart.
+// Invariant: Rust owns durable delivery, undo deadlines and cancellation; this object correlates UI callbacks.
 QtObject {
   id: queue
   required property var account
@@ -130,7 +129,7 @@ QtObject {
       queue.apply(result.snapshot)
       queue.account.note("Message queued")
     })
-    // The composer parks its draft immediately; refusal is reported later.
+    // Invariant: The composer parks immediately, so a synchronous refusal must be reported after that transition.
     return true
   }
   function reconcile(id) {
@@ -164,7 +163,7 @@ QtObject {
     account.sendSecondsRemaining = latest ? Math.max(0, Math.ceil((latest.dueAt - Date.now()) / 1000)) : 0
     countdownTimer.running = parked.length > 0
   }
-  // Existing callers can ask for reconciliation; only Rust starts delivery.
+  // Invariant: Reconciliation may request a snapshot; only Rust may start delivery.
   function deliverDue() { sync(); return false }
   function deliverAll() {
     if (parked.length === 0) return false

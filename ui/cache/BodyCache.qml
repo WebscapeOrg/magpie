@@ -1,6 +1,5 @@
 import QtQuick
 
-// Rust owns private body files, bounded reads, atomic writes and LRU eviction.
 Item {
   id: root
   visible: false

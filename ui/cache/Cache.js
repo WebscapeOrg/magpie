@@ -1,28 +1,10 @@
 .pragma library
 
-// A local copy of everything the window shows, so switching mailboxes paints
-// immediately and the network only ever updates what is already on screen.
-//
-// One account is one JSON file rewritten atomically, which is the right shape
-// for a few hundred kilobytes and the wrong shape for megabytes — hence the
-// caps below. Accounts get separate files so switching between them keeps both
-// caches, which is the entire reason a cache exists. Everything here is pure:
-// Rust owns the file; this module holds the current presentation snapshot.
-
-// Bumped for the summary fields a page is read for: rows written before
-// `inSpam` and `isSent` existed answer "not spam" to a menu that asks, and
-// offer to move a spam message to the inbox until the first load replaces
-// them. Bodies are separate files, so a bump costs one cold list load.
+// Invariant: Summary schema changes invalidate cached pages so older flags cannot drive incorrect actions.
 var VERSION = 2
 var MAX_QUERIES = 12
 var MAX_SUMMARIES_PER_QUERY = 100
-// Bodies are the one thing worth keeping deep: a message body never changes, so
-// a hit is always correct and always saves a round trip. They live one file per
-// message rather than in this store — measured against a real mailbox a body
-// runs 5KB at the median and 35KB at the top, and a thousand of those inside
-// the store would mean re-serialising megabytes on the GUI thread every time a
-// list changed. As files they cost nothing to keep and nothing to save, and the
-// ceiling is a plain file count.
+// Performance: Bodies remain separate from the small page snapshot; serializing them with every list update would block the GUI.
 var MAX_BODIES = 1000
 
 function emptyStore() {
@@ -42,11 +24,7 @@ function queryFromKey(key) {
   return String(key || "").replace(/\|\d+$/, "")
 }
 
-// ------------------------------------------------------------- hydration
-//
-// Dates do not survive JSON, so they cross as epoch milliseconds. Left as
-// Date objects they come back as strings and every cached row renders
-// "Invalid Date".
+// Invariant: JSON carries dates as epoch milliseconds; unconverted Date strings cannot be used by row formatting.
 
 function dehydrate(summaries) {
   var list = Array.isArray(summaries) ? summaries : []
@@ -80,7 +58,6 @@ function hydrate(entries) {
   return result
 }
 
-// ---------------------------------------------------------------- queries
 
 function copyStore(store) {
   var source = store || emptyStore()
@@ -103,10 +80,7 @@ function putQuery(store, key, page, nowMs) {
   queries[String(key)] = {
     summaries: dehydrate(capped),
     estimate: Math.max(0, Math.floor(Number(page && page.estimate) || 0)),
-    // A token that follows rows omitted from the cache would skip them after a
-    // restart. The live first-page refresh supplies a new token shortly after
-    // the capped preview is painted, so closing pagination meanwhile is the
-    // only honest answer.
+    // Invariant: A continuation after omitted cached rows would skip mail; discard it until a live page restores the boundary.
     nextPageToken: source.length > capped.length ? ""
       : String(page && page.nextPageToken ? page.nextPageToken : ""),
     at: Number(nowMs) || 0
@@ -121,18 +95,7 @@ function getQuery(store, key) {
   return isObject(entry) ? entry : null
 }
 
-// --------------------------------------------------------- local search
-//
-// A typed search has no cache entry the first time it is made, but the store
-// already holds the sender, recipients, subject and snippet of every row the
-// account has shown. Those rows are enough for a useful immediate answer while
-// the provider searches headers and bodies on the server.
-//
-// This is deliberately a conservative subset of provider search syntax. A
-// term carrying `:` or a leading `-` may be an operator whose meaning belongs
-// to Gmail, HEY or IMAP; pretending it is ordinary text would put rows on
-// screen that do not answer the query. An exact cached query is still painted
-// by MailAccount before this fallback is considered.
+// Invariant: Local search rejects provider operators it cannot interpret; exact cached queries remain available.
 
 function localSearchTerms(query) {
   var text = String(query === undefined || query === null ? "" : query)
@@ -195,11 +158,7 @@ function matchesLocalSearch(summary, terms) {
   return true
 }
 
-// All matching rows from eligible cached queries, newest first and only once
-// per message. Which cached mailbox belongs to a provider search is a provider
-// fact, so the caller supplies that predicate. Queries are read newest first;
-// the newest copy decides both the row and its current scope, while older
-// copies may still supply searchable fields an earlier build omitted.
+// Invariant: The newest cached copy decides identity and scope; older copies may only supplement searchable fields.
 function searchSummaries(store, query, includes) {
   var terms = localSearchTerms(query)
   if (terms.length === 0) return []
@@ -231,9 +190,6 @@ function searchSummaries(store, query, includes) {
           matched: false
         })
       }
-      // Match against every cached copy: an older entry may carry recipients
-      // that a cache written by an earlier build did not put on every row. The
-      // candidate itself stays the newest copy because keys are newest first.
       if (candidates[positions[id]].eligible && matchesLocalSearch(row, terms))
         candidates[positions[id]].matched = true
     }
@@ -264,16 +220,6 @@ function putLabels(store, labels, nowMs) {
   return next
 }
 
-// A JMAP session object, kept beside the queries it paid for. It is the
-// server's answer rather than the account's settings — its URLs, its limits
-// and its state all move when the server does — so it lives here, where a
-// stale copy costs one refetch, rather than in accounts.json where it would
-// be edited by hand.
-//
-// Keyed on the URL it came from and the state the server stamped on it. The
-// URL because a mailbox pointed at a different server is a different session,
-// and the state because that is the server's own word for "nothing has
-// changed": a push saying it moved is what makes the cached copy wrong.
 function putSession(store, url, state, session, nowMs) {
   var next = copyStore(store)
   next.session = isObject(session)
@@ -282,10 +228,7 @@ function putSession(store, url, state, session, nowMs) {
   return next
 }
 
-// The cached session for this URL, or null. A different URL answers null
-// rather than the wrong server's session — the credential goes to the URLs
-// read out of this object, so handing back one fetched from somewhere else is
-// the one mistake here worth being careful about.
+// Invariant: A different session URL cannot reuse cached endpoints that will receive credentials.
 function getSession(store, url) {
   var source = store || emptyStore()
   var entry = isObject(source.session) ? source.session : null
@@ -301,16 +244,7 @@ function putProfile(store, profile, nowMs) {
   return next
 }
 
-// A cache belongs to one mailbox, and showing one account's mail under
-// another's name would be the worst bug this file could have. Each account now
-// has its own file, so a mismatch here is no longer an account switch — it
-// means the wrong file was handed to the wrong mailbox, and the only safe
-// answer is to show nothing until the network refills it. The other account's
-// file is untouched either way.
-//
-// An empty address only means the profile has not loaded yet, and a store with
-// no address yet was still read from this mailbox's own file, so its rows are
-// this mailbox's rows.
+// Invariant: A cache from another identified account must never be displayed; an unidentified profile may still use its own file.
 function forAccount(store, email) {
   var address = String(email || "")
   if (address === "") return copyStore(store)
@@ -330,12 +264,10 @@ function isStale(at, nowMs, ttlMs) {
   if (!isFinite(stamp) || stamp <= 0) return true
   var now = Number(nowMs) || 0
   var ttl = Math.max(0, Number(ttlMs) || 0)
-  // A clock that went backwards makes `now - stamp` negative, which must read
-  // as fresh rather than as immortal or expired.
+  // Invariant: A backwards clock reads as temporarily fresh and must not make the entry immortal.
   return now - stamp > ttl
 }
 
-// ---------------------------------------------------------------- pruning
 
 function keepNewest(bucket, limit) {
   var keys = []

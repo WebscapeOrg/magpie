@@ -4,8 +4,7 @@ const path = require('path')
 const vm = require('vm')
 const {load} = require('./load')
 
-// Run the production bridge functions, with only its process and Qt lifecycle
-// replaced. Replies are explicitly delayed to reproduce a busy backend.
+// Docs: This harness runs production bridge functions with synthetic process and Qt lifecycle boundaries.
 function bridge() {
   const sent = [], errors = []
   const source = fs.readFileSync(path.join(__dirname, '../backend/Backend.qml'), 'utf8')
@@ -84,7 +83,7 @@ function bridge() {
   assert.strictEqual(errors.length,0)
 }
 
-// A FIFO entry cancelled before dispatch must not execute a domain operation.
+// Invariant: Cancelling before dispatch must prevent the queued domain operation from executing.
 {
   const {backend,sent,reply}=bridge()
   let callbacks=0
@@ -106,8 +105,7 @@ function bridge() {
   assert(sent.some(request=>request.method==='upload.discard'))
 }
 
-// Cancelling an ordinary queued call removes only that entry. An in-flight
-// cancellation must still hold its physical slot until its response arrives.
+// Invariant: In-flight cancellation retains its physical slot until the response arrives.
 {
   const {backend,sent,reply}=bridge()
   let cancelledCallbacks=0
@@ -130,7 +128,6 @@ function bridge() {
   for(let requestIndex=1;requestIndex<80;requestIndex++) {assert.strictEqual(sent[requestIndex].params.id,requestIndex);reply(sent[requestIndex],{})}
   assert.strictEqual(sent[80].params.id,'reentrant')
 }
-// Reset removes both queues and makes replies from the old process harmless.
 {
   const {backend,sent,reply}=bridge()
   let callbacks=0
@@ -147,8 +144,6 @@ function bridge() {
   assert.strictEqual(callbacks,92)
   assert.strictEqual(sent.length,prior.length+1)
 }
-// Bytes are reserved for the full declared length, and FIFO prevents a large
-// transfer from starving behind a stream of smaller ones.
 {
   const upload=load('backend/Upload.js'), queue=upload.makeQueue()
   const started=[]
@@ -162,7 +157,7 @@ function bridge() {
   queue.remove(second)
   assert.deepStrictEqual(started,['first','second','large','small'])
 }
-// Cleanup is part of the reservation lifetime, including under RPC saturation.
+// Invariant: Upload cleanup remains part of reservation lifetime under RPC saturation.
 for(const reason of ['cancel','append failure']) {
   const {backend,sent,reply}=bridge()
   let callbacks=0
@@ -177,12 +172,10 @@ for(const reason of ['cancel','append failure']) {
   reply(append,null,{code:-1,message:'refused'})
   assert.strictEqual(backend.uploadQueue.active.length,8)
   assert.strictEqual(callbacks,0)
-  // Drain ordinary reads until the queued discard is actually sent.
   for(let cursor=9;!sent.some(request=>request.method==='upload.discard');cursor++) reply(sent[cursor],{})
   const discard=sent.find(request=>request.method==='upload.discard')
   assert.strictEqual(sent.filter(request=>request.method==='upload.begin').length,8)
   reply(discard,{discarded:true})
-  // Its newly admitted begin may itself still be waiting for an RPC slot.
   assert.strictEqual(backend.uploadQueue.waiting.length,0)
   assert.strictEqual(callbacks,reason==='cancel'?0:1)
 }
@@ -222,7 +215,6 @@ for(const reason of ['cancel','append failure']) {
   assert.strictEqual(sent.length,9)
   assert.strictEqual(sent[8].method,'system.quit')
 }
-// Queueing preserves the old snapshot-at-call behavior for mutable models.
 {
   const {backend,sent,reply}=bridge()
   for(let requestIndex=0;requestIndex<64;requestIndex++) backend.call('providers.list',{},()=>{})
@@ -232,10 +224,7 @@ for(const reason of ['cancel','append failure']) {
   reply(sent[0],{})
   assert.deepStrictEqual(sent[64].params,{accountId:'one@example.org',message:{subject:'original'}})
 }
-// A slow IMAP server is not a hung backend: it charges about half a second for
-// every command and a large mailbox needs dozens of them, so an imap frame has
-// to outlive the backend's own call budget instead of being killed at the 30 s
-// every other request gets.
+// Invariant: Sequential IMAP command latency can exceed ordinary RPC deadlines without indicating a hung process.
 {
   const {backend,sent}=bridge()
   backend.call('imap.list',{accountId:'one@example.org'},()=>{})
@@ -246,7 +235,6 @@ for(const reason of ['cancel','append failure']) {
   assert(other<=30000,'every other frame keeps the short deadline')
   assert.strictEqual(sent.length,2)
 }
-// Failure fanout is still complete if a receiver has been destroyed or throws.
 for(const shutdown of [false,true]) {
   const {backend,sent,reply}=bridge()
   let completed=0, armed=false
@@ -275,8 +263,7 @@ for(const shutdown of [false,true]) {
 console.log('backend request and upload back-pressure lifecycle tests passed')
 module.exports = {bridge}
 
-// Windows storage uses OS known folders, not HOME/XDG overrides. Refuse the
-// optional subprocess fixture before it can create storage or start a backend.
+// Invariant: Windows known folders ignore HOME/XDG isolation; reject the optional subprocess fixture before it creates real storage.
 if(!process.argv[2]) {
   const probe = require('child_process').spawnSync(process.execPath, ['-e', `
     Object.defineProperty(process, 'platform', {value:'win32'})
@@ -293,8 +280,7 @@ if(!process.argv[2]) {
   assert.strictEqual(probe.status,0,probe.stderr)
 }
 
-// The same production bridge can be driven through real Rust stdin/stdout.
-// Explicit binary argument keeps the portable JS suite independent of a build.
+// Docs: The optional explicit binary argument exercises real Rust pipes; the default portable suite needs no build.
 if(process.argv[2]) {
   assert.notStrictEqual(process.platform,'win32','Native queue fixture requires Unix storage isolation')
   const {spawn}=require('child_process'), os=require('os')

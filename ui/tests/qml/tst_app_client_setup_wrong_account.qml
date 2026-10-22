@@ -3,16 +3,6 @@ import QtTest 1.3
 import "../.." as Omamail
 import "BackendFixture.js" as BackendFixture
 
-// The shared Gmail OAuth client section in Settings ("Shared by every
-// mailbox above") opens the same setup page regardless of which mailbox is
-// on screen. With one IMAP mailbox saved and no Gmail one yet, clicking
-// "Set up..." left the active account exactly where it was — the IMAP row —
-// so the page's `service.auth` bound to that row's ImapAuth. ImapAuth has no
-// `saveCredentials`, and calling it threw the moment the OAuth client form
-// was saved: no browser opened, no error shown, nothing happened. This runs
-// the real window, service and account hosts over the stubbed transport, the
-// way `tst_app_edit_connect.qml` does, so the fix is checked against the
-// real per-provider auth objects rather than a stand-in.
 Item {
   width: 900
   height: 600
@@ -137,9 +127,6 @@ Item {
       waitForRendering(app)
       compare(app.page, "list")
 
-      // The user opens Settings and presses "Set up..." on the shared Google
-      // OAuth client section, without ever selecting a Gmail mailbox first —
-      // there is not one yet.
       app.openSettings()
       compare(app.page, "settings")
       app.openClientSetup()
@@ -160,11 +147,7 @@ Item {
       var page = named(app, "setup-page").item
       verify(!!page, "the Gmail setup page is showing")
 
-      // The IMAP mailbox is untouched: still there, still the one it was.
-      // Adding the Gmail row grew the account list, which the Instantiator's
-      // count-based model may answer with a fresh delegate rather than the
-      // one `imap` was captured from — so this asks the service again rather
-      // than trusting that earlier reference is still the live one.
+      // Invariant: Adding an account may rebuild Instantiator delegates; reacquire the surviving account instead of trusting the old object.
       compare(mailService.accountList.accounts[0].id, imapId)
       var imapNow = mailService.findAccount(imapId)
       verify(!!imapNow && !!imapNow.auth, "the IMAP host still exists and still has its auth")

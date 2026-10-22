@@ -1,7 +1,6 @@
 import QtQuick
 
-// Only serializes desktop snapshots across IPC. The backend owns pending
-// intents, optimistic list rules and replay after an out-of-order refusal.
+// Invariant: QML serializes snapshots; Rust owns optimistic intents and replay after out-of-order failures.
 QtObject {
   id: intents
   required property var account

@@ -79,8 +79,6 @@ assert.strictEqual(
 
 console.log("backend compatibility tests passed")
 
-// The step ahead of the pin: what the connected binary speaks, whether the
-// checkout is ahead of it, and the refusal a call to the step gets.
 assert.strictEqual(compatibility.connectedApiVersion({ protocol: 1, version: "0.9.0" }), 1, "0.9.0 predates the field")
 assert.strictEqual(compatibility.connectedApiVersion({ protocol: 1, version: "0.9.1" }), 0)
 assert.strictEqual(compatibility.connectedApiVersion({ protocol: 1, version: "0.10.0", apiVersion: 2 }), 2)
@@ -96,8 +94,6 @@ assert.strictEqual(compatibility.unreleasedRefusal("message.old", ["message.new"
 assert.strictEqual(compatibility.unreleasedRefusal("message.new", null, true), null)
 assert.strictEqual(compatibility.NEEDS_UPDATE, "backend_needs_update")
 
-// A local build of the unreleased step is accepted beside the pinned binary;
-// an older API, a second step, or a step without the pin's version is not.
 assert.strictEqual(compatibility.accepts({ protocol: 1, version: "0.9.0", apiVersion: 2 }, "0.9.0", 1, 2), true, "the one step ahead")
 assert.strictEqual(compatibility.accepts({ protocol: 1, version: "0.9.0", apiVersion: 1 }, "0.9.0", 1, 2), true, "the pinned binary still")
 assert.strictEqual(compatibility.accepts({ protocol: 1, version: "0.9.0", apiVersion: 2 }, "0.9.0", 1), false, "no step declared, no step accepted")

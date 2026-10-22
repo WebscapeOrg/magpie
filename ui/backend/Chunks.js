@@ -1,8 +1,6 @@
 .pragma library
 
-// One contiguous transfer at a time; limits apply before retaining each chunk.
-// UTF-8 scalar boundaries can shorten 64 KiB chunks by up to three bytes,
-// so a valid 64 MiB response can require a 1025th chunk.
+// Invariant: UTF-8 scalar boundaries can make a valid 64 MiB response require 1025 chunks; bound retention before appending.
 function accept(state, line) {
   function invalid() { return { error: true, state: null, line: null } }
   if (typeof line !== "string" || line.length >= 1048576) return invalid()
@@ -34,8 +32,7 @@ function accept(state, line) {
   return { state: null, line: state.parts.join("") }
 }
 
-// Retain the frame's decoded value. A completed transfer needs one additional
-// decode of the assembled document; an ordinary response needs none.
+// Performance: Keep the decoded ordinary frame; decode again only after a complete chunked document is assembled.
 function decode(state, line) {
   var accepted = accept(state, line)
   if (accepted.error || accepted.line === null) return accepted

@@ -1,8 +1,6 @@
 .pragma library
 .import "../message/Message.js" as Mail
 
-// Compatibility accessors used by Model.js's row presentation helpers.
-// Selection, summary organization and rail projections run in Rust.
 var MINIMUM_MEMBERS = 2
 function blockOf(value) {
   if (!value || typeof value !== "object") return null

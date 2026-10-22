@@ -12,8 +12,6 @@ function decode(raw) {
   if (value.state === "ready" && (typeof value.requiredApiVersion !== "number"
       || value.requiredApiVersion <= 0 || value.requiredApiVersion > 2147483647
       || Math.floor(value.requiredApiVersion) !== value.requiredApiVersion)) return failed
-  // The step ahead of the pin: what this checkout implements and the pinned
-  // binary does not. Absent or malformed means no step — never a guess.
   var latest = value.latestApiVersion
   if (typeof latest !== "number" || Math.floor(latest) !== latest
       || latest < value.requiredApiVersion || latest > value.requiredApiVersion + 1) latest = value.requiredApiVersion

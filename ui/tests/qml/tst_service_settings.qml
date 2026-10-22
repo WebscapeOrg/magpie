@@ -135,10 +135,6 @@ Item {
         "the helper directory comes from Service.qml itself")
     }
 
-    // On unless a stored `false` says otherwise. Settings written before this
-    // existed name no key at all and so keep their icon, and a value of some
-    // other shape — a hand-edited `shell.json`, say — is not an answer
-    // anybody gave in the interface.
     function test_the_bar_icon_is_shown_unless_it_was_turned_off() {
       mailService.applySettings({})
       compare(mailService.showBarIcon, true)
@@ -149,7 +145,6 @@ Item {
       mailService.applySettings({ showBarIcon: true })
       compare(mailService.showBarIcon, true)
 
-      // A stored value of some other shape is not a decision to hide it.
       mailService.applySettings({ showBarIcon: "no" })
       compare(mailService.showBarIcon, true,
         "only a stored false hides the icon")
@@ -202,9 +197,6 @@ Item {
       compare(shellStore.updatedEntry.unifiedMailboxes, true)
     }
 
-    // The setting is what the user asked for; `unified` is whether it means
-    // anything. One mailbox combined with nothing is the mailbox, and merging
-    // would spend a copy of every row to arrive at the same list.
     function test_one_mailbox_is_never_combined_whatever_the_setting_says() {
       mailService.applySettings({ unifiedMailboxes: true })
       compare(mailService.unifiedMailboxes, true)
@@ -220,8 +212,6 @@ Item {
       }
     }
 
-    // With nothing to merge the façade still answers, and answers as the
-    // single-mailbox view it is: an empty list rather than a broken binding.
     function test_the_combined_answers_hold_up_with_no_mailboxes() {
       mailService.applySettings({ unifiedMailboxes: true })
       compare(mailService.messages.length, 0)
@@ -233,14 +223,7 @@ Item {
         "the rail still has rows to draw before a mailbox is added")
     }
 
-    // Composed ids are the service's own vocabulary, so an action naming one
-    // reaches no mailbox rather than the wrong one, and reaching none is a
-    // refusal rather than a throw.
-    //
-    // That a *bare* id is not mistaken for a composed one is the separator's
-    // own property and is measured in tests/test_unified.js, against the id
-    // shapes the three providers actually issue — there is no account here for
-    // a wrong split to land on, so this file could not tell the difference.
+    // Invariant: This fixture has no real accounts; provider id split correctness is proved separately by test_unified.js.
     function test_an_action_for_a_mailbox_that_is_not_here_reaches_nothing() {
       mailService.applySettings({ unifiedMailboxes: true })
       var absent = Unified.unifiedId("gone@example.org", "42")

@@ -20,7 +20,6 @@ const bytes = Array.from({ length: 256 }, (_, byte) => String.fromCharCode(byte)
 assert.strictEqual(upload.chunk(bytes, 0, 256).data, Buffer.from(bytes, "latin1").toString("base64url"))
 assert.strictEqual(upload.chunk("\u0100", 0, 1), null)
 
-// Drive the real upload orchestration with asynchronous, one-at-a-time replies.
 function runUpload(raw, options = {}) {
   const queue = []
   const calls = []
@@ -106,7 +105,6 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(wire.notification(JSON.stringif
 for (const parameters of [{ticket:7,ok:true,error:"",accountId:"a"},{ticket:"7",ok:"yes",error:"",accountId:"a"},{ticket:"7",ok:true,accountId:"a"},{ticket:"7",ok:true,error:""}])
   assert.strictEqual(wire.notification(JSON.stringify({...settled,params: parameters})),null)
 
-// Exercise Backend.receive itself and count actual parser calls in each module.
 const fs = require('fs')
 const vm = require('vm')
 const chunks = load('backend/Chunks.js')
@@ -163,8 +161,7 @@ for(const stopping of [false,true]) {
 run=receiver();run.context.receive('{"jsonrpc":"2.0","id":"unrelated","result":1}')
 assert.strictEqual(run.replies.length+run.failures.length,0)
 console.log('Backend.receive single-decode, chunking, malformed envelopes and shutdown notification guards passed')
-// A fully framed transfer can still contain invalid assembled JSON; completion
-// must fail without delivering the partially decoded data.
+// Invariant: Invalid assembled JSON must never deliver partially decoded data.
 run=receiver()
 for(let index=0;index<2;index++)run.context.receive(JSON.stringify({jsonrpc:'2.0',method:'transport.chunk',params:{transfer:'2',index,total:2,size:4,data:'xx'}}))
 assert.strictEqual(run.failures.length,1)
@@ -174,8 +171,7 @@ run.context.receive('{"jsonrpc":"2.0","id":"x","error":{"code":-1,"message":"ref
 assert.strictEqual(run.replies.length,1)
 assert.strictEqual(run.replies[0].error.message,'refused')
 
-// Uncorrelated IDs must never resolve through Object.prototype. Neither an
-// ordinary envelope nor a chunked one may throw, consume a request or notify.
+// Invariant: Prototype-named uncorrelated ids cannot consume requests or emit notifications.
 for(const id of ['__proto__','constructor','toString']) {
   for(const chunked of [false,true]) {
     run=receiver()

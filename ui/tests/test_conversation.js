@@ -3,14 +3,6 @@ const { load, deepEqual } = require("./load")
 
 const conversation = load("tests/oracles/Conversation.js")
 
-// The conversation rail, against the reference test account's own thread: three
-// messages, oldest first, the first of them a draft that sits in the Inbox and
-// in Drafts at once, and the last one unread.
-//
-// These are the decisions the rail is made of — which stops there are, what
-// each shows, which summaries are still owed, where `n` and `p` land — and none
-// of them needs Qt. The one behaviour that does, the keys moving the reader
-// without moving the list cursor, is `tests/qml/tst_conversation_rail.qml`.
 
 const mailboxes = [
   { key: "inbox", label: "Inbox" },
@@ -50,7 +42,6 @@ const known = {
   maaaaaf: summary("maaaaaf", { time: "3d", unread: true, labelIds: ["INBOX", "UNREAD"] })
 }
 
-// -------------------------------------------------------------- the block
 
 deepEqual(conversation.blockOf(block), block, "a whole block reads back whole")
 assert.strictEqual(conversation.blockOf(null), null, "no block is null, not an empty one")
@@ -60,21 +51,16 @@ deepEqual(conversation.blockOf({ id: " d ", memberIds: [] }),
   { id: "d", count: 0, unread: false, flagged: false, memberIds: [] },
   "an unknown conversation reads as a count of zero")
 
-// ------------------------------------------------------ whether it draws
 
 assert.ok(conversation.drawsRail(true, block), "three members on a collapsing provider")
 assert.ok(!conversation.drawsRail(false, block),
   "a provider that never collapsed its listing has no members to draw")
 assert.ok(!conversation.drawsRail(true, { id: "e", memberIds: ["x"] }),
   "one message has nowhere to go")
-// HEY: its rows already are conversations and it reports a count of 0, which
-// means unknown. The body is the whole conversation there and the rail draws
-// nothing new.
 assert.ok(!conversation.drawsRail(true, { id: "t", count: 0, memberIds: [] }),
   "an unknown count draws nothing")
 assert.ok(!conversation.drawsRail(true, null), "and neither does no block at all")
 
-// ------------------------------------------------- which conversation is held
 
 assert.strictEqual(conversation.threadAfterSelect(block, "maaaaae", { thread: null }), block,
   "moving to a member keeps the block the row was opened with")
@@ -92,7 +78,6 @@ assert.strictEqual(
 assert.strictEqual(conversation.threadAfterSelect(block, "yaaaaag", null), null,
   "and so does opening one whose summary is not known yet")
 
-// ------------------------------------------------------------ the summaries
 
 deepEqual(conversation.missingMemberIds(block, {}),
   ["maaaaad", "maaaaae", "maaaaaf"], "nothing known is every id, in rail order")
@@ -112,7 +97,6 @@ deepEqual(conversation.mergedSummaries({ a: 1, b: 2, d: 4 }, { c: 3 }, 2, ["a", 
   "except the conversation on screen, whose members survive the reset")
 deepEqual(conversation.mergedSummaries({ a: 1, b: 2 }, { c: 3 }, 2, null), { c: 3 })
 
-// ------------------------------------------------------ where a member sits
 
 assert.strictEqual(conversation.mailboxKeyOf(known.maaaaae), "inbox")
 assert.strictEqual(conversation.mailboxKeyOf(known.maaaaad), "drafts",
@@ -139,7 +123,6 @@ assert.strictEqual(conversation.mailboxNameFor(known.maaaaae, "", mailboxes), "I
 assert.strictEqual(conversation.mailboxNameFor({ labelIds: ["SPAM"] }, "inbox", []), "",
   "an account with no Junk row has no name to draw")
 
-// ----------------------------------------------------------------- the stops
 
 {
   const drawn = conversation.stops(block, known, "maaaaaf", "inbox", mailboxes)
@@ -157,15 +140,11 @@ assert.strictEqual(conversation.mailboxNameFor({ labelIds: ["SPAM"] }, "inbox", 
 }
 
 {
-  // The Sent view: this account sent none of these, so all three are elsewhere
-  // and all three say so.
   const drawn = conversation.stops(block, known, "maaaaaf", "sent", mailboxes)
   deepEqual(drawn.map(stop => stop.mailbox), ["Inbox", "Inbox", "Drafts"])
 }
 
 {
-  // Before any summary has arrived: one stop per id all the same, so nothing
-  // moves when the read answers.
   const drawn = conversation.stops(block, {}, "maaaaaf", "inbox", mailboxes)
   assert.strictEqual(drawn.length, 3)
   assert.ok(drawn.every(stop => !stop.known), "every stop is a skeleton")
@@ -177,7 +156,6 @@ assert.strictEqual(conversation.mailboxNameFor({ labelIds: ["SPAM"] }, "inbox", 
 }
 
 {
-  // The member's own label is what the flag reads; see the block below.
   const flagged = Object.assign({}, known, {
     maaaaae: summary("maaaaae", { starred: true, labelIds: ["INBOX", "STARRED"] })
   })
@@ -187,10 +165,7 @@ assert.strictEqual(conversation.mailboxNameFor({ labelIds: ["SPAM"] }, "inbox", 
 
 deepEqual(conversation.stops(null, known, "", "inbox", mailboxes), [])
 
-// A stop is one message. The representative's summary is the row's, and a
-// row's `unread` and `starred` are "this message *or* any counted member" —
-// so a representative read while a reply is not carries `unread: true` and
-// must not draw a dot, and the caption counts the reply and not the row.
+// Invariant: Rail stops use member-local flags; representative row aggregates must not double-count unread members.
 {
   const representative = summary("maaaaad", {
     unread: true, starred: true, labelIds: ["INBOX"],
@@ -203,8 +178,6 @@ deepEqual(conversation.stops(null, known, "", "inbox", mailboxes), [])
   assert.strictEqual(drawn[0].unread, true, "the reply is the unread one")
   assert.strictEqual(conversation.caption(block, withRow), "3 messages · 1 unread",
     "the row's OR does not count as a second unread")
-  // A summary with no label list at all falls back to the flag, which is the
-  // only answer it has.
   assert.strictEqual(conversation.memberHasLabel({ unread: true }, "UNREAD"), true)
   assert.strictEqual(conversation.memberHasLabel({ starred: true }, "STARRED"), true)
   assert.strictEqual(conversation.memberHasLabel({ labelIds: [] , unread: true }, "UNREAD"), false)
@@ -213,13 +186,11 @@ deepEqual(conversation.stops(null, known, "", "inbox", mailboxes), [])
   assert.strictEqual(conversation.memberHasLabel(null, "UNREAD"), false)
 }
 
-// A sender with no display name falls back to the address, the way a row does.
 assert.strictEqual(
   conversation.stops(block, { maaaaad: summary("maaaaad", { from: { display: "", email: "ada@example.org" } }) },
     "maaaaad", "inbox", mailboxes)[2].sender,
   "ada@example.org")
 
-// -------------------------------------------------------------- the caption
 
 assert.strictEqual(conversation.caption(block, known), "3 messages · 1 unread")
 assert.strictEqual(conversation.caption(block, {}), "3 messages",
@@ -232,7 +203,6 @@ assert.strictEqual(conversation.caption({ id: "e", memberIds: ["x"] }, {}), "",
   "a conversation of one is captioned with nothing, because it draws nothing")
 assert.strictEqual(conversation.caption(null, known), "")
 
-// ----------------------------------------------------------------- moving
 
 assert.strictEqual(conversation.memberStep(block, "maaaaaf", 1), "maaaaae",
   "n goes down the rail, to the older message")
@@ -248,8 +218,6 @@ assert.strictEqual(conversation.memberStep(block, "yaaaaag", -1), "maaaaad")
 assert.strictEqual(conversation.memberStep(null, "maaaaad", 1), "")
 assert.strictEqual(conversation.memberStep({ id: "t", memberIds: [] }, "", 1), "")
 
-// Where the reader goes when a member is taken off the rail from its own stop:
-// the newer neighbour, else the older, else nowhere.
 assert.strictEqual(conversation.neighbourStop(block, "maaaaae"), "maaaaaf",
   "the newer stop above is preferred")
 assert.strictEqual(conversation.neighbourStop(block, "maaaaaf"), "maaaaae",

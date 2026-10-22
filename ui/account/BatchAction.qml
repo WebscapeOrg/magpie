@@ -1,7 +1,6 @@
 import QtQuick
 
-// The selection belongs to the desktop; expansion, edits and rollback are
-// one native transaction for the entire selection.
+// Invariant: Rust expands and rolls back the entire account selection as one transaction.
 QtObject {
   required property var account
   required property var intents

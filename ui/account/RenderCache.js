@@ -1,8 +1,6 @@
 .pragma library
 
-// A small process-local cache of parsed message bodies. The disk cache keeps
-// the sender's source so sanitizer fixes apply after a restart; this only
-// avoids doing the same work again while the account object is alive.
+// Performance: Cache parsed bodies only for the account lifetime; persistent source is reparsed after restart so sanitizer fixes apply.
 
 function create(limit) {
   return {

@@ -458,3 +458,8 @@ deepEqual(credentials.accountIds(damaged), ["three@work.com"])
 }
 
 console.log("test_credentials.js ok")
+
+const vm = require("node:vm")
+assert.deepStrictEqual(Array.from(vm.runInContext(
+  "loadStore('{\"version\":2,\"accounts\":{\"length\":1e309}}').accounts",
+  credentials, { timeout: 200 })), [])

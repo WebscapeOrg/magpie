@@ -1744,21 +1744,20 @@ Item {
 
   // Network sends keep their order; native intent preparation proceeds while
   // a previous send is in flight, so a slow server never blocks the next edit.
-  function queueAction(messageId, action, actionQuery, quiet, memberOnly, dispatch, discard, token, sourceLabelId, independent) {
+  function queueAction(request, discard, independent) {
     var queued = queuedActions.slice()
-    for (var i = queued.length - 1; i >= 0; i--) {
-      var previous = queued[i]
-      if (previous.id !== messageId) continue
-      if (!independent && previous.action === action && previous.cacheKey === actionQuery
-          && previous.quiet === quiet && previous.memberOnly === memberOnly
-          && previous.sourceLabelId === sourceLabelId) {
+    for (var index = queued.length - 1; index >= 0; index--) {
+      var previous = queued[index]
+      if (previous.id !== request.id) continue
+      if (!independent && previous.action === request.action && previous.cacheKey === request.cacheKey
+          && previous.quiet === request.quiet && previous.memberOnly === request.memberOnly
+          && previous.sourceLabelId === request.sourceLabelId) {
         discard(previous.token)
         return
       }
       break
     }
-    queued.push({id: messageId, action: action, cacheKey: actionQuery, dispatch: dispatch,
-      quiet: quiet, memberOnly: memberOnly, token: token, sourceLabelId: sourceLabelId})
+    queued.push(request)
     queuedActions = queued
   }
 
@@ -1946,9 +1945,11 @@ Item {
         else if (targets.length > 1) root.api.batchModify(targets, change.add, change.remove, done)
         else root.api.modifyMessage(targets[0], change.add, change.remove, done)
       }
-      if (root.pendingAction !== "") root.queueAction(ids.join(","), action, actionQuery, quiet, memberOnly, dispatch, function(intoToken) {
+      if (root.pendingAction !== "") root.queueAction({id: ids.join(","), action: action,
+        cacheKey: actionQuery, quiet: quiet, memberOnly: memberOnly, dispatch: dispatch,
+        token: prepared.token, sourceLabelId: parameters.sourceLabelId}, function(intoToken) {
         intents.coalesce(account, actionQuery, prepared.token, intoToken, prepared.generation)
-      }, prepared.token, parameters.sourceLabelId, typeof completion === "function")
+      }, typeof completion === "function")
       else dispatch()
     })
     return true

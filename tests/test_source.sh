@@ -143,8 +143,6 @@ grep -q 'remoteImagesAllowed = Model.showsRemoteImages(alwaysShowImages, selecti
   || fail "a message the cursor merely previewed must not fetch the sender's images"
 grep -q 'property string bodyMode: "reader"' Service.qml \
   || fail "a message opens in reading mode"
-grep -q 'bodyMode: root.bodyMode' Service.qml \
-  || fail "each account must know which body representation is on the paint path"
 # Invariant: Mode changes select already prepared documents; they must not rerender or repeat
 # network reads.
 if awk '

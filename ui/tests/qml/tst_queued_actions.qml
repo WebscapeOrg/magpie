@@ -289,6 +289,27 @@ Item {
       finish(account,"Synthetic failure")
       verify(!account.messages[0].starred, "the star the server refused comes off")
     }
+
+    function test_comma_bearing_batch_ids_remain_distinct() {
+      var account = ready()
+      var firstBatch = ["1:alpha,2:beta", "3:gamma"]
+      var secondBatch = ["1:alpha", "2:beta,3:gamma"]
+      account.messages = ["blocker"].concat(firstBatch, secondBatch).map(function(id) {
+        return {id: id, labelIds: ["INBOX", "UNREAD"], unread: true, inInbox: true}
+      })
+      verify(act(account, "blocker", "star"))
+      verify(account.actMany(firstBatch, "markRead")); settled(account)
+      verify(account.actMany(secondBatch, "markRead")); settled(account)
+      finish(account)
+      compare(account.api.calls[1], {ids: firstBatch, add: [], remove: ["UNREAD"]})
+      finish(account)
+      compare(account.api.calls.length, 3, "Neither distinct batch may lose its provider dispatch")
+      compare(account.api.calls[2], {ids: secondBatch, add: [], remove: ["UNREAD"]})
+      finish(account)
+      compare(account.pendingAction, "")
+      compare(account.queuedActions.length, 0)
+      compare(account.lastError, "")
+    }
     // Invariant: A conversation on screen: the row `R` and its member `a`, the reader on
     // `a`. Two rail actions on `a`, the first refused: the rail, the reader
     // and the row's block all say the same thing afterwards.

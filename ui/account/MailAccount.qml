@@ -1664,7 +1664,7 @@ Item {
         else if (targets.length > 1) root.api.batchModify(targets, change.add, change.remove, done)
         else root.api.modifyMessage(targets[0], change.add, change.remove, done)
       }
-      if (root.pendingAction !== "") root.queueAction({id: ids.join(","), action: action,
+      if (root.pendingAction !== "") root.queueAction({id: JSON.stringify(ids), action: action,
         cacheKey: actionQuery, quiet: quiet, memberOnly: memberOnly, dispatch: dispatch,
         token: prepared.token, sourceLabelId: parameters.sourceLabelId}, function(intoToken) {
         intents.coalesce(account, actionQuery, prepared.token, intoToken, prepared.generation)

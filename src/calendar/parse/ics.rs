@@ -213,7 +213,7 @@ fn conference(event: &Component) -> String {
     }
     String::new()
 }
-pub(super) fn events(calendar: &Component) -> Vec<Value> {
+pub(super) fn events(calendar: &Component) -> Result<Vec<Value>, &'static str> {
     let zones: Vec<_> = calendar
         .children
         .iter()
@@ -225,6 +225,9 @@ pub(super) fn events(calendar: &Component) -> Vec<Value> {
             )
         })
         .collect();
+    let zones = json!(zones);
+    let zone_bytes = super::encoded_size(&zones)?;
+    let mut budget = super::EventBudget::default();
     let mut events = Vec::new();
     for event in calendar
         .children
@@ -259,7 +262,7 @@ pub(super) fn events(calendar: &Component) -> Vec<Value> {
             .collect();
         let rule = event.text("RRULE");
         let method = calendar.text("METHOD").trim().to_uppercase();
-        events.push(json!({"method":if ["REQUEST","REPLY","CANCEL","PUBLISH","COUNTER","REFRESH","ADD","DECLINECOUNTER"].contains(&method.as_str()){method}else{String::new()},
+        let mut projected = json!({"method":if ["REQUEST","REPLY","CANCEL","PUBLISH","COUNTER","REFRESH","ADD","DECLINECOUNTER"].contains(&method.as_str()){method}else{String::new()},
             "uid":unescape(event.text("UID")),"sequence":event.text("SEQUENCE").parse::<u64>().unwrap_or(0),
             "summary":unescape(event.text("SUMMARY")),"description":unescape(event.text("DESCRIPTION")),"location":unescape(event.text("LOCATION")),
             "status":event.text("STATUS").to_uppercase(),"organizer":address(event.property("ORGANIZER")),"attendees":attendees,
@@ -267,7 +270,10 @@ pub(super) fn events(calendar: &Component) -> Vec<Value> {
             "recurrenceIdMs":dates::moment(event.property("RECURRENCE-ID"),calendar)["ms"].as_i64().unwrap_or(0),
             "excludedMs":excluded,"meetLink":conference(event),
             "source":{"dtstart":event.raw("DTSTART"),"dtend":event.raw("DTEND"),"duration":event.raw("DURATION"),
-                "recurrenceId":event.raw("RECURRENCE-ID"),"timezones":zones}}));
+                "recurrenceId":event.raw("RECURRENCE-ID"),"timezones":null}});
+        budget.reserve(&projected, zone_bytes)?;
+        projected["source"]["timezones"] = zones.clone();
+        events.push(projected);
     }
-    events
+    Ok(events)
 }

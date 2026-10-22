@@ -4,6 +4,31 @@ mod recurrence;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use serde_json::{Value, json};
 type Result<T> = std::result::Result<T, &'static str>;
+const MAX_EVENT_BYTES: usize = 16 * 1024 * 1024;
+#[derive(Default)]
+struct EventBudget {
+    bytes: usize,
+    count: usize,
+}
+impl EventBudget {
+    fn reserve(&mut self, event: &Value, extra_bytes: usize) -> Result<()> {
+        self.bytes = self
+            .bytes
+            .checked_add(encoded_size(event)?)
+            .and_then(|bytes| bytes.checked_add(extra_bytes))
+            .ok_or("calendar_response_too_large")?;
+        self.count += 1;
+        if self.bytes > MAX_EVENT_BYTES || self.count > 25000 {
+            return Err("calendar_response_too_large");
+        }
+        Ok(())
+    }
+}
+fn encoded_size(value: &Value) -> Result<usize> {
+    serde_json::to_vec(value)
+        .map(|bytes| bytes.len())
+        .map_err(|_| "calendar_invalid_response")
+}
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {
     value[key].as_str().unwrap_or("")
 }
@@ -112,6 +137,7 @@ fn caldav(xml: &str, source: &str, start: i64, end: i64) -> Result<Vec<Value>> {
     let mut href = String::new();
     let mut data = String::new();
     let mut events = Vec::new();
+    let mut budget = EventBudget::default();
     loop {
         match reader
             .read_event()
@@ -160,14 +186,14 @@ fn caldav(xml: &str, source: &str, start: i64, end: i64) -> Result<Vec<Value>> {
             Event::End(_) => {
                 if tags.pop().as_deref() == Some("response") && !data.is_empty() {
                     let calendar = ics::parse(&data)?;
-                    for mut event in ics::events(&calendar) {
+                    let metadata = json!({"sourceId":source,"href":href,"calendarData":data});
+                    let metadata_bytes = encoded_size(&metadata)?;
+                    for mut event in ics::events(&calendar)? {
+                        budget.reserve(&event, metadata_bytes)?;
                         event["sourceId"] = json!(source);
                         event["href"] = json!(href);
                         event["calendarData"] = json!(data);
                         events.push(event);
-                    }
-                    if events.len() > 25000 {
-                        return Err("calendar_response_too_large");
                     }
                 }
             }
@@ -234,6 +260,56 @@ pub(crate) fn parse(params: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn calendar_response(calendar: &str) -> String {
+        format!(
+            "<multistatus><response><href>/meeting.ics</href><calendar-data><![CDATA[{calendar}]]></calendar-data></response></multistatus>"
+        )
+    }
+
+    #[test]
+    fn round2_caldav_metadata_copies_stay_within_output_budget() {
+        let mut calendar = format!(
+            "BEGIN:VCALENDAR\r\nX-PADDING:{}\r\n",
+            "x".repeat(256 * 1024)
+        );
+        for index in 0..80 {
+            calendar.push_str(&format!("BEGIN:VEVENT\r\nUID:{index}\r\nDTSTART:20260102T120000Z\r\nSUMMARY:Meeting\r\nEND:VEVENT\r\n"));
+        }
+        calendar.push_str("END:VCALENDAR\r\n");
+        let answer =
+            parse(&json!({"kind":"caldav","body":calendar_response(&calendar),"sourceId":"test"}));
+        assert_eq!(answer.err(), Some("calendar_response_too_large"));
+    }
+
+    #[test]
+    fn round2_timezone_copies_stay_within_output_budget() {
+        let mut calendar = format!(
+            "BEGIN:VCALENDAR\r\nBEGIN:VTIMEZONE\r\nTZID:Test\r\nX-PADDING:{}\r\nEND:VTIMEZONE\r\n",
+            "x".repeat(128 * 1024)
+        );
+        for index in 0..140 {
+            calendar.push_str(&format!("BEGIN:VEVENT\r\nUID:{index}\r\nDTSTART:20260102T120000Z\r\nSUMMARY:Meeting\r\nEND:VEVENT\r\n"));
+        }
+        calendar.push_str("END:VCALENDAR\r\n");
+        let parsed = ics::parse(&calendar).unwrap();
+        assert_eq!(
+            ics::events(&parsed).err(),
+            Some("calendar_response_too_large")
+        );
+    }
+
+    #[test]
+    fn round2_recurrence_copies_stay_within_output_budget() {
+        let calendar = format!(
+            "BEGIN:VCALENDAR\r\nX-PADDING:{}\r\nBEGIN:VEVENT\r\nUID:daily\r\nDTSTART:20260101T120000Z\r\nRRULE:FREQ=DAILY;COUNT=140\r\nSUMMARY:Meeting\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+            "x".repeat(128 * 1024)
+        );
+        let answer = parse(
+            &json!({"kind":"caldav","body":calendar_response(&calendar),"sourceId":"test", "startMs":1767225600000_i64,"endMs":1782864000000_i64}),
+        );
+        assert_eq!(answer.err(), Some("calendar_response_too_large"));
+    }
+
     #[test]
     fn existing_calendar_regressions_match_native_parsing() {
         let output = std::process::Command::new("node")
@@ -263,7 +339,7 @@ mod tests {
             }
             let got = if matches!(name, "eventsFrom" | "invitationFrom") {
                 let mut events = ics::parse(args[0].as_str().unwrap())
-                    .map(|c| ics::events(&c))
+                    .and_then(|calendar| ics::events(&calendar))
                     .unwrap_or_default();
                 if let Some(fallback) = args[1].as_str() {
                     for event in &mut events {

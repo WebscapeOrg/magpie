@@ -89,6 +89,8 @@ Rectangle {
   readonly property bool editingAllDay: allDay
   readonly property var dateRange: Calendar.editorDateRange(dateField.text, startField.text,
     endDateField.text, endField.text, allDay)
+  readonly property bool canSubmit: !!controller && !controller.creatingEvent && !controller.eventWriting
+    && !writePending && !loadingSeries && !transferring && !transferNeedsRefresh && dateRange.ok
   color: root.backgroundColor
 
   component FieldLabel: Text {
@@ -438,11 +440,9 @@ Rectangle {
   }
 
   function submit(sendUpdates) {
-    if (!controller) return
     // Invariant: create/update/delete share one write slot; an older completion must not be
     // attributed to this form.
-    if (controller.creatingEvent || controller.eventWriting || loadingSeries || transferring || transferNeedsRefresh) return
-    if (!dateRange.ok) return
+    if (!canSubmit) return
     var fields = {
       title: titleField.text,
       allDay: allDay,
@@ -1059,8 +1059,7 @@ Rectangle {
         foreground: root.accentColor
         accent: root.accentColor
         fontFamily: root.panelFontFamily
-        enabled: root.controller && !root.controller.creatingEvent
-          && !root.controller.eventWriting && !root.loadingSeries && root.dateRange.ok
+        enabled: root.canSubmit
         onClicked: root.submit("all")
       }
 
@@ -1070,7 +1069,7 @@ Rectangle {
         foreground: root.textColor
         accent: root.accentColor
         fontFamily: root.panelFontFamily
-        enabled: !root.writePending && !root.loadingSeries && root.dateRange.ok
+        enabled: root.canSubmit
         onClicked: root.submit("none")
       }
 

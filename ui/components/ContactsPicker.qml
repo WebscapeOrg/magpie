@@ -3,7 +3,6 @@ import "../controls" as Widgets
 import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
-import qs.Ui
 import "../compose/Recipients.js" as Recipients
 
 Item {
@@ -171,8 +170,8 @@ Item {
               anchors.centerIn: parent
               textFormat: Text.PlainText
               text: {
-                var name = String(contactRow.modelData.name || contactRow.modelData.email || "")
-                return name.length > 0 ? name.charAt(0).toUpperCase() : "?"
+                var displayName = String(contactRow.modelData.name || contactRow.modelData.email || "")
+                return displayName.length > 0 ? displayName.charAt(0).toUpperCase() : "?"
               }
               color: root.textColor
               font.family: root.panelFontFamily

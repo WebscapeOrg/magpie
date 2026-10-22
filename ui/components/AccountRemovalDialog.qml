@@ -3,7 +3,6 @@ import "../controls" as Widgets
 import "../settings"
 import QtQuick.Controls as QQC
 import qs.Commons
-import qs.Ui
 
 Item {
   id: root
@@ -22,8 +21,8 @@ Item {
   anchors.fill: parent
   z: 80
 
-  function openFor(value) {
-    request = value
+  function openFor(mailboxRequest) {
+    request = mailboxRequest
     if (request) dialog.open()
   }
 
@@ -89,9 +88,9 @@ Item {
           foreground: root.dangerColor
           bordered: false
           onClicked: {
-            var value = root.request
+            var confirmedRequest = root.request
             dialog.close()
-            if (value) root.confirmed(value)
+            if (confirmedRequest) root.confirmed(confirmedRequest)
           }
         }
       }

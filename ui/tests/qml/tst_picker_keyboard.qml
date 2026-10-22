@@ -118,6 +118,7 @@ Rectangle {
     function test_provider_choice_uses_tab_and_space() {
       activate("providers")
       keyClick(Qt.Key_Tab)
+      compare(focused().Accessible.name, "Gmail")
       keyClick(Qt.Key_Space)
       compare(host.selected, ["gmail"])
       compare(host.applicationActivations, 0)
@@ -173,6 +174,7 @@ Rectangle {
       compare(focused().text, "+ To")
       keyClick(Qt.Key_Tab)
       compare(focused().text, "+ Cc")
+      compare(focused().Accessible.name, "Add alex@example.test to Cc")
       keyClick(Qt.Key_Return)
       compare(host.selected, [host.contact, "cc"])
       compare(host.contactSelections, 1)
@@ -205,6 +207,7 @@ Rectangle {
     function test_event_expansion_and_add_are_explicit_keyboard_actions() {
       activate("events")
       keyClick(Qt.Key_Tab)
+      compare(focused().Accessible.description, "Collapsed")
       keyClick(Qt.Key_Space)
       compare(events.expanded, true)
       compare(host.selected, [])
@@ -249,6 +252,8 @@ Rectangle {
     function test_link_preserves_global_modified_keys() {
       activate("link")
       keyClick(Qt.Key_Tab)
+      compare(focused().Accessible.role, Accessible.Link)
+      compare(focused().Accessible.name, "Connection help")
       keyClick(Qt.Key_Return, Qt.ControlModifier)
       compare(host.selected, [])
       keyClick(Qt.Key_Return)

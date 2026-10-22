@@ -63,10 +63,10 @@ Item {
   // filtering.
   function place() {
     if (!menu.visible) return
-    var tall = menu.height > 0 ? menu.height : menu.implicitHeight
-    var placed = Menu.position(anchorX, anchorY, menu.width, tall, root.width, root.height)
-    menu.x = placed.x
-    menu.y = placed.y
+    var popupHeight = menu.height > 0 ? menu.height : menu.implicitHeight
+    var position = Menu.position(anchorX, anchorY, menu.width, popupHeight, root.width, root.height)
+    menu.x = position.x
+    menu.y = position.y
   }
 
   function openCentered() {
@@ -84,8 +84,11 @@ Item {
   }
 
   function revealCursor() {
-    var rowHeight = MailStyle.space(40)
-    var cursorTop = root.cursorIndex * (rowHeight + accountRows.spacing)
+    var cursorRow = root.unifiedOffered && root.cursorIndex === 0
+      ? unifiedRow : accountRepeater.itemAt(root.cursorIndex - root.rowOffset)
+    if (!cursorRow) return
+    var rowHeight = cursorRow.height
+    var cursorTop = cursorRow.y
     var viewportTop = accountsViewport.contentY
     if (cursorTop < viewportTop) accountsViewport.contentY = cursorTop
     else if (cursorTop + rowHeight > viewportTop + accountsViewport.height)
@@ -182,6 +185,7 @@ Item {
           id: accountRows
           width: parent.width
           spacing: rows.spacing
+
           Rectangle {
             id: unifiedRow
             visible: root.unifiedOffered
@@ -256,6 +260,7 @@ Item {
           }
 
           Repeater {
+            id: accountRepeater
             model: root.shownAccounts
 
             Rectangle {
@@ -365,7 +370,6 @@ Item {
               }
             }
           }
-
         }
       }
 
@@ -373,6 +377,7 @@ Item {
         id: managementRows
         width: parent.width
         spacing: rows.spacing
+
         Item {
           width: menu.width - menu.leftPadding - menu.rightPadding
           implicitHeight: MailStyle.space(7)

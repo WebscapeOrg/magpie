@@ -2,11 +2,7 @@ import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
 
-// The version number belongs where somebody reporting a bug will already be
-// looking: the empty reader. The pane it sits in is resized by the window and
-// by the three-column-to-one collapse, so the interesting cases are geometric —
-// it must not land on top of the centred block at any height, and the shortcut
-// legend disappearing must not take it along.
+// Invariant: The version remains readable across pane sizes, even when the shortcut legend hides.
 Item {
   width: 400
   height: 400
@@ -37,7 +33,7 @@ Item {
     }))
   }
 
-  // Nothing signed in yet, and the reader is handed no service at all.
+
   Loader {
     id: serviceless
     width: 400
@@ -67,19 +63,15 @@ Item {
       return label
     }
 
-    // A Column repositions on the next polish, so a size assigned and read back
-    // in the same frame reports the previous layout — and the stale answer is
-    // the conservative one, which is how a broken guard passes unnoticed.
-    // forceLayout settles it now rather than waiting on a frame, so the sweep
-    // below stays a few milliseconds instead of a few seconds.
+    // Invariant: Force Column polish before measuring; stale geometry can hide overlap failures.
+    // Performance: Synchronous layout keeps the one-pixel height sweep fast.
     function resize(width, height) {
       blankSlateLoader.width = width
       blankSlateLoader.height = height
       slate().children[0].forceLayout()
     }
 
-    // The centred block and the bottom label are laid out by different anchors,
-    // so only their coordinates can say whether they are printing on each other.
+    // Invariant: Independent anchors require a coordinate comparison to detect overlap.
     function overlapping(label) {
       var column = label.parent.children[0]
       var columnBottom = column.y + column.height
@@ -132,8 +124,7 @@ Item {
       verify(label.visible, "the version outlives the legend it is not part of")
     }
 
-    // The heights either side of every threshold, one pixel at a time: a guard
-    // derived against the short column silently fails once the legend doubles it.
+    // Invariant: Sweep every height across both legend states; one fixed threshold misses overlap.
     function test_never_prints_over_the_centred_block() {
       var label = version()
       for (var height = 120; height <= 520; height++) {

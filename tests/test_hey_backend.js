@@ -46,7 +46,6 @@ context.auth.accountId = ""
 context.backend.call = () => assert.fail("unidentified account must not reach backend")
 context.getMessage("1:2", true, (result, error) => assert(error.includes("configured")))
 assert.strictEqual(Object.keys(context.messageResources).length, 0)
-context.Mail = load("message/Message.js")
 for (const name of ["act", "modifyMessage", "batchModify", "messageParams", "sendMessage"])
   vm.runInContext(method(name), context)
 context.auth.accountId = "hey:me@example.org"

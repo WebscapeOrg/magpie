@@ -135,7 +135,6 @@ assert.strictEqual(microsoft.refreshFailureDisposition(invalid), "signed_out")
 assert.ok(microsoft.redact('{"access_token":"eyJsecret.payload.signature","device_code":"secret"}')
   .indexOf("secret") < 0)
 
-console.log("test_microsoft_oauth.js ok")
 
 // Invariant: Every request names one resource, the device-code request included:
 // the sign-in asks the mail scopes, the Graph sign-in Graph's with offline
@@ -199,3 +198,5 @@ for (const field of ['device_code', 'user_code']) {
   const raw = JSON.stringify({ [field]: 'synthetic"private-suffix\\secret' })
   assert.strictEqual(microsoft.redact(raw), JSON.stringify({ [field]: "[redacted]" }))
 }
+
+console.log("test_microsoft_oauth.js ok")

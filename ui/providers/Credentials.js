@@ -159,7 +159,7 @@ function credentialsOf(entry) {
 }
 
 function isStore(value) {
-  return !!value && !!value.accounts && typeof value.accounts.length === "number"
+  return !!value && Array.isArray(value.accounts)
 }
 
 /** Every entry point takes either a store or a single credentials object, so
@@ -257,7 +257,7 @@ function storeFromObject(raw) {
   var store = emptyStore()
   if (!raw || typeof raw !== "object") return store
 
-  if (raw.accounts && typeof raw.accounts.length === "number") {
+  if (Array.isArray(raw.accounts)) {
     for (var itemIndex = 0; itemIndex < raw.accounts.length; itemIndex++) {
       var entry = raw.accounts[itemIndex]
       if (!entry || typeof entry !== "object") continue

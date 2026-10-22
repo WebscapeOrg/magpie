@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure synthetic mail CPU work in frozen JS and native Rust; no network."""
+"""Invariant: CPU comparisons use synthetic mail and exclude network work."""
 import argparse
 import hashlib
 import json
@@ -49,8 +49,8 @@ def verify_unchanged(expected):
 
 
 def mime_semantics(value):
-    # Compare wire headers, MIME structure, names and exact decoded bytes. The
-    # attachmentId is a backend locator, not parsed mail content.
+    # Invariant: attachmentId is a backend locator, not parsed mail content;
+    # compare wire headers, MIME structure, names and exact decoded bytes.
     import base64
     body=value.get('body',{})
     data=body.get('data','')
@@ -62,7 +62,7 @@ def mime_semantics(value):
 
 
 def html_semantics(value):
-    # Tree caches and absent default fields are implementation details; preserve
+    # Invariant: tree caches and absent defaults are implementation details; preserve
     # every renderable node, attribute, text byte, child order and result field.
     def node(current):
         kind=current['type']

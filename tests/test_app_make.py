@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The local standalone targets use the portable backend and explicit dev paths."""
+"""Invariant: standalone targets use the portable backend and explicit development paths."""
 from pathlib import Path
 import os
 import shlex
@@ -56,7 +56,7 @@ makefile = (ROOT / "Makefile").read_text()
 assert "validate: test test-app-qml qml-check" in makefile
 assert 'test-app-qml:\n\t@test -n "$(QMLTESTRUNNER)"' in makefile
 
-# CMake may not independently find Qt's runner outside PATH. Forward the
+# Invariant: CMake may not independently find Qt's runner outside PATH. Forward the
 # already resolved executable and fail instead of silently testing nothing.
 qml = make("-n", "test-app-qml", "QMLTESTRUNNER=/synthetic/qt/bin/qmltestrunner")
 assert '-DQMLTESTRUNNER_EXECUTABLE="/synthetic/qt/bin/qmltestrunner"' in qml

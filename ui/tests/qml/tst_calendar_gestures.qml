@@ -82,8 +82,8 @@ Item {
       mouseRelease(drag, drag.width / 2, drag.height + 35)
     }
     function test_legacy_provider_cannot_dispatch_resize() {
-      for (var i = 0; i < 3; i++) {
-        fixture.sourceKind = ["microsoft", "icloud", "caldav"][i]
+      for (var providerIndex = 0; providerIndex < 3; providerIndex++) {
+        fixture.sourceKind = ["microsoft", "icloud", "caldav"][providerIndex]
         dragMeetingEnd()
         compare(moved.count, 0)
         compare(view.pendingGesture, null)
@@ -96,12 +96,12 @@ Item {
       compare(view.pendingGesture, null)
     }
     function test_pending_resize_is_immediate_and_failure_restores_it() {
-      var originalEnd = fixture.events[0].end.ms
+      var originalEndMs = fixture.events[0].end.ms
       fixture.acceptReschedule = true
       dragMeetingEnd()
       verify(view.pendingGesture !== null)
-      verify(view.pendingGesture.end > originalEnd)
-      compare(fixture.events[0].end.ms, originalEnd)
+      verify(view.pendingGesture.end > originalEndMs)
+      compare(fixture.events[0].end.ms, originalEndMs)
       fixture.eventWriting = false
       fixture.eventUpdated(false, "Conflict")
       compare(view.pendingGesture, null)
@@ -152,12 +152,12 @@ Item {
     function test_empty_time_drag_creates_a_range() {
       var slots = findChild(view, "calendar-time-slots-2026-10-01")
       verify(slots !== null)
-      var offset = findChild(view, "calendar-time-scroll").contentY
-      mousePress(slots, slots.width / 2, offset + 20)
-      mouseMove(slots, slots.width / 2, offset + 70, 20)
+      var scrollOffsetY = findChild(view, "calendar-time-scroll").contentY
+      mousePress(slots, slots.width / 2, scrollOffsetY + 20)
+      mouseMove(slots, slots.width / 2, scrollOffsetY + 70, 20)
       verify(view.dragPreview !== null)
       verify(view.dragPreview.label.indexOf("–") > 0)
-      mouseRelease(slots, slots.width / 2, offset + 70)
+      mouseRelease(slots, slots.width / 2, scrollOffsetY + 70)
       compare(view.dragPreview, null)
       compare(created.count, 1)
       verify(created.signalArguments[0][1] > created.signalArguments[0][0])
@@ -209,22 +209,22 @@ Item {
     function test_day_and_week_scroll_to_late_evening_and_early_morning() {
       var originalDays = view.days
       var scroll = findChild(view, "calendar-time-scroll")
-      for (var count = 0; count < 2; count++) {
-        view.days = count === 0 ? [originalDays[3]] : originalDays
+      for (var viewIndex = 0; viewIndex < 2; viewIndex++) {
+        view.days = viewIndex === 0 ? [originalDays[3]] : originalDays
         wait(1)
         compare(view.firstHour, 0)
         compare(view.lastHour, 24)
-        for (var i = 0; i < 20; i++) mouseWheel(scroll, scroll.width - 20, scroll.height / 2, 0, -120)
+        for (var scrollStep = 0; scrollStep < 20; scrollStep++) mouseWheel(scroll, scroll.width - 20, scroll.height / 2, 0, -120)
         compare(Math.round(scroll.contentY + scroll.height), Math.round(scroll.contentHeight))
         var slots = findChild(view, "calendar-time-slots-2026-10-01")
         created.clear()
-        var late = 23 * scroll.hourHeight
-        mousePress(slots, slots.width / 2, late)
-        mouseMove(slots, slots.width / 2, late + scroll.hourHeight / 2, 20)
-        mouseRelease(slots, slots.width / 2, late + scroll.hourHeight / 2)
+        var lateHourY = 23 * scroll.hourHeight
+        mousePress(slots, slots.width / 2, lateHourY)
+        mouseMove(slots, slots.width / 2, lateHourY + scroll.hourHeight / 2, 20)
+        mouseRelease(slots, slots.width / 2, lateHourY + scroll.hourHeight / 2)
         compare(created.count, 1)
         compare(new Date(created.signalArguments[0][0]).getHours(), 23)
-        for (var j = 0; j < 20; j++) mouseWheel(scroll, scroll.width - 20, scroll.height / 2, 0, 120)
+        for (var scrollStep = 0; scrollStep < 20; scrollStep++) mouseWheel(scroll, scroll.width - 20, scroll.height / 2, 0, 120)
         compare(scroll.contentY, 0)
       }
       view.resetTimeScroll()

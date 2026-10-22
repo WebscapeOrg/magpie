@@ -348,7 +348,7 @@ fn clean(n: &mut Node, images: &mut Images<'_>, colors: bool) {
             c.name = "div".into()
         }
         let styles = declarations(c.attr("style"));
-        if c.name == "img" && c.has("hidden") {
+        if c.has("hidden") {
             continue;
         }
         if (!tree::void(&c.name) || c.name == "img") && hidden(&styles) {

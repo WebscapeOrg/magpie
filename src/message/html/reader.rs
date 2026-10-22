@@ -333,9 +333,25 @@ fn inline_or_blocks(mut blocks: Vec<Node>) -> Vec<Node> {
         blocks
     }
 }
+fn visible_rows<'a>(node: &'a Node, output: &mut Vec<&'a Node>) {
+    for child in &node.children {
+        if child.kind == "text"
+            || child.name == "table"
+            || drop_reader(&child.name)
+            || hidden_reader(child)
+        {
+            continue;
+        }
+        if child.name == "tr" {
+            output.push(child);
+            continue;
+        }
+        visible_rows(child, output);
+    }
+}
 fn data_table(n: &Node, ctx: &mut Images<'_>) -> Option<Node> {
     let mut source = vec![];
-    rows(n, &mut source);
+    visible_rows(n, &mut source);
     if source.is_empty() || source.len() > 40 {
         return None;
     }
@@ -430,7 +446,7 @@ fn row(n: &Node, s: &mut State, ctx: &mut Images<'_>, tables: bool) -> bool {
 }
 fn list_items(n: &Node, list: &mut Node, ctx: &mut Images<'_>, tables: bool) {
     for c in &n.children {
-        if c.kind == "text" || drop_reader(&c.name) {
+        if c.kind == "text" || drop_reader(&c.name) || hidden_reader(c) {
             continue;
         }
         if c.name != "li" {
@@ -452,7 +468,7 @@ fn pre_text(n: &Node, out: &mut String) {
             }
             continue;
         }
-        if drop_reader(&c.name) {
+        if drop_reader(&c.name) || hidden_reader(c) {
             continue;
         }
         if c.name == "br" {
@@ -609,6 +625,9 @@ fn node(n: &Node, s: &mut State, ctx: &mut Images<'_>, tables: bool) {
     }
 }
 fn build(n: &Node, ctx: &mut Images<'_>, tables: bool) -> Vec<Node> {
+    if drop_reader(&n.name) || hidden_reader(n) {
+        return vec![];
+    }
     let mut s = State::default();
     walk(n, &mut s, ctx, tables);
     s.flush("p");

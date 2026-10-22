@@ -69,8 +69,13 @@ def direct_bindings(body):
     masked = MASKED.sub(lambda match: re.sub(r"[^\n]", " ", match.group(0)), body)
     depth = 0
     direct = []
-    for character in masked:
+    children = []
+    for position, character in enumerate(masked):
         if character == "{":
+            if depth == 0:
+                child = re.search(r"(?:^|[;\n])\s*[A-Z]\w*(?:\.[A-Z]\w*)*\s*$", masked[:position])
+                if child:
+                    children.append(child.start())
             depth += 1
         direct.append(character if depth == 0 or character == "\n" else " ")
         if character == "}":
@@ -82,7 +87,8 @@ def direct_bindings(body):
         end = properties[index + 1].start() if index + 1 < len(properties) else len(masked)
         value = masked[match.end():end].strip().rstrip(";").strip()
         if match.group(1) == "textFormat":
-            value = source[match.end():end].strip().split(";")[0].split("\n")[0].strip()
+            end = min([end] + [child for child in children if child >= match.end()])
+            value = source[match.end():end].strip().split(";")[0].strip()
         bindings[match.group(1)] = value
     return bindings
 

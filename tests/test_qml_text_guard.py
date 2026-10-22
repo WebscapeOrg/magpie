@@ -25,6 +25,8 @@ class TextGuardTests(unittest.TestCase):
 
     def test_only_a_direct_plain_text_binding_passes(self):
         for binding in ("", "textFormat: Text.RichText", "textFormat: Text.AutoText",
+                        "textFormat: Text.PlainText\n ? Text.RichText : Text.PlainText",
+                        "textFormat: Text.PlainText\n || Text.RichText",
                         "// textFormat: Text.PlainText", 'property string note: "textFormat: Text.PlainText"',
                         "Item { property int textFormat: Text.PlainText }"):
             with self.subTest(binding=binding):

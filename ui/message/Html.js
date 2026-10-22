@@ -2090,8 +2090,19 @@ function readerTextOf(node) {
   return text
 }
 
+function readerRowsOf(node, rows) {
+  for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
+    var child = node.children[childIndex]
+    if (child.type === "text" || child.name === "table") continue
+    if (READER_DROPPED[child.name] === true || readerHidden(child)) continue
+    if (child.name === "tr") rows.push(child)
+    readerRowsOf(child, rows)
+  }
+  return rows
+}
+
 function readerDataTable(node, reading) {
-  var rows = rowsOf(node, [])
+  var rows = readerRowsOf(node, [])
   if (rows.length === 0 || rows.length > MAX_READER_TABLE_ROWS) return null
 
   // Performance: settle a table’s admissible shape before building its cells, avoiding a second
@@ -2212,7 +2223,7 @@ function readerListItems(node, list, reading) {
   for (var childIndex = 0; childIndex < node.children.length; childIndex++) {
     var child = node.children[childIndex]
     if (child.type === "text") continue
-    if (READER_DROPPED[child.name] === true) continue
+    if (READER_DROPPED[child.name] === true || readerHidden(child)) continue
     if (child.name !== "li") {
       readerListItems(child, list, reading)
       continue
@@ -2358,7 +2369,7 @@ function readerPreText(node, out) {
       if (!child.raw) out += child.text
       continue
     }
-    if (READER_DROPPED[child.name] === true) continue
+    if (READER_DROPPED[child.name] === true || readerHidden(child)) continue
     if (child.name === "br") {
       out += "\n"
       continue
@@ -2369,6 +2380,7 @@ function readerPreText(node, out) {
 }
 
 function readerBuild(node, reading) {
+  if (node.type !== "root" && readerHidden(node)) return []
   var state = readerState()
   readerWalk(node, state, reading)
   readerFlush(state, "p")

@@ -1830,4 +1830,23 @@ for (const fixture of require("../../tests/fixtures/raster.json")) {
   assert.strictEqual(html.isDisplayableImageUrl(over), false)
 }
 
+for (const source of [
+  '<ul><li hidden>SECRET</li><li>Visible</li></ul>',
+  '<ul><div style="display:none"><li>SECRET</li></div><li>Visible</li></ul>',
+  '<pre>A<span style="visibility:hidden">SECRET</span>B</pre>',
+  '<table><tr><td hidden>SECRET</td><td>Visible</td></tr></table>',
+  '<table><tr hidden><td>SECRET</td><td>SECRET</td></tr><tr><td>A</td><td>B</td></tr></table>',
+  '<table><tbody hidden><tr><td>SECRET</td><td>SECRET</td></tr></tbody><tr><td>A</td><td>B</td></tr></table>',
+  '<table><tr><td hidden>SECRET</td><td>Visible</td></tr><tr><td>A</td><td>B</td></tr></table>'
+]) {
+  const result = html.sanitize(source, { withReader: true })
+  assert.ok(!result.reader.html.includes("SECRET"), "hidden descendants must remain absent: " + source)
+  assert.ok(/Visible|A/.test(result.reader.html), "visible content remains")
+}
+assert.strictEqual(reading('<pre>A<span hidden>SECRET</span>B</pre>').html, '<pre>AB</pre>')
+assert.strictEqual(reading('<table><tr><td hidden>SECRET</td><td>Visible</td></tr>'
+  + '<tr><td>A</td><td>B</td></tr></table>').html,
+  '<table><tr><td></td><td>Visible</td></tr><tr><td>A</td><td>B</td></tr></table>',
+  "hidden cells retain their column positions")
+
 console.log("test_html.js ok")

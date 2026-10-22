@@ -5,37 +5,32 @@ use serde_json::{Value, json};
 use std::{
     fs,
     io::{BufRead, BufReader},
-    process::{Child, Command, Stdio},
     sync::Arc,
 };
 
 const ACCOUNT: &str = "jmap:user@example.test";
 
 struct Peer {
-    child: Child,
+    _child: crate::process::ManagedChild,
     client: reqwest::Client,
     endpoint: String,
 }
 
-impl Drop for Peer {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 impl Peer {
     async fn start(scenario: &str, learns_junk: bool) -> (Self, Session) {
-        let mut child = Command::new("python3")
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/src/providers/jmap/mailbox_tls_test.py"
-            ))
-            .arg(scenario)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut output = BufReader::new(child.stdout.take().unwrap());
+        let mut child = crate::process::spawn_managed(
+            "python3",
+            &[
+                concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/providers/jmap/mailbox_tls_test.py"
+                )
+                .into(),
+                scenario.into(),
+            ],
+        )
+        .unwrap();
+        let mut output = BufReader::new(child.take_stdout().unwrap());
         let mut port = String::new();
         output.read_line(&mut port).unwrap();
         let mut cert = String::new();
@@ -92,7 +87,7 @@ impl Peer {
         .unwrap();
         (
             Self {
-                child,
+                _child: child,
                 client,
                 endpoint,
             },

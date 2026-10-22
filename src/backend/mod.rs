@@ -766,11 +766,11 @@ mod cache_lifecycle_tests {
     use super::*;
     #[tokio::test]
     async fn successful_clear_invalidates_only_its_account_and_refused_clear_preserves_cache() {
-        let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
-            "omamail-backend-cache-clear-{}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[]}));
+        let root = fixture.cache.join("clear-lifecycle");
         let session = Session {
             queries: std::sync::Arc::new(crate::cache::query::QueryCache::at(root.clone())),
             ..Default::default()
@@ -831,6 +831,5 @@ mod cache_lifecycle_tests {
                 .is_some()
         );
         session.queries.shutdown().await.unwrap();
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

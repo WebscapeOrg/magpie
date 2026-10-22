@@ -53,6 +53,7 @@ Item {
   TestCase {
     name: "CalendarGestures"
     when: windowShown
+    readonly property int quarterHourMs: 15 * 60 * 1000
     function init() {
       moved.clear()
       created.clear()
@@ -107,7 +108,7 @@ Item {
       compare(view.pendingGesture, null)
     }
     function test_pending_resize_stays_until_refresh_finishes() {
-      view.pendingGesture = {key:Calendar.eventKey(fixture.events[0]),start:fixture.events[0].start.ms,end:fixture.events[0].end.ms + 900000}
+      view.pendingGesture = {key:Calendar.eventKey(fixture.events[0]),start:fixture.events[0].start.ms,end:fixture.events[0].end.ms + quarterHourMs}
       fixture.eventUpdated(true, "")
       verify(view.pendingGesture !== null)
       fixture.loading = true
@@ -134,12 +135,12 @@ Item {
       compare(moved.count, 1)
       compare(moved.signalArguments[0][1], fixture.events[0].start.ms)
       verify(moved.signalArguments[0][2] > fixture.events[0].end.ms)
-      compare(moved.signalArguments[0][2] % 900000, 0)
+      compare(moved.signalArguments[0][2] % quarterHourMs, 0)
     }
     function test_overlapping_events_have_separate_hit_targets() {
       var original = fixture.events
       fixture.events = original.concat([{sourceId:"personal",googleId:"overlap",uid:"overlap",summary:"Review",
-        start:{ms:original[0].start.ms + 900000},end:{ms:original[0].end.ms + 900000}}])
+        start:{ms:original[0].start.ms + quarterHourMs},end:{ms:original[0].end.ms + quarterHourMs}}])
       wait(0)
       var first = findChild(view, "calendar-event-drag-meeting")
       var second = findChild(view, "calendar-event-drag-overlap")
@@ -161,8 +162,8 @@ Item {
       compare(view.dragPreview, null)
       compare(created.count, 1)
       verify(created.signalArguments[0][1] > created.signalArguments[0][0])
-      compare(created.signalArguments[0][0] % 900000, 0)
-      compare(created.signalArguments[0][1] % 900000, 0)
+      compare(created.signalArguments[0][0] % quarterHourMs, 0)
+      compare(created.signalArguments[0][1] % quarterHourMs, 0)
     }
     function test_empty_all_day_lane_creates_single_and_multi_day_ranges() {
       allDayCreated.clear()

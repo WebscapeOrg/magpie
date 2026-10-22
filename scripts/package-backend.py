@@ -483,12 +483,12 @@ def pin(root, branch, expected):
         raise ValueError('release source branch moved; pin was not changed')
     git('diff', '--exit-code')
     git('diff', '--cached', '--exit-code')
-    (root / 'backend-version').write_text(version + '\n')
     # Invariant: a published release speaks the whole contract; the unreleased step
     # becomes released, and the checks that read this file relax with it.
     contract = read_api(root / 'backend-api.json')
     contract['releasedApiVersion'] = contract['apiVersion']
     contract['unreleased'] = {'methods': [], 'cases': []}
+    (root / 'backend-version').write_text(version + '\n')
     (root / 'backend-api.json').write_text(json.dumps(contract, indent=2) + '\n')
     if not git('diff', '--', 'backend-version', 'backend-api.json'):
         return

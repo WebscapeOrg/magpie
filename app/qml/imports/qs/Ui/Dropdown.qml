@@ -55,6 +55,7 @@ Item {
 
   QQC.ComboBox {
     id: combo
+    Accessible.name: root.label
     objectName: "dropdown-input"
     anchors.left: labelText.visible ? labelText.right : parent.left
     anchors.leftMargin: labelText.visible ? Style.spacing.controlGap : 0

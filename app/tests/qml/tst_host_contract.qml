@@ -36,6 +36,31 @@ TestCase {
     }
   }
 
+  Component {
+    id: labeledButtonsComponent
+    Item {
+      width: 240
+      height: 120
+      property int activations: 0
+      property alias save: saveButton
+      property alias add: addButton
+      Button {
+        id: saveButton
+        text: "Save"
+        focusable: true
+        onClicked: parent.activations++
+      }
+      PanelActionButton {
+        id: addButton
+        y: 60
+        iconText: "+"
+        tooltipText: "Add account"
+        focusable: true
+        onClicked: parent.activations++
+      }
+    }
+  }
+
   Component { id: parserComponent; SplitParser { splitMarker: "|" } }
   Component { id: fileComponent; FileView { path: "/fixture/existing"; watchChanges: true } }
   Component { id: processComponent; Process {} }
@@ -147,6 +172,39 @@ TestCase {
   function test_button_tooltip_uses_the_shared_styled_surface() {
     verify(findChild(button, "omamail-tooltip-background"))
     verify(findChild(button, "omamail-tooltip-label"))
+  }
+
+  function test_input_labels_reach_the_native_controls() {
+    toggle.Accessible.name = "Notify on new mail"
+    compare(findChild(toggle, "toggle-switch-input").Accessible.name, "Notify on new mail")
+    toggle.Accessible.name = ""
+    compare(findChild(numberField, "number-field-input").Accessible.name, "Count")
+    dropdown.label = "Mailbox"
+    compare(findChild(dropdown, "dropdown-input").Accessible.name, "Mailbox")
+    dropdown.label = ""
+  }
+
+  function test_buttons_keep_accessible_labels_and_mouse_keyboard_actions() {
+    var buttons = createTemporaryObject(labeledButtonsComponent, testCase.parent)
+    verify(buttons)
+    var saveInput = findChild(buttons.save, "button-input")
+    verify(saveInput)
+    compare(saveInput.Accessible.name, "Save")
+    var addInput = buttons.add.children[2]
+    compare(addInput.Accessible.name, "Add account")
+    buttons.save.text = "Save changes"
+    buttons.add.tooltipText = "Add mailbox"
+    compare(saveInput.Accessible.name, "Save changes")
+    compare(addInput.Accessible.name, "Add mailbox")
+    saveInput.forceActiveFocus()
+    verify(saveInput.activeFocus)
+    keyClick(Qt.Key_Space)
+    compare(buttons.activations, 1)
+    mouseClick(addInput)
+    compare(buttons.activations, 2)
+    addInput.forceActiveFocus()
+    keyClick(Qt.Key_Space)
+    compare(buttons.activations, 3)
   }
 
   function test_default_stderr_reuses_the_bounded_native_tail() {

@@ -44,6 +44,7 @@ Item {
 
   QQC.Button {
     id: control
+    Accessible.name: root.tooltipText || root.iconText
     anchors.fill: parent
     flat: true
     focusPolicy: root.focusable ? Qt.StrongFocus : Qt.NoFocus

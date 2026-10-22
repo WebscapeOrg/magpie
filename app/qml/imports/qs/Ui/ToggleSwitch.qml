@@ -24,6 +24,7 @@ Item {
 
   QQC.Switch {
     id: toggle
+    Accessible.name: root.Accessible.name
     objectName: "toggle-switch-input"
     anchors.centerIn: parent
     checked: root.checked

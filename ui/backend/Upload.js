@@ -87,6 +87,7 @@ function transfer(raw, call, connected, complete, callback, maximum, queue) {
   var cancelled = false
   var started = false
   var current = null
+  var chunkSize = 0
   var task = { size: typeof raw === "string" ? raw.length : 0 }
   function finish(result, error) {
     if (finished) return
@@ -122,40 +123,41 @@ function transfer(raw, call, connected, complete, callback, maximum, queue) {
     invalid()
     return
   }
+  function append(offset) {
+    if (stopped()) return
+    if (offset === raw.length) {
+      current = complete(upload, function(payload, failure) {
+        if (finished) return
+        finish(payload, failure)
+      })
+      return
+    }
+    var part = chunk(raw, offset, chunkSize)
+    if (!part) { invalid(); return }
+    current = call("upload.append", { upload: upload, offset: offset, data: part.data }, function(reply, failure) {
+      if (stopped()) return
+      if (failure) { finish(null, failure); return }
+      if (!reply || reply.offset !== part.offset) { invalid(); return }
+      append(part.offset)
+    })
+  }
+  function begun(result, error) {
+    if (finished) return
+    if (result && typeof result.upload === "string") upload = result.upload
+    if (stopped()) return
+    if (error) { finish(null, error); return }
+    if (!upload || !result || typeof result.chunkSize !== "number"
+        || !isFinite(result.chunkSize) || result.chunkSize < 1
+        || Math.floor(result.chunkSize) !== result.chunkSize) {
+      invalid()
+      return
+    }
+    chunkSize = Math.min(MAX_CHUNK, result.chunkSize)
+    append(0)
+  }
   task.start = function() {
     started = true
-    current = call("upload.begin", { size: raw.length }, function(result, error) {
-      if (finished) return
-      if (result && typeof result.upload === "string") upload = result.upload
-      if (stopped()) return
-      if (error) { finish(null, error); return }
-      if (!upload || !result || typeof result.chunkSize !== "number"
-          || !isFinite(result.chunkSize) || result.chunkSize < 1
-          || Math.floor(result.chunkSize) !== result.chunkSize) {
-        invalid()
-        return
-      }
-      var size = Math.min(MAX_CHUNK, result.chunkSize)
-      function append(offset) {
-        if (stopped()) return
-        if (offset === raw.length) {
-          current = complete(upload, function(payload, failure) {
-            if (finished) return
-            finish(payload, failure)
-          })
-          return
-        }
-        var part = chunk(raw, offset, size)
-        if (!part) { invalid(); return }
-        current = call("upload.append", { upload: upload, offset: offset, data: part.data }, function(reply, failure) {
-          if (stopped()) return
-          if (failure) { finish(null, failure); return }
-          if (!reply || reply.offset !== part.offset) { invalid(); return }
-          append(part.offset)
-        })
-      }
-      append(0)
-    })
+    current = call("upload.begin", { size: raw.length }, begun)
   }
   if (queue) queue.add(task)
   else task.start()

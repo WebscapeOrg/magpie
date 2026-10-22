@@ -61,6 +61,8 @@ TestCase {
     owner.cachedInvite = null
     owner.sent = []
     action.fallbackMessageId = ""
+    action.reconciledKey = ""
+    action.reconciling = false
   }
 
   function test_refusal_does_not_fall_back_to_a_reply_email() {
@@ -73,6 +75,7 @@ TestCase {
     verify(!owner.rsvpSending)
     verify(owner.failure !== "")
     compare(owner.notice, "")
+    compare(owner.sent.length, 0)
   }
 
   function test_request_names_the_invitation_organizer() {
@@ -86,6 +89,7 @@ TestCase {
     action.reconcile()
     compare(backend.calls.length, 0)
     verify(owner.failure !== "")
+    compare(owner.sent.length, 0)
   }
 
   function test_organizer_mismatch_exposes_only_explicit_mail_fallback() {
@@ -94,6 +98,7 @@ TestCase {
     verify(action.fallbackAvailable)
     compare(owner.cachedInvite, null)
     compare(owner.notice, "")
+    compare(owner.sent.length, 0)
   }
 
   function test_old_backend_is_refused_before_request() {
@@ -132,6 +137,7 @@ TestCase {
     backend.callback(null, {message:"calendar_invitation_not_found"})
     verify(action.fallbackAvailable)
     compare(owner.cachedInvite, null)
+    compare(owner.sent.length, 0)
     owner.selectedId = "different-mail"
     verify(!action.fallbackAvailable)
   }
@@ -143,8 +149,12 @@ TestCase {
     action.run("DECLINED")
     compare(backend.calls[0].params.originalStart, "2026-10-01")
     owner.selectedId = "mail-2"
+    var nextInvite = { uid: "different-meeting", organizer: { email: "different@example.test" } }
+    owner.selectedInvite = nextInvite
     backend.callback({ response: "declined" }, null)
-    compare(owner.selectedInvite.uid, "meeting")
+    compare(owner.selectedInvite, nextInvite)
+    compare(owner.cachedInvite, null)
+    compare(owner.sent.length, 0)
     verify(owner.notice !== "")
   }
 }

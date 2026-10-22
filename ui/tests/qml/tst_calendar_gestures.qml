@@ -14,21 +14,21 @@ Item {
     property bool loading: false
     property string sourceKind: "google"
     property bool apiReady: true
+    property bool acceptReschedule: false
     function findSource(id) { return {id:id,kind:sourceKind} }
     function rescheduleRefusal(event) {
       var refusal = Calendar.writeRefusal(findSource(event.sourceId), event, "reschedule")
       return refusal === "" && !apiReady ? "Update the backend to move events by dragging" : refusal
     }
     signal eventUpdated(bool ok, string error)
-    property var events: [{sourceId:"personal",googleId:"meeting",uid:"uid",summary:"Planning",
-      start:{ms:new Date(2026,9,1,10).getTime()},end:{ms:new Date(2026,9,1,11).getTime()}}]
+    property var events: []
     function colorKeyFor(id) { return "accent" }
   }
   Views.WeekCalendarView {
     id: view
     anchors.fill: parent
     controller: fixture
-    days: Calendar.weekDays(new Date(2026,9,1).getTime(), 1)
+    days: []
     nowMs: 0
     textColor: palette.text
     backgroundColor: palette.base
@@ -41,6 +41,11 @@ Item {
     panelFontFamily: "sans-serif"
     selectedEventId: ""
   }
+  Connections {
+    target: view
+    enabled: fixture.acceptReschedule
+    function onEventRescheduled() { fixture.eventWriting = true }
+  }
   SignalSpy { id: moved; target: view; signalName: "eventRescheduled" }
   SignalSpy { id: created; target: view; signalName: "createRange" }
   SignalSpy { id: allDayCreated; target: view; signalName: "createAllDay" }
@@ -49,7 +54,20 @@ Item {
     name: "CalendarGestures"
     when: windowShown
     function init() {
-      moved.clear(); created.clear(); fixture.eventWriting = false; fixture.loading = false; view.pendingGesture = null
+      moved.clear()
+      created.clear()
+      allDayCreated.clear()
+      activated.clear()
+      fixture.eventWriting = false
+      fixture.loading = false
+      fixture.acceptReschedule = false
+      fixture.events = [{sourceId:"personal",googleId:"meeting",uid:"uid",summary:"Planning",
+        start:{ms:new Date(2026,9,1,10).getTime()},end:{ms:new Date(2026,9,1,11).getTime()}}]
+      view.days = Calendar.weekDays(new Date(2026,9,1).getTime(), 1)
+      view.pendingGesture = null
+      view.dragPreview = null
+      view.allDayDragStart = -1
+      view.allDayDragEnd = -1
       fixture.sourceKind = "google"
       fixture.apiReady = true
       view.resetTimeScroll()
@@ -78,13 +96,11 @@ Item {
     }
     function test_pending_resize_is_immediate_and_failure_restores_it() {
       var originalEnd = fixture.events[0].end.ms
-      var accept = function() { fixture.eventWriting = true }
-      view.eventRescheduled.connect(accept)
+      fixture.acceptReschedule = true
       var drag = findChild(view, "calendar-event-drag-meeting")
       mousePress(drag, drag.width / 2, drag.height - 2)
       mouseMove(drag, drag.width / 2, drag.height + 35, 20)
       mouseRelease(drag, drag.width / 2, drag.height + 35)
-      view.eventRescheduled.disconnect(accept)
       verify(view.pendingGesture !== null)
       verify(view.pendingGesture.end > originalEnd)
       compare(fixture.events[0].end.ms, originalEnd)

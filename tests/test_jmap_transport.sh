@@ -1,28 +1,19 @@
 #!/bin/sh
-# What jmap-transport.sh would actually hand to curl.
-#
-# curl is replaced by a stub that reads the config it was given and hands it
-# back as the response body, so these assert on the exact bytes that would have
-# reached the server — which is the only way to check that a secret crosses on
-# stdin, that a download has its ceiling, and that nothing follows a redirect,
-# without having a JMAP server to try it against.
+# Invariant: Controlled curl returns its exact configuration bytes without contacting an external
+# service.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 script="$root/scripts/jmap-transport.sh"
 work=$(mktemp -d "${TMPDIR:-/tmp}/omamail-jmap-transport-test.XXXXXX")
 trap 'rm -rf "$work"' EXIT INT TERM HUP
-# Keep child transport scratch files inside this test's private workspace.
-# Dedicated cases below explicitly unset TMPDIR to test runtime precedence.
+# Invariant: Keep child transport scratch files inside this test's private workspace. Dedicated
+# cases below explicitly unset TMPDIR to test runtime precedence.
 export TMPDIR="$work"
 
 mkdir -p "$work/bin"
-# A small, faithful curl. It reads the config from stdin, writes the "body"
-# wherever `output` names it — or to stdout when nothing does, which is the
-# stream — and renders `write-out` to stdout once the transfer has ended, which
-# is where the four-line reply's status and the stream's trailer both come
-# from. The body it writes is the config itself, so line 3 of the reply is what
-# curl was told to do.
+# Algorithm: The curl fixture follows output/write-out configuration independently: the config is
+# the body, while status and stream trailers follow transfer completion.
 cat > "$work/bin/curl" <<'STUB'
 #!/bin/sh
 set -eu
@@ -32,8 +23,8 @@ set -eu
 config=$(cat)
 
 exit_code=${CURL_STUB_EXIT:-0}
-# "fails twice, then succeeds": the stub reads the same invocation count the
-# test asserts on, so the retry can be watched rather than inferred.
+# Invariant: "fails twice, then succeeds": the stub reads the same invocation count the test asserts
+# on, so the retry can be watched rather than inferred.
 if [ -n "${CURL_STUB_FAIL_TIMES:-}" ] && [ -n "${CURL_STUB_COUNT:-}" ]; then
   attempts=$(wc -l < "$CURL_STUB_COUNT" | tr -d ' ')
   [ "$attempts" -le "$CURL_STUB_FAIL_TIMES" ] || exit_code=0
@@ -52,8 +43,8 @@ if [ -n "$writeout" ]; then
     | sed -e "s/%{http_code}/${CURL_STUB_STATUS:-200}/g" \
           -e "s|%{redirect_url}|${CURL_STUB_REDIRECT:-}|g")
   case "$rendered" in
-    # curl's config format spells a newline `\n`; the two characters are
-    # dropped and a real one printed in their place.
+    # Algorithm: curl's config format spells a newline `\n`; the two characters are dropped and a
+    # real one printed in their place.
     *'\n') printf '%s\n' "${rendered%??}" ;;
     *) printf '%s' "$rendered" ;;
   esac
@@ -72,9 +63,8 @@ run() {
   printf '%s\n' "$1" | PATH="$work/bin:$PATH" sh "$script"
 }
 
-# The four request verbs answer in four lines: exit, status, base64 body,
-# base64 stderr. The stub returns the config as the body, so decoding line 3 is
-# the config.
+# Algorithm: The four request verbs answer in four lines: exit, status, base64 body, base64 stderr.
+# The stub returns the config as the body, so decoding line 3 is the config.
 config_for() {
   run "$1" | sed -n '3p' | base64 -d
 }
@@ -106,9 +96,8 @@ check_absent() {
   fi
 }
 
-# grep -F reads an embedded newline as a pattern separator, so "not this whole
-# line" is asked for as a line-exact match rather than as a needle with a
-# newline in front of it.
+# Algorithm: grep -F reads an embedded newline as a pattern separator, so "not this whole line" is
+# asked for as a line-exact match rather than as a needle with a newline in front of it.
 check_absent_line() {
   description=$1
   haystack=$2
@@ -140,7 +129,6 @@ SESSION_URL='https://mail.example.org/jmap/session'
 API_URL='https://api.example.org/jmap'
 SECRET='hunter2 "quoted" \ slashed'
 
-# -------------------------------------------------------------- session, basic
 
 request="session $(b64 "$SESSION_URL") $(b64 basic) $(b64 'jane@example.org') $(b64 "$SECRET")"
 config=$(config_for "$request")
@@ -160,28 +148,22 @@ check_absent_line "no --fail on a request verb: a problem body has to survive" "
 check "the status and the redirect URL are asked for" "$config" \
   'write-out = "%{http_code} %{redirect_url}"'
 
-# The secret reaches curl on stdin, which is what keeps it out of the process
-# table. The stub records its own argv, and the whole of it is the config on
-# stdin, with `-q` so no user config is read and `--globoff` so no URL is
-# expanded.
+# Invariant: The secret reaches curl on stdin, which is what keeps it out of the process table. The
+# stub records its own argv, and the whole of it is the config on stdin, with `-q` so no user config
+# is read and `--globoff` so no URL is expanded.
 argv="$work/argv"
 CURL_STUB_ARGV="$argv" run "$request" >/dev/null
 equals "curl is invoked with a config on stdin and nothing else — no user config, no URL globbing" "$(cat "$argv")" '-q --globoff --config -'
 check_absent "the secret is not on curl's command line" "$(cat "$argv")" 'hunter2'
 
-# ------------------------------------------------------------- session, bearer
 
 config=$(config_for "session $(b64 "$SESSION_URL") $(b64 bearer) $(b64 'jane@example.org') $(b64 'tok-123')")
 check "bearer builds the Authorization header itself" "$config" \
   'header = "Authorization: Bearer tok-123"'
 check_absent "bearer does not also send a Basic credential" "$config" 'user = '
 
-# --------------------------------------------------------------- session, none
-#
-# Discovery's well-known GET is on a URL the user did not type, so it carries
-# no credential at all. The empty username and secret cross as `-`, because
-# base64 of the empty string is the empty string and a space-separated line
-# cannot carry one.
+# Invariant: Well-known discovery carries no credential. Empty fields cross as a dash because
+# space-separated framing cannot carry an empty base64 token.
 
 config=$(config_for "session $(b64 'https://example.org/.well-known/jmap') $(b64 none) - -")
 check "an unauthenticated GET still reaches curl" "$config" \
@@ -189,7 +171,6 @@ check "an unauthenticated GET still reaches curl" "$config" \
 check_absent "the none scheme sends no Authorization header" "$config" 'Authorization'
 check_absent "the none scheme sends no Basic credential" "$config" 'user = '
 
-# ------------------------------------------------------------------------ call
 
 json='{"using":["urn:ietf:params:jmap:core"],"methodCalls":[["Email/get",{"ids":["a"]},"c0"]]}'
 config=$(config_for "call $(b64 "$API_URL") $(b64 basic) $(b64 jane) $(b64 pw) $(b64 "$json")")
@@ -203,7 +184,6 @@ check "the call connect deadline" "$config" 'connect-timeout = 20'
 check "the call transfer deadline" "$config" 'max-time = 60'
 check "a method reply has the same ceiling" "$config" 'max-filesize = 20971520'
 
-# -------------------------------------------------------------------- download
 
 config=$(config_for "download $(b64 "$API_URL/download/t/blob/name") $(b64 basic) $(b64 jane) $(b64 pw)")
 check "a blob download has the 20 MB ceiling" "$config" 'max-filesize = 20971520'
@@ -213,7 +193,6 @@ check "a stalled download is given up on after 30 s" "$config" 'speed-time = 30'
 check "a download gets the long transfer deadline" "$config" 'max-time = 600'
 check_absent "a download is not a POST" "$config" 'request = "POST"'
 
-# ---------------------------------------------------------------------- upload
 
 raw='Subject: hi
 
@@ -227,11 +206,7 @@ check_absent "the message body is not inlined into the config" "$config" 'Subjec
 check "an upload gets the long transfer deadline" "$config" 'max-time = 600'
 check "an upload's answer has the same ceiling" "$config" 'max-filesize = 20971520'
 
-# ---------------------------------------------------------------------- stream
-#
-# The stream answers in raw lines rather than the four-line reply, so its
-# output is curl's own — here the config, then the trailer curl prints once the
-# transfer has ended.
+# Invariant: Stream output stays raw; request verbs use the four-line base64 response frame.
 
 stream_request="stream $(b64 "$API_URL/eventsource") $(b64 basic) $(b64 jane) $(b64 pw)"
 out=$(run "$stream_request")
@@ -246,8 +221,8 @@ check_absent "the stream is not base64: it is read line by line" "$out" 'output 
 check_absent "the stream is bounded by its rotation, not by a size" "$out" 'max-filesize'
 equals "the stream ends with the http trailer" "$(printf '%s\n' "$out" | tail -n 1)" 'http 200'
 
-# The trailer is what splits a --fail exit 22 into a rejected credential and a
-# connection that failed.
+# Invariant: The trailer is what splits a --fail exit 22 into a rejected credential and a connection
+# that failed.
 out=$(printf '%s\n' "$stream_request" \
   | CURL_STUB_STATUS=401 CURL_STUB_EXIT=22 PATH="$work/bin:$PATH" sh "$script" || true)
 equals "a refused stream reports its status in the trailer" \
@@ -259,14 +234,8 @@ stream_status=$?
 set -e
 equals "the stream exits with curl's own code" "$stream_status" 22
 
-# Stopping the stream stops curl.
-#
-# The owner stops a stream by stopping the process it started, which is this
-# shell — and a pipeline puts curl on the far side of a pipe from it. Without
-# the trap the shell dies, curl is reparented to init and holds an
-# authenticated connection open until its own `max-time` an hour later. This is
-# the assertion that the signal actually crosses the pipe: a curl that ignores
-# it and lives is the bug.
+# Invariant: Stopping the stream shell must terminate curl; otherwise its authenticated connection
+# can survive until the one-hour rotation.
 cat > "$work/bin/curl-slow" <<'SLOW'
 #!/bin/sh
 cat >/dev/null
@@ -302,14 +271,8 @@ else
   printf '  ok   %s\n' "stopping the stream takes curl down with it"
 fi
 
-# Stopping a request stops curl, for every verb and not only the stream.
-#
-# The client cancels a request by stopping this shell. With curl in the
-# foreground of the pipeline the shell's TERM trap waited for curl to finish,
-# which for a download or an upload was `max-time` — ten minutes — and an
-# aborted upload held its slot in the client's queue for as long as the curl it
-# had abandoned kept running. The four request verbs take the same background
-# and trap shape as the stream, and this is the assertion for each of them.
+# Invariant: Every request verb must terminate curl promptly on cancellation, including
+# uploads/downloads with ten-minute transfer limits.
 for verb in session call download upload; do
   case "$verb" in
     call) stop_request="call $(b64 "$API_URL") $(b64 basic) $(b64 jane) $(b64 pw) $(b64 "$json")" ;;
@@ -346,10 +309,8 @@ for verb in session call download upload; do
   fi
 done
 
-# ----------------------------------------------------------------- scheme gate
-#
-# The second gate. The client validated the URL; this is what stops a
-# hand-edited accounts.json from sending an account password somewhere else.
+# Invariant: The transport revalidates the URL before sending credentials, even if settings bypassed
+# client validation.
 
 refuses() {
   count="$work/refused-curl"
@@ -389,11 +350,9 @@ url = "https://elsewhere"')"
 refuses "a field that is not canonical base64 is refused" \
   "session $(b64 "$SESSION_URL") $(b64 basic) $(b64 jane) c2Vlbh=="
 
-# ------------------------------------------------------------------ the framing
 
-# Counted straight out of the script: a command substitution strips the
-# trailing newline, and the fourth line is empty whenever curl said nothing on
-# stderr.
+# Algorithm: Counted straight out of the script: a command substitution strips the trailing newline,
+# and the fourth line is empty whenever curl said nothing on stderr.
 lines=$(printf '%s\n' "$request" \
   | CURL_STUB_STATUS=301 CURL_STUB_REDIRECT='https://elsewhere.example.org/jmap' \
     PATH="$work/bin:$PATH" sh "$script" | wc -l | tr -d ' ')
@@ -405,9 +364,9 @@ equals "curl's exit code is the first line" "$(printf '%s\n' "$out" | sed -n '1p
 equals "the redirect URL follows the status on line two" \
   "$(printf '%s\n' "$out" | sed -n '2p')" '301 https://elsewhere.example.org/jmap'
 
-# curl writes the body it received before giving up on the ceiling; the stub
-# writes one too. Past the ceiling nobody reads it, and 28 MB of base64 is not
-# something to hand the shell process for an error line.
+# Performance: curl writes the body it received before giving up on the ceiling; the stub writes one
+# too. Past the ceiling nobody reads it, and 28 MB of base64 is not something to hand the shell
+# process for an error line.
 out=$(printf '%s\n' "$request" | CURL_STUB_EXIT=63 PATH="$work/bin:$PATH" sh "$script")
 equals "a reply past the ceiling reports curl's exit" "$(printf '%s\n' "$out" | sed -n '1p')" 63
 equals "and carries no body, whatever curl wrote before it stopped" \
@@ -419,12 +378,8 @@ equals "a timeout reports curl's exit rather than failing the script" \
 equals "a status with no redirect is the code alone" \
   "$(printf '%s\n' "$out" | sed -n '2p')" 200
 
-# ------------------------------------------------------------- the work dir
-#
-# A SIGKILL runs no trap, so a request whose owner was destroyed while it ran
-# leaves its directory behind with the reply or the message inside. The next
-# request sweeps such directories an hour after they were last written, and
-# only those: one written just now belongs to a request still running.
+# Invariant: SIGKILL bypasses cleanup; sweep only stale directories in this transport namespace,
+# preserving fresh and unrelated directories.
 
 stale_home="$work/tmp"
 mkdir -p "$stale_home/omamail-jmap.stale" "$stale_home/omamail-jmap.fresh" "$stale_home/omamail-other.stale"
@@ -445,8 +400,8 @@ fi
 equals "the request's own directory is gone with the request" \
   "$(find "$stale_home" -maxdepth 1 -name 'omamail-jmap.*' | wc -l | tr -d ' ')" 1
 
-# Under the runtime directory when there is one — the user's own, cleared when
-# the session ends — and TMPDIR still wins when somebody set it.
+# Invariant: Under the runtime directory when there is one — the user's own, cleared when the
+# session ends — and TMPDIR still wins when somebody set it.
 mkdir -p "$work/run"
 upload_request="upload $(b64 "$API_URL/upload/t/") $(b64 basic) $(b64 jane) $(b64 pw) $(b64 "$raw")"
 config=$(printf '%s\n' "$upload_request" \
@@ -458,10 +413,8 @@ config=$(printf '%s\n' "$upload_request" \
   | sed -n '3p' | base64 -d)
 check "unless TMPDIR says otherwise" "$config" "upload-file = \"$work/tmp/omamail-jmap."
 
-# --------------------------------------------------------------------- retrying
-#
-# Retrying is safe only before anything has been sent: 6, 7 and 35 all mean the
-# request never reached the server, so an Email/set cannot double-apply.
+# Invariant: Retry only pre-transfer failures 6, 7 and 35; a JMAP mutation must never be replayed
+# after an uncertain delivery.
 
 attempts_for() {
   count="$work/attempts"
@@ -491,8 +444,6 @@ expect_attempts "a timeout is not tried again: the server may have taken it" "$r
 call_request="call $(b64 "$API_URL") $(b64 basic) $(b64 jane) $(b64 pw) $(b64 "$json")"
 expect_attempts "a call that failed mid-transfer is not repeated" "$call_request" 56 1
 
-# The stub answers on the third attempt, and the reply carries that answer
-# rather than the failure before it.
 count="$work/attempts"
 rm -f "$count"
 out=$(printf '%s\n' "$request" \

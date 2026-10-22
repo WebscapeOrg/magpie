@@ -88,6 +88,12 @@ Item {
   property int tokenRequestSerial: 0
   property var pendingTokenWrite: null
   property string loginHint: ""
+  property var lifetime: ({active: true})
+
+  Component.onDestruction: {
+    lifetime.active = false
+    cancelLogin()
+  }
 
   signal loginSucceeded()
   signal loggedOut()
@@ -187,7 +193,9 @@ Item {
       lastError = "Could not save the OAuth client to " + credentialsPath
       return false
     }
+    var owner = lifetime
     platform.writeConfig("credentials.json", credentialsWritePayload, function(ok, error) {
+      if (!owner.active) return
       root.credentialsWritePayload = ""
       root.credentialsWriteBusy = false
       if (!ok) {
@@ -247,8 +255,10 @@ Item {
     lookupHandled = false
     var boundAccount = accountId
     var boundClient = clientId
+    var owner = lifetime
     credentialLookupBusy = true
     platform.credentialGet("google-refresh-token", boundAccount, boundClient, function(value, error) {
+      if (!owner.active) return
       root.credentialLookupBusy = false
       if (boundAccount !== root.accountId || boundClient !== root.clientId) return
       root.handleSecretLookup(error ? "" : value)
@@ -314,8 +324,15 @@ Item {
     credentialWriteBusy = true
     var write = {accountId: boundAccount, clientId: boundClient, cancelled: false}
     pendingTokenWrite = write
+    var owner = lifetime
+    var storage = platform
     platform.credentialPut("google-refresh-token", boundAccount, boundClient, token, function(ok, error) {
       token = ""
+      if (!owner.active) {
+        if (write.cancelled && storage && typeof storage.credentialDelete === "function")
+          storage.credentialDelete("google-refresh-token", boundAccount, boundClient)
+        return
+      }
       root.credentialWriteBusy = false
       root.pendingTokenWrite = null
       if (!ok && boundAccount === root.accountId && boundClient === root.clientId)
@@ -327,7 +344,7 @@ Item {
   function clearStoredToken(identity) {
     var owner = identity || {accountId: accountId, clientId: clientId}
     if (!owner.clientId || !owner.accountId || !platform || typeof platform.credentialDelete !== "function") return
-    platform.credentialDelete("google-refresh-token", owner.accountId, owner.clientId, function() {})
+    platform.credentialDelete("google-refresh-token", owner.accountId, owner.clientId)
   }
 
   // ---------------------------------------------------------------- tokens
@@ -342,7 +359,9 @@ Item {
       return
     }
     if (!accountId) { callback(OAuth.parseTokenResponse(0, "", "")); return }
+    var owner = lifetime
     backend.call("auth.token", { provider: "gmail", accountId: accountId, resource: "mail" }, function(result, error) {
+      if (!owner.active) return
       if (serial !== root.tokenRequestSerial) return
       root.tokenRequest = null
       var reason = String(error && error.message || "")
@@ -417,10 +436,13 @@ Item {
     exchangingCode = false
     if (!backend || !backend.ready) { failLogin("Mail backend unavailable"); return }
     var serial = ++tokenRequestSerial
+    var owner = lifetime
+    var transport = backend
     backend.call("auth.begin", { clientId: clientId, clientSecret: credentials.clientSecret,
       port: OAuth.normalizedPort(oauthPort), scopes: scopes, loginHint: loginHint }, function(result, error) {
-      if (serial !== root.tokenRequestSerial || !root.loginBusy) {
-        if (result && result.id) root.backend.call("auth.cancel", { id: result.id }, function() {})
+      if (!owner.active || serial !== root.tokenRequestSerial || !root.loginBusy) {
+        if (result && result.id && transport && typeof transport.call === "function")
+          transport.call("auth.cancel", { id: result.id })
         return
       }
       if (error) {
@@ -440,7 +462,9 @@ Item {
   function pollNativeLogin() {
     if (!nativeFlow || !loginBusy) return
     var flow = nativeFlow
+    var owner = lifetime
     backend.call("auth.poll", { id: flow }, function(result, error) {
+      if (!owner.active) return
       if (flow !== root.nativeFlow) return
       if (error) {
         root.failLogin(error.message === "auth_missing_scope"
@@ -546,7 +570,7 @@ Item {
 
   function stopNativeLogin() {
     nativePoll.stop()
-    if (nativeFlow && backend) backend.call("auth.cancel", { id: nativeFlow }, function() {})
+    if (nativeFlow && backend) backend.call("auth.cancel", { id: nativeFlow })
     nativeFlow = ""
   }
 

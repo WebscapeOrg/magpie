@@ -24,7 +24,7 @@ Item {
     }
     function credentialDelete(kind, accountId, clientId, done) {
       deletes = deletes.concat([accountId])
-      done(true, "")
+      if (typeof done === "function") done(true, "")
     }
   }
   Component {

@@ -22,10 +22,15 @@ grep -q 'request = "PUT"' "$work/config"
 test "$(cat "$work/event")" = 'BEGIN:VCALENDAR'
 # A decoded field becomes one quoted line of the curl config, so an address
 # carrying a line break is refused before curl is ever invoked.
+rm -f "$work/config"
 if printf '%s %s %s\n' "$(printf 'https://calendar.example/a.ics\noutput = "/tmp/x"' | base64 -w0)" \
   "$(b64 'me:secret')" "$(b64 'BEGIN:VCALENDAR')" \
   | PATH="$work/bin:$PATH" "$project_dir/scripts/calendar-write.sh" 2>/dev/null; then
   echo 'calendar-write.sh: a URL that spans lines must be refused' >&2
+  exit 1
+fi
+if [ -e "$work/config" ]; then
+  echo 'test_calendar_write.sh: refused input reached curl' >&2
   exit 1
 fi
 echo 'calendar-write.sh ok'

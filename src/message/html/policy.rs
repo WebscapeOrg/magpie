@@ -117,23 +117,31 @@ pub fn raster_decoded_bytes(source: &str) -> Option<u64> {
 pub fn raster(source: &str) -> bool {
     raster_decoded_bytes(source).is_some()
 }
-pub fn image_kind(source: &str) -> &'static str {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ImageSource {
+    Absent,
+    Embedded,
+    Remote,
+    Unsafe,
+    Local,
+}
+pub(super) fn image_kind(source: &str) -> ImageSource {
     let url = normalized(source);
     let lower = url.to_ascii_lowercase();
     if url.is_empty() {
-        "none"
+        ImageSource::Absent
     } else if lower.starts_with("cid:") || raster_data(&url).is_some() {
-        "inline"
+        ImageSource::Embedded
     } else if re!(r"(?i)^(https?:)?//").is_match(&url) {
         if is_public_url(source) {
-            "remote"
+            ImageSource::Remote
         } else {
-            "unsafe"
+            ImageSource::Unsafe
         }
     } else if re!(r"(?i)^[a-z][a-z0-9+.-]*:").is_match(&url) {
-        "unsafe"
+        ImageSource::Unsafe
     } else {
-        "local"
+        ImageSource::Local
     }
 }
 pub fn safe_href(source: &str) -> bool {

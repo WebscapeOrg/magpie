@@ -11,7 +11,7 @@ function method(name) {
 }
 const context = {
   Cli: load("providers/HeyCli.js"), messageResources: {}, rows: {}, inFlight: 0, sessionGeneration: 0,
-  deferred: { call: fn => fn() },
+  deferred: { call: callback => callback() },
   auth: { loggedIn: true, accountId: "hey:me@example.org", heyPath: "/bin/hey" }
 }
 context.root = context

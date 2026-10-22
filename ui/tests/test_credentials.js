@@ -266,10 +266,10 @@ for (const value of credentials.jmapKeyringAttributes(undefined)) {
 
 function recordLines(count) {
   var lines = []
-  for (var i = 0; i < count; i++) {
-    lines.push("[/" + (i + 10) + "]")
+  for (var itemIndex = 0; itemIndex < count; itemIndex++) {
+    lines.push("[/" + (itemIndex + 10) + "]")
     lines.push("label = Omamail refresh token")
-    lines.push("secret = token-" + i)
+    lines.push("secret = token-" + itemIndex)
     lines.push("created = 2026-08-21 13:01:00")
     lines.push("modified = 2026-08-21 13:01:00")
     lines.push("schema = org.freedesktop.Secret.Generic")
@@ -279,11 +279,11 @@ function recordLines(count) {
 
 function attributeLines(accounts) {
   var lines = []
-  for (var i = 0; i < accounts.length; i++) {
+  for (var itemIndex = 0; itemIndex < accounts.length; itemIndex++) {
     lines.push("attribute.service = omamail")
     lines.push("attribute.kind = refresh-token")
     lines.push("attribute.client-id = " + sharedClient)
-    if (accounts[i] !== null) lines.push("attribute.account = " + accounts[i])
+    if (accounts[itemIndex] !== null) lines.push("attribute.account = " + accounts[itemIndex])
   }
   return lines
 }
@@ -292,8 +292,8 @@ function attributeLines(accounts) {
 // secrets to count.
 function countWith(predicate, lines) {
   var found = 0
-  for (var i = 0; i < lines.length; i++) {
-    if (predicate(lines[i])) found++
+  for (var itemIndex = 0; itemIndex < lines.length; itemIndex++) {
+    if (predicate(lines[itemIndex])) found++
   }
   return found
 }

@@ -1413,6 +1413,33 @@ Item {
       compare(mailService.lastSavedDraft,null)
     }
 
+    function test_save_waits_for_pending_attachment_without_detaching_draft() {
+      app.open("{}")
+      app.startCompose("new")
+      var compose = composeView()
+      named(compose, "compose-subject-field").text = "Keep the attachment"
+      recoveryBackend.ready = true
+      compose.enqueueAttach("read", "/synthetic-pending.txt")
+      var request = lastNativeRequest("attachment.read")
+      verify(request !== null)
+      compare(compose.attachmentsReady, false)
+      var owner = compose.draftKey
+      app.goBack()
+      compare(named(app, "compose-exit-dialog").opened, true)
+      keyClick(Qt.Key_Return)
+      compare(mailService.lastSavedDraft, null, "No incomplete draft may reach provider storage")
+      compare(compose.opened, true)
+      compare(compose.draftKey, owner)
+      verify(mailService.lastError.indexOf("attachments") >= 0)
+      request.done({ok:true,filename:"synthetic-pending.txt",data:"eA",size:1},null)
+      compare(compose.attachmentsReady, true)
+      compare(compose.draftAttachments.length, 1)
+      app.saveAndLeaveCompose(true)
+      verify(mailService.lastSavedDraft !== null)
+      compare(mailService.lastSavedDraft.attachments.length, 1)
+      compare(compose.opened, false)
+    }
+
     function test_late_attachment_cannot_modify_the_next_compose() {
       app.open("{}")
       app.startCompose("new")

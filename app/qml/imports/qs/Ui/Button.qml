@@ -52,6 +52,7 @@ Rectangle {
   QQC.Button {
     id: control
     objectName: "button-input"
+    Accessible.name: root.text
     anchors.fill: parent
     flat: true
     focusPolicy: root.focusable ? Qt.StrongFocus : Qt.NoFocus

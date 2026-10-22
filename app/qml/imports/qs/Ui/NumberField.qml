@@ -39,6 +39,7 @@ Item {
 
   QQC.SpinBox {
     id: spinBox
+    Accessible.name: root.label
     objectName: "number-field-input"
     anchors.right: parent.right
     anchors.verticalCenter: parent.verticalCenter

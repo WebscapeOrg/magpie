@@ -114,34 +114,34 @@ pub(super) async fn record(event: Event) {
         let (sender, receiver) = std::sync::mpsc::sync_channel(512);
         let _ = std::thread::Builder::new()
             .name("gmail-diagnostics".into())
-            .spawn(move || {
-                let mut batch = Vec::new();
-                let mut deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-                loop {
-                    match receiver
-                        .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
-                    {
-                        Ok(Command::Event(event)) => batch.push(event),
-                        Ok(Command::Flush(done)) => {
-                            persist(&mut batch);
-                            let _ = done.send(());
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => persist(&mut batch),
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                            persist(&mut batch);
-                            break;
-                        }
-                    }
-                    if batch.len() >= 64 || std::time::Instant::now() >= deadline {
-                        persist(&mut batch);
-                        deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-                    }
-                }
-            });
+            .spawn(move || consume(receiver));
         sender
     });
     if writer.try_send(Command::Event(event)).is_err() {
         DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+fn consume(receiver: std::sync::mpsc::Receiver<Command>) {
+    let mut batch = Vec::new();
+    let mut deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        match receiver.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(Command::Event(event)) => batch.push(event),
+            Ok(Command::Flush(done)) => {
+                persist(&mut batch);
+                let _ = done.send(());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => persist(&mut batch),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                persist(&mut batch);
+                break;
+            }
+        }
+        if batch.len() >= 64 || std::time::Instant::now() >= deadline {
+            persist(&mut batch);
+            deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        }
     }
 }
 

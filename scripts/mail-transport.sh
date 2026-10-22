@@ -1,49 +1,14 @@
 #!/bin/sh
-# Runs one IMAP conversation, or sends one message over SMTP, and hands the
-# result back to the panel.
-#
-# curl is the client. It owns TLS, LOGIN, the tagged command it wraps each
-# request in, and the literals in the reply; `Imap.js` owns every string that
-# goes in and every decision about what comes back. Nothing in between needs a
-# library the plugin would have to carry.
-#
-# ## Everything crosses on stdin, base64-encoded
-#
-# One line, fields separated by spaces:
-#
+# Protocol: one space-separated, base64-encoded request line on stdin.
 #   imap <b64 url> <b64 user:password> <b64 command> [<b64 command> ...]
 #   imap-id <b64 root url> <b64 url> <b64 user:password> <b64 preamble> <b64 command> ...
 #   imap-append <b64 url> <b64 user:password> <b64 message> <b64 flags>
 #   smtp <b64 url> <b64 user:password> <b64 from> <b64 message> <b64 rcpt> ...
-#   *-oauth uses <b64 username> <b64 bearer token> in place of <b64 user:password>
+#   *-oauth replaces <b64 user:password> with <b64 username> <b64 bearer token>.
 #   graph-send <b64 url> <b64 token> <b64 message>
-#
-# graph-send is Microsoft Graph's sendMail for a Microsoft 365 tenant that has
-# authenticated SMTP switched off: the same message, POSTed as base64 MIME
-# with a bearer token of Graph's own audience. Graph files the sent copy.
-#
-# base64 rather than the values themselves, for three reasons that each bite
-# once during this script's life:
-#
-#   - a password never reaches the process table, which is the same rule
-#     keyring-store.sh follows for the refresh token
-#   - a password, a folder name and an IMAP command may all contain quotes,
-#     backslashes and spaces; base64 has none of those, so the field split is a
-#     plain `set --` and there is no escaping to get wrong
-#   - the fields arrive on one line, because Quickshell's Process.write() never
-#     closes stdin and anything reading to EOF would hang forever
-#
-# ## And comes back base64-encoded
-#
-#   <curl exit code>
-#   <b64 stdout>
-#   <b64 stderr>
-#
-# The response is base64 for a different reason: IMAP measures a literal in
-# octets, so the parser has to count octets. Base64 keeps the byte count exact
-# across a pipe the shell would otherwise read as text, keeps binary attachment
-# data intact, and guarantees no newline inside a response can be mistaken for
-# the end of one.
+# Response: three lines containing the curl exit code, base64 stdout and base64 stderr.
+# Invariant: credentials stay off argv. Read one line, not EOF: Quickshell keeps
+# stdin open. Base64 preserves IMAP literal octets and response framing.
 set -eu
 
 fail() {
@@ -55,15 +20,12 @@ decode() {
   printf '%s' "$1" | base64 -d 2>/dev/null || fail 'mail-transport.sh: bad base64 field'
 }
 
-# Controls are refused before decoding; quotes and backslashes are escaped.
+# Invariant: validate_config_fields rejects controls before values reach escape.
 escape() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
-# One line, never wrapped and with no trailing newline of its own — the caller
-# adds exactly one, so the reply is always three lines however long a message
-# was. `-w 0` is not portable and both implementations wrap by default, so the
-# newlines are stripped rather than suppressed.
+# Invariant: GNU/BSD base64 wrapping must not add response framing lines.
 encode() {
   base64 < "$1" | tr -d '\n'
 }
@@ -73,8 +35,7 @@ encode() {
 IFS= read -r line || fail 'mail-transport.sh: no request on stdin'
 [ -n "$line" ] || fail 'mail-transport.sh: empty request'
 
-# The fields are base64, which contains no spaces, so splitting on them is safe
-# and needs no quoting rules.
+# Invariant: encoded fields contain no spaces.
 # shellcheck disable=SC2086
 set -- $line
 [ $# -ge 4 ] || fail 'mail-transport.sh: usage: <mode> <url> <credentials> <arg>...'
@@ -87,9 +48,8 @@ case "$mode" in
   smtp-oauth) [ $# -ge 7 ] || fail 'mail-transport.sh: smtp-oauth needs a URL, a username, a bearer token, a sender, a message and a recipient' ;;
   graph-send) [ $# -eq 4 ] || fail 'mail-transport.sh: graph-send needs a url, a token and a message' ;;
 esac
-# Validate ALL config fields before curl can see even the first command. Only
-# message bodies bypass this check: they are uploaded as files, never config.
-# APPEND flags remain protected, just like URLs and credentials.
+# Invariant: validate every config field before curl starts. Only uploaded
+# message bodies bypass this check; APPEND flags remain config values.
 field_number=0
 for field in "$@"; do
   field_number=$((field_number + 1))
@@ -98,12 +58,8 @@ for field in "$@"; do
   esac
   validate_config_fields "$field"
 done
-# `imap-id` carries two URLs. The first section has to reach the server without
-# naming a mailbox: curl opens a URL's path before the first command it was
-# given, so a path there is a SELECT that nothing can be placed in front of,
-# and some servers refuse SELECT until the client has sent RFC 2971's ID. The
-# connection is reused across the sections, so a command sent by the first one
-# still applies to the mailbox the next one opens.
+# Invariant: RFC 2971 ID runs at the root URL before curl's path-derived SELECT.
+# curl reuses the connection for the subsequent mailbox commands.
 case "$mode" in
   imap-oauth|imap-id-oauth|imap-append-oauth|smtp-oauth) oauth=1 ;;
   *) oauth=0 ;;
@@ -149,14 +105,9 @@ case "$mode" in
   *) fail 'mail-transport.sh: unsupported mode' ;;
 esac
 
-# The URL is built and validated by Imap.js, which has already refused anything
-# carrying userinfo, a port inside the host, or characters that could end the
-# path. This is the second gate rather than the first: the scheme check is what
-# stops a hand-edited accounts.json from pointing an authenticated client at
-# file:// or at an ordinary web server.
+# Invariant: reject non-mail schemes even when the caller was bypassed.
 case "$url" in
-  # Graph has one address, fixed here rather than taken from the caller, so
-  # a hand-edited accounts.json cannot point a bearer token at another host.
+  # Invariant: Graph bearer tokens may only reach this fixed endpoint.
   https://graph.microsoft.com/v1.0/me/sendMail) [ "$mode" = "graph-send" ] || fail 'mail-transport.sh: refusing a URL that is not imap(s) or smtp(s)' ;;
   imaps://*|imap://*|smtps://*|smtp://*) [ "$mode" != "graph-send" ] || fail 'mail-transport.sh: graph-send goes to Graph alone' ;;
   *) fail 'mail-transport.sh: refusing a URL that is not imap(s) or smtp(s)' ;;
@@ -177,10 +128,7 @@ trap 'rm -rf "$work"' EXIT INT TERM HUP
 case "$mode" in smtp|smtp-oauth) sending=1 ;; *) sending=0 ;; esac
 case "$mode" in imap-append|imap-append-oauth) appending=1 ;; *) appending=0 ;; esac
 
-# The config is written to curl's own stdin rather than to a file: it carries
-# the password, and a file holding one would be on disk for as long as curl
-# took to read it. `build_config` prints it; the pipeline below is what feeds
-# it in without it ever being written down.
+# Invariant: credential-bearing config reaches curl through stdin, never disk.
 build_config() {
 if [ "$mode" = "graph-send" ]; then
   printf 'url = "%s"\n' "$escaped_url"
@@ -209,9 +157,7 @@ elif [ "$sending" = 1 ]; then
   for recipient in "$@"; do
     printf 'mail-rcpt = "%s"\n' "$(escape "$(decode "$recipient")")"
   done
-  # The message is the one value too large to be an argument, and curl uploads
-  # from a file rather than from a string — stdin is already carrying this
-  # config. It lands in the 0700 directory the trap removes on any exit.
+  # Invariant: stdin carries config; uploads use the private temporary directory.
   printf 'upload-file = "%s"\n' "$(escape "$work/message")"
 elif [ "$appending" = 1 ]; then
   printf 'url = "%s"\n' "$escaped_url"
@@ -224,48 +170,30 @@ elif [ "$appending" = 1 ]; then
     imap://*) printf 'ssl-reqd\n' ;;
   esac
   printf 'upload-file = "%s"\n' "$(escape "$work/message")"
-  # Which flags the copy arrives under is the caller's decision — `Imap.js`
-  # spells them in curl's dialect, one word per flag — because a draft and a
-  # sent copy want different ones and this script is not the place a message
-  # becomes either.
+  # Protocol: the caller supplies space-separated curl upload flags.
   printf 'upload-flags = "%s"\n' "$(escape "$(decode "$2")")"
 else
-  # IMAP: one section per command, so a sequence — search a folder, then fetch
-  # what came back — runs on a single connection. curl reuses the connection
-  # across sections to the same host, so the TLS handshake and the LOGIN are
-  # paid for once rather than once per command. `--next` resets almost every
-  # option, which is why the URL and the credentials are repeated in each
-  # section rather than set once at the top.
+  # Performance: curl reuses the connection across command sections.
+  # Invariant: next resets transfer options; repeat credentials and bounds.
   first=1
   for argument in "$@"; do
     [ "$first" = "1" ] || printf 'next\n'
-    # globoff is per-transfer too: next would otherwise expand later URLs.
+    # Invariant: next also resets globoff.
     printf 'globoff\n'
-    # In imap-id the opening command runs against the server rather than a
-    # mailbox, so that it lands in front of the SELECT curl derives from the
-    # path. Every later section names the mailbox as usual.
+    # Invariant: only the opening ID command uses the root URL.
     if [ "$identified" = 1 ] && [ "$first" = "1" ]; then
       printf 'url = "%s"\n' "$escaped_root_url"
-      # The opening command's own reply is of no interest, and leaving it on
-      # stdout would be worse than useless: the test below reads a non-empty
-      # stdout as "the answer is here", and a single-UID BODY FETCH is the one
-      # request whose answer really does arrive there. One stray line from this
-      # section is enough to make a message body look like an empty one.
-      # `output` is per-section, so only this reply is discarded.
+      # Invariant: an ID reply on stdout would suppress the BODY FETCH fallback.
+      # output applies only to this section.
       printf 'output = "%s"\n' "/dev/null"
     else
       printf 'url = "%s"\n' "$escaped_url"
     fi
     first=0
-    # Desktop HTTP/SOCKS proxy settings are for web traffic. In particular,
-    # Omarchy's local SOCKS proxy accepts the IMAPS socket and then drops its
-    # TLS handshake, which curl reports as error 35. Direct mail transport also
-    # keeps account credentials from being offered through an unrelated proxy.
-    # Repeated because `next` resets this curl option with the rest.
+    # Invariant: desktop web proxies must not receive mail credentials.
+    # Omarchy's SOCKS proxy also drops IMAPS TLS; repeat after next.
     printf 'noproxy = "*"\n'
     print_authentication
-    # These are per-transfer options too. Keeping them in every section makes
-    # every command give up eventually, rather than only the final one.
     printf 'max-time = 60\n'
     printf 'connect-timeout = 20\n'
     case "$url" in
@@ -286,13 +214,10 @@ print_authentication() {
   fi
 }
 
-# The SMTP body has to be on disk before curl starts, because the config it is
-# named in is what stdin is carrying.
 if [ "$mode" = "graph-send" ]; then
   [ $# -eq 1 ] || fail 'mail-transport.sh: graph-send needs a url, a token and a message'
-  # The token arrived in the credentials field, like a password would.
   graph_token=$credentials
-  # Graph takes the MIME base64-encoded, as the body of a text/plain POST.
+  # Protocol: Graph accepts base64 MIME in a text/plain POST.
   decode "$1" > "$work/mime"
   base64 < "$work/mime" > "$work/encoded"
   tr -d '\n' < "$work/encoded" > "$work/message"
@@ -304,8 +229,7 @@ elif [ "$appending" = 1 ]; then
   decode "$1" > "$work/message"
 fi
 
-# curl is the last stage, so `$?` is curl's own exit code rather than the
-# config builder's.
+# Invariant: the pipeline exit code belongs to curl.
 attempt_curl() {
   build_config "$@" | curl -q --globoff \
     --fail-early \
@@ -316,21 +240,9 @@ attempt_curl() {
     > "$work/out" 2> "$work/err"
 }
 
-# A dropped TLS handshake is worth a second go; a delivered message is not.
-#
-# curl's own `--retry` covers neither on its own: its idea of a transient error
-# is a timeout or an HTTP status, so a handshake that died mid-negotiation is
-# not retried without `--retry-all-errors`. That flag then retries everything —
-# including a transfer that failed *after* the server took it, which for SMTP
-# is the message delivered twice and for APPEND a second copy in the folder.
-# curl cannot tell those apart because by then it has already sent them.
-#
-# So the retry is here, on the three exit codes that mean the command never
-# reached the server at all: the name did not resolve (6), the socket never
-# connected (7), and TLS failed before the session existed (35). Every one of
-# those is safe to repeat whatever the mode is. A rejected password (67) is
-# not retried, because three LOGIN attempts per operation is what iCloud and
-# Gmail lock an app password for.
+# Invariant: retry only pre-session failures: DNS (6), connect (7), TLS (35).
+# Broader curl retries can duplicate SMTP delivery or APPEND after acceptance.
+# Authentication failures (67) must not multiply attempts against account limits.
 attempt=0
 while :; do
   set +e
@@ -346,8 +258,7 @@ while :; do
   sleep 1
 done
 
-# Graph answers with a status, not with a curl error: 202 is sent, anything
-# else is the body's own explanation, and no status line at all is a failure.
+# Protocol: Graph HTTP failures need an explicit status check after curl succeeds.
 if [ "$mode" = "graph-send" ] && [ "$status" -eq 0 ]; then
   http=$(sed -n 's/^HTTP\/[0-9.]* \([0-9]*\).*/\1/p' "$work/headers" 2>/dev/null | tail -1)
   case "$http" in
@@ -361,12 +272,8 @@ printf '%s\n' "$status"
 if { [ "$mode" = "imap" ] || [ "$mode" = "imap-id" ] \
   || [ "$mode" = "imap-oauth" ] || [ "$mode" = "imap-id-oauth" ]; } \
   && [ ! -s "$work/out" ] && [ -s "$work/headers" ]; then
-  # libcurl recognises only a single numeric UID as a BODY FETCH. A legal IMAP
-  # sequence-set is treated as a generic custom request, whose response is
-  # delivered through curl's protocol-header callback instead of stdout.
-  # A single UID BODY FETCH is recognised by libcurl and its complete response
-  # stays on stdout; prefer that whenever it exists because the header channel
-  # then contains only a partial protocol preamble.
+  # Invariant: libcurl sends sequence-set FETCH replies through its header
+  # callback. Prefer stdout for single-UID BODY FETCH; headers are partial there.
   encode "$work/headers"
 else
   encode "$work/out"

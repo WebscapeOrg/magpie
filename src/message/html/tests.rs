@@ -1,9 +1,12 @@
 use super::*;
 #[test]
 fn smoke() {
-    let out = sanitize("<p>Hello <b>world</b></p>", &json!({"withReader":true})).unwrap();
-    assert_eq!(out["html"], "<p>Hello <b>world</b></p>");
-    assert_eq!(out["reader"]["html"], "<p>Hello <strong>world</strong></p>");
+    let result = sanitize("<p>Hello <b>world</b></p>", &json!({"withReader":true})).unwrap();
+    assert_eq!(result["html"], "<p>Hello <b>world</b></p>");
+    assert_eq!(
+        result["reader"]["html"],
+        "<p>Hello <strong>world</strong></p>"
+    );
 }
 
 #[test]
@@ -230,7 +233,7 @@ fn native_output_cannot_trigger_qt_resource_requests() {
                     seen.fetch_add(1, Ordering::SeqCst);
                     let _=stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nContent-Type: image/png\r\nConnection: close\r\n\r\n\x89PNG\r\n\x1a\n");
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(2))
                 }
                 Err(_) => break,
@@ -248,7 +251,7 @@ fn native_output_cannot_trigger_qt_resource_requests() {
     std::fs::create_dir(&directory).unwrap();
     let run = |documents: Vec<String>| {
         let qml = format!(
-            "import QtQuick\nimport QtTest\nItem {{ width:400; height:200; property var documents: {}\nTextEdit {{ id: reader; width:400; height:200; textFormat: TextEdit.RichText }}\nTestCase {{ name: \"NativeHtmlResources\"; when: windowShown; function test_documents() {{ for (var i=0;i<documents.length;i++) {{ reader.text=documents[i]; wait(100); }} }} }}\n}}",
+            "import QtQuick\nimport QtTest\nItem {{ width:400; height:200; property var documents: {}\nTextEdit {{ id: reader; width:400; height:200; textFormat: TextEdit.RichText }}\nTestCase {{ name: \"NativeHtmlResources\"; when: windowShown; function test_documents() {{ for (var documentIndex=0;documentIndex<documents.length;documentIndex++) {{ reader.text=documents[documentIndex]; wait(100); }} }} }}\n}}",
             serde_json::to_string(&documents).unwrap()
         );
         let path = directory.join("tst_native.qml");

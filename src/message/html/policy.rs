@@ -1,23 +1,23 @@
 use super::tree::*;
 use base64::{Engine, engine::general_purpose::STANDARD};
 
-pub fn decode(s: &str) -> String {
+pub fn decode(source: &str) -> String {
     re!(r"&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);?")
-        .replace_all(s, |c: &regex::Captures| {
-            let v = &c[1];
-            if let Some(num) = v.strip_prefix('#') {
-                let parsed = if num.starts_with(['x', 'X']) {
-                    u32::from_str_radix(&num[1..], 16)
+        .replace_all(source, |captures: &regex::Captures| {
+            let entity = &captures[1];
+            if let Some(number) = entity.strip_prefix('#') {
+                let parsed = if number.starts_with(['x', 'X']) {
+                    u32::from_str_radix(&number[1..], 16)
                 } else {
-                    num.parse()
+                    number.parse()
                 };
                 return parsed
                     .ok()
                     .and_then(char::from_u32)
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| c[0].into());
+                    .map(|character| character.to_string())
+                    .unwrap_or_else(|| captures[0].into());
             }
-            match v.to_ascii_lowercase().as_str() {
+            match entity.to_ascii_lowercase().as_str() {
                 "amp" => "&",
                 "quot" => "\"",
                 "apos" => "'",
@@ -47,48 +47,48 @@ pub fn decode(s: &str) -> String {
                 "yen" => "¥",
                 "cent" => "¢",
                 "sect" => "§",
-                _ => return c[0].into(),
+                _ => return captures[0].into(),
             }
             .into()
         })
         .into_owned()
 }
-pub fn normalized(s: &str) -> String {
-    decode(&decode(s))
+pub fn normalized(source: &str) -> String {
+    decode(&decode(source))
         .replace(['\t', '\n', '\r'], "")
-        .trim_matches(|c: char| c.is_whitespace() || c <= '\u{1f}')
+        .trim_matches(|character: char| character.is_whitespace() || character <= '\u{1f}')
         .into()
 }
-fn host(s: &str) -> String {
-    let lower = s.to_ascii_lowercase();
-    let s = lower
+fn host(address: &str) -> String {
+    let lower = address.to_ascii_lowercase();
+    let address = lower
         .strip_prefix("https:")
         .or_else(|| lower.strip_prefix("http:"))
         .unwrap_or(&lower);
-    let Some(s) = s.strip_prefix("//") else {
+    let Some(address) = address.strip_prefix("//") else {
         return String::new();
     };
-    let s = s.split(['/', '?', '#']).next().unwrap_or("");
-    let s = s.rsplit('@').next().unwrap_or("");
-    if s.starts_with('[') {
-        return s.split(']').next().unwrap_or("").to_owned() + "]";
+    let address = address.split(['/', '?', '#']).next().unwrap_or("");
+    let address = address.rsplit('@').next().unwrap_or("");
+    if address.starts_with('[') {
+        return address.split(']').next().unwrap_or("").to_owned() + "]";
     }
-    s.split(':').next().unwrap_or("").into()
+    address.split(':').next().unwrap_or("").into()
 }
-fn public_host(h: &str) -> bool {
-    if let Ok(ip) = h.parse::<std::net::Ipv4Addr>() {
+fn public_host(host: &str) -> bool {
+    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
         return crate::public_http::is_public(ip.into());
     }
-    if h.len() > 253 || h.contains("..") || !re!(r"^[a-z0-9.-]+$").is_match(h) {
+    if host.len() > 253 || host.contains("..") || !re!(r"^[a-z0-9.-]+$").is_match(host) {
         return false;
     }
-    if re!(r"(?i)(^|\.)(localhost|home\.arpa)$|\.(local|localdomain|internal|intranet|lan|home|corp|test)$").is_match(h){return false}
-    re!(r"\.(xn--[a-z0-9-]+|[a-z]{2,})$").is_match(h)
+    if re!(r"(?i)(^|\.)(localhost|home\.arpa)$|\.(local|localdomain|internal|intranet|lan|home|corp|test)$").is_match(host){return false}
+    re!(r"\.(xn--[a-z0-9-]+|[a-z]{2,})$").is_match(host)
 }
-pub fn is_public_url(s: &str) -> bool {
-    let once = decode(s);
+pub fn is_public_url(source: &str) -> bool {
+    let once = decode(source);
     let twice = decode(&once);
-    public_host(&host(&normalized(s)))
+    public_host(&host(&normalized(source)))
         && (once == twice || public_host(&host(&once.replace(['\t', '\n', '\r'], ""))))
 }
 fn raster_data(source: &str) -> Option<Vec<u8>> {
@@ -117,42 +117,46 @@ pub fn raster_decoded_bytes(source: &str) -> Option<u64> {
 pub fn raster(source: &str) -> bool {
     raster_decoded_bytes(source).is_some()
 }
-pub fn image_kind(s: &str) -> &'static str {
-    let url = normalized(s);
+pub fn image_kind(source: &str) -> &'static str {
+    let url = normalized(source);
     let lower = url.to_ascii_lowercase();
     if url.is_empty() {
         "none"
     } else if lower.starts_with("cid:") || raster_data(&url).is_some() {
         "inline"
     } else if re!(r"(?i)^(https?:)?//").is_match(&url) {
-        if is_public_url(s) { "remote" } else { "unsafe" }
+        if is_public_url(source) {
+            "remote"
+        } else {
+            "unsafe"
+        }
     } else if re!(r"(?i)^[a-z][a-z0-9+.-]*:").is_match(&url) {
         "unsafe"
     } else {
         "local"
     }
 }
-pub fn safe_href(s: &str) -> bool {
-    re!(r"(?i)^\s*(https?:|mailto:)").is_match(s)
+pub fn safe_href(source: &str) -> bool {
+    re!(r"(?i)^\s*(https?:|mailto:)").is_match(source)
 }
-pub fn declarations(s: &str) -> Vec<(String, String)> {
-    let mut value = decode(&decode(s));
+pub fn declarations(source: &str) -> Vec<(String, String)> {
+    let mut value = decode(&decode(source));
     for _ in 0..8 {
         let old = value.clone();
         value = re!(r"(?s)/\*.*?(?:\*/|$)")
             .replace_all(&value, "")
             .into_owned();
         value = re!(r"\\([0-9a-fA-F]{1,6}[\t\n\r\x0c ]?|.)")
-            .replace_all(&value, |c: &regex::Captures| {
-                let v = &c[1];
-                if v.as_bytes()[0].is_ascii_hexdigit() {
-                    u32::from_str_radix(v.trim(), 16)
+            .replace_all(&value, |captures: &regex::Captures| {
+                let escaped = &captures[1];
+                if escaped.as_bytes()[0].is_ascii_hexdigit() {
+                    u32::from_str_radix(escaped.trim(), 16)
                         .ok()
                         .and_then(char::from_u32)
-                        .map(|c| c.to_string())
+                        .map(|character| character.to_string())
                         .unwrap_or_default()
                 } else {
-                    v.into()
+                    escaped.into()
                 }
             })
             .into_owned();
@@ -164,20 +168,20 @@ pub fn declarations(s: &str) -> Vec<(String, String)> {
     let mut start = 0;
     let mut quote = None;
     let mut depth = 0;
-    for (i, c) in value.char_indices() {
-        if let Some(q) = quote {
-            if c == q {
+    for (offset, character) in value.char_indices() {
+        if let Some(delimiter) = quote {
+            if character == delimiter {
                 quote = None
             }
             continue;
         }
-        match c {
-            '\'' | '"' => quote = Some(c),
+        match character {
+            '\'' | '"' => quote = Some(character),
             '(' => depth += 1,
             ')' => depth = std::cmp::max(0, depth - 1),
             ';' if depth == 0 => {
-                parts.push(&value[start..i]);
-                start = i + 1
+                parts.push(&value[start..offset]);
+                start = offset + 1
             }
             _ => {}
         }
@@ -185,44 +189,53 @@ pub fn declarations(s: &str) -> Vec<(String, String)> {
     parts.push(&value[start..]);
     parts
         .into_iter()
-        .filter_map(|p| p.split_once(':'))
-        .map(|(n, v)| (n.trim().to_ascii_lowercase(), v.trim().into()))
+        .filter_map(|part| part.split_once(':'))
+        .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().into()))
         .collect()
 }
-pub fn set_style(n: &mut Node, styles: &[(String, String)]) {
+pub fn set_style(node: &mut Node, styles: &[(String, String)]) {
     let value = styles
         .iter()
-        .filter(|(_, v)| !v.is_empty())
-        .map(|(n, v)| format!("{n}:{v}"))
+        .filter(|(_, value)| !value.is_empty())
+        .map(|(name, value)| format!("{name}:{value}"))
         .collect::<Vec<_>>()
         .join(";");
     if value.is_empty() {
-        n.remove("style")
+        node.remove("style")
     } else {
-        n.set("style", &value)
+        node.set("style", &value)
     }
 }
 pub fn hidden(styles: &[(String, String)]) -> bool {
-    styles.iter().any(|(n, v)| {
-        (n == "display" && re!(r"(?i)^none\b").is_match(v))
-            || (n == "visibility" && re!(r"(?i)^hidden\b").is_match(v))
+    styles.iter().any(|(name, value)| {
+        (name == "display" && re!(r"(?i)^none\b").is_match(value))
+            || (name == "visibility" && re!(r"(?i)^hidden\b").is_match(value))
     })
 }
-pub fn tracking(n: &Node) -> bool {
-    for a in ["width", "height"] {
-        if !n.attr(a).is_empty() && n.attr(a).trim().parse::<f64>().is_ok_and(|v| v <= 2.0) {
+pub fn tracking(node: &Node) -> bool {
+    for dimension in ["width", "height"] {
+        if !node.attr(dimension).is_empty()
+            && node
+                .attr(dimension)
+                .trim()
+                .parse::<f64>()
+                .is_ok_and(|value| value <= 2.0)
+        {
             return true;
         }
     }
-    declarations(n.attr("style")).iter().any(|(k, v)| {
-        matches!(k.as_str(), "width" | "height") && re!(r"(?i)^[012](\.\d+)?px").is_match(v)
-    })
+    declarations(node.attr("style"))
+        .iter()
+        .any(|(name, value)| {
+            matches!(name.as_str(), "width" | "height")
+                && re!(r"(?i)^[012](\.\d+)?px").is_match(value)
+        })
 }
-pub fn undrawn(s: &str) -> String {
+pub fn undrawn(source: &str) -> String {
     re!(r"[\x{00ad}\x{034f}\x{061c}\x{180e}\x{200b}-\x{200f}\x{2060}-\x{2064}\x{feff}]")
-        .replace_all(s, "")
+        .replace_all(source, "")
         .into_owned()
 }
-pub fn source_space(s: &str) -> String {
-    re!(r"[ \t\r\n\x0c]+").replace_all(s, " ").into_owned()
+pub fn source_space(source: &str) -> String {
+    re!(r"[ \t\r\n\x0c]+").replace_all(source, " ").into_owned()
 }

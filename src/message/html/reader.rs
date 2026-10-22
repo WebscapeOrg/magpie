@@ -10,31 +10,31 @@ struct State {
 }
 impl State {
     fn target(&mut self) -> &mut Vec<Node> {
-        let mut out = &mut self.inline;
+        let mut output = &mut self.inline;
         for _ in 0..self.chain.len() {
-            out = &mut out.last_mut().unwrap().children
+            output = &mut output.last_mut().unwrap().children
         }
-        out
+        output
     }
     fn space(&mut self) {
         if !self.pending || !self.filled {
             return;
         }
         let target = self.target();
-        if let Some(n) = target.last_mut().filter(|n| n.kind == "text") {
-            n.text.push(' ')
+        if let Some(node) = target.last_mut().filter(|node| node.kind == "text") {
+            node.text.push(' ')
         } else {
             target.push(Node::text(" "))
         }
         self.pending = false
     }
-    fn open(&mut self, n: Node) -> bool {
+    fn open(&mut self, node: Node) -> bool {
         if self.chain.len() >= 8 {
             return false;
         }
         self.space();
-        self.target().push(n.clone());
-        self.chain.push(n);
+        self.target().push(node.clone());
+        self.chain.push(node);
         true
     }
     fn text(&mut self, raw: &str) {
@@ -55,8 +55,8 @@ impl State {
         let lead = if self.pending && self.filled { " " } else { "" };
         let text = format!("{lead}{core}");
         let target = self.target();
-        if let Some(n) = target.last_mut().filter(|n| n.kind == "text") {
-            n.text.push_str(&text)
+        if let Some(node) = target.last_mut().filter(|node| node.kind == "text") {
+            node.text.push_str(&text)
         } else {
             target.push(Node::text(&text))
         }
@@ -68,7 +68,7 @@ impl State {
             return;
         }
         let target = self.target();
-        if target.last().is_some_and(|n| n.name == "br") {
+        if target.last().is_some_and(|node| node.name == "br") {
             return;
         }
         target.push(Node::element("br"));
@@ -79,33 +79,37 @@ impl State {
         self.pending = false;
         self.filled = false;
         let chain = std::mem::take(&mut self.chain);
-        for n in chain {
-            self.open(n);
+        for node in chain {
+            self.open(node);
         }
         if meaningful(&content) {
-            let mut n = Node::element(name);
-            n.children = trimmed(content);
-            self.blocks.push(n)
+            let mut node = Node::element(name);
+            node.children = trimmed(content);
+            self.blocks.push(node)
         }
     }
 }
 fn meaningful(nodes: &[Node]) -> bool {
-    nodes.iter().any(|n| {
-        if n.kind == "text" {
-            !decode(&n.text).trim().is_empty()
-        } else if n.name == "img" {
+    nodes.iter().any(|node| {
+        if node.kind == "text" {
+            !decode(&node.text).trim().is_empty()
+        } else if node.name == "img" {
             true
-        } else if matches!(n.name.as_str(), "br" | "hr") {
+        } else if matches!(node.name.as_str(), "br" | "hr") {
             false
         } else {
-            meaningful(&n.children)
+            meaningful(&node.children)
         }
     })
 }
 fn trimmed(mut nodes: Vec<Node>) -> Vec<Node> {
-    let empty =
-        |n: &Node| n.name == "br" || (n.kind == "text" && decode(&n.text).trim().is_empty());
-    let start = nodes.iter().position(|n| !empty(n)).unwrap_or(nodes.len());
+    let empty = |node: &Node| {
+        node.name == "br" || (node.kind == "text" && decode(&node.text).trim().is_empty())
+    };
+    let start = nodes
+        .iter()
+        .position(|node| !empty(node))
+        .unwrap_or(nodes.len());
     nodes.drain(..start);
     while nodes.last().is_some_and(empty) {
         nodes.pop();
@@ -115,21 +119,21 @@ fn trimmed(mut nodes: Vec<Node>) -> Vec<Node> {
 fn length(nodes: &[Node]) -> usize {
     nodes
         .iter()
-        .map(|n| {
-            if n.kind == "text" {
-                decode(&n.text).encode_utf16().count()
-            } else if n.name == "img" {
+        .map(|node| {
+            if node.kind == "text" {
+                decode(&node.text).encode_utf16().count()
+            } else if node.name == "img" {
                 8
             } else {
-                length(&n.children)
+                length(&node.children)
             }
         })
         .sum()
 }
-fn drop_reader(n: &str) -> bool {
-    dropped(n)
+fn drop_reader(name: &str) -> bool {
+    dropped(name)
         || matches!(
-            n,
+            name,
             "head"
                 | "input"
                 | "select"
@@ -151,15 +155,15 @@ fn drop_reader(n: &str) -> bool {
                 | "colgroup"
         )
 }
-fn hidden_reader(n: &Node) -> bool {
-    if n.has("hidden") {
+fn hidden_reader(node: &Node) -> bool {
+    if node.has("hidden") {
         return true;
     }
-    let styles = declarations(n.attr("style"));
+    let styles = declarations(node.attr("style"));
     if hidden(&styles) {
         return true;
     }
-    let leaf = n.children.iter().all(|n| n.kind == "text");
+    let leaf = node.children.iter().all(|node| node.kind == "text");
     let mut zero = false;
     let mut clip = false;
     for (name, value) in styles {
@@ -182,19 +186,19 @@ fn hidden_reader(n: &Node) -> bool {
     }
     zero && clip
 }
-fn dimension(n: &Node, key: &str) -> usize {
-    let raw = n.attr(key);
+fn dimension(node: &Node, key: &str) -> usize {
+    let raw = node.attr(key);
     let mut value = if re!(r"^\s*\d+(?:\.\d+)?\s*$").is_match(raw) {
         raw.trim().parse::<f64>().unwrap_or(0.0)
     } else {
         0.0
     };
     if value <= 0.0 {
-        for (k, v) in declarations(n.attr("style")) {
-            if k == key
-                && let Some(c) = re!(r"(?i)^\s*(\d+(?:\.\d+)?)px\s*$").captures(&v)
+        for (name, style_value) in declarations(node.attr("style")) {
+            if name == key
+                && let Some(captures) = re!(r"(?i)^\s*(\d+(?:\.\d+)?)px\s*$").captures(&style_value)
             {
-                value = c[1].parse().unwrap_or(0.0)
+                value = captures[1].parse().unwrap_or(0.0)
             }
         }
     }
@@ -204,77 +208,77 @@ fn dimension(n: &Node, key: &str) -> usize {
         value.round() as usize
     }
 }
-fn image(n: &Node, s: &mut State, ctx: &mut Images<'_>) {
-    if tracking(n) {
+fn image(node: &Node, state: &mut State, images: &mut Images<'_>) {
+    if tracking(node) {
         return;
     }
-    let source = n.attr("src");
-    let kind = if n.has("src") {
+    let source = node.attr("src");
+    let kind = if node.has("src") {
         image_kind(source)
     } else {
         "none"
     };
     let rendered = if kind == "remote" {
-        ctx.prepared(source)
+        images.prepared(source)
     } else {
         source.into()
     };
-    if (kind == "inline" || (kind == "remote" && ctx.allowed() && !rendered.is_empty()))
-        && ctx.admit(&rendered)
+    if (kind == "inline" || (kind == "remote" && images.allowed() && !rendered.is_empty()))
+        && images.admit(&rendered)
     {
         if kind == "remote" {
-            ctx.kept += 1
+            images.kept += 1
         }
-        s.space();
-        let mut out = Node::element("img");
-        out.set("src", &rendered);
-        let (w, h) = (dimension(n, "width"), dimension(n, "height"));
-        if w > 0 {
-            out.set("width", &w.to_string())
+        state.space();
+        let mut output = Node::element("img");
+        output.set("src", &rendered);
+        let (width_pixels, height_pixels) = (dimension(node, "width"), dimension(node, "height"));
+        if width_pixels > 0 {
+            output.set("width", &width_pixels.to_string())
         }
-        if h > 0 && w > 0 && w <= 96 && h <= 96 {
-            out.set("height", &h.to_string())
+        if height_pixels > 0 && width_pixels > 0 && width_pixels <= 96 && height_pixels <= 96 {
+            output.set("height", &height_pixels.to_string())
         }
-        s.target().push(out);
-        s.filled = true;
-        s.pending = false;
+        state.target().push(output);
+        state.filled = true;
+        state.pending = false;
         return;
     }
-    if kind == "remote" && (!ctx.allowed() || rendered.is_empty()) {
-        ctx.blocked += 1
+    if kind == "remote" && (!images.allowed() || rendered.is_empty()) {
+        images.blocked += 1
     }
-    let alt = source_space(&tree::escape_text(&decode(n.attr("alt"))));
+    let alt = source_space(&tree::escape_text(&decode(node.attr("alt"))));
     if !alt.trim().is_empty() {
-        s.text(alt.trim())
-    } else if kind == "remote" && n.has("src") && !n.has("alt") {
-        s.text("[image]")
+        state.text(alt.trim())
+    } else if kind == "remote" && node.has("src") && !node.has("alt") {
+        state.text("[image]")
     }
 }
-fn heading(n: &Node) -> String {
+fn heading(node: &Node) -> String {
     let mut level = "";
-    for (name, value) in declarations(n.attr("style")) {
+    for (name, value) in declarations(node.attr("style")) {
         if name != "font-size" {
             continue;
         }
-        let v = value.trim().to_ascii_lowercase();
-        let num = re!(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)")
-            .find(&v)
-            .and_then(|m| m.as_str().parse::<f64>().ok())
+        let size = value.trim().to_ascii_lowercase();
+        let number = re!(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)")
+            .find(&size)
+            .and_then(|matched_number| matched_number.as_str().parse::<f64>().ok())
             .unwrap_or(0.0);
-        let px = if v.ends_with("px") {
-            num
-        } else if v.ends_with("pt") {
-            num * 4.0 / 3.0
-        } else if v.ends_with("em") {
-            num * 16.0
-        } else if v.ends_with('%') {
-            num * 0.16
+        let pixels = if size.ends_with("px") {
+            number
+        } else if size.ends_with("pt") {
+            number * 4.0 / 3.0
+        } else if size.ends_with("em") {
+            number * 16.0
+        } else if size.ends_with('%') {
+            number * 0.16
         } else {
             0.0
         };
-        level = if px >= 28.0 {
+        level = if pixels >= 28.0 {
             "h2"
-        } else if px >= 20.0 {
+        } else if pixels >= 20.0 {
             "h3"
         } else {
             ""
@@ -283,48 +287,49 @@ fn heading(n: &Node) -> String {
     level.into()
 }
 fn build_heading(
-    n: &Node,
-    s: &mut State,
-    ctx: &mut Images<'_>,
+    node: &Node,
+    state: &mut State,
+    images: &mut Images<'_>,
     tables: bool,
     tag: &str,
     single: bool,
 ) {
-    s.flush("p");
-    let blocks = build(n, ctx, tables);
-    let eligible = (!single || blocks.len() <= 1) && blocks.iter().all(|n| n.name == "p");
+    state.flush("p");
+    let blocks = build(node, images, tables);
+    let eligible = (!single || blocks.len() <= 1) && blocks.iter().all(|node| node.name == "p");
     let mut content = vec![];
     if eligible {
-        for b in &blocks {
+        for block in &blocks {
             if !content.is_empty() {
                 content.push(Node::text(" "))
             }
-            content.extend(b.children.clone())
+            content.extend(block.children.clone())
         }
     }
     if content.is_empty() || length(&content) > 120 {
-        s.blocks.extend(blocks)
+        state.blocks.extend(blocks)
     } else {
-        let mut out = Node::element(tag);
-        out.children = content;
-        s.blocks.push(out)
+        let mut output = Node::element(tag);
+        output.children = content;
+        state.blocks.push(output)
     }
 }
-fn text_of(n: &Node) -> String {
-    if n.kind == "text" {
-        n.text.clone()
+fn text_of(node: &Node) -> String {
+    if node.kind == "text" {
+        node.text.clone()
     } else {
-        n.children.iter().map(text_of).collect()
+        node.children.iter().map(text_of).collect()
     }
 }
-fn contains_image(n: &[Node]) -> bool {
-    n.iter()
-        .any(|n| n.name == "img" || contains_image(&n.children))
+fn contains_image(nodes: &[Node]) -> bool {
+    nodes
+        .iter()
+        .any(|node| node.name == "img" || contains_image(&node.children))
 }
-fn furniture(n: &Node) -> bool {
-    !contains_image(&n.children)
+fn furniture(node: &Node) -> bool {
+    !contains_image(&node.children)
         && re!(r"^[\s\x{00a0}]*[|\x{00b7}\x{2022}\x{2013}\x{2014}/-]?[\s\x{00a0}]*$")
-            .is_match(&text_of(n))
+            .is_match(&text_of(node))
 }
 fn inline_or_blocks(mut blocks: Vec<Node>) -> Vec<Node> {
     if blocks.len() == 1 && blocks[0].name == "p" {
@@ -349,18 +354,18 @@ fn visible_rows<'a>(node: &'a Node, output: &mut Vec<&'a Node>) {
         visible_rows(child, output);
     }
 }
-fn data_table(n: &Node, ctx: &mut Images<'_>) -> Option<Node> {
+fn data_table(node: &Node, images: &mut Images<'_>) -> Option<Node> {
     let mut source = vec![];
-    visible_rows(n, &mut source);
+    visible_rows(node, &mut source);
     if source.is_empty() || source.len() > 40 {
         return None;
     }
     let mut grid = vec![];
-    for r in source {
-        let cells = r
+    for row_cells in source {
+        let cells = row_cells
             .children
             .iter()
-            .filter(|n| matches!(n.name.as_str(), "td" | "th"))
+            .filter(|node| matches!(node.name.as_str(), "td" | "th"))
             .collect::<Vec<_>>();
         if cells.len() > 8 {
             return None;
@@ -370,152 +375,157 @@ fn data_table(n: &Node, ctx: &mut Images<'_>) -> Option<Node> {
         }
     }
     let columns = grid.iter().map(Vec::len).max().unwrap_or(0);
-    for col in (0..columns).rev() {
-        if grid
-            .iter()
-            .all(|r| r.get(col).is_some_and(|n| furniture(n)))
-        {
-            for r in &mut grid {
-                r.remove(col);
+    for column_index in (0..columns).rev() {
+        if grid.iter().all(|row_cells| {
+            row_cells
+                .get(column_index)
+                .is_some_and(|node| furniture(node))
+        }) {
+            for row_cells in &mut grid {
+                row_cells.remove(column_index);
             }
         }
     }
     if grid.iter().map(Vec::len).max().unwrap_or(0) < 2 {
         return None;
     }
-    let mut out = Node::element("table");
-    for r in grid {
+    let mut output = Node::element("table");
+    for row_cells in grid {
         let mut row = Node::element("tr");
-        for c in r {
-            let mut cell = Node::element(&c.name);
-            cell.children = inline_or_blocks(build(c, ctx, false));
+        for source_cell in row_cells {
+            let mut cell = Node::element(&source_cell.name);
+            cell.children = inline_or_blocks(build(source_cell, images, false));
             row.children.push(cell)
         }
-        out.children.push(row)
+        output.children.push(row)
     }
-    Some(out)
+    Some(output)
 }
-fn broken(n: &[Node]) -> bool {
-    n.iter().any(|n| n.name == "br" || broken(&n.children))
+fn broken(nodes: &[Node]) -> bool {
+    nodes
+        .iter()
+        .any(|node| node.name == "br" || broken(&node.children))
 }
-fn row(n: &Node, s: &mut State, ctx: &mut Images<'_>, tables: bool) -> bool {
+fn row(node: &Node, state: &mut State, images: &mut Images<'_>, tables: bool) -> bool {
     let mut cells = vec![];
-    for c in &n.children {
-        if c.kind == "text" {
+    for cell in &node.children {
+        if cell.kind == "text" {
             continue;
         }
-        if !matches!(c.name.as_str(), "td" | "th") || !heading(c).is_empty() {
+        if !matches!(cell.name.as_str(), "td" | "th") || !heading(cell).is_empty() {
             return false;
         }
-        if !furniture(c) {
-            cells.push(c)
+        if !furniture(cell) {
+            cells.push(cell)
         }
     }
     let built = cells
         .into_iter()
-        .map(|c| build(c, ctx, tables))
+        .map(|cell| build(cell, images, tables))
         .collect::<Vec<_>>();
-    let eligible = built
-        .iter()
-        .all(|b| b.is_empty() || (b.len() == 1 && b[0].name == "p" && !broken(&b[0].children)));
+    let eligible = built.iter().all(|block| {
+        block.is_empty()
+            || (block.len() == 1 && block[0].name == "p" && !broken(&block[0].children))
+    });
     let mut line = vec![];
     if eligible {
-        for b in &built {
-            if b.is_empty() {
+        for block in &built {
+            if block.is_empty() {
                 continue;
             }
             if !line.is_empty() {
                 line.push(Node::text(" "))
             }
-            line.extend(b[0].children.clone())
+            line.extend(block[0].children.clone())
         }
     }
-    s.flush("p");
+    state.flush("p");
     if eligible && length(&line) <= 160 {
         if !line.is_empty() {
-            let mut p = Node::element("p");
-            p.children = trimmed(line);
-            s.blocks.push(p)
+            let mut paragraph = Node::element("p");
+            paragraph.children = trimmed(line);
+            state.blocks.push(paragraph)
         }
     } else {
-        for b in built {
-            s.blocks.extend(b)
+        for block in built {
+            state.blocks.extend(block)
         }
     }
     true
 }
-fn list_items(n: &Node, list: &mut Node, ctx: &mut Images<'_>, tables: bool) {
-    for c in &n.children {
-        if c.kind == "text" || drop_reader(&c.name) || hidden_reader(c) {
+fn list_items(node: &Node, list: &mut Node, images: &mut Images<'_>, tables: bool) {
+    for child in &node.children {
+        if child.kind == "text" || drop_reader(&child.name) || hidden_reader(child) {
             continue;
         }
-        if c.name != "li" {
-            list_items(c, list, ctx, tables);
+        if child.name != "li" {
+            list_items(child, list, images, tables);
             continue;
         }
         let mut item = Node::element("li");
-        item.children = inline_or_blocks(build(c, ctx, tables));
+        item.children = inline_or_blocks(build(child, images, tables));
         if !item.children.is_empty() {
             list.children.push(item)
         }
     }
 }
-fn pre_text(n: &Node, out: &mut String) {
-    for c in &n.children {
-        if c.kind == "text" {
-            if !c.raw {
-                out.push_str(&c.text)
+fn pre_text(node: &Node, output: &mut String) {
+    for child in &node.children {
+        if child.kind == "text" {
+            if !child.raw {
+                output.push_str(&child.text)
             }
             continue;
         }
-        if drop_reader(&c.name) || hidden_reader(c) {
+        if drop_reader(&child.name) || hidden_reader(child) {
             continue;
         }
-        if c.name == "br" {
-            out.push('\n')
+        if child.name == "br" {
+            output.push('\n')
         } else {
-            pre_text(c, out)
+            pre_text(child, output)
         }
     }
 }
-fn walk(n: &Node, s: &mut State, ctx: &mut Images<'_>, tables: bool) {
-    for c in &n.children {
-        node(c, s, ctx, tables)
+fn walk(node: &Node, state: &mut State, images: &mut Images<'_>, tables: bool) {
+    for child in &node.children {
+        visit_node(child, state, images, tables)
     }
 }
-fn node(n: &Node, s: &mut State, ctx: &mut Images<'_>, tables: bool) {
-    if n.kind == "text" {
-        if !n.raw {
-            s.text(&n.text)
+fn visit_node(node: &Node, state: &mut State, images: &mut Images<'_>, tables: bool) {
+    if node.kind == "text" {
+        if !node.raw {
+            state.text(&node.text)
         }
         return;
     }
-    let name = n.name.as_str();
-    if drop_reader(name) || hidden_reader(n) {
+    let name = node.name.as_str();
+    if drop_reader(name) || hidden_reader(node) {
         return;
     }
     match name {
-        "br" => s.br(),
-        "img" => image(n, s, ctx),
+        "br" => state.br(),
+        "img" => image(node, state, images),
         "hr" => {
-            s.flush("p");
-            s.blocks.push(Node::element("hr"))
+            state.flush("p");
+            state.blocks.push(Node::element("hr"))
         }
         "a" => {
-            let raw = n.attr("href");
-            let norm = normalized(raw);
+            let raw = node.attr("href");
+            let normalized_url = normalized(raw);
             if !safe_href(raw)
-                || !safe_href(&norm)
-                || (!norm.to_ascii_lowercase().starts_with("mailto:") && !is_public_url(raw))
+                || !safe_href(&normalized_url)
+                || (!normalized_url.to_ascii_lowercase().starts_with("mailto:")
+                    && !is_public_url(raw))
             {
-                walk(n, s, ctx, tables)
+                walk(node, state, images, tables)
             } else {
                 let mut link = Node::element("a");
                 link.set("href", raw);
-                let opened = s.open(link);
-                walk(n, s, ctx, tables);
+                let opened = state.open(link);
+                walk(node, state, images, tables);
                 if opened {
-                    s.chain.pop();
+                    state.chain.pop();
                 }
             }
         }
@@ -525,58 +535,60 @@ fn node(n: &Node, s: &mut State, ctx: &mut Images<'_>, tables: bool) {
                 "code" | "kbd" | "samp" | "tt" => "code",
                 _ => "em",
             };
-            let opened = s.open(Node::element(tag));
-            walk(n, s, ctx, tables);
+            let opened = state.open(Node::element(tag));
+            walk(node, state, images, tables);
             if opened {
-                s.chain.pop();
+                state.chain.pop();
             }
         }
-        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => build_heading(n, s, ctx, tables, name, false),
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            build_heading(node, state, images, tables, name, false)
+        }
         "pre" => {
-            s.flush("p");
+            state.flush("p");
             let mut text = String::new();
-            pre_text(n, &mut text);
+            pre_text(node, &mut text);
             let text = text.trim_start_matches('\n').trim_end();
             if !text.is_empty() {
-                let mut out = Node::element("pre");
-                out.children.push(Node::text(text));
-                s.blocks.push(out)
+                let mut output = Node::element("pre");
+                output.children.push(Node::text(text));
+                state.blocks.push(output)
             }
         }
         "ul" | "ol" => {
-            s.flush("p");
+            state.flush("p");
             let mut list = Node::element(name);
-            list_items(n, &mut list, ctx, tables);
+            list_items(node, &mut list, images, tables);
             if list.children.is_empty() {
-                walk(n, s, ctx, tables);
-                s.flush("p")
+                walk(node, state, images, tables);
+                state.flush("p")
             } else {
-                s.blocks.push(list)
+                state.blocks.push(list)
             }
         }
         "blockquote" => {
-            s.flush("p");
-            let blocks = build(n, ctx, tables);
+            state.flush("p");
+            let blocks = build(node, images, tables);
             if !blocks.is_empty() {
                 let mut quote = Node::element("blockquote");
                 quote.children = blocks;
-                s.blocks.push(quote)
+                state.blocks.push(quote)
             }
         }
         "table" => {
-            s.flush("p");
+            state.flush("p");
             if tables
-                && grid(n)
-                && let Some(table) = data_table(n, ctx)
+                && grid(node)
+                && let Some(table) = data_table(node, images)
             {
-                s.blocks.push(table);
+                state.blocks.push(table);
                 return;
             }
-            walk(n, s, ctx, tables);
-            s.flush("p")
+            walk(node, state, images, tables);
+            state.flush("p")
         }
         _ => {
-            if name == "tr" && s.chain.is_empty() && row(n, s, ctx, tables) {
+            if name == "tr" && state.chain.is_empty() && row(node, state, images, tables) {
                 return;
             }
             if table_part(name)
@@ -606,51 +618,51 @@ fn node(n: &Node, s: &mut State, ctx: &mut Images<'_>, tables: bool) {
                         | "summary"
                 )
             {
-                let inferred = if s.chain.is_empty() {
-                    heading(n)
+                let inferred = if state.chain.is_empty() {
+                    heading(node)
                 } else {
                     String::new()
                 };
                 if !inferred.is_empty() {
-                    build_heading(n, s, ctx, tables, &inferred, true)
+                    build_heading(node, state, images, tables, &inferred, true)
                 } else {
-                    s.flush("p");
-                    walk(n, s, ctx, tables);
-                    s.flush("p")
+                    state.flush("p");
+                    walk(node, state, images, tables);
+                    state.flush("p")
                 }
             } else {
-                walk(n, s, ctx, tables)
+                walk(node, state, images, tables)
             }
         }
     }
 }
-fn build(n: &Node, ctx: &mut Images<'_>, tables: bool) -> Vec<Node> {
-    if drop_reader(&n.name) || hidden_reader(n) {
+fn build(node: &Node, images: &mut Images<'_>, tables: bool) -> Vec<Node> {
+    if drop_reader(&node.name) || hidden_reader(node) {
         return vec![];
     }
-    let mut s = State::default();
-    walk(n, &mut s, ctx, tables);
-    s.flush("p");
-    s.blocks
+    let mut state = State::default();
+    walk(node, &mut state, images, tables);
+    state.flush("p");
+    state.blocks
 }
 fn small_images(nodes: &[Node]) -> usize {
     let mut count = 0;
-    for n in nodes {
-        if n.kind == "text" {
-            if !decode(&n.text).trim().is_empty() {
+    for node in nodes {
+        if node.kind == "text" {
+            if !decode(&node.text).trim().is_empty() {
                 return 0;
             }
             continue;
         }
-        if n.name == "img" {
-            let w = n.attr("width").parse::<f64>().unwrap_or(0.0);
-            let h = n.attr("height").parse::<f64>().unwrap_or(0.0);
-            if w <= 2.0 || w > 96.0 || h > 96.0 {
+        if node.name == "img" {
+            let width_pixels = node.attr("width").parse::<f64>().unwrap_or(0.0);
+            let height_pixels = node.attr("height").parse::<f64>().unwrap_or(0.0);
+            if width_pixels <= 2.0 || width_pixels > 96.0 || height_pixels > 96.0 {
                 return 0;
             }
             count += 1
-        } else if n.name == "a" {
-            let child = small_images(&n.children);
+        } else if node.name == "a" {
+            let child = small_images(&node.children);
             if child == 0 {
                 return 0;
             }
@@ -690,37 +702,39 @@ fn avatar(mut block: Node) -> Node {
     block
 }
 fn tidy(blocks: Vec<Node>) -> Vec<Node> {
-    let mut out: Vec<Node> = vec![];
+    let mut output: Vec<Node> = vec![];
     for block in blocks {
-        if block.name == "hr" && (out.is_empty() || out.last().is_some_and(|n| n.name == "hr")) {
+        if block.name == "hr"
+            && (output.is_empty() || output.last().is_some_and(|node| node.name == "hr"))
+        {
             continue;
         }
         let block = avatar(block);
         if block.name == "p"
             && small_images(&block.children) > 0
-            && out
+            && output
                 .last()
-                .is_some_and(|n| n.name == "p" && small_images(&n.children) > 0)
+                .is_some_and(|node| node.name == "p" && small_images(&node.children) > 0)
         {
-            let last = out.last_mut().unwrap();
+            let last = output.last_mut().unwrap();
             last.children.push(Node::text(" "));
             last.children.extend(block.children)
         } else {
-            out.push(block)
+            output.push(block)
         }
     }
-    while out.last().is_some_and(|n| n.name == "hr") {
-        out.pop();
+    while output.last().is_some_and(|node| node.name == "hr") {
+        output.pop();
     }
-    out
+    output
 }
-pub fn render(n: &Node, options: &Value) -> Result<Value, &'static str> {
-    let mut ctx = Images::new(options);
+pub fn render(node: &Node, options: &Value) -> Result<Value, &'static str> {
+    let mut images = Images::new(options);
     let mut document = Node::root();
-    document.children = tidy(build(n, &mut ctx, true));
+    document.children = tidy(build(node, &mut images, true));
     let html = serialize(&document)?;
     let size = measure(&document, &html);
     Ok(
-        json!({"html":html,"empty":document.children.is_empty(),"document":document,"images":ctx.kept,"blockedImages":ctx.blocked,"tooHeavy":too_heavy_to_draw(&document, &size),"complexity":size}),
+        json!({"html":html,"empty":document.children.is_empty(),"document":document,"images":images.kept,"blockedImages":images.blocked,"tooHeavy":too_heavy_to_draw(&document, &size),"complexity":size}),
     )
 }

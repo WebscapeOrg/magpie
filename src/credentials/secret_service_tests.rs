@@ -32,6 +32,8 @@ struct Service {
     sessions: Arc<AtomicUsize>,
     searches: Arc<AtomicUsize>,
     failures: Arc<AtomicUsize>,
+    concurrent_creates: Arc<AtomicBool>,
+    search_barrier: Arc<tokio::sync::Barrier>,
 }
 #[zbus::interface(name = "org.freedesktop.Secret.Service")]
 impl Service {
@@ -52,11 +54,14 @@ impl Service {
     fn read_alias(&self, _name: &str) -> OwnedObjectPath {
         path("/org/freedesktop/secrets/collection/default")
     }
-    fn search_items(
+    async fn search_items(
         &self,
         _attributes: HashMap<String, String>,
     ) -> zbus::fdo::Result<(Vec<OwnedObjectPath>, Vec<OwnedObjectPath>)> {
-        self.searches.fetch_add(1, Ordering::SeqCst);
+        let search = self.searches.fetch_add(1, Ordering::SeqCst);
+        if self.concurrent_creates.load(Ordering::SeqCst) && search < 2 {
+            self.search_barrier.wait().await;
+        }
         if self
             .failures
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
@@ -99,6 +104,8 @@ impl Service {
 struct Collection {
     creates: Arc<AtomicUsize>,
     locked: Arc<AtomicBool>,
+    concurrent_creates: Arc<AtomicBool>,
+    entries: Arc<Mutex<Vec<HashMap<String, String>>>>,
 }
 #[zbus::interface(name = "org.freedesktop.Secret.Collection")]
 impl Collection {
@@ -108,12 +115,26 @@ impl Collection {
     }
     fn create_item(
         &self,
-        _properties: HashMap<String, zbus::zvariant::OwnedValue>,
+        properties: HashMap<String, zbus::zvariant::OwnedValue>,
         _secret: (OwnedObjectPath, Vec<u8>, Vec<u8>, String),
-        _replace: bool,
+        replace: bool,
     ) -> zbus::fdo::Result<(OwnedObjectPath, OwnedObjectPath)> {
         self.creates.fetch_add(1, Ordering::SeqCst);
-        Err(zbus::fdo::Error::Failed("synthetic write failure".into()))
+        if !self.concurrent_creates.load(Ordering::SeqCst) {
+            return Err(zbus::fdo::Error::Failed("synthetic write failure".into()));
+        }
+        let attributes: HashMap<String, String> = properties
+            .get("org.freedesktop.Secret.Item.Attributes")
+            .unwrap()
+            .try_clone()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let mut entries = self.entries.lock().unwrap();
+        if !replace || !entries.contains(&attributes) {
+            entries.push(attributes);
+        }
+        Ok((path("/org/freedesktop/secrets/item/one"), path("/")))
     }
 }
 struct Item;
@@ -147,6 +168,8 @@ struct Fixture {
     unlocks: Arc<AtomicUsize>,
     creates: Arc<AtomicUsize>,
     collection_locked: Arc<AtomicBool>,
+    concurrent_creates: Arc<AtomicBool>,
+    entries: Arc<Mutex<Vec<HashMap<String, String>>>>,
     _daemon: Daemon,
 }
 impl Fixture {
@@ -202,6 +225,9 @@ impl Fixture {
         let collection_locked = Arc::new(AtomicBool::new(false));
         let failures = Arc::new(AtomicUsize::new(failures));
         let creates = Arc::new(AtomicUsize::new(0));
+        let concurrent_creates = Arc::new(AtomicBool::new(false));
+        let search_barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let entries = Arc::new(Mutex::new(Vec::new()));
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -224,6 +250,8 @@ impl Fixture {
                         sessions: sessions.clone(),
                         searches: searches.clone(),
                         failures: failures.clone(),
+                        concurrent_creates: concurrent_creates.clone(),
+                        search_barrier,
                     },
                 )
                 .unwrap()
@@ -234,6 +262,8 @@ impl Fixture {
                     Collection {
                         creates: creates.clone(),
                         locked: collection_locked.clone(),
+                        concurrent_creates: concurrent_creates.clone(),
+                        entries: entries.clone(),
                     },
                 )
                 .unwrap()
@@ -256,6 +286,8 @@ impl Fixture {
             unlocks,
             creates,
             collection_locked,
+            concurrent_creates,
+            entries,
             _daemon: daemon,
         }
     }
@@ -609,4 +641,65 @@ fn credentials_native_linux_a_stalled_connect_costs_one_deadline() {
         elapsed < deadline + deadline / 2,
         "one credential operation waited {elapsed:?} for a {deadline:?} deadline"
     );
+}
+
+#[test]
+#[ignore = "requires native dbus-daemon; mandatory in the Linux credential gate"]
+fn credentials_native_linux_concurrent_creates_preserve_one_current_grant() {
+    let fixture = Fixture::new(false, true);
+    fixture.concurrent_creates.store(true, Ordering::SeqCst);
+    let key = CredentialKey {
+        provider: "gmail".into(),
+        account_id: "concurrent-fixture@example.invalid".into(),
+        kind: CredentialKind::GoogleRefreshToken {
+            client_id: "synthetic-client".into(),
+        },
+    };
+    let current: HashMap<_, _> = key.attributes().unwrap().into_iter().collect();
+    let mut legacy = current.clone();
+    legacy.remove("grant");
+    fixture.entries.lock().unwrap().push(legacy.clone());
+    let shared = Shared::new().unwrap();
+    std::thread::scope(|threads| {
+        let first = threads.spawn(|| {
+            run_on(
+                &shared,
+                &key,
+                Operation::Put(b"synthetic-first"),
+                || fixture.client(),
+                DEADLINE,
+            )
+        });
+        let second = threads.spawn(|| {
+            run_on(
+                &shared,
+                &key,
+                Operation::Put(b"synthetic-second"),
+                || fixture.client(),
+                DEADLINE,
+            )
+        });
+        assert!(matches!(first.join().unwrap(), Ok(None)));
+        assert!(matches!(second.join().unwrap(), Ok(None)));
+    });
+    assert_eq!(fixture.searches.load(Ordering::SeqCst), 2);
+    assert_eq!(fixture.creates.load(Ordering::SeqCst), 2);
+    let entries = fixture.entries.lock().unwrap();
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|attributes| **attributes == current)
+            .count(),
+        1,
+        "concurrent first writes must not create ambiguous duplicate credentials"
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|attributes| **attributes == legacy)
+            .count(),
+        1,
+        "the older grant must remain intact"
+    );
+    assert_eq!(entries.len(), 2);
 }

@@ -9,6 +9,7 @@ import qs.Commons
 import qs.Ui
 import "../message/Direction.js" as Direction
 import "../message/Message.js" as Mail
+import "../message/Html.js" as Html
 import "../compose/Recipients.js" as Recipients
 import "../compose/Senders.js" as Senders
 import "../agent/Agent.js" as Agent
@@ -164,6 +165,17 @@ DropArea {
   property string forwardAttachmentError: ""
   property int forwardLoadSerial: 0
   property var draftAttachments: []
+  readonly property var attachmentPreviews: previewsFor(draftAttachments)
+  function previewsFor(attachments) {
+    var remaining = Html.MAX_DECODED_DOCUMENT_BYTES
+    return attachments.map(function(attachment) {
+      var source = "data:" + String(attachment.mimeType || "") + ";base64," + String(attachment.data || "")
+      var decodedBytes = Html.rasterDecodedBytes(source)
+      if (!decodedBytes || decodedBytes > remaining) return ""
+      remaining -= decodedBytes
+      return source
+    })
+  }
   property var attachJobs: []
   property bool attaching: false
   property bool pasteInFlight: false
@@ -1889,8 +1901,8 @@ DropArea {
             spacing: MailStyle.space(4)
 
             Image {
-              visible: String(attachItem.modelData.mimeType || "").indexOf("image/") === 0
-                && String(attachItem.modelData.path || "") !== ""
+              objectName: "compose-attachment-preview-" + attachItem.index
+              visible: source.toString() !== ""
               width: parent.width
               height: visible
                 ? Math.min(Math.max(sourceSize.height, MailStyle.space(72)), MailStyle.space(200))
@@ -1898,7 +1910,7 @@ DropArea {
               fillMode: Image.PreserveAspectFit
               asynchronous: true
               cache: false
-              source: visible ? ("file://" + String(attachItem.modelData.path || "")) : ""
+              source: root.attachmentPreviews[attachItem.index] || ""
             }
 
             Row {

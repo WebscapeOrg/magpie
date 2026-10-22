@@ -10,7 +10,7 @@ function method(name) {
 }
 const context = { Api: load("providers/GmailApi.js"), inFlight: 0,
   auth: { accountId: "a@example.org", loggedIn: true },
-  backendEpoch: 0, backendAccount: "", Qt: { callLater: fn => fn() } }
+  backendEpoch: 0, backendAccount: "", deferred: { call: fn => fn() } }
 context.root = context
 vm.createContext(context)
 for (const name of ["newHandle", "abortRequest", "listMessages", "getMessage", "getAttachment"])

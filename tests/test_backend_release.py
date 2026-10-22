@@ -651,6 +651,29 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual((self.root / 'backend-version').read_text(), '0.8.1\n')
         self.assertEqual(git('rev-parse', 'HEAD'), prepared)
 
+    def test_invalid_contract_cannot_change_pin_or_reach_git_mutations(self):
+        self.metadata()
+        (self.root / 'backend-api.json').write_text('{}')
+        spec = importlib.util.spec_from_file_location('release_pin_contract', ROOT / 'scripts/package-backend.py')
+        packaging = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(packaging)
+        revision = 'a' * 40
+        commands = []
+
+        def git(command, **options):
+            args = command[3:]
+            commands.append(args)
+            output = revision if args == ['rev-parse', 'HEAD'] else (
+                revision + '\trefs/heads/release/0.8.2' if args[0] == 'ls-remote' else '')
+            return subprocess.CompletedProcess(command, 0, stdout=output)
+
+        with mock.patch.object(packaging.subprocess, 'run', side_effect=git):
+            with self.assertRaises(ValueError):
+                packaging.pin(self.root, 'release/0.8.2', revision)
+        self.assertEqual((self.root / 'backend-version').read_text(), '0.8.1\n')
+        self.assertEqual((self.root / 'backend-api.json').read_text(), '{}')
+        self.assertTrue(all(args[0] in ('check-ref-format', 'rev-parse', 'ls-remote', 'diff') for args in commands))
+
 
 if __name__ == '__main__':
     unittest.main()

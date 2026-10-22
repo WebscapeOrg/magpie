@@ -62,6 +62,7 @@ Item {
     }
 
     function init() {
+      BackendFixture.markReady(mailService, 4)
       app.opened = true
       mailService.accountList = ({ version: 1, accounts: [], activeId: "" })
       wait(0)
@@ -119,7 +120,7 @@ Item {
       mailService.accountList = ({
         version: 1,
         accounts: [
-          { id: imapId, email: "shawn@example.test", provider: "imap",
+          { id: imapId, email: "shawn@example.test", provider: "imap", clientId: "",
             imap: { imapHost: "imap.example.test", imapPort: 993,
               smtpHost: "smtp.example.test", smtpPort: 465,
               username: "shawn@example.test", aliases: [], insecure: false } }
@@ -175,11 +176,11 @@ Item {
       mailService.accountList = ({
         version: 1,
         accounts: [
-          { id: imapId, email: "shawn@example.test", provider: "imap",
+          { id: imapId, email: "shawn@example.test", provider: "imap", clientId: "",
             imap: { imapHost: "imap.example.test", imapPort: 993,
               smtpHost: "smtp.example.test", smtpPort: 465,
               username: "shawn@example.test", aliases: [], insecure: false } },
-          { id: gmailId, email: gmailId, provider: "gmail" }
+          { id: gmailId, email: gmailId, provider: "gmail", clientId: "" }
         ],
         activeId: imapId
       })

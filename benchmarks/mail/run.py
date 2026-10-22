@@ -165,18 +165,18 @@ def main():
         for measured in [js,native]+([qml] if qml else []):
             measured_cases(measured, payload)
         results=[]
-        for index,(old,new) in enumerate(zip(js['cases'],native['cases'],strict=True)):
-            canonical=mime_semantics if old['phase']=='mime' else html_semantics
-            a,b=canonical(old['result']),canonical(new['result'])
-            results.append(dict(name=old['name'],phase=old['phase'],semanticMatch=a==b,
-                semanticDifference=difference(a,b),jsDigest=digest(a),rustDigest=digest(b),
-                node=stats(old),rust=stats(new),speedup=statistics.median(old['samplesUs'])/statistics.median(new['samplesUs'])))
+        for index,(baseline_case,native_case) in enumerate(zip(js['cases'],native['cases'],strict=True)):
+            canonical=mime_semantics if baseline_case['phase']=='mime' else html_semantics
+            baseline_result,native_result=canonical(baseline_case['result']),canonical(native_case['result'])
+            results.append(dict(name=baseline_case['name'],phase=baseline_case['phase'],semanticMatch=baseline_result==native_result,
+                semanticDifference=difference(baseline_result,native_result),jsDigest=digest(baseline_result),rustDigest=digest(native_result),
+                node=stats(baseline_case),rust=stats(native_case),speedup=statistics.median(baseline_case['samplesUs'])/statistics.median(native_case['samplesUs'])))
             if qml:
                 actual=qml['cases'][index]
                 results[-1]['qml']=stats(actual)
                 results[-1]['qml']['batch']=actual['batch']
-                results[-1]['qmlSemanticMatch']=canonical(actual['result'])==a
-                results[-1]['qmlSpeedup']=statistics.median(actual['samplesUs'])/statistics.median(new['samplesUs'])
+                results[-1]['qmlSemanticMatch']=canonical(actual['result'])==baseline_result
+                results[-1]['qmlSpeedup']=statistics.median(actual['samplesUs'])/statistics.median(native_case['samplesUs'])
     verify_unchanged(provenance)
     cpu=next((line.split(':',1)[1].strip() for line in Path('/proc/cpuinfo').read_text().splitlines() if line.startswith('model name')),'unknown')
     report=dict(date=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),machine=dict(cpu=cpu,platform=platform.platform(),logicalCpus=os.cpu_count(),loadAverageBefore=load_before,loadAverageAfter=os.getloadavg()),

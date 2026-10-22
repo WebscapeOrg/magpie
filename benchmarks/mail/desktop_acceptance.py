@@ -24,7 +24,7 @@ ACCOUNT = "desktop-fixture@example.test"
 STARTUP_TIMEOUT = 10
 
 
-def private(path, content):
+def write_private(path, content):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     path.write_bytes(content if isinstance(content, bytes) else content.encode())
     path.chmod(0o600)
@@ -47,11 +47,11 @@ def seed(folder, binary, count, html_bytes):
         path.mkdir(mode=0o700)
         env[key] = str(path)
     registry = {"version": 1, "accounts": [{"provider": "gmail", "email": ACCOUNT}], "activeId": ACCOUNT}
-    private(Path(env["XDG_CONFIG_HOME"]) / "omamail/accounts.json", json.dumps(registry))
+    write_private(Path(env["XDG_CONFIG_HOME"]) / "omamail/accounts.json", json.dumps(registry))
     for name in ("colors.toml", "shell.toml"):
         source = Path.home() / ".local/state/omarchy/current/theme" / name
         if source.exists():
-            private(Path(env["HOME"]) / ".local/state/omarchy/current/theme" / name, source.read_bytes())
+            write_private(Path(env["HOME"]) / ".local/state/omarchy/current/theme" / name, source.read_bytes())
     request = {"jsonrpc": "2.0", "id": 1, "method": "local.status", "params": {"accountId": ACCOUNT}}
     initialized = subprocess.run([str(binary), "serve"], input=json.dumps(request) + "\n",
                                  text=True, capture_output=True, env=env, timeout=30, check=True)
@@ -59,40 +59,40 @@ def seed(folder, binary, count, html_bytes):
     if not any(reply.get("id") == 1 and "result" in reply for reply in replies):
         raise RuntimeError(initialized.stdout + initialized.stderr)
     directory = Path(env["XDG_STATE_HOME"]) / "omamail/mail" / hashlib.sha256(ACCOUNT.encode()).hexdigest()
-    db = sqlite3.connect(directory / "mail.sqlite")
-    for n in range(count):
-        identity = f"synthetic-{n:08}"
-        body = ("needle" if n % 100 == 0 else "ordinary") + f" synthetic saved message {n}"
-        large = n >= count - 3 and html_bytes > 0
+    database = sqlite3.connect(directory / "mail.sqlite")
+    for message_index in range(count):
+        identity = f"synthetic-{message_index:08}"
+        body = ("needle" if message_index % 100 == 0 else "ordinary") + f" synthetic saved message {message_index}"
+        large = message_index >= count - 3 and html_bytes > 0
         if large:
             line = "<p>Large synthetic message with readable text and no external resources.</p>"
             body = "<html><body>" + line * math.ceil(html_bytes / len(line)) + "</body></html>"
-        resource = {"id": identity, "threadId": identity, "internalDate": str(1_700_000_000_000 + n),
+        resource = {"id": identity, "threadId": identity, "internalDate": str(1_700_000_000_000 + message_index),
                     "labelIds": ["INBOX"], "snippet": body[:140],
                     "payload": {"mimeType": "text/html" if large else "text/plain", "headers": [
                         {"name": "From", "value": "Synthetic sender <sender@example.test>"},
                         {"name": "To", "value": ACCOUNT},
-                        {"name": "Subject", "value": f"Synthetic message {n}"}],
+                        {"name": "Subject", "value": f"Synthetic message {message_index}"}],
                         "body": {"data": base64.urlsafe_b64encode(body.encode()).decode().rstrip("="), "size": len(body)}}}
         raw = json.dumps(resource, separators=(",", ":")).encode()
         digest = hashlib.sha256(raw).hexdigest()
-        private(directory / "blobs" / digest[:2] / digest, raw)
-        summary = {"id": identity, "threadId": identity, "subject": f"Synthetic message {n}",
+        write_private(directory / "blobs" / digest[:2] / digest, raw)
+        summary = {"id": identity, "threadId": identity, "subject": f"Synthetic message {message_index}",
                    "snippet": body[:140], "from": {"display": "Synthetic sender", "email": "sender@example.test"},
                    "unread": False, "date": "2026-10-21T09:00:00Z", "labelIds": ["INBOX"]}
-        db.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                   (identity, identity, 1_700_000_000_000 + n, json.dumps(summary), digest, '["INBOX"]',
+        database.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (identity, identity, 1_700_000_000_000 + message_index, json.dumps(summary), digest, '["INBOX"]',
                     "sender@example.test", ACCOUNT, "", summary["subject"], "", 0, 1, 1))
-        db.execute("INSERT INTO labels VALUES(?, 'INBOX')", (identity,))
-        db.execute("INSERT INTO search(id,subject,sender,recipients,copied,filenames,body) VALUES(?,?,?,?,?,?,?)",
+        database.execute("INSERT INTO labels VALUES(?, 'INBOX')", (identity,))
+        database.execute("INSERT INTO search(id,subject,sender,recipients,copied,filenames,body) VALUES(?,?,?,?,?,?,?)",
                    (identity, summary["subject"], "sender@example.test", ACCOUNT, "", "", body))
     state = {"paused": "true", "legacyImported": "true", "history": "100", "generation": "1",
              "inventoryListed": "true", "inventoryComplete": "true", "estimate": str(count),
              "profile": json.dumps({"email": ACCOUNT, "messagesTotal": count}),
              "labels": json.dumps([{"id": "INBOX", "name": "INBOX"}])}
-    db.executemany("INSERT OR REPLACE INTO state VALUES(?,?)", state.items())
-    db.commit()
-    db.close()
+    database.executemany("INSERT OR REPLACE INTO state VALUES(?,?)", state.items())
+    database.commit()
+    database.close()
     return env
 
 
@@ -154,7 +154,7 @@ def accessibility(pid, stage, output):
         action = node.get_action_iface()
         rows.append({"name": node.get_name(), "role": node.get_role_name(),
                      "actions": [action.get_action_name(i) for i in range(action.get_n_actions())] if action else []})
-    private(output / (stage + ".json"), json.dumps(rows, indent=2))
+    write_private(output / (stage + ".json"), json.dumps(rows, indent=2))
     if stage == "accessibility-inbox":
         find("Mail downloads paused. Saved mail is available.")
         press("Resume downloads")
@@ -260,7 +260,7 @@ class DisplayCapture:
                 elapsed = time.time() * 1000 - (launched if event["kind"] == "coldInbox" else event["started"])
                 break
         else:
-            private(output / "window.json", json.dumps(window, indent=2))
+            write_private(output / "window.json", json.dumps(window, indent=2))
             self.save(window, output / "failed-window.png", whole_display=True)
             raise RuntimeError(f"Compositor never presented marker {expected}; last pixel {pixels.getpixel((0, 0))}")
         return PresentedFrame(dict(event, presentedMs=round(elapsed, 3)), window)
@@ -327,7 +327,7 @@ def main():
                    OMAMAIL_BIN=str(binary), MAGPIE_DESKTOP_OPTIONS=str(output / "options.json"),
                    QT_ACCESSIBILITY="1", QT_LINUX_ACCESSIBILITY_ALWAYS_ON="1")
         env.pop("QT_QUICK_BACKEND", None)
-        private(output / "options.json", json.dumps({"output": str(output), "samples": args.samples,
+        write_private(output / "options.json", json.dumps({"output": str(output), "samples": args.samples,
                                                     "largeIds": [f"synthetic-{args.messages-1-i:08}" for i in range(3)] if args.html_bytes else [],
                                                     "accessibility": args.accessibility}))
         if args.accessibility:
@@ -421,7 +421,7 @@ def main():
                       "statusScope": "Functional acceptance only; compare timings with targets separately.",
                       "displayMode": args.display_mode,
                       "boundary": "Input/RPC/model/layout to captured pixels. Includes capture overhead. Cold means new app/backend processes; OS caches are warm. Xvfb measures an isolated virtual display, not physical compositor presentation."}
-            private(output / "results.json", json.dumps(report, indent=2))
+            write_private(output / "results.json", json.dumps(report, indent=2))
     print(json.dumps(summary, indent=2))
     raise SystemExit(code)
 

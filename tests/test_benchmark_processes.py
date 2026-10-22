@@ -105,6 +105,10 @@ class BenchmarkProcesses(unittest.TestCase):
                 if external_target:
                     report = json.loads((benchmark / "roundtrip-results.json").read_text())
                     self.assertEqual(report["binarySha256"], hashlib.sha256(binary.read_bytes()).hexdigest())
+                if cases:
+                    report = json.loads((benchmark / "roundtrip-results.json").read_text())
+                    self.assertEqual(len(report["results"]), 3 * len(cases))
+                    self.assertTrue(all(row["semanticMatch"] for row in report["results"]))
                 return kill_group.call_args_list
 
     def test_roundtrip_measures_the_cargo_artifact_from_a_custom_target(self):
@@ -113,6 +117,16 @@ class BenchmarkProcesses(unittest.TestCase):
     def test_roundtrip_refuses_a_binary_changed_during_measurement(self):
         with self.assertRaisesRegex(RuntimeError, "changed during measurement"):
             self.roundtrip(Child("ROUNDTRIP_DONE\n"), change_binary=True)
+
+    def test_roundtrip_accepts_complete_equal_work(self):
+        lines = []
+        for phase in ["mime", "html", "readprep"]:
+            timing = dict(coldUs=1, samplesUs=[1]*3, batch=1,
+                          result={"document":{"type":"root","children":[]}})
+            row = dict(name="fixture", phase=phase, qml=timing, native=timing)
+            lines.append("ROUNDTRIP_PART " + json.dumps(dict(index=0, total=1, data=json.dumps(row))))
+        lines.append("ROUNDTRIP_DONE")
+        self.roundtrip(Child("\n".join(lines)), cases=[dict(name="fixture", raw="", html="")])
 
     def test_roundtrip_refuses_invalid_stage_timings(self):
         for field, value in [("coldUs", -1), ("samplesUs", [float("nan")] * 3), ("samplesUs", [-1] * 3)]:

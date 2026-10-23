@@ -1,6 +1,5 @@
 import QtQuick
 import "Model.js" as Model
-import "../providers/Registry.js" as Provider
 
 // Invariant: Reload labels after server mutation because the server assigns their identities.
 QtObject {
@@ -9,7 +8,7 @@ QtObject {
   required property var account
   property bool retired: false
 
-  // Performance: Bound watched-label requests to avoid opening one connection per folder at every refresh.
+  // Performance: Bound simultaneous watched-label requests at every refresh.
   property bool monitoredLoading: false
   readonly property int monitorConcurrency: 3
   property var monitorHandles: []
@@ -93,16 +92,13 @@ QtObject {
   // Invariant: The initial watched-label read establishes counts without announcing historical mail.
   property var monitoredSeen: Object.create(null)
 
-  readonly property bool canManageLabels: Provider.can(account.providerId, "manageLabels")
-
   function labelById(id) {
     var index = Model.indexById(account.labels, id)
     return index >= 0 ? account.labels[index] : null
   }
 
-  // Invariant: Display paths are decoded; existing IMAP folders are addressed with their original wire ids.
   function labelPathOf(label) {
-    return label ? String(label.name || label.rawName || "") : ""
+    return label ? String(label.name || "") : ""
   }
 
   function labelByPath(path) {
@@ -116,11 +112,9 @@ QtObject {
   }
 
   function createLabel(parentPath, leaf) {
-    if (!account.ready || !canManageLabels) return false
-    var parent = labelByPath(parentPath)
-    var delimiter = Model.labelDelimiter(parent || (account.labels.length > 0 ? account.labels[0] : null))
-    var problem = Model.labelNestProblem(parentPath, delimiter) || Model.labelNameProblem(leaf, delimiter)
-    var name = Model.labelPathJoin(parentPath, leaf, delimiter)
+    if (!account.ready) return false
+    var problem = Model.labelNameProblem(leaf)
+    var name = Model.labelPathJoin(parentPath, leaf)
     problem = problem || takenProblem(name)
     if (problem !== "") { account.fail(problem); return false }
     account.api.createLabel(name, function(payload, error) {
@@ -134,65 +128,57 @@ QtObject {
 
   function renameLabel(id, leaf) {
     var label = labelById(id)
-    if (!account.ready || !canManageLabels || !label) return false
-    var delimiter = Model.labelDelimiter(label)
-    var problem = Model.labelNameProblem(leaf, delimiter)
+    if (!account.ready || !label) return false
+    var problem = Model.labelNameProblem(leaf)
     if (problem !== "") { account.fail(problem); return false }
     var path = labelPathOf(label)
-    var name = Model.labelPathJoin(Model.labelParent(path, delimiter), leaf, delimiter)
+    var name = Model.labelPathJoin(Model.labelParent(path), leaf)
     if (name === path) return false
     problem = takenProblem(name)
     if (problem !== "") { account.fail(problem); return false }
-    var before = account.labels
     account.api.renameLabel(String(label.id), name, function(payload, error) {
       if (!labelActions || labelActions.retired) return
       if (error) { account.fail("Could not rename " + path + ": " + String(error)); return }
       account.note("Renamed to " + name)
-      afterLabelMoved(label, name, before)
+      afterLabelMoved(label)
     })
     return true
   }
 
   function moveLabel(id, newParentPath) {
     var label = labelById(id)
-    if (!account.ready || !canManageLabels || !label) return false
-    var delimiter = Model.labelDelimiter(label)
-    var problem = Model.labelNestProblem(newParentPath, delimiter)
-    if (problem !== "") { account.fail(problem); return false }
+    if (!account.ready || !label) return false
     var path = labelPathOf(label)
-    var name = Model.labelPathJoin(newParentPath, Model.labelLeaf(path, delimiter), delimiter)
+    var parent = String(newParentPath || "")
+    if (parent === path || parent.indexOf(path + "/") === 0) return false
+    var name = Model.labelPathJoin(parent, Model.labelLeaf(path))
     if (name === path) return false
-    problem = takenProblem(name)
+    var problem = takenProblem(name)
     if (problem !== "") { account.fail(problem); return false }
-    var before = account.labels
     account.api.renameLabel(String(label.id), name, function(payload, error) {
       if (!labelActions || labelActions.retired) return
       if (error) { account.fail("Could not move " + path + ": " + String(error)); return }
       account.note("Moved to " + name)
-      afterLabelMoved(label, name, before)
+      afterLabelMoved(label)
     })
     return true
   }
 
   function deleteLabel(id) {
     var label = labelById(id)
-    if (!account.ready || !canManageLabels || !label) return false
+    if (!account.ready || !label) return false
     var path = labelPathOf(label)
-    var before = account.labels
     account.api.deleteLabel(String(label.id), function(payload, error) {
       if (!labelActions || labelActions.retired) return
       if (error) { account.fail("Could not delete " + path + ": " + String(error)); return }
       account.note("Deleted " + path)
       if (account.rawLabelId === String(label.id)) account.selectMailbox("inbox")
-      migrations = migrations.concat([{ before: before, oldPath: path, newPath: "", delimiter: Model.labelDelimiter(label) }])
       reloadLabels()
     })
     return true
   }
 
-  // Invariant: Queue path migrations until a successful listing supplies new wire ids; failed reads cannot discard watched-folder moves.
-  property string followLabelPath: ""
-  property var migrations: []
+  property string followLabelId: ""
   property bool reloadRetried: false
   property bool reloading: false
   property bool reloadQueued: false
@@ -201,11 +187,9 @@ QtObject {
     onTriggered: labelActions.reloadLabels()
   }
 
-  function afterLabelMoved(label, newPath, before) {
-    var wasOpen = account.rawQuery !== "" && account.rawLabelId === String(label.id || "")
-    followLabelPath = wasOpen ? String(newPath || "") : ""
-    migrations = migrations.concat([{ before: before, oldPath: labelPathOf(label), newPath: String(newPath || ""),
-      delimiter: Model.labelDelimiter(label) }])
+  function afterLabelMoved(label) {
+    if (account.rawQuery !== "" && account.rawLabelId === String(label.id || ""))
+      followLabelId = String(label.id || "")
     reloadLabels()
   }
 
@@ -216,15 +200,14 @@ QtObject {
     account.api.getLabels(function(result, error) {
       if (!labelActions || labelActions.retired) return
       reloading = false
-      // Invariant: A listing begun before a later mutation cannot settle that mutation's migrations.
+      // Invariant: A listing begun before a later mutation cannot settle that mutation.
       if (reloadQueued) {
         reloadQueued = false
         reloadLabels()
         return
       }
       if (error) {
-        // Invariant: Retry a failed post-mutation listing once, then retain migrations for a later refresh.
-        followLabelPath = ""
+        // Invariant: Retry once without clearing watched labels or the open label after a failed listing.
         account.fail("Could not read the labels back: " + String(error))
         if (!reloadRetried) { reloadRetried = true; reloadRetry.start() }
         return
@@ -232,17 +215,15 @@ QtObject {
       reloadRetried = false
       account.labels = result
       account.cache.putLabels(result)
-      var moves = migrations
-      migrations = []
-      if (moves.length > 0) {
-        var watched = Array.isArray(account.monitoredIds) ? account.monitoredIds : []
-        var next = Model.migrateMonitoredChanges(watched, moves, result)
-        if (next !== watched) account.monitoredMigrated(next)
-      }
-      if (followLabelPath !== "") {
-        var moved = labelByPath(followLabelPath)
-        followLabelPath = ""
-        if (moved) account.selectLabel(String(moved.rawName || moved.name || ""), String(moved.id || ""))
+      var watched = Array.isArray(account.monitoredIds) ? account.monitoredIds : []
+      var next = Model.retainedMonitoredIds(watched, result)
+      if (next !== watched) account.monitoredMigrated(next)
+      if (followLabelId !== "") {
+        var moved = labelById(followLabelId)
+        var wasSelected = account.rawLabelId === followLabelId
+        followLabelId = ""
+        if (!wasSelected) return
+        if (moved) account.selectLabel(String(moved.name || ""), String(moved.id || ""))
         else account.selectMailbox("inbox")
       }
     })

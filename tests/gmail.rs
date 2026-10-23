@@ -184,11 +184,20 @@ fn gmail_registry_and_private_credentials_gate_keyring_access() {
     )
     .unwrap();
     fs::set_permissions(&keyring, fs::Permissions::from_mode(0o700)).unwrap();
-    for (account, error) in [
-        ("unknown@example.org", "gmail_account_unknown"),
-        ("imap:b@example.org", "gmail_account_unknown"),
-        ("A@example.org", "gmail_client_permissions"),
+    for (account, error, unsupported) in [
+        ("a@example.org", "accounts_provider_unsupported", true),
+        ("imap:b@example.org", "accounts_provider_unsupported", true),
+        ("unknown@example.org", "gmail_account_unknown", false),
+        ("A@example.org", "gmail_client_permissions", false),
     ] {
+        if !unsupported {
+            fs::write(
+                &accounts,
+                br#"{"version":1,"accounts":[{"provider":"gmail","email":"a@example.org"}]}"#,
+            )
+            .unwrap();
+        }
+        let before = fs::read(&accounts).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_omamail"))
             .args(["call", "gmail.read", "--json"])
             .env("HOME", &dir)
@@ -212,6 +221,7 @@ fn gmail_registry_and_private_credentials_gate_keyring_access() {
         assert!(output.stderr.is_empty());
         assert!(!String::from_utf8_lossy(&output.stdout).contains("synthetic-"));
         assert!(!dir.join("keyring-touched").exists());
+        assert_eq!(fs::read(&accounts).unwrap(), before);
     }
     fs::remove_dir_all(dir).unwrap();
 }

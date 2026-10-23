@@ -5,8 +5,8 @@ const cases = []
 loader.load = function(path) {
   const library = original(path)
   const names = path === "calendar/Calendar.js"
-    ? ["eventsFromCaldav", "eventsFromGoogle", "eventsFromGraph"]
-    : path === "message/Calendar.js" ? ["invitationFrom", "eventsFrom"] : []
+    ? ["eventsFromGoogle"]
+    : []
   for (const name of names) {
     const call = library[name]
     library[name] = function(...args) {

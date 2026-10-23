@@ -13,7 +13,7 @@ impl Session {
         if part.is_empty() || part.len() > 16384 || part.chars().any(char::is_control) {
             return Err("invalid_params");
         }
-        let provider = super::reader::registered(account).await?;
+        super::reader::registered(account).await?;
         let (cached_account, message_id, attachment_id) =
             (account.to_owned(), id.to_owned(), part.to_owned());
         if let Some(value) = tokio::task::spawn_blocking(move || {
@@ -25,19 +25,7 @@ impl Session {
             return Ok(value);
         }
         let params = json!({"accountId":account,"messageId":id,"attachmentId":part});
-        let value = match provider.as_str() {
-            "gmail" => self.gmail.call("gmail.attachment", &params).await?,
-            "jmap" => {
-                self.jmap
-                    .call(
-                        "jmap.attachment",
-                        &json!({"accountId":account,"attachmentId":part}),
-                    )
-                    .await?
-            }
-            "imap" | "outlook" => crate::providers::imap::call("imap.attachment", &params).await?,
-            _ => return Err("attachment_provider_unsupported"),
-        };
+        let value = self.gmail.call("gmail.attachment", &params).await?;
         let (cached_account, message_id, attachment_id, saved) = (
             account.to_owned(),
             id.to_owned(),

@@ -58,8 +58,6 @@
     "cache.queryPut",
     "cache.queryLabels",
     "cache.queryProfile",
-    "cache.querySession",
-    "cache.querySessionGet",
     "cache.queryBind",
     "cache.queryClear",
     "cache.queryInvalidate",
@@ -109,26 +107,7 @@
     "auth.begin",
     "auth.poll",
     "auth.cancel",
-    "auth.invalidate",
     "auth.token",
-    "auth.store",
-    "auth.clear",
-    "outlook.graphSend",
-    "outlook.connectionCheck",
-    "hey.probe",
-    "hey.status",
-    "hey.profile",
-    "hey.sendAs",
-    "hey.labels",
-    "hey.list",
-    "hey.read",
-    "hey.loginStart",
-    "hey.loginPoll",
-    "hey.loginCancel",
-    "hey.logout",
-    "hey.act",
-    "hey.send",
-    "hey.saveDraft",
     "gmail.list",
     "gmail.read",
     "gmail.attachment",
@@ -148,49 +127,6 @@
     "gmail.saveDraft",
     "gmail.updateDraft",
     "gmail.deleteDraft",
-    "imap.request",
-    "imap.append",
-    "imap.check",
-    "imap.folders",
-    "imap.list",
-    "imap.listContinue",
-    "imap.messages",
-    "imap.count",
-    "imap.cancel",
-    "imap.attachment",
-    "imap.modify",
-    "imap.trash",
-    "imap.untrash",
-    "imap.createFolder",
-    "imap.renameFolder",
-    "imap.deleteFolder",
-    "imap.saveDraft",
-    "imap.deleteDraft",
-    "imap.send",
-    "smtp.send",
-    "jmap.verify",
-    "jmap.profile",
-    "jmap.session",
-    "jmap.list",
-    "jmap.messages",
-    "jmap.read",
-    "jmap.attachment",
-    "jmap.labels",
-    "jmap.labelCounts",
-    "jmap.watch",
-    "jmap.modify",
-    "jmap.batchModify",
-    "jmap.trash",
-    "jmap.untrash",
-    "jmap.sendAs",
-    "jmap.send",
-    "jmap.saveDraft",
-    "jmap.invalidate",
-    "jmap.cancel",
-    "jmap.request",
-    "jmap.stream.open",
-    "jmap.stream.poll",
-    "jmap.stream.close",
     "reader.prefetch",
     "local.list",
     "local.summaries",
@@ -215,91 +151,6 @@
     "local.labelCounts"
   ],
   "contractCases": [
-    {
-      "name": "IMAP account search refuses an expired work continuation",
-      "method": "imap.list",
-      "params": {
-        "query": "search:ALL",
-        "continuation": "expired-snapshot",
-        "settings": {
-          "username": "synthetic",
-          "imapHost": "imap.example.invalid",
-          "imapPort": 993
-        },
-        "credential": "synthetic:secret"
-      },
-      "errorCode": -32000,
-      "equals": {
-        "message": "imap_search_expired"
-      }
-    },
-    {
-      "name": "IMAP account search refuses a malformed page cursor",
-      "method": "imap.list",
-      "params": {
-        "query": "search:ALL",
-        "pageToken": "not-a-page-cursor",
-        "settings": {
-          "username": "synthetic",
-          "imapHost": "imap.example.invalid",
-          "imapPort": 993
-        },
-        "credential": "synthetic:secret"
-      },
-      "errorCode": -32602,
-      "equals": {
-        "message": "Invalid params"
-      }
-    },
-    {
-      "name": "IMAP text search includes archived mail",
-      "method": "providers.resolve",
-      "params": {
-        "provider": "imap",
-        "operation": "query",
-        "search": "subject:invoice"
-      },
-      "equals": {
-        "value": "search:SUBJECT \"invoice\""
-      }
-    },
-    {
-      "name": "Outlook text search includes archived mail",
-      "method": "providers.resolve",
-      "params": {
-        "provider": "outlook",
-        "operation": "query",
-        "search": "invoice"
-      },
-      "equals": {
-        "value": "search:TEXT \"invoice\""
-      }
-    },
-    {
-      "name": "IMAP address search includes archived mail",
-      "method": "providers.resolve",
-      "params": {
-        "provider": "imap",
-        "operation": "addressQuery",
-        "field": "from",
-        "value": "ada@example.org"
-      },
-      "equals": {
-        "value": "search:FROM \"ada@example.org\""
-      }
-    },
-    {
-      "name": "IMAP All mail resolves to account-wide listing",
-      "method": "providers.resolve",
-      "params": {
-        "provider": "imap",
-        "operation": "query",
-        "mailbox": "all"
-      },
-      "equals": {
-        "value": "search:ALL"
-      }
-    },
     {
       "name": "Reminder view cache has an independent namespace",
       "method": "cache.calendarRead",
@@ -402,7 +253,7 @@
       "errorCode": -32000
     },
     {
-      "name": "iCloud request refuses an external credential origin",
+      "name": "Calendar requests refuse non-Google providers before authentication",
       "method": "calendar.request",
       "params": {
         "source": {
@@ -415,7 +266,7 @@
       },
       "errorCode": -32000,
       "equals": {
-        "message": "calendar_origin_refused"
+        "message": "calendar_provider_unsupported"
       }
     },
     {
@@ -423,65 +274,6 @@
       "method": "calendar.discover",
       "params": {},
       "errorCode": -32602
-    },
-    {
-      "name": "missing Outlook connection",
-      "method": "outlook.connectionCheck",
-      "params": {
-        "accountId": "outlook:missing@example.org"
-      },
-      "equals": {
-        "mail": false,
-        "graph": false,
-        "calendar": false
-      }
-    },
-    {
-      "name": "mail action rejects malformed HEY IDs before preview",
-      "method": "mail.act",
-      "params": {
-        "account": "hey:sender@example.org",
-        "operation": "read",
-        "ids": [
-          "1:INBOX"
-        ]
-      },
-      "errorCode": -32602,
-      "equals": {
-        "message": "Invalid params"
-      }
-    },
-    {
-      "name": "mail action rejects malformed IMAP IDs before execution",
-      "method": "mail.act",
-      "params": {
-        "account": "imap:sender@example.org",
-        "operation": "read",
-        "ids": [
-          "1:INBOX",
-          "bad"
-        ],
-        "execute": true
-      },
-      "errorCode": -32602,
-      "equals": {
-        "message": "Invalid params"
-      }
-    },
-    {
-      "name": "mail action rejects out-of-range Outlook UIDs before preview",
-      "method": "mail.act",
-      "params": {
-        "account": "outlook:sender@example.org",
-        "operation": "trash",
-        "ids": [
-          "4294967296:INBOX"
-        ]
-      },
-      "errorCode": -32602,
-      "equals": {
-        "message": "Invalid params"
-      }
     },
     {
       "name": "mail list requires an account",
@@ -533,10 +325,10 @@
       }
     },
     {
-      "name": "mail send dry run",
+      "name": "Gmail send preview refuses missing authentication",
       "method": "mail.send",
       "params": {
-        "account": "imap:sender@example.org",
+        "account": "contract@example.org",
         "to": [
           "recipient@example.org"
         ],
@@ -544,41 +336,9 @@
         "body": "Hello \u5408\u6210\nSecond line"
       },
       "equals": {
-        "dryRun": true,
-        "executed": false,
-        "accountId": "imap:sender@example.org",
-        "from": "sender@example.org",
-        "to": [
-          "recipient@example.org"
-        ],
-        "subject": "Contract preview",
-        "body": "Hello \u5408\u6210\nSecond line",
-        "attachments": []
-      }
-    },
-    {
-      "name": "mail send dry run names the IMAP sender",
-      "method": "mail.send",
-      "params": {
-        "account": "imap:named@example.org",
-        "to": [
-          "recipient@example.org"
-        ],
-        "subject": "Contract preview",
-        "body": "Hello"
+        "message": "gmail_client_unreadable"
       },
-      "equals": {
-        "dryRun": true,
-        "executed": false,
-        "accountId": "imap:named@example.org",
-        "from": "Jane Example <named@example.org>",
-        "to": [
-          "recipient@example.org"
-        ],
-        "subject": "Contract preview",
-        "body": "Hello",
-        "attachments": []
-      }
+      "errorCode": -32000
     },
     {
       "name": "mail list rejects unknown fields",
@@ -628,7 +388,7 @@
       "name": "mail send rejects unknown fields",
       "method": "mail.send",
       "params": {
-        "account": "imap:sender@example.org",
+        "account": "contract@example.org",
         "to": [
           "recipient@example.org"
         ],
@@ -661,7 +421,7 @@
       "name": "mail send rejects nonboolean execution",
       "method": "mail.send",
       "params": {
-        "account": "imap:sender@example.org",
+        "account": "contract@example.org",
         "to": [
           "recipient@example.org"
         ],
@@ -895,15 +655,10 @@
       "method": "providers.snapshot",
       "params": {},
       "equals": {
-        "gmail.nativeSync": true,
-        "hey.nativeSync": true
+        "gmail.nativeSync": true
       },
       "types": {
-        "gmail.queries": "object",
-        "outlook.queries": "object",
-        "hey.queries": "object",
-        "jmap.queries": "object",
-        "imap.queries": "object"
+        "gmail.queries": "object"
       }
     },
     {
@@ -995,9 +750,10 @@
       "name": "credential put rejects controlled metadata before native access",
       "method": "credentials.put",
       "params": {
-        "kind": "imap-password",
-        "accountId": "imap:contract@example.org\nforged",
-        "secret": "synthetic"
+        "kind": "google-refresh-token",
+        "accountId": "contract@example.org\nforged",
+        "secret": "synthetic",
+        "clientId": "synthetic-client"
       },
       "errorCode": -32602,
       "equals": {
@@ -1561,7 +1317,7 @@
       }
     },
     {
-      "name": "Native calendar parser refuses document type expansion",
+      "name": "Calendar parsing refuses non-Google providers",
       "method": "calendar.parse",
       "params": {
         "kind": "caldav",
@@ -1570,7 +1326,7 @@
       },
       "errorCode": -32000,
       "equals": {
-        "message": "calendar_invalid_response"
+        "message": "calendar_provider_unsupported"
       }
     },
     {
@@ -2378,6 +2134,115 @@
         "pendingNextPageToken": "",
         "summaries.0.pendingLabelMatch": true
       }
+    },
+    {
+      "name": "Provider resolution refuses non-Gmail accounts",
+      "method": "providers.resolve",
+      "params": {
+        "provider": "imap",
+        "operation": "query",
+        "search": "invoice"
+      },
+      "errorCode": -32000,
+      "equals": {
+        "message": "mail_provider_unknown"
+      }
+    },
+    {
+      "name": "Unified Gmail snapshots preserve account identities without provider capabilities",
+      "method": "model.unified",
+      "params": {
+        "sources": [
+          {
+            "id": "one@example.org",
+            "label": "One",
+            "messages": [
+              {
+                "id": "shared",
+                "date": 200
+              }
+            ]
+          },
+          {
+            "id": "two@example.org",
+            "label": "Two",
+            "messages": [
+              {
+                "id": "shared",
+                "date": 100
+              }
+            ]
+          }
+        ],
+        "summaries": [
+          {
+            "unread": 2
+          },
+          {
+            "unread": 3
+          }
+        ],
+        "states": [
+          {
+            "loaded": true
+          },
+          {
+            "loaded": true
+          }
+        ],
+        "abilities": [
+          {
+            "read": false
+          },
+          {
+            "read": true
+          }
+        ]
+      },
+      "equals": {
+        "": {
+          "messages": [
+            {
+              "id": "one@example.org\u001fshared",
+              "date": 200,
+              "sourceId": "shared",
+              "accountId": "one@example.org",
+              "sourceLabel": "One"
+            },
+            {
+              "id": "two@example.org\u001fshared",
+              "date": 100,
+              "sourceId": "shared",
+              "accountId": "two@example.org",
+              "sourceLabel": "Two"
+            }
+          ],
+          "totalUnread": 5,
+          "loading": false,
+          "serverSearchLoading": false,
+          "hasMore": false,
+          "loaded": true,
+          "error": ""
+        }
+      }
+    },
+    {
+      "name": "Query cache metadata omits legacy provider sessions",
+      "method": "cache.queryRestore",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "store": {
+          "version": 2,
+          "account": "",
+          "profile": null,
+          "labels": []
+        }
+      },
+      "types": {
+        "generation": "number"
+      }
     }
   ],
   "unreleased": {
@@ -2413,6 +2278,12 @@
       "local.labelCounts"
     ],
     "cases": [
+      "Calendar requests refuse non-Google providers before authentication",
+      "Gmail send preview refuses missing authentication",
+      "mail send rejects unknown fields",
+      "mail send rejects nonboolean execution",
+      "provider rules snapshot",
+      "credential put rejects controlled metadata before native access",
       "Inbox snapshot refuses unknown accounts",
       "Inbox snooze validates before mutation",
       "Inbox snapshot returns private account working state",
@@ -2433,7 +2304,7 @@
       "Native outbox composition requires structured fields",
       "Calendar reads refuse mutations",
       "Native Google calendar parsing retains display data",
-      "Native calendar parser refuses document type expansion",
+      "Calendar parsing refuses non-Google providers",
       "Shared calendar ranges have an independent namespace",
       "Unreleased handshake identifies its exact API contract",
       "Attachment recovery preserves source and owned pending work",
@@ -2470,7 +2341,1301 @@
       "Local summaries return cached effective labels and query matches",
       "Local list anchors relative searches and returns effective labels",
       "Local summaries preserve unknown query matches for online syntax",
-      "Local summaries include active edits omitted by the server snapshot"
+      "Local summaries include active edits omitted by the server snapshot",
+      "Provider resolution refuses non-Gmail accounts",
+      "Unified Gmail snapshots preserve account identities without provider capabilities",
+      "Query cache metadata omits legacy provider sessions"
+    ]
+  },
+  "releasedContract": {
+    "apiVersion": 7,
+    "protocolVersion": 1,
+    "methods": [
+      "system.info",
+      "system.quit",
+      "credentials.get",
+      "credentials.put",
+      "credentials.delete",
+      "accounts.list",
+      "account.identities",
+      "account.conversation",
+      "agent.context",
+      "agent.jobsList",
+      "agent.providerStatus",
+      "agent.jobsProjection",
+      "agent.jobStart",
+      "agent.jobShow",
+      "agent.jobCancel",
+      "agent.jobForget",
+      "agent.contextCancel",
+      "reader.open",
+      "reader.render",
+      "reader.cancel",
+      "accounts.read",
+      "accounts.save",
+      "providers.list",
+      "providers.resolve",
+      "providers.snapshot",
+      "message.parse",
+      "message.compose",
+      "message.prepare",
+      "message.prepareCached",
+      "message.summarize",
+      "message.summaries",
+      "message.composeText",
+      "message.render",
+      "message.direction",
+      "message.signatureImport",
+      "message.signatureInline",
+      "attachment.forget",
+      "outbox.enqueue",
+      "outbox.snapshot",
+      "outbox.undo",
+      "outbox.flush",
+      "outbox.abandon",
+      "outbox.forget",
+      "cache.queryRestore",
+      "cache.queryGet",
+      "cache.queryPut",
+      "cache.queryLabels",
+      "cache.queryProfile",
+      "cache.querySession",
+      "cache.querySessionGet",
+      "cache.queryBind",
+      "cache.queryClear",
+      "cache.queryInvalidate",
+      "cache.querySnapshot",
+      "cache.queryFlush",
+      "model.unified",
+      "model.apply",
+      "model.intent",
+      "compose.recoveryRead",
+      "compose.recoverySave",
+      "message.parseUpload",
+      "upload.begin",
+      "upload.append",
+      "upload.discard",
+      "request.upload",
+      "mail.list",
+      "mail.read",
+      "mail.act",
+      "mail.send",
+      "mail.watch",
+      "mail.unwatch",
+      "mail.check",
+      "mail.snapshot",
+      "cache.resourceRead",
+      "cache.resourcePut",
+      "cache.resourceClear",
+      "cache.bodyRead",
+      "cache.bodyPut",
+      "cache.bodyPutUpload",
+      "cache.bodyTouch",
+      "cache.bodyClear",
+      "cache.storeRead",
+      "cache.storePut",
+      "cache.calendarRead",
+      "cache.calendarPut",
+      "contacts.suggest",
+      "attachment.read",
+      "attachment.store",
+      "attachment.storeUpload",
+      "public.image",
+      "public.unsubscribe",
+      "calendar.request",
+      "calendar.discover",
+      "calendar.attendance",
+      "calendar.reminders",
+      "auth.form",
+      "auth.begin",
+      "auth.poll",
+      "auth.cancel",
+      "auth.invalidate",
+      "auth.token",
+      "auth.store",
+      "auth.clear",
+      "outlook.graphSend",
+      "outlook.connectionCheck",
+      "hey.probe",
+      "hey.status",
+      "hey.profile",
+      "hey.sendAs",
+      "hey.labels",
+      "hey.list",
+      "hey.read",
+      "hey.loginStart",
+      "hey.loginPoll",
+      "hey.loginCancel",
+      "hey.logout",
+      "hey.act",
+      "hey.send",
+      "hey.saveDraft",
+      "gmail.list",
+      "gmail.read",
+      "gmail.attachment",
+      "gmail.invalidate",
+      "gmail.labels",
+      "gmail.labelCounts",
+      "gmail.profile",
+      "gmail.sendAs",
+      "gmail.modify",
+      "gmail.batchModify",
+      "gmail.createLabel",
+      "gmail.renameLabel",
+      "gmail.deleteLabel",
+      "gmail.trash",
+      "gmail.untrash",
+      "gmail.send",
+      "gmail.saveDraft",
+      "gmail.updateDraft",
+      "gmail.deleteDraft",
+      "imap.request",
+      "imap.append",
+      "imap.check",
+      "imap.folders",
+      "imap.list",
+      "imap.listContinue",
+      "imap.messages",
+      "imap.count",
+      "imap.cancel",
+      "imap.attachment",
+      "imap.modify",
+      "imap.trash",
+      "imap.untrash",
+      "imap.createFolder",
+      "imap.renameFolder",
+      "imap.deleteFolder",
+      "imap.saveDraft",
+      "imap.deleteDraft",
+      "imap.send",
+      "smtp.send",
+      "jmap.verify",
+      "jmap.profile",
+      "jmap.session",
+      "jmap.list",
+      "jmap.messages",
+      "jmap.read",
+      "jmap.attachment",
+      "jmap.labels",
+      "jmap.labelCounts",
+      "jmap.watch",
+      "jmap.modify",
+      "jmap.batchModify",
+      "jmap.trash",
+      "jmap.untrash",
+      "jmap.sendAs",
+      "jmap.send",
+      "jmap.saveDraft",
+      "jmap.invalidate",
+      "jmap.cancel",
+      "jmap.request",
+      "jmap.stream.open",
+      "jmap.stream.poll",
+      "jmap.stream.close"
+    ],
+    "contractCases": [
+      {
+        "name": "IMAP account search refuses an expired work continuation",
+        "method": "imap.list",
+        "params": {
+          "query": "search:ALL",
+          "continuation": "expired-snapshot",
+          "settings": {
+            "username": "synthetic",
+            "imapHost": "imap.example.invalid",
+            "imapPort": 993
+          },
+          "credential": "synthetic:secret"
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "imap_search_expired"
+        }
+      },
+      {
+        "name": "IMAP account search refuses a malformed page cursor",
+        "method": "imap.list",
+        "params": {
+          "query": "search:ALL",
+          "pageToken": "not-a-page-cursor",
+          "settings": {
+            "username": "synthetic",
+            "imapHost": "imap.example.invalid",
+            "imapPort": 993
+          },
+          "credential": "synthetic:secret"
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "IMAP text search includes archived mail",
+        "method": "providers.resolve",
+        "params": {
+          "provider": "imap",
+          "operation": "query",
+          "search": "subject:invoice"
+        },
+        "equals": {
+          "value": "search:SUBJECT \"invoice\""
+        }
+      },
+      {
+        "name": "Outlook text search includes archived mail",
+        "method": "providers.resolve",
+        "params": {
+          "provider": "outlook",
+          "operation": "query",
+          "search": "invoice"
+        },
+        "equals": {
+          "value": "search:TEXT \"invoice\""
+        }
+      },
+      {
+        "name": "IMAP address search includes archived mail",
+        "method": "providers.resolve",
+        "params": {
+          "provider": "imap",
+          "operation": "addressQuery",
+          "field": "from",
+          "value": "ada@example.org"
+        },
+        "equals": {
+          "value": "search:FROM \"ada@example.org\""
+        }
+      },
+      {
+        "name": "IMAP All mail resolves to account-wide listing",
+        "method": "providers.resolve",
+        "params": {
+          "provider": "imap",
+          "operation": "query",
+          "mailbox": "all"
+        },
+        "equals": {
+          "value": "search:ALL"
+        }
+      },
+      {
+        "name": "Reminder view cache has an independent namespace",
+        "method": "cache.calendarRead",
+        "params": {
+          "name": "calendar-reminders"
+        },
+        "equals": {
+          "version": 3
+        },
+        "types": {
+          "ranges": "object"
+        }
+      },
+      {
+        "name": "Reminder actions validate before opening the ledger",
+        "method": "calendar.reminders",
+        "params": {
+          "operation": "dismiss",
+          "now": 1,
+          "key": "../outside"
+        },
+        "errorCode": -32602
+      },
+      {
+        "name": "Simultaneous reminders retain each event identity",
+        "method": "calendar.reminders",
+        "params": {
+          "operation": "poll",
+          "now": 1400000,
+          "lastCheck": 1300000,
+          "candidates": [
+            {
+              "key": "contract-one",
+              "occurrence": "contract-one",
+              "eventId": "one",
+              "sourceId": "calendar",
+              "accountId": "synthetic",
+              "title": "First meeting",
+              "start": 2000000,
+              "end": 5600000,
+              "due": 1400000
+            },
+            {
+              "key": "contract-two",
+              "occurrence": "contract-two",
+              "eventId": "two",
+              "sourceId": "calendar",
+              "accountId": "synthetic",
+              "title": "Second meeting",
+              "start": 2000000,
+              "end": 5600000,
+              "due": 1400000
+            }
+          ]
+        },
+        "equals": {
+          "notifications.length": 2,
+          "notifications.0.eventId": "one",
+          "notifications.1.eventId": "two",
+          "notifications.1.title": "Second meeting"
+        },
+        "types": {
+          "notifications.0.key": "string",
+          "notifications.1.key": "string"
+        }
+      },
+      {
+        "name": "Google attendance rejects unsupported answers before authentication",
+        "method": "calendar.attendance",
+        "params": {
+          "accountId": "missing@example.org",
+          "uid": "invite",
+          "organizer": "organizer@example.org",
+          "response": "yes"
+        },
+        "errorCode": -32602
+      },
+      {
+        "name": "Google attendance requires the invitation organizer before authentication",
+        "method": "calendar.attendance",
+        "params": {
+          "accountId": "missing@example.org",
+          "uid": "invite",
+          "response": "accepted"
+        },
+        "errorCode": -32602
+      },
+      {
+        "name": "Google calendar identity is validated before authentication",
+        "method": "calendar.request",
+        "params": {
+          "source": {
+            "kind": "google",
+            "accountId": "missing@example.org",
+            "calendarId": ".."
+          },
+          "operation": "get",
+          "eventId": "event"
+        },
+        "errorCode": -32000
+      },
+      {
+        "name": "iCloud request refuses an external credential origin",
+        "method": "calendar.request",
+        "params": {
+          "source": {
+            "kind": "icloud",
+            "accountId": "imap:missing@icloud.com",
+            "url": "https://example.org/calendar/"
+          },
+          "operation": "list",
+          "body": "report"
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "calendar_origin_refused"
+        }
+      },
+      {
+        "name": "strict calendar discovery parameters",
+        "method": "calendar.discover",
+        "params": {},
+        "errorCode": -32602
+      },
+      {
+        "name": "missing Outlook connection",
+        "method": "outlook.connectionCheck",
+        "params": {
+          "accountId": "outlook:missing@example.org"
+        },
+        "equals": {
+          "mail": false,
+          "graph": false,
+          "calendar": false
+        }
+      },
+      {
+        "name": "mail action rejects malformed HEY IDs before preview",
+        "method": "mail.act",
+        "params": {
+          "account": "hey:sender@example.org",
+          "operation": "read",
+          "ids": [
+            "1:INBOX"
+          ]
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "mail action rejects malformed IMAP IDs before execution",
+        "method": "mail.act",
+        "params": {
+          "account": "imap:sender@example.org",
+          "operation": "read",
+          "ids": [
+            "1:INBOX",
+            "bad"
+          ],
+          "execute": true
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "mail action rejects out-of-range Outlook UIDs before preview",
+        "method": "mail.act",
+        "params": {
+          "account": "outlook:sender@example.org",
+          "operation": "trash",
+          "ids": [
+            "4294967296:INBOX"
+          ]
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "mail list requires an account",
+        "method": "mail.list",
+        "params": {},
+        "errorCode": -32000,
+        "equals": {
+          "message": "mail_account_unknown"
+        }
+      },
+      {
+        "name": "mail read requires an account",
+        "method": "mail.read",
+        "params": {
+          "account": "absent@example.org",
+          "id": "opaque:id"
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "mail_account_unknown"
+        }
+      },
+      {
+        "name": "mail action dry run",
+        "method": "mail.act",
+        "params": {
+          "account": "contract@example.org",
+          "operation": "star",
+          "ids": [
+            "opaque:id",
+            "other",
+            "opaque:id"
+          ]
+        },
+        "equals": {
+          "dryRun": true,
+          "executed": false,
+          "accountId": "contract@example.org",
+          "operation": "star",
+          "requestedIds": [
+            "opaque:id",
+            "other",
+            "opaque:id"
+          ],
+          "targetIds": [
+            "opaque:id",
+            "other"
+          ]
+        }
+      },
+      {
+        "name": "mail send dry run",
+        "method": "mail.send",
+        "params": {
+          "account": "imap:sender@example.org",
+          "to": [
+            "recipient@example.org"
+          ],
+          "subject": "Contract preview",
+          "body": "Hello \u5408\u6210\nSecond line"
+        },
+        "equals": {
+          "dryRun": true,
+          "executed": false,
+          "accountId": "imap:sender@example.org",
+          "from": "sender@example.org",
+          "to": [
+            "recipient@example.org"
+          ],
+          "subject": "Contract preview",
+          "body": "Hello \u5408\u6210\nSecond line",
+          "attachments": []
+        }
+      },
+      {
+        "name": "mail send dry run names the IMAP sender",
+        "method": "mail.send",
+        "params": {
+          "account": "imap:named@example.org",
+          "to": [
+            "recipient@example.org"
+          ],
+          "subject": "Contract preview",
+          "body": "Hello"
+        },
+        "equals": {
+          "dryRun": true,
+          "executed": false,
+          "accountId": "imap:named@example.org",
+          "from": "Jane Example <named@example.org>",
+          "to": [
+            "recipient@example.org"
+          ],
+          "subject": "Contract preview",
+          "body": "Hello",
+          "attachments": []
+        }
+      },
+      {
+        "name": "mail list rejects unknown fields",
+        "method": "mail.list",
+        "params": {
+          "account": "contract@example.org",
+          "unexpected": true,
+          "execute": true
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "mail read rejects unknown fields",
+        "method": "mail.read",
+        "params": {
+          "account": "contract@example.org",
+          "id": "opaque:id",
+          "unexpected": true,
+          "execute": true
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "mail act rejects unknown fields",
+        "method": "mail.act",
+        "params": {
+          "account": "contract@example.org",
+          "operation": "star",
+          "ids": [
+            "opaque:id"
+          ],
+          "unexpected": true,
+          "execute": true
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "mail send rejects unknown fields",
+        "method": "mail.send",
+        "params": {
+          "account": "imap:sender@example.org",
+          "to": [
+            "recipient@example.org"
+          ],
+          "body": "Preview",
+          "unexpected": true,
+          "execute": true
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "mail act rejects nonboolean execution",
+        "method": "mail.act",
+        "params": {
+          "account": "contract@example.org",
+          "operation": "star",
+          "ids": [
+            "opaque:id"
+          ],
+          "execute": "true"
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "mail send rejects nonboolean execution",
+        "method": "mail.send",
+        "params": {
+          "account": "imap:sender@example.org",
+          "to": [
+            "recipient@example.org"
+          ],
+          "body": "Preview",
+          "execute": "true"
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "recovery preserves empty edited draft",
+        "method": "compose.recoverySave",
+        "params": {
+          "expectedRevision": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "record": {
+            "version": 1,
+            "active": true,
+            "draft": {
+              "userModified": true
+            },
+            "parked": [
+              {
+                "subject": "Untouched prefill",
+                "userModified": false
+              },
+              {
+                "subject": "Legacy snapshot"
+              }
+            ]
+          }
+        },
+        "equals": {
+          "record.active": true,
+          "record.draft.userModified": true,
+          "record.draft.body": "",
+          "record.parked.0.userModified": false
+        },
+        "types": {
+          "revision": "string"
+        }
+      },
+      {
+        "name": "recovery reads edit history",
+        "method": "compose.recoveryRead",
+        "params": {},
+        "equals": {
+          "record.active": true,
+          "record.draft.userModified": true,
+          "record.draft.body": "",
+          "record.parked.0.userModified": false,
+          "record.parked.1.subject": "Legacy snapshot"
+        }
+      },
+      {
+        "name": "recovery rejects invalid edit history",
+        "method": "compose.recoverySave",
+        "params": {
+          "expectedRevision": "unused",
+          "record": {
+            "version": 1,
+            "active": true,
+            "draft": {
+              "userModified": "true"
+            }
+          }
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "recovery_invalid_user_modified"
+        }
+      },
+      {
+        "name": "AI recovery preserves app-owned quote metadata",
+        "method": "compose.recoverySave",
+        "params": {
+          "record": {
+            "version": 1,
+            "active": true,
+            "draft": {
+              "body": "Answer\n\n> Original",
+              "bodyQuote": "> Original"
+            },
+            "parked": [
+              {
+                "body": "Other answer\n\n> Other",
+                "bodyQuote": "> Other"
+              }
+            ]
+          }
+        },
+        "equals": {
+          "record.draft.bodyQuote": "> Original",
+          "record.parked.0.bodyQuote": "> Other"
+        }
+      },
+      {
+        "name": "AI recovery reads app-owned quote metadata",
+        "method": "compose.recoveryRead",
+        "params": {},
+        "equals": {
+          "record.draft.bodyQuote": "> Original",
+          "record.parked.0.bodyQuote": "> Other"
+        }
+      },
+      {
+        "name": "AI recovery refuses nontext quote metadata",
+        "method": "compose.recoverySave",
+        "params": {
+          "expectedRevision": "unused",
+          "record": {
+            "version": 1,
+            "active": true,
+            "draft": {
+              "body": "Answer",
+              "bodyQuote": []
+            }
+          }
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "recovery_invalid"
+        }
+      },
+      {
+        "name": "strict handshake parameters",
+        "method": "system.info",
+        "params": {
+          "unexpected": true
+        },
+        "errorCode": -32602
+      },
+      {
+        "name": "MIME resource fields",
+        "method": "message.parse",
+        "params": {
+          "raw": "U3ViamVjdDogQVBJIGZpeHR1cmUNCkNvbnRlbnQtVHlwZTogdGV4dC9wbGFpbg0KDQpoZWxsbw"
+        },
+        "equals": {
+          "mimeType": "text/plain",
+          "body.data": "aGVsbG8",
+          "body.size": 5
+        },
+        "types": {
+          "headers": "array"
+        }
+      },
+      {
+        "name": "prepared reader content",
+        "method": "message.prepare",
+        "params": {
+          "message": {
+            "id": "fixture",
+            "payload": {
+              "mimeType": "text/plain",
+              "headers": [
+                {
+                  "name": "Subject",
+                  "value": "API fixture"
+                },
+                {
+                  "name": "From",
+                  "value": "Sender <sender@example.org>"
+                }
+              ],
+              "body": {
+                "data": "SGVsbG8g5ZCI5oiQ"
+              }
+            },
+            "labelIds": [
+              "INBOX",
+              "UNREAD"
+            ],
+            "internalDate": "1700000000000"
+          },
+          "now": 1700000000000
+        },
+        "equals": {
+          "body.text": "Hello \u5408\u6210",
+          "summary.subject": "API fixture",
+          "summary.id": "fixture"
+        },
+        "types": {
+          "summary": "object",
+          "attachments": "array"
+        }
+      },
+      {
+        "name": "list summary",
+        "method": "message.summarize",
+        "params": {
+          "message": {
+            "id": "fixture",
+            "payload": {
+              "mimeType": "text/plain",
+              "headers": [
+                {
+                  "name": "Subject",
+                  "value": "API fixture"
+                },
+                {
+                  "name": "From",
+                  "value": "Sender <sender@example.org>"
+                }
+              ],
+              "body": {
+                "data": "SGVsbG8g5ZCI5oiQ"
+              }
+            },
+            "labelIds": [
+              "INBOX",
+              "UNREAD"
+            ],
+            "internalDate": "1700000000000"
+          },
+          "now": 1700000000000
+        },
+        "equals": {
+          "subject": "API fixture",
+          "id": "fixture",
+          "unread": true
+        },
+        "types": {
+          "from": "object",
+          "time": "string"
+        }
+      },
+      {
+        "name": "provider rules snapshot",
+        "method": "providers.snapshot",
+        "params": {},
+        "equals": {
+          "gmail.nativeSync": true,
+          "hey.nativeSync": true
+        },
+        "types": {
+          "gmail.queries": "object",
+          "outlook.queries": "object",
+          "hey.queries": "object",
+          "jmap.queries": "object",
+          "imap.queries": "object"
+        }
+      },
+      {
+        "name": "both display modes",
+        "method": "message.render",
+        "params": {
+          "html": "<p>API fixture</p>",
+          "options": {
+            "allowRemoteImages": false,
+            "withReader": true
+          }
+        },
+        "types": {
+          "document": "object",
+          "reader.document": "object",
+          "html": "string"
+        }
+      },
+      {
+        "name": "missing cached message",
+        "method": "message.prepareCached",
+        "params": {
+          "accountId": "contract@example.org",
+          "id": "absent"
+        },
+        "equals": {
+          "": null
+        }
+      },
+      {
+        "name": "event look projection",
+        "method": "agent.jobsProjection",
+        "params": {
+          "jobs": [
+            {
+              "id": "look-run",
+              "accountId": "contract-account",
+              "kind": "events",
+              "messageId": "43",
+              "messageIds": [
+                "43"
+              ],
+              "state": "running",
+              "createdOrder": 3
+            },
+            {
+              "id": "look-done",
+              "accountId": "contract-account",
+              "kind": "events",
+              "messageId": "42",
+              "messageIds": [
+                "42"
+              ],
+              "state": "done",
+              "createdOrder": 2,
+              "events": [
+                {
+                  "title": "Dinner",
+                  "startMs": 1789232400000,
+                  "endMs": 1789239600000,
+                  "allDay": false
+                }
+              ]
+            }
+          ],
+          "accountId": "contract-account",
+          "seenIds": []
+        },
+        "equals": {
+          "activeEventLooks": 1,
+          "eventLooks.contract-account.43.id": "look-run",
+          "eventLooks.contract-account.42.events.0.title": "Dinner",
+          "attention": false
+        }
+      },
+      {
+        "name": "credential get rejects an unknown product kind before native access",
+        "method": "credentials.get",
+        "params": {
+          "kind": "native-command",
+          "accountId": "imap:contract@example.org"
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "credential put rejects controlled metadata before native access",
+        "method": "credentials.put",
+        "params": {
+          "kind": "imap-password",
+          "accountId": "imap:contract@example.org\nforged",
+          "secret": "synthetic"
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "credential delete rejects native attributes before native access",
+        "method": "credentials.delete",
+        "params": {
+          "kind": "calendar-password",
+          "accountId": "contract-source",
+          "nativeAttributes": [
+            "service",
+            "other-product"
+          ]
+        },
+        "errorCode": -32602,
+        "equals": {
+          "message": "Invalid params"
+        }
+      },
+      {
+        "name": "AI job projections retain provider and model",
+        "method": "agent.jobsProjection",
+        "params": {
+          "jobs": [
+            {
+              "id": "fixture",
+              "accountId": "contract-account",
+              "messageId": "42",
+              "kind": "message",
+              "state": "done",
+              "provider": "opencode",
+              "model": "fixture/model#variant",
+              "created": 1
+            }
+          ],
+          "accountId": "contract-account",
+          "seenIds": []
+        },
+        "equals": {
+          "byMessage.42.provider": "opencode",
+          "byMessage.42.model": "fixture/model#variant"
+        }
+      },
+      {
+        "name": "AI provider override is validated before starting a worker",
+        "method": "agent.jobStart",
+        "params": {
+          "provider": "../../bin/sh",
+          "payload": {
+            "messageId": "synthetic",
+            "prompt": "Synthetic question"
+          }
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "agent_invalid_provider"
+        }
+      },
+      {
+        "name": "AI model override is validated before starting a worker",
+        "method": "agent.jobStart",
+        "params": {
+          "provider": "opencode",
+          "model": "--auto",
+          "payload": {
+            "messageId": "synthetic",
+            "prompt": "Synthetic question"
+          }
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "agent_invalid_model"
+        }
+      },
+      {
+        "name": "AI follow-ups cannot override the saved provider or model",
+        "method": "agent.jobStart",
+        "params": {
+          "provider": "codex",
+          "payload": {
+            "parent": "11111111111111111111111111111111",
+            "prompt": "Synthetic follow-up"
+          }
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "agent_continuation_override"
+        }
+      },
+      {
+        "name": "AI draft updates require a complete current snapshot",
+        "method": "agent.jobStart",
+        "params": {
+          "payload": {
+            "parent": "11111111111111111111111111111111",
+            "prompt": "Revise",
+            "draftUpdate": {
+              "accountId": "contract-account",
+              "draftKey": "contract-draft",
+              "draft": {
+                "body": "Only one field"
+              }
+            }
+          }
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "agent_invalid_draft"
+        }
+      },
+      {
+        "name": "AI draft updates cannot override conversation ownership fields",
+        "method": "agent.jobStart",
+        "params": {
+          "payload": {
+            "parent": "11111111111111111111111111111111",
+            "prompt": "Revise",
+            "accountId": "other-account"
+          }
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "agent_continuation_override"
+        }
+      },
+      {
+        "name": "AI envelope ownership is validated before creating a job",
+        "method": "agent.jobStart",
+        "params": {
+          "payload": {
+            "messageId": "synthetic",
+            "accountId": "owner",
+            "prompt": "Draft",
+            "envelope": {
+              "accountId": "other"
+            }
+          }
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "agent_context_owner_mismatch"
+        }
+      },
+      {
+        "name": "AI mail refresh refuses routing fields before reading history",
+        "method": "agent.jobStart",
+        "params": {
+          "payload": {
+            "parent": "11111111111111111111111111111111",
+            "prompt": "Follow up",
+            "mailUpdate": {
+              "accountId": "owner",
+              "messageId": "synthetic",
+              "message": "Text",
+              "to": "other@example.org"
+            }
+          }
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "agent_invalid_context"
+        }
+      },
+      {
+        "name": "AI app-owned reply history must be text",
+        "method": "agent.jobStart",
+        "params": {
+          "payload": {
+            "messageId": "synthetic",
+            "accountId": "owner",
+            "prompt": "Draft",
+            "envelope": {
+              "accountId": "owner",
+              "from": "",
+              "to": "",
+              "cc": "",
+              "bcc": "",
+              "subject": "",
+              "body": "",
+              "replyTo": "",
+              "threadId": "",
+              "inReplyTo": "",
+              "draftId": "",
+              "attachments": [],
+              "replyQuote": []
+            }
+          }
+        },
+        "errorCode": -32000,
+        "equals": {
+          "message": "agent_invalid_text"
+        }
+      },
+      {
+        "name": "AI conversations expose paged listings without deleting older turns",
+        "method": "agent.jobsList",
+        "params": {
+          "paged": true,
+          "offset": 0,
+          "watchIds": []
+        },
+        "equals": {
+          "jobs": [],
+          "hasMore": false
+        }
+      },
+      {
+        "name": "AI projections preserve per-turn display and stop status",
+        "method": "agent.jobsProjection",
+        "params": {
+          "jobs": [
+            {
+              "id": "fixture",
+              "accountId": "contract-account",
+              "messageId": "42",
+              "kind": "message",
+              "state": "done",
+              "displayVersion": 2,
+              "stopUnconfirmed": false,
+              "created": 1
+            }
+          ],
+          "accountId": "contract-account"
+        },
+        "equals": {
+          "byMessage.42.displayVersion": 2,
+          "byMessage.42.stopUnconfirmed": false
+        }
+      },
+      {
+        "name": "AI transcript pages preserve native session identity",
+        "method": "agent.jobShow",
+        "params": {
+          "id": "0000000000000000000000000000000a"
+        },
+        "equals": {
+          "job.sessionId": "11111111-2222-3333-4444-555555555555",
+          "previous": "00000000000000000000000000000002",
+          "transcript.0.text": "question-2",
+          "transcript.15.text": "answer-9"
+        }
+      },
+      {
+        "name": "AI earlier transcript pages retain every saved turn",
+        "method": "agent.jobShow",
+        "params": {
+          "id": "0000000000000000000000000000000a",
+          "before": "00000000000000000000000000000002"
+        },
+        "equals": {
+          "previous": "",
+          "transcript.0.text": "question-0",
+          "transcript.3.text": "answer-1"
+        }
+      },
+      {
+        "name": "AI watched completions remain visible on older chat pages",
+        "method": "agent.jobsList",
+        "params": {
+          "paged": true,
+          "offset": 32,
+          "watchIds": [
+            "0000000000000000000000000000000a"
+          ]
+        },
+        "equals": {
+          "jobs.0.id": "0000000000000000000000000000000a",
+          "jobs.0.state": "done",
+          "hasMore": false
+        }
+      },
+      {
+        "name": "AI explicit provider availability is data-only",
+        "method": "agent.providerStatus",
+        "params": {
+          "provider": "codex"
+        },
+        "equals": {
+          "available": true,
+          "provider": "codex"
+        }
+      },
+      {
+        "name": "gmail message mutation answers with a queue ticket",
+        "method": "gmail.trash",
+        "params": {
+          "accountId": "contract@example.org",
+          "id": "contract-message"
+        },
+        "equals": {
+          "queued": true
+        },
+        "types": {
+          "ticket": "string"
+        }
+      },
+      {
+        "name": "gmail batch mutation answers with a queue ticket",
+        "method": "gmail.batchModify",
+        "params": {
+          "accountId": "contract@example.org",
+          "ids": [
+            "contract-message"
+          ],
+          "addLabelIds": [
+            "STARRED"
+          ],
+          "removeLabelIds": []
+        },
+        "equals": {
+          "queued": true
+        },
+        "types": {
+          "ticket": "string"
+        }
+      }
     ]
   }
 }

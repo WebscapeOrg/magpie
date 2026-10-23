@@ -18,7 +18,6 @@ import "account/Unified.js" as Unified
 import "compose/Recovery.js" as Recovery
 import "compose" as Compose
 import "keys/Keymap.js" as Keymap
-import "providers/Registry.js" as Provider
 import "agent/Agent.js" as Agent
 import "message/Mailto.js" as Mailto
 import "message/Message.js" as Message
@@ -307,14 +306,12 @@ Item {
     : ((page === "calendar" || page === "calendarDetail") ? "calendar" : "list")
   readonly property bool calendarVisible: currentView === "calendar"
   readonly property bool showSettings: page === "settings"
-  readonly property bool showPicker: page === "picker"
   readonly property bool showSetup: page === "setup"
-  readonly property bool showPage: showSettings || showPicker || showSetup
+  readonly property bool showPage: showSettings || showSetup
   onComposingChanged: { if (!composing) composeAgent.close(); else agentPrompt.close() }
   onShowPageChanged: if (showPage) { agentPrompt.close(); composeAgent.close() }
   readonly property bool composing: overlay === "compose" || overlay === "eventComposer"
   readonly property bool shortcutHelpVisible: overlay === "help"
-  readonly property string editingProvider: page === "setup" ? String(navPage.provider || "") : ""
   readonly property bool accountDraftOpen: page === "setup" && navPage.draft === true
 
   // Invariant: Pre-sign-in account changes rebuild only untouched navigation, so saving an address cannot reopen a dismissed form.
@@ -323,7 +320,6 @@ Item {
     accountReady: ready,
     hasSavedAccounts: !!service && service.hasSavedAccounts === true,
     setupUnderway: setupUnderway,
-    provider: service ? String(service.providerId || "") : "",
     view: currentView
   })
   property bool navUntouched: true
@@ -335,7 +331,7 @@ Item {
     wasReady = rootState.anyReady
     wasAccountReady = rootState.accountReady
     var editingUnreadyAccount = page === "setup" && !ready
-    var completedSetup = signedIn && page === "setup" && editingProvider === rootState.provider
+    var completedSetup = signedIn && page === "setup"
     if ((flipped && !editingUnreadyAccount) || completedSetup || (!rootState.anyReady && navUntouched)) resetNavigation()
   }
   function resetNavigation() {
@@ -413,22 +409,17 @@ Item {
 
   function addMailbox() {
     dismissHelp()
-    pushEntry("picker")
-  }
-  function chooseProvider(providerId) {
     if (!service) return
-    // Invariant: First-run setup reuses the existing account row; later additions remain discardable drafts until saved.
     var draft = service.hasSavedAccounts === true
-    if (draft) service.addAccount(providerId)
-    else service.configureCurrentAccount({ provider: providerId })
-    pushEntry("setup", { provider: String(providerId || ""), draft: draft })
+    if (draft && service.addAccount() === false) return
+    pushEntry("setup", { draft: draft })
   }
   function openClientSetup() {
     if (!service) return
     var gmailId = service.gmailAccountId()
-    if (gmailId === "") return chooseProvider("gmail")
+    if (gmailId === "") return addMailbox()
     service.switchTo(gmailId)
-    pushEntry("setup", { provider: "gmail", draft: false })
+    pushEntry("setup", { draft: false })
   }
   property string notice: ""
   onNoticeChanged: if (notice !== "") noticeTimer.restart()
@@ -450,7 +441,7 @@ Item {
   readonly property bool ready: !!service && service.ready
   // Invariant: An added but unsigned-in mailbox belongs in Settings rather than first-run setup.
   readonly property bool anyReady: !!service && service.anyAccountReady
-  // Invariant: Existing credentials imply that provider selection is already complete.
+  // Invariant: Existing credentials indicate that account setup is underway.
   readonly property bool setupUnderway: !!service && !!service.auth
     && service.auth.credentialsPresent === true
 
@@ -877,7 +868,7 @@ Item {
     if (!service || index < 0 || index >= sidebarSlots.length) return
     var slot = sidebarSlots[index]
     if (slot.kind === "mailbox") return goMailbox(slot.key)
-    // Invariant: The provider resolves label selection; an IMAP label is a folder.
+    // Invariant: Label selection keeps the Gmail label ID with its display name.
     searchBar.setQuery("")
     service.selectLabel(slot.name, slot.id)
     backToList()
@@ -1072,85 +1063,13 @@ Item {
     function onDuplicateAccount(email) {
       root.notice = email + " is already added"
     }
-    // Invariant: The chooser pushes its form before asynchronous account creation finishes; do not push again on accountAdded.
-  }
-
-  Component {
-    id: providerPickerPage
-
-    ProviderPicker {
-      textColor: root.foreground
-      dimColor: root.dim
-      accentColor: root.accent
-      panelFontFamily: root.fontFamily
-      onChosen: function(providerId) { root.chooseProvider(providerId) }
-    }
+    // Invariant: Account setup opens before asynchronous account creation finishes; do not push again on accountAdded.
   }
 
   Component {
     id: gmailSetupPage
 
     SetupPage {
-      service: root.service
-      textColor: root.foreground
-      dimColor: root.dim
-      dangerColor: root.danger
-      accentColor: root.accent
-      panelFontFamily: root.fontFamily
-      accountCount: root.service ? root.service.accountCount : 1
-      onRemoveRequested: root.removeCurrentAccountFromEditor()
-    }
-  }
-
-  Component {
-    id: heySetupPage
-
-    HeySetupPage {
-      service: root.service
-      textColor: root.foreground
-      dimColor: root.dim
-      dangerColor: root.danger
-      accentColor: root.accent
-      panelFontFamily: root.fontFamily
-      accountCount: root.service ? root.service.accountCount : 1
-      onRemoveRequested: root.removeCurrentAccountFromEditor()
-    }
-  }
-
-  Component {
-    id: outlookSetupPage
-
-    OutlookSetupPage {
-      service: root.service
-      textColor: root.foreground
-      dimColor: root.dim
-      dangerColor: root.danger
-      accentColor: root.accent
-      panelFontFamily: root.fontFamily
-      accountCount: root.service ? root.service.accountCount : 1
-      onRemoveRequested: root.removeCurrentAccountFromEditor()
-    }
-  }
-
-  Component {
-    id: jmapSetupPage
-
-    JmapSetupPage {
-      service: root.service
-      textColor: root.foreground
-      dimColor: root.dim
-      dangerColor: root.danger
-      accentColor: root.accent
-      panelFontFamily: root.fontFamily
-      accountCount: root.service ? root.service.accountCount : 1
-      onRemoveRequested: root.removeCurrentAccountFromEditor()
-    }
-  }
-
-  Component {
-    id: imapSetupPage
-
-    ImapSetupPage {
       service: root.service
       textColor: root.foreground
       dimColor: root.dim
@@ -1197,11 +1116,8 @@ Item {
 
   function editAccount(index) {
     if (!service) return false
-    var accounts = service.accountSummaries || []
-    var provider = index >= 0 && index < accounts.length
-      ? String(accounts[index].provider || "gmail") : "gmail"
     if (!service.switchToIndex(index)) return false
-    pushEntry("setup", { provider: provider, draft: false })
+    pushEntry("setup", { draft: false })
     return true
   }
 
@@ -1262,14 +1178,9 @@ Item {
     if (confirmDeleteDialog.request && confirmDeleteDialog.request.kind === "label") confirmDeleteDialog.close()
   }
 
-  function labelDelimiterFor(id, accountId) {
-    var label = service ? service.labelById(id, accountId) : null
-    return Model.labelDelimiter(label)
-  }
-
   function labelPathFor(id, accountId) {
     var label = service ? service.labelById(id, accountId) : null
-    return label ? String(label.name || label.rawName || "") : ""
+    return label ? String(label.name || "") : ""
   }
 
   function askLabelName(kind, subject, title, initial, hint, accountId) {
@@ -1295,11 +1206,10 @@ Item {
   function searchAddress(field, address) {
     if (!service) return
     if (!service.backend || !service.backend.ready) return
-    var provider = service.providerId
     var account = service.current
     var accountId = account ? account.accountId : ""
-    service.backend.call("providers.resolve", {provider: provider, operation: "addressQuery", field: field, value: String(address || "")}, function(result, error) {
-      if (error || !root.service || root.service.providerId !== provider || root.service.current !== account
+    service.backend.call("providers.resolve", {provider: "gmail", operation: "addressQuery", field: field, value: String(address || "")}, function(result, error) {
+      if (error || !root.service || root.service.current !== account
           || (account && account.accountId !== accountId)) return
       var query = String((result || {}).value || "")
       if (query === "") return
@@ -1707,7 +1617,7 @@ Item {
             root.showCalendar()
             calendarView.refresh()
           }
-          // Invariant: The provider resolves label selection; an IMAP label is a folder.
+          // Invariant: Label selection keeps the Gmail label ID with its display name.
           onLabelSelected: function(labelId, name) {
             searchBar.setQuery("")
             root.service.selectLabel(name, labelId)
@@ -2098,13 +2008,31 @@ Item {
           anchors.fill: parent
           anchors.margins: MailStyle.space(18)
           anchors.topMargin: parent.pageTop
-          // Invariant: Both the provider chooser and setup forms need this viewport visible.
-          visible: root.showSetup || root.showPicker
+          visible: root.showSetup
           contentWidth: width
           contentHeight: setupHolder.implicitHeight
           clip: true
           boundsBehavior: Flickable.StopAtBounds
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+          onContentHeightChanged: Qt.callLater(revealFocusedControl)
+          onHeightChanged: Qt.callLater(revealFocusedControl)
+          function revealFocusedControl() {
+            if (!visible) return
+            var focused = setupFlick.Window.activeFocusItem
+            var ancestor = focused
+            while (ancestor && ancestor !== setupHolder) ancestor = ancestor.parent
+            if (!ancestor || !focused) return
+            var top = focused.mapToItem(setupHolder, 0, 0).y
+            var bottom = top + focused.height
+            if (top < contentY) contentY = top
+            else if (bottom > contentY + height)
+              contentY = Math.max(0, Math.min(contentHeight - height, bottom - height))
+          }
+          Connections {
+            target: setupFlick.Window.window
+            function onActiveFocusItemChanged() { setupFlick.revealFocusedControl() }
+          }
+
 
           // Invariant: Flickable reparents children; center against a viewport-sized holder to avoid transient parent geometry.
           Item {
@@ -2118,14 +2046,7 @@ Item {
             objectName: "setup-page"
             anchors.horizontalCenter: parent.horizontalCenter
             width: Math.min(setupHolder.width, MailStyle.space(560))
-            // Invariant: The navigation entry owns provider choice while the service rebuilds an account host.
-            readonly property string kind: root.editingProvider !== "" ? root.editingProvider : "gmail"
-            sourceComponent: root.showPicker
-              ? providerPickerPage
-              : (setup.kind === "imap" ? imapSetupPage
-                : (setup.kind === "jmap" ? jmapSetupPage
-                : (setup.kind === "outlook" ? outlookSetupPage
-                  : (setup.kind === "hey" ? heySetupPage : gmailSetupPage))))
+            sourceComponent: gmailSetupPage
           }
           }
         }
@@ -2491,25 +2412,21 @@ Item {
         onRenameRequested: function(labelId) {
           var owner = labelMenu.accountId
           var path = root.labelPathFor(labelId, owner)
-          var delimiter = root.labelDelimiterFor(labelId, owner)
           root.askLabelName("rename", labelId, "Rename " + path,
-            Model.labelLeaf(path, delimiter), "The new name for this label. Labels beneath it move with it.", owner)
+            Model.labelLeaf(path), "The new name for this label. Labels beneath it move with it.", owner)
         }
         onCreateRequested: function(path, beneath) {
           var owner = labelMenu.accountId
-          var labels = root.service ? root.service.labelsOf(owner) : []
-          var delimiter = Model.labelDelimiter(labels.length > 0 ? labels[0] : null)
-          var parent = beneath ? path : Model.labelParent(path, delimiter)
+          var parent = beneath ? path : Model.labelParent(path)
           root.askLabelName("create", parent,
             parent === "" ? "New label" : "New label under " + parent, "",
             "Its name at this level; nesting is the parent it goes under.", owner)
         }
         onMoveRequested: function(labelId) {
           var owner = labelMenu.accountId
-          var delimiter = root.labelDelimiterFor(labelId, owner)
           labelMovePicker.accountId = owner
           labelMovePicker.openFor(labelId,
-            Model.labelMoveTargets(root.service ? root.service.labelsOf(owner) : [], root.labelPathFor(labelId, owner), delimiter))
+            Model.labelMoveTargets(root.service ? root.service.labelsOf(owner) : [], root.labelPathFor(labelId, owner)))
         }
         onMonitorToggled: function(labelId) { if (root.service) root.service.toggleMonitored(labelId, labelMenu.accountId) }
         onDeleteRequested: function(labelId) {
@@ -2518,7 +2435,7 @@ Item {
           confirmDeleteDialog.openFor({
             kind: "label", labelId: labelId, name: path, accountId: owner,
             message: "The label and every label beneath it are removed from the server. "
-              + "On Gmail the messages keep their other labels; on IMAP the folder and its mail are deleted."
+              + "The messages keep their other labels."
           })
         }
       }
@@ -2560,7 +2477,7 @@ Item {
         popupBackgroundColor: root.popupBackground
         popupBorderColor: root.popupBorder
         panelFontFamily: root.fontFamily
-        canSearch: !!root.service && Provider.get(root.service.providerId).addressSearch === true
+        canSearch: !!root.service
         onCopyRequested: function(address) { root.copyAddress(address) }
         onSearchRequested: function(field, address) { root.searchAddress(field, address) }
       }

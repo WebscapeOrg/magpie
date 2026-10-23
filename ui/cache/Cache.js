@@ -6,7 +6,7 @@ var MAX_QUERIES = 12
 var MAX_SUMMARIES_PER_QUERY = 100
 
 function emptyStore() {
-  return { version: VERSION, account: "", profile: null, labels: [], queries: {}, session: null }
+  return { version: VERSION, account: "", profile: null, labels: [], queries: {} }
 }
 
 function isObject(value) {
@@ -64,8 +64,7 @@ function copyStore(store) {
     account: source.account || "",
     profile: source.profile || null,
     labels: source.labels || [],
-    queries: source.queries || {},
-    session: source.session || null
+    queries: source.queries || {}
   }
 }
 
@@ -216,23 +215,6 @@ function putLabels(store, labels, nowMs) {
   var next = copyStore(store)
   next.labels = Array.isArray(labels) ? labels : []
   return next
-}
-
-function putSession(store, url, state, session, nowMs) {
-  var next = copyStore(store)
-  next.session = isObject(session)
-    ? { url: String(url || ""), state: String(state || ""), session: session, at: Number(nowMs) || 0 }
-    : null
-  return next
-}
-
-// Invariant: A different session URL cannot reuse cached endpoints that will receive credentials.
-function getSession(store, url) {
-  var source = store || emptyStore()
-  var entry = isObject(source.session) ? source.session : null
-  if (!entry || !isObject(entry.session)) return null
-  if (String(entry.url || "") !== String(url || "")) return null
-  return entry
 }
 
 function putProfile(store, profile, nowMs) {

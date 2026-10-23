@@ -4,8 +4,7 @@ use std::{sync::OnceLock, time::Duration};
 
 mod callback;
 mod credentials;
-mod graph;
-pub use credentials::{access_token, access_token_readonly, password, settings, settings_readonly};
+pub use credentials::{settings, settings_readonly};
 
 #[derive(Default)]
 pub struct Session {
@@ -36,7 +35,7 @@ fn destination(parameters: &Value) -> Result<String, &'static str> {
     let fields = parameters.as_object().ok_or("invalid_params")?;
     if fields
         .keys()
-        .any(|key| !["provider", "endpoint", "tenant", "body"].contains(&key.as_str()))
+        .any(|key| !["provider", "endpoint", "body"].contains(&key.as_str()))
     {
         return Err("invalid_params");
     }
@@ -45,31 +44,6 @@ fn destination(parameters: &Value) -> Result<String, &'static str> {
         parameters["endpoint"].as_str(),
     ) {
         (Some("gmail"), Some("token")) => Ok("https://oauth2.googleapis.com/token".into()),
-        (Some("outlook"), Some(endpoint @ ("token" | "device"))) => {
-            let tenant = parameters
-                .get("tenant")
-                .map(|value| value.as_str().ok_or("invalid_params"))
-                .transpose()?
-                .unwrap_or("consumers");
-            if tenant.is_empty()
-                || tenant.len() > 255
-                || tenant.contains("..")
-                || !tenant.as_bytes()[0].is_ascii_alphanumeric()
-                || !tenant
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte))
-            {
-                return Err("invalid_params");
-            }
-            Ok(format!(
-                "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/{}",
-                if endpoint == "device" {
-                    "devicecode"
-                } else {
-                    "token"
-                }
-            ))
-        }
         _ => Err("invalid_params"),
     }
 }
@@ -129,55 +103,6 @@ async fn post_with_deadline(
 
 impl Session {
     pub async fn call(&self, method: &str, parameters: &Value) -> Result<Value, &'static str> {
-        if matches!(method, "auth.store" | "auth.clear") {
-            if parameters
-                .as_object()
-                .ok_or("invalid_params")?
-                .keys()
-                .any(|key| !["accountId", "clientId", "token"].contains(&key.as_str()))
-            {
-                return Err("invalid_params");
-            }
-            return credentials::change_outlook(parameters, method == "auth.clear").await;
-        }
-        if method == "auth.token" {
-            if parameters
-                .as_object()
-                .ok_or("invalid_params")?
-                .keys()
-                .any(|key| !["provider", "accountId", "resource"].contains(&key.as_str()))
-            {
-                return Err("invalid_params");
-            }
-            if parameters["provider"] != "outlook" {
-                return Err("invalid_params");
-            }
-            let account = parameters["accountId"].as_str().ok_or("invalid_params")?;
-            let resource = parameters
-                .get("resource")
-                .map(|value| value.as_str().ok_or("invalid_params"))
-                .transpose()?
-                .unwrap_or("mail");
-            let access = access_token("outlook", account, resource).await?;
-            let scope = credentials::scope(resource)?;
-            return Ok(json!({"access_token":access,"expires_in":60,"scope":scope}));
-        }
-        if method == "auth.invalidate" {
-            if parameters
-                .as_object()
-                .ok_or("invalid_params")?
-                .keys()
-                .any(|key| key != "accountId")
-            {
-                return Err("invalid_params");
-            }
-            let account = parameters["accountId"].as_str().ok_or("invalid_params")?;
-            credentials::invalidate(account).await?;
-            return Ok(json!({"invalidated":true}));
-        }
-        if method == "outlook.graphSend" {
-            return graph::send(parameters).await;
-        }
         if method != "auth.form" {
             return self.flows.call(method, parameters).await;
         }
@@ -277,12 +202,15 @@ mod tests {
             );
         }
         assert_eq!(
-            destination(
-                &json!({"provider":"outlook","endpoint":"device","tenant":"organizations"})
-            )
-            .unwrap(),
-            "https://login.microsoftonline.com/organizations/oauth2/v2.0/devicecode"
+            destination(&json!({"provider":"gmail","endpoint":"token"})).unwrap(),
+            "https://oauth2.googleapis.com/token"
         );
+        for provider in ["outlook", "imap", "jmap", "hey", "caldav"] {
+            assert_eq!(
+                destination(&json!({"provider":provider,"endpoint":"token"})),
+                Err("invalid_params")
+            );
+        }
         assert!(
             destination(&json!({"provider":"gmail","endpoint":"token","url":"https://evil.test"}))
                 .is_err()

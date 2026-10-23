@@ -11,7 +11,13 @@ fn key(provider: &str, account: &str, kind: CredentialKind) -> CredentialKey {
 #[test]
 fn credentials_reject_invalid_metadata_before_native_access() {
     for bad in ["", "a\n", "a\r", "a\r\n", "a\0", "a\t"] {
-        let key = key("imap", bad, CredentialKind::ImapPassword);
+        let key = key(
+            "gmail",
+            bad,
+            CredentialKind::GoogleRefreshToken {
+                client_id: "client".into(),
+            },
+        );
         assert!(matches!(NativeStore.get(&key), Err(Error::InvalidKey)));
         assert_eq!(NativeStore.put(&key, b"synthetic"), Err(Error::InvalidKey));
         assert_eq!(NativeStore.delete(&key), Err(Error::InvalidKey));
@@ -28,7 +34,13 @@ fn credentials_reject_invalid_metadata_before_native_access() {
         assert_eq!(NativeStore.put(&key, b"synthetic"), Err(Error::InvalidKey));
         assert_eq!(NativeStore.delete(&key), Err(Error::InvalidKey));
     }
-    let wrong_provider = key("jmap", "imap:one@example.org", CredentialKind::ImapPassword);
+    let wrong_provider = key(
+        "jmap",
+        "one@example.org",
+        CredentialKind::GoogleRefreshToken {
+            client_id: "client".into(),
+        },
+    );
     assert!(matches!(
         NativeStore.get(&wrong_provider),
         Err(Error::InvalidKey)
@@ -37,7 +49,13 @@ fn credentials_reject_invalid_metadata_before_native_access() {
 
 #[test]
 fn credentials_reject_nul_before_native_access() {
-    let key = key("imap", "imap:one@example.org", CredentialKind::ImapPassword);
+    let key = key(
+        "gmail",
+        "one@example.org",
+        CredentialKind::GoogleRefreshToken {
+            client_id: "client".into(),
+        },
+    );
     for secret in [b"".as_slice(), b"a\0", b"\0a", b"a\0b"] {
         assert_eq!(NativeStore.put(&key, secret), Err(Error::InvalidSecret));
     }
@@ -81,13 +99,6 @@ fn credentials_native_contract() {
             .as_nanos()
     );
     let keys = vec![
-        key("imap", &format!("imap:{id}"), CredentialKind::ImapPassword),
-        key("jmap", &format!("jmap:{id}"), CredentialKind::JmapSecret),
-        key(
-            "imap",
-            &format!("imap:other-{id}"),
-            CredentialKind::ImapPassword,
-        ),
         key(
             "gmail",
             &id,
@@ -103,16 +114,11 @@ fn credentials_native_contract() {
             },
         ),
         key(
-            "outlook",
-            &format!("outlook:{id}"),
-            CredentialKind::OutlookRefreshToken {
+            "gmail",
+            &format!("other-{id}"),
+            CredentialKind::GoogleRefreshToken {
                 client_id: "synthetic-client-one".into(),
             },
-        ),
-        key(
-            "caldav",
-            &format!("source-{id}"),
-            CredentialKind::CalendarPassword,
         ),
     ];
     struct Cleanup(Vec<CredentialKey>);
@@ -156,7 +162,7 @@ fn credentials_native_contract() {
         );
     }
     let mut normalized = cleanup.0[0].clone();
-    normalized.account_id = format!("imap:{}", id.to_uppercase());
+    normalized.account_id = id.to_uppercase();
     assert!(NativeStore.get(&normalized).unwrap().as_slice() == b"opaque\xff");
     assert_eq!(
         NativeStore.put(&cleanup.0[0], b"forbidden\0"),
@@ -222,7 +228,13 @@ impl CredentialStore for SingleCredential {
 
 #[test]
 fn credentials_reject_oversize_secrets_without_native_access() {
-    let key = key("imap", "imap:one@example.org", CredentialKind::ImapPassword);
+    let key = key(
+        "gmail",
+        "one@example.org",
+        CredentialKind::GoogleRefreshToken {
+            client_id: "client".into(),
+        },
+    );
     assert_eq!(
         NativeStore.put(&key, &vec![b'x'; 65537]),
         Err(Error::TooLarge)

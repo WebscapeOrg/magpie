@@ -1,6 +1,5 @@
 import QtQuick 2.15
 import QtTest 1.3
-import "transports.js" as Transports
 import "../.." as Omamail
 import "BackendFixture.js" as BackendFixture
 
@@ -29,18 +28,9 @@ Item {
     name: "AppEditConnect"
     when: windowShown
 
-    function initTestCase() {
-      var fixture = BackendFixture.markReady(mailService, 4)
-      fixture.answers = {
-        "credentials.get": {found:true,secret:"hunter2"},
-        "credentials.put": {stored:true},
-        "credentials.delete": {deleted:true}
-      }
-    }
-
-    readonly property string imapId: "imap:shawn@example.test"
-    readonly property string jmapId: "jmap:admin@example.test"
-    readonly property string sessionUrl: "https://mail.example.test/jmap/session"
+    readonly property string firstId: "shawn@example.test"
+    readonly property string secondId: "admin@example.test"
+    property var fixture: null
 
     function named(item, objectName) {
       if (!item) return null
@@ -54,100 +44,90 @@ Item {
     }
 
     function init() {
+      fixture = BackendFixture.markReady(mailService, 7)
+      fixture.answers = {
+        "credentials.get": {found: false},
+        "credentials.put": {stored: true},
+        "credentials.delete": {deleted: true}
+      }
       app.opened = true
-      mailService.accountList = ({ version: 1, accounts: [], activeId: "" })
+      mailService.accountList = ({version: 1, accounts: [], activeId: ""})
       wait(0)
     }
 
     function cleanup() {
-      mailService.accountList = ({ version: 1, accounts: [], activeId: "" })
+      mailService.eachHost(function(host) { if (host.auth) host.auth.cancelLogin() })
+      mailService.accountList = ({version: 1, accounts: [], activeId: ""})
       wait(0)
     }
 
     function twoRows() {
       mailService.accountsLoaded = true
-      mailService.accountList = ({
-        version: 1,
-        accounts: [
-          { id: imapId, email: "shawn@example.test", provider: "imap",
-            imap: { imapHost: "imap.example.test", imapPort: 993,
-              smtpHost: "smtp.example.test", smtpPort: 465,
-              username: "shawn@example.test", aliases: [], insecure: false } },
-          { id: jmapId, email: "admin@example.test", provider: "jmap",
-            jmap: { sessionUrl: sessionUrl, username: "", authScheme: "basic", accountId: "" } }
-        ],
-        activeId: jmapId
-      })
+      mailService.accountList = ({version: 1, accounts: [
+        {id: firstId, email: firstId, provider: "gmail"},
+        {id: secondId, email: secondId, provider: "gmail"}
+      ], activeId: firstId})
       tryCompare(mailService, "accountCount", 2)
-      var imap = mailService.findAccount(imapId)
-      var jmap = mailService.findAccount(jmapId)
-      verify(!!imap && !!jmap, "the service builds a host for each row")
-      tryVerify(function() { return !!imap.auth && !!imap.api && !!jmap.auth && !!jmap.api },
-        1000, "and each host its provider pair")
-
-      tryVerify(function() { return imap.ready }, 1000, "the IMAP mailbox is ready")
-      compare(jmap.ready, false, "the JMAP one is not: it has no account id yet")
+      var first = mailService.findAccount(firstId)
+      var second = mailService.findAccount(secondId)
+      verify(first && second)
+      tryVerify(function() { return first.auth && first.api && second.auth && second.api })
+      first.auth.credentials = {clientId: "123-example.apps.googleusercontent.com", clientSecret: "synthetic-first"}
+      second.auth.credentials = {clientId: "456-example.apps.googleusercontent.com", clientSecret: "synthetic-second"}
+      wait(0)
+      first.auth.cancelLogin()
+      second.auth.cancelLogin()
+      first.profile = {email: firstId}
+      second.profile = {email: secondId}
+      first.auth.loggedIn = true
       tryCompare(app, "anyReady", true)
       app.resetNavigation()
       waitForRendering(app)
-      compare(app.page, "list", "a window with a working mailbox opens on it")
-      return { imap: imap, jmap: jmap }
+      compare(app.page, "list")
+      return {first: first, second: second}
     }
 
-    function test_deferred_connect_does_not_send_secret_to_new_selection() {
+    function test_edit_signs_in_the_selected_gmail_account_only() {
       var hosts = twoRows()
-      mailService.switchTo(jmapId)
-      var beforeJmap = Transports.transports(hosts.jmap.api)
-      var beforeImap = Transports.transports(hosts.imap.api)
-      verify(mailService.configureCurrentAccountAndSignIn({email: "admin@example.test", provider: "jmap",
-        jmap: {sessionUrl: sessionUrl, authScheme: "basic"}}, "synthetic-jmap-password"))
-      mailService.switchTo(imapId)
-      wait(0)
-      compare(Transports.newSince(hosts.imap.api, beforeImap).filter(function(request) {
-        return request.method === "imap.verify"
-      }).length, 0,
-        "The JMAP password must never reach another account")
-      compare(Transports.newSince(hosts.jmap.api, beforeJmap).length, 1)
-    }
-
-    function test_connect_on_an_edited_row_signs_that_row_in() {
-      var hosts = twoRows()
-
       app.openSettings()
-      compare(app.page, "settings")
-      app.editAccount(1)
-      compare(app.page, "setup", "Edit opens the row's setup page")
-      compare(app.editingProvider, "jmap", "the JMAP one")
-      compare(mailService.current, hosts.jmap, "over the JMAP host")
+      verify(app.editAccount(1))
+      compare(app.page, "setup")
+      compare(mailService.current, hosts.second)
       waitForRendering(app)
 
       var page = named(app, "setup-page").item
-      verify(!!page && typeof page.plannedServer === "function", "which is the JMAP page")
-      compare(named(app, "jmap-address-field").text, "admin@example.test",
-        "filled in from the row")
-      named(app, "jmap-secret-field").text = "app-password"
-
-      var beforeJmap = Transports.transports(hosts.jmap.api)
-      var beforeImap = Transports.transports(hosts.imap.api)
-      page.signIn()
+      verify(page && typeof page.signInNamed === "function")
+      compare(page.auth, hosts.second.auth)
+      var before = fixture.requests.length
+      page.signInNamed()
       wait(0)
+      var logins = fixture.requests.slice(before).filter(function(request) { return request.method === "auth.begin" })
+      compare(logins.length, 1)
+      compare(logins[0].params.clientId, "456-example.apps.googleusercontent.com")
+      compare(logins[0].params.loginHint, secondId)
+      compare(hosts.first.auth.loginBusy, false)
+      compare(hosts.first.auth.loggedIn, true)
+      compare(mailService.current, hosts.second)
+      compare(app.page, "setup")
+      compare(mailService.accountList.accounts[1].id, secondId)
+    }
+
+    function test_selection_change_does_not_redirect_a_started_sign_in() {
+      var hosts = twoRows()
+      app.openSettings()
+      verify(app.editAccount(1))
+      waitForRendering(app)
+      var before = fixture.requests.length
+      named(app, "setup-page").item.signInNamed()
+      mailService.switchTo(firstId)
       wait(0)
-
-      compare(app.page, "setup", "Connect keeps the page it was pressed on")
-      compare(app.editingProvider, "jmap")
-      compare(mailService.current, hosts.jmap, "and the mailbox it was pressed for")
-      compare(mailService.accountList.accounts[1].id, jmapId, "the JMAP row is still the JMAP row")
-      compare(mailService.accountList.accounts[1].jmap.sessionUrl, sessionUrl)
-
-      tryVerify(function() { return Transports.newSince(hosts.jmap.api, beforeJmap).length === 1 },
-        1000, "the secret is tried against the JMAP server")
-      var request = Transports.newSince(hosts.jmap.api, beforeJmap)[0]
-      compare(request.method, "jmap.verify")
-      compare(request.params.settings.sessionUrl, sessionUrl)
-      compare(Transports.newSince(hosts.imap.api, beforeImap).length, 0,
-        "and not against the IMAP one")
-      compare(hosts.imap.auth.loginBusy, false, "whose sign-in was never asked for")
-      verify(hosts.imap.ready, "and which is still signed in")
+      var logins = fixture.requests.slice(before).filter(function(request) { return request.method === "auth.begin" })
+      compare(logins.length, 1)
+      compare(logins[0].params.clientId, "456-example.apps.googleusercontent.com")
+      compare(logins[0].params.loginHint, secondId)
+      compare(hosts.first.auth.loginBusy, false)
+      compare(hosts.first.auth.loggedIn, true)
+      compare(hosts.second.auth.loginBusy, true)
     }
   }
 }

@@ -43,7 +43,7 @@ fn now() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 fn metadata(value: &Value) -> Value {
-    json!({"version":2,"account":value["account"],"profile":value["profile"],"labels":value["labels"],"session":value["session"]})
+    json!({"version":2,"account":value["account"],"profile":value["profile"],"labels":value["labels"]})
 }
 pub fn query_key(query: &str, limit: u64) -> String {
     format!("{}|{}", query.trim(), limit.max(1))
@@ -117,60 +117,7 @@ fn matches(row: &Value, terms: &[String]) -> bool {
     let text = text.to_lowercase();
     terms.iter().all(|term| text.contains(term))
 }
-fn eligible(provider: &str, query: &str, row: &Value) -> bool {
-    if matches!(provider, "imap" | "outlook") {
-        if row["inTrash"] == true
-            || row["inSpam"] == true
-            || row["labelIds"].as_array().is_some_and(|labels| {
-                labels
-                    .iter()
-                    .any(|label| label == "TRASH" || label == "SPAM")
-            })
-        {
-            return false;
-        }
-        let source = query.trim();
-        let Some(rest) = source.strip_prefix("folder:") else {
-            return true;
-        };
-        let folder = if let Some(quoted) = rest.strip_prefix('"') {
-            let mut name = String::new();
-            let mut escaped = false;
-            for ch in quoted.chars() {
-                if escaped {
-                    name.push(ch);
-                    escaped = false
-                } else if ch == '\\' {
-                    escaped = true
-                } else if ch == '"' {
-                    break;
-                } else {
-                    name.push(ch)
-                }
-            }
-            name
-        } else {
-            rest.split_whitespace().next().unwrap_or("").to_owned()
-        };
-        return ![
-            "\\Trash",
-            "\\Junk",
-            "Trash",
-            "Junk",
-            "Spam",
-            "Deleted Items",
-            "Deleted Messages",
-            "Junk Email",
-        ]
-        .iter()
-        .any(|name| folder.eq_ignore_ascii_case(name));
-    }
-    if provider == "hey" {
-        return true;
-    }
-    if !matches!(provider, "gmail" | "jmap") {
-        return false;
-    }
+fn eligible(query: &str, row: &Value) -> bool {
     if row["labelIds"].as_array().is_some_and(|labels| {
         labels.iter().any(|l| {
             l.as_str()
@@ -180,14 +127,11 @@ fn eligible(provider: &str, query: &str, row: &Value) -> bool {
         return false;
     }
     let source = query.to_lowercase();
-    !source.split_whitespace().any(|term| {
-        if provider == "gmail" {
-            matches!(term, "in:spam" | "in:trash")
-        } else {
-            matches!(term, "role:junk" | "role:trash")
-        }
-    })
+    !source
+        .split_whitespace()
+        .any(|term| matches!(term, "in:spam" | "in:trash"))
 }
+
 fn stale(stored_at_ms: f64, now_ms: f64, ttl_ms: f64) -> bool {
     stored_at_ms <= 0.0 || now_ms - stored_at_ms > ttl_ms.max(0.0)
 }
@@ -199,7 +143,7 @@ struct SearchCandidate {
     eligible: bool,
     matched: bool,
 }
-fn search(value: &Value, query: &str, provider: &str) -> Vec<Value> {
+fn search(value: &Value, query: &str) -> Vec<Value> {
     let wanted = terms(query);
     if wanted.is_empty() {
         return vec![];
@@ -231,7 +175,7 @@ fn search(value: &Value, query: &str, provider: &str) -> Vec<Value> {
                 seen.insert(id.into(), index);
                 rows.push(SearchCandidate {
                     summary: row.clone(),
-                    eligible: eligible(provider, source_query(key), row),
+                    eligible: eligible(source_query(key), row),
                     matched: false,
                 });
                 index
@@ -317,58 +261,6 @@ impl QueryCache {
         failure.map_or(Ok(()), Err)
     }
 
-    /// Invariant: Background population does not rotate the UI's account generation.
-    pub async fn prefetch(
-        &self,
-        account: &str,
-        query: &str,
-        limit: u64,
-        value: &Value,
-        live: Arc<Mutex<bool>>,
-    ) -> Result<()> {
-        let params = json!({"accountId":account,"query":query,"limit":limit});
-        validate_params(&params, false)?;
-        let key = key(&params)?;
-        let account = account.to_lowercase();
-        let shared = self.account(&account).await?;
-        let mut state = shared.lock().await;
-        if !state.loaded {
-            state.store = self.restore_store(&account).await?;
-            state.loaded = true;
-        }
-        if !*live.lock().map_err(|_| "cache_unavailable")? {
-            return Err("cache_cancelled");
-        }
-        let mut next = state.store.clone();
-        next["queries"][key] = page(value, now());
-        next = store::normalize_store(&next);
-        if serde_json::to_vec(&next)
-            .map_err(|_| "cache_invalid_input")?
-            .len()
-            > MAX_STORE_BYTES
-        {
-            return Err("cache_store_too_large");
-        }
-        // Invariant: A background snapshot cannot join the UI debounce: that timer can
-        // outlive its watch, or carry cancelled data into an unrelated UI save.
-        // Hold the same cancellation mutex through the actual atomic disk
-        // commit, then publish only the successfully committed snapshot.
-        let p = json!({"accountId":account,"store":next});
-        let root = self.root.clone();
-        tokio::task::spawn_blocking(move || {
-            let guard = live.lock().map_err(|_| "cache_unavailable")?;
-            if !*guard {
-                return Err("cache_cancelled");
-            }
-            disk(root, "cache.storePut", &p).map(|_| ())
-        })
-        .await
-        .map_err(|_| "cache_unavailable")??;
-        state.store = next;
-        state.dirty = false;
-        state.touched = now();
-        Ok(())
-    }
     async fn restore_store(&self, account: &str) -> Result<Value> {
         let params = json!({"accountId":account});
         let root = self.root.clone();
@@ -376,12 +268,8 @@ impl QueryCache {
             .await
             .map_err(|_| "cache_unavailable")?
             .unwrap_or_else(|_| store::empty());
-        let expected = account
-            .split_once(':')
-            .map(|(_, email)| email)
-            .unwrap_or(account);
         let stored = saved["account"].as_str().unwrap_or("");
-        if !stored.is_empty() && !stored.eq_ignore_ascii_case(expected) {
+        if !stored.is_empty() && !stored.eq_ignore_ascii_case(account) {
             return Ok(store::empty());
         }
         Ok(saved)
@@ -440,22 +328,7 @@ impl QueryCache {
                 .filter(|v| v.is_object())
                 .cloned()
                 .unwrap_or(Value::Null);
-            let provider = if account.starts_with("imap:") {
-                "imap"
-            } else if account.starts_with("outlook:") {
-                "outlook"
-            } else if account.starts_with("jmap:") {
-                "jmap"
-            } else if account.starts_with("hey:") {
-                "hey"
-            } else {
-                "gmail"
-            };
-            let local = search(
-                &state.store,
-                params["search"].as_str().unwrap_or(""),
-                provider,
-            );
+            let local = search(&state.store, params["search"].as_str().unwrap_or(""));
             let stamp = entry["at"].as_f64().unwrap_or(0.0);
             let ttl = params["ttlMs"].as_f64().unwrap_or(300000.0).max(0.0);
             return Ok(
@@ -464,16 +337,6 @@ impl QueryCache {
         }
         if method == "cache.querySnapshot" {
             return Ok(json!({"generation":state.generation,"store":state.store}));
-        }
-        if method == "cache.querySessionGet" {
-            let entry = &state.store["session"];
-            return Ok(
-                if entry["url"] == params["url"] && entry["session"].is_object() {
-                    entry.clone()
-                } else {
-                    Value::Null
-                },
-            );
         }
         if method == "cache.queryFlush" {
             persist(self.root.clone(), &account, &mut state).await?;
@@ -505,14 +368,6 @@ impl QueryCache {
                     next["account"] = json!(email)
                 }
                 json!({"profile":next["profile"],"account":next["account"]})
-            }
-            "cache.querySession" => {
-                next["session"] = if params["session"].is_object() {
-                    json!({"url":params["url"].as_str().unwrap_or(""),"state":params["state"].as_str().unwrap_or(""),"session":params["session"],"at":now()})
-                } else {
-                    Value::Null
-                };
-                json!({"session":next["session"]})
             }
             "cache.queryBind" => {
                 let email = params["email"].as_str().unwrap_or("");

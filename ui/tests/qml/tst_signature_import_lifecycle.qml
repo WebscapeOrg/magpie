@@ -24,11 +24,11 @@ Item {
     property var accountSummaries: []
     property var accountSignatures: [
       { id: "a@example.org", email: "a@example.org", label: "", signature: "",
-        provider: "imap", senderName: "" },
+        provider: "gmail", senderName: "" },
       { id: "b@example.net", email: "b@example.net", label: "Work", signature: "",
         provider: "gmail", senderName: "" },
       { id: "c@example.com", email: "c@example.com", label: "", signature: "",
-        provider: "outlook", senderName: "Jane Example" }
+        provider: "gmail", senderName: "Jane Example" }
     ]
     property bool backendCanNameSender: true
     property int undoSendSeconds: 10

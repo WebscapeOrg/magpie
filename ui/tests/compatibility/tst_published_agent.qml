@@ -18,7 +18,7 @@ Item {
     property var fixture
     property var rpcErrors: []
     property var requests: []
-    readonly property string owner: "imap:ada@example.test"
+    readonly property string owner: "ada@example.test"
     function forward(parameters, request) {
       requests = requests.concat([request])
       var xhr = new XMLHttpRequest()
@@ -42,24 +42,24 @@ Item {
       if (publishedApi >= 6) methods.push("agent.providerStatus")
       for (var methodIndex = 0; methodIndex < methods.length; methodIndex++) answers[methods[methodIndex]] = forward
       answers["agent.context"] = function(parameters) {
-        return {payload:{accountId:owner,account:"ada@example.test",messageId:"1:INBOX",
+        return {payload:{accountId:owner,account:"ada@example.test",messageId:"message-1",
           subject:"Thursday",message:"Can we meet Thursday at 10?",prompt:parameters.prompt}}
       }
       fixture.answers = answers
       BackendFixture.markReady(service, publishedApi)
-      var list = Accounts.add(Accounts.emptyList(), {email:"ada@example.test",provider:"imap",
-        imap:{imapHost:"imap.example.test",imapPort:993,smtpHost:"smtp.example.test",smtpPort:465,
-          username:"ada@example.test",aliases:[],insecure:false},label:"",signature:""})
+      var list = Accounts.add(Accounts.emptyList(), {email:"ada@example.test",provider:"gmail",
+        label:"",signature:""})
       service.accountList = Accounts.setActive(list, owner)
       service.accountsLoaded = true
       service.refreshCurrent()
       tryCompare(service, "activeAccountId", owner)
       var account = service.accountAt(0)
       account.auth.toolsChecked = true; account.auth.missingTools = []
-      account.auth.passwordChecked = true; account.auth.password = "synthetic-password"
+      account.auth.credentials = {clientId:"123-example.apps.googleusercontent.com",clientSecret:"synthetic-secret"}
+      account.auth.loggedIn = true
       tryCompare(account, "ready", true)
       account.profile = {email:"ada@example.test"}
-      account.messages = [{id:"1:INBOX",subject:"Thursday",from:{email:"bob@example.test",display:"Bob Example"},
+      account.messages = [{id:"message-1",subject:"Thursday",from:{email:"bob@example.test",display:"Bob Example"},
         time:"10:00",to:[{email:"ada@example.test"}],cc:[],unread:false,labelIds:["INBOX"]}]
       app.opened = true
     }
@@ -80,7 +80,7 @@ Item {
       tryCompare(service, "agentAvailable", true)
       compare(service.backendCanChooseAgent, publishedApi >= 6)
       compare(service.backendCanAgentProposals, publishedApi >= 6)
-      app.cursorId = "1:INBOX"
+      app.cursorId = "message-1"
       verify(app.runShortcut("askAgent", "Alt+G"), "Published-pin user can open AI from the mailbox")
       verify(app.agentPrompt.opened)
       verify(app.agentPrompt.submit("What's the gist?", false))

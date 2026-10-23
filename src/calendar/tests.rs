@@ -6,16 +6,8 @@ fn google_requests_keep_calendar_identity_and_preconditions() {
         "operation":"update","eventId":"instance/one","body":"{}","ifMatch":"\"revision\"","sendUpdates":"all"})).unwrap();
     assert_eq!(request.url.host_str(), Some("www.googleapis.com"));
     assert_eq!(
-        decoded_path(&request.url),
-        vec![
-            b"".to_vec(),
-            b"calendar".to_vec(),
-            b"v3".to_vec(),
-            b"calendars".to_vec(),
-            b"family/a?b@example.org".to_vec(),
-            b"events".to_vec(),
-            b"instance/one".to_vec()
-        ]
+        request.url.path(),
+        "/calendar/v3/calendars/family%2Fa%3Fb@example.org/events/instance%2Fone"
     );
     assert_eq!(request.if_match.as_deref(), Some("\"revision\""));
     assert!(
@@ -38,36 +30,6 @@ use tokio::{
 };
 
 #[test]
-fn caldav_refuses_cross_origin_and_controls_before_credentials() {
-    let base = configured_url("https://calendar.example/dav/").unwrap();
-    for href in [
-        "https://evil.example/a",
-        "//evil.example/a",
-        "http://calendar.example/a",
-        "https://calendar.example:444/a",
-        "https://user@calendar.example/a",
-        "/a\r",
-        "/a\n",
-        "/a\0",
-        "\\evil.example/a",
-    ] {
-        assert!(event_url(&base, href).is_err(), "{href:?}");
-    }
-    assert_eq!(
-        event_url(&base, "a%20b.ics").unwrap().as_str(),
-        "https://calendar.example/dav/a%20b.ics"
-    );
-    for raw in [
-        "http://calendar.example/",
-        "https://calendar.example/\n",
-        "https://user:password@calendar.example/",
-        "https://calendar.example/#x",
-    ] {
-        assert!(configured_url(raw).is_err());
-    }
-}
-
-#[test]
 fn provider_chooses_origin_and_encodes_event_id() {
     let request = prepare(&json!({"source":{"kind":"google"},"operation":"delete","eventId":"https://evil.example/a?b"})).unwrap();
     assert_eq!(request.url.host_str(), Some("www.googleapis.com"));
@@ -79,150 +41,6 @@ fn provider_chooses_origin_and_encodes_event_id() {
     );
     assert!(
         prepare(&json!({"source":{"kind":"google"},"operation":"delete","eventId":".."})).is_err()
-    );
-}
-
-#[test]
-fn microsoft_calendar_identity_is_one_encoded_path_segment() {
-    let list = prepare(&json!({
-        "source":{"kind":"microsoft","calendarId":"A/B?C"},
-        "operation":"list","start":"2026-09-01T00:00:00Z","end":"2026-10-01T00:00:00Z"
-    }))
-    .unwrap();
-    assert_eq!(list.url.path(), "/v1.0/me/calendars/A%2FB%3FC/calendarView");
-    let update = prepare(&json!({
-        "source":{"kind":"microsoft","calendarId":"A/B?C"},
-        "operation":"update","eventId":"event/one","body":"{}"
-    }))
-    .unwrap();
-    assert_eq!(
-        update.url.path(),
-        "/v1.0/me/calendars/A%2FB%3FC/events/event%2Fone"
-    );
-}
-
-#[test]
-fn empty_microsoft_calendar_identity_keeps_the_default_calendar() {
-    let request = prepare(&json!({
-        "source":{"kind":"microsoft","calendarId":""},
-        "operation":"list","start":"2026-09-01T00:00:00Z","end":"2026-10-01T00:00:00Z"
-    }))
-    .unwrap();
-    assert_eq!(request.url.path(), "/v1.0/me/calendarView");
-    for id in [".", ".."] {
-        assert!(
-            prepare(&json!({
-                "source":{"kind":"microsoft","calendarId":id},
-                "operation":"list","start":"a","end":"b"
-            }))
-            .is_err()
-        );
-    }
-}
-
-#[test]
-fn icloud_calendar_refuses_non_apple_destinations_before_credentials() {
-    assert!(
-        prepare(&json!({
-            "source":{"kind":"icloud","accountId":"imap:person@icloud.com",
-              "url":"https://evil.example/calendars/private/"},
-            "operation":"list","body":"report"
-        }))
-        .is_err()
-    );
-    assert!(
-        prepare(&json!({
-            "source":{"kind":"icloud","accountId":"imap:person@icloud.com",
-              "url":"https://p37-caldav.icloud.com/123/calendars/private/"},
-            "operation":"list","body":"report"
-        }))
-        .is_ok()
-    );
-}
-
-#[tokio::test]
-async fn icloud_refusal_never_contacts_an_untrusted_target() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("https://{}/calendar/", listener.local_addr().unwrap());
-    let result = call(
-        &json!({
-            "source":{"kind":"icloud","accountId":"imap:missing@icloud.com","url":url},
-            "operation":"list","body":"synthetic report"
-        }),
-        None,
-    )
-    .await;
-    assert_eq!(result, Err("calendar_origin_refused"));
-    assert!(
-        tokio::time::timeout(Duration::from_millis(50), listener.accept())
-            .await
-            .is_err()
-    );
-}
-
-// Invariant: A Graph calendar id is base64 with `=` padding, which the request builder
-// writes into the path literally while a nextLink may carry it as `%3D`. Both
-// spell the same resource, so the second page must not be refused; a link that
-// decodes to a different resource still is.
-#[test]
-fn pagination_compares_the_decoded_resource_path() {
-    let list = prepare(&json!({
-        "source":{"kind":"microsoft","calendarId":"AAMkAGI2AAA="},
-        "operation":"list","start":"2026-09-01T00:00:00Z","end":"2026-10-01T00:00:00Z"
-    }))
-    .unwrap();
-    assert_eq!(
-        list.url.path(),
-        "/v1.0/me/calendars/AAMkAGI2AAA=/calendarView"
-    );
-    let encoded =
-        "https://graph.microsoft.com/v1.0/me/calendars/AAMkAGI2AAA%3D/calendarView?$skip=50";
-    assert!(
-        next_page(&list.url, &json!({"@odata.nextLink":encoded}), "value")
-            .unwrap()
-            .is_some()
-    );
-    let literal =
-        "https://graph.microsoft.com/v1.0/me/calendars/AAMkAGI2AAA=/calendarView?$skip=50";
-    assert!(
-        next_page(&list.url, &json!({"@odata.nextLink":literal}), "value")
-            .unwrap()
-            .is_some()
-    );
-    for other in [
-        "https://graph.microsoft.com/v1.0/me/calendars/AAMkAGI2AAB%3D/calendarView?$skip=50",
-        "https://graph.microsoft.com/v1.0/me/calendars/AAMkAGI2AAA%3D/events?$skip=50",
-        "https://graph.microsoft.com/v1.0/me/calendars/AAMkAGI2AAA%3D%2FcalendarView?$skip=50",
-    ] {
-        assert!(
-            next_page(&list.url, &json!({"@odata.nextLink":other}), "value").is_err(),
-            "{other}"
-        );
-    }
-}
-
-#[test]
-fn pagination_cannot_change_credential_destination_or_resource() {
-    let base =
-        Url::parse("https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=now").unwrap();
-    for next in [
-        "https://evil.example/",
-        "https://graph.microsoft.com/v1.0/me/messages",
-        "https://user@graph.microsoft.com/v1.0/me/calendarView",
-        "https://graph.microsoft.com/v1.0/me/calendarView\n",
-    ] {
-        assert!(next_page(&base, &json!({"@odata.nextLink":next}), "value").is_err());
-    }
-    assert!(next_page(&base, &json!({"@odata.nextLink":"https://graph.microsoft.com/v1.0/me/calendarView?$skip=500"}), "value").unwrap().is_some());
-    let next = next_page(&base, &json!({"nextPageToken":"a&evil=value"}), "items")
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        next.query_pairs()
-            .find(|(key, _)| key == "pageToken")
-            .unwrap()
-            .1,
-        "a&evil=value"
     );
 }
 
@@ -246,10 +64,6 @@ fn local_request(url: Url) -> Request {
         url,
         method: Method::GET,
         body: String::new(),
-        kind: "google".into(),
-        source_id: String::new(),
-        username: String::new(),
-        account_id: String::new(),
     }
 }
 
@@ -268,7 +82,7 @@ async fn google_mutation_keeps_revision_and_never_follows_redirect() {
         "operation":"update","eventId":"event","body":"{\"summary\":\"synthetic\"}","ifMatch":"\"revision\"","sendUpdates":"none"})).unwrap();
     request.url = url;
     assert!(
-        execute(&client, request, Some("synthetic-calendar-token"), None)
+        execute(&client, request, Some("synthetic-calendar-token"))
             .await
             .is_err()
     );
@@ -305,7 +119,7 @@ async fn native_http_returns_body_and_refuses_redirects() {
     let (url, task) =
         server("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await;
     assert_eq!(
-        execute(&client, local_request(url), Some("synthetic-token"), None)
+        execute(&client, local_request(url), Some("synthetic-token"))
             .await
             .unwrap()["body"],
         "{}"
@@ -319,7 +133,7 @@ async fn native_http_returns_body_and_refuses_redirects() {
     let response=Box::leak(format!("HTTP/1.1 302 Found\r\nLocation: http://{}/stolen\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",target.local_addr().unwrap()).into_boxed_str());
     let (url, task) = server(response).await;
     assert_eq!(
-        execute(&client, local_request(url), Some("synthetic-token"), None)
+        execute(&client, local_request(url), Some("synthetic-token"))
             .await
             .unwrap_err(),
         "calendar_request_failed"
@@ -338,7 +152,7 @@ async fn native_http_bounds_downloads() {
     let (url, task) =
         server("HTTP/1.1 200 OK\r\nContent-Length: 16777217\r\nConnection: close\r\n\r\n").await;
     assert_eq!(
-        execute(&client, local_request(url), Some("test"), None)
+        execute(&client, local_request(url), Some("test"))
             .await
             .unwrap_err(),
         "calendar_response_too_large"
@@ -393,7 +207,7 @@ async fn google_move_sends_explicit_zero_content_length() {
         .build()
         .unwrap();
     assert!(
-        execute(&client, request, Some("synthetic-token"), None)
+        execute(&client, request, Some("synthetic-token"))
             .await
             .is_ok()
     );
@@ -427,55 +241,52 @@ async fn independent_calendar_requests_progress_concurrently() {
         .build()
         .unwrap();
     let (one, two, three) = tokio::join!(
-        execute(&client, local_request(url.clone()), Some("test"), None),
-        execute(&client, local_request(url.clone()), Some("test"), None),
-        execute(&client, local_request(url), Some("test"), None)
+        execute(&client, local_request(url.clone()), Some("test")),
+        execute(&client, local_request(url.clone()), Some("test")),
+        execute(&client, local_request(url), Some("test"))
     );
     assert!(one.is_ok() && two.is_ok() && three.is_ok());
     server.await.unwrap();
 }
 
-#[tokio::test]
-async fn credentials_failure_sends_no_calendar_network_request() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let params = json!({"source":{"kind":"caldav","id":"synthetic-source", "username":"synthetic-user",
-        "url":format!("https://{}/dav/", listener.local_addr().unwrap())},
-        "operation":"list", "body":"<calendar/>"});
-    for (error, expected) in [
-        (
-            crate::credentials::Error::Missing,
-            "calendar_password_missing",
-        ),
-        (
-            crate::credentials::Error::Unavailable,
-            "calendar_keyring_failed",
-        ),
-    ] {
-        let result = call_inner_with(&params, None, |key| async move {
-            assert_eq!(key.provider, "caldav");
-            assert_eq!(key.account_id, "synthetic-source");
-            Err(error)
-        })
-        .await;
-        assert_eq!(result, Err(expected));
-        assert!(
-            tokio::time::timeout(Duration::from_millis(30), listener.accept())
-                .await
-                .is_err(),
-            "failed credential lookup connected to the calendar server"
-        );
+#[test]
+fn pagination_keeps_google_origin_and_encodes_tokens() {
+    let origin = Url::parse(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true",
+    )
+    .unwrap();
+    let next = next_page(&origin, &json!({"nextPageToken":"a&evil=value"}))
+        .unwrap()
+        .unwrap();
+    assert_eq!(next.origin(), origin.origin());
+    assert_eq!(next.path(), origin.path());
+    assert_eq!(
+        next.query_pairs()
+            .find(|(key, _)| key == "pageToken")
+            .unwrap()
+            .1,
+        "a&evil=value"
+    );
+    for token in ["bad\r", "bad\n", "bad\0"] {
+        assert!(next_page(&origin, &json!({"nextPageToken":token})).is_err());
     }
 }
 
 #[tokio::test]
-async fn credentials_are_not_read_for_a_cross_origin_calendar_href() {
-    let params = json!({"source":{"kind":"caldav","id":"synthetic-source", "username":"synthetic-user",
-        "url":"https://calendar.example/dav/"}, "operation":"delete", "href":"https://attacker.example/event.ics"});
-    assert!(
-        call_inner_with(&params, None, |_| async {
-            panic!("invalid origin accessed credentials")
-        })
-        .await
-        .is_err()
-    );
+async fn unsupported_calendars_never_contact_the_configured_destination() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    for kind in ["caldav", "icloud", "microsoft", "hey", "unknown"] {
+        let params = json!({"source":{"kind":kind,"id":"saved", "accountId":"saved",
+            "url":format!("https://{}/calendar/", listener.local_addr().unwrap()),"username":"synthetic"},
+            "operation":"list","body":"synthetic"});
+        assert_eq!(
+            call(&params, Some("synthetic-token")).await,
+            Err("calendar_provider_unsupported")
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), listener.accept())
+                .await
+                .is_err()
+        );
+    }
 }

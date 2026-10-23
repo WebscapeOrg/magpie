@@ -8,6 +8,7 @@ an exhaustive provider/network integration suite.
 """
 import argparse
 from contextlib import contextmanager, nullcontext
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,14 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS_CREATE_NEW_PROCESS_GROUP = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x00000200)
+
+
+def selected_contract(released=False):
+    spec = importlib.util.spec_from_file_location('package_backend_contract', ROOT / 'scripts/package-backend.py')
+    package = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(package)
+    contract = package.read_api(ROOT / 'backend-api.json')
+    return package.released_view(contract) if released else contract
 
 
 @contextmanager
@@ -112,11 +121,11 @@ const whole = JSON.parse(fs.readFileSync(process.env.CONTRACT_ROOT + '/backend-a
 const released = process.env.CONTRACT_RELEASED === '1';
 const standalone = process.env.CONTRACT_STANDALONE === '1';
 const unreleased = whole.unreleased || {methods: [], cases: []};
-const selected = released ? {
+const selected = released ? (whole.releasedContract || {
   apiVersion: whole.releasedApiVersion, protocolVersion: whole.protocolVersion,
   methods: whole.methods.filter(m => !unreleased.methods.includes(m)),
   contractCases: whole.contractCases.filter(c => !unreleased.cases.includes(c.name))
-} : whole;
+}) : whole;
 // Standalone Linux/macOS share the native assistant. Windows remains deferred
 // and must reject the unavailable methods without touching storage.
 const agentUnavailable = standalone && process.platform === 'win32';
@@ -201,11 +210,14 @@ function storageSnapshot(directory = process.env.HOME) {
   }
   if (!released) {
     assert.equal(info.contractHash, require('crypto').createHash('sha256').update(fs.readFileSync(process.env.CONTRACT_ROOT + '/backend-api.json')).digest('hex'), 'compiled API contract matches the UI contract');
-    for (const method of ['jmap.actionAvailability', 'jmap.actionRows']) {
-      assert.ok(!info.methods.includes(method), 'internal planner is not advertised');
+    assert.deepEqual([...info.methods].sort(), [...contract.methods].sort(), 'current inventory has no removed methods');
+    const removed = (whole.releasedContract ? whole.releasedContract.methods : [])
+      .filter(method => !whole.methods.includes(method));
+    for (const method of [...removed, 'jmap.actionAvailability', 'jmap.actionRows']) {
+      assert.ok(!info.methods.includes(method), 'removed or internal method is not advertised');
       const before = storageSnapshot();
-      const error = await call(method, {}, -32000, false);
-      assert.equal(error.message, 'method_not_found');
+      const error = await call(method, {}, -32601, false);
+      assert.equal(error.message, 'Method not found');
       assert.deepEqual(storageSnapshot(), before, 'unknown method has no account or provider effects');
     }
   }
@@ -305,7 +317,9 @@ function storageSnapshot(directory = process.env.HOME) {
 
   await call('message.parse', {raw:17}, -32602);
   const providers = await call('providers.snapshot');
-  for (const id of ['gmail','outlook','hey','jmap','imap']) {
+  const providerIds = released && contract.apiVersion < 8 ? ['gmail','outlook','hey','jmap','imap'] : ['gmail'];
+  assert.deepEqual(Object.keys(providers).sort(), [...providerIds].sort());
+  for (const id of providerIds) {
     assert.ok(providers[id] && providers[id].queries && providers[id].capabilities);
     assert.equal(typeof providers[id].nativeSync, 'boolean');
   }
@@ -374,13 +388,7 @@ def main():
             and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'):
         parser.error('Windows contract tests require --isolated-windows-runner on a disposable GitHub-hosted runner')
     binary = args.binary.resolve(strict=True)
-    contract = json.loads((ROOT / 'backend-api.json').read_text())
-    if (type(contract.get('apiVersion')) is not int or contract['apiVersion'] < 1
-            or type(contract.get('protocolVersion')) is not int
-            or not isinstance(contract.get('methods'), list)
-            or not all(isinstance(method, str) and method for method in contract['methods'])
-            or len(contract['methods']) != len(set(contract['methods']))):
-        raise SystemExit('Invalid backend-api.json')
+    contract = selected_contract(args.released)
     with tempfile.TemporaryDirectory(prefix='omamail-api-contract-') as directory:
         # macOS exposes its temporary root through /var, a symlink to
         # /private/var. The production storage boundary refuses symlinked
@@ -425,19 +433,17 @@ def main():
         registry.parent.mkdir(parents=True)
         if os.name != 'nt':
             registry.parent.chmod(0o700)
-        # Every provider the contract cases name is registered in both views:
-        # a released case is the same fixture it was while unreleased.
-        accounts = [
-            {'email': 'contract@example.org'},
+        accounts = [{'email': 'contract@example.org'}]
+        if args.released and contract['apiVersion'] < 8:
+            accounts.extend([
             {'provider': 'imap', 'email': 'sender@example.org',
              'imap': {'username': 'sender@example.org'}},
             {'provider': 'imap', 'email': 'named@example.org', 'senderName': 'Jane Example',
              'imap': {'username': 'named@example.org'}},
             {'provider': 'hey', 'email': 'sender@example.org'},
-            {'provider': 'outlook', 'email': 'sender@example.org'}]
+            {'provider': 'outlook', 'email': 'sender@example.org'}])
         gmail_status_cases = [case for case in contract['contractCases']
-                              if case['name'].startswith('Gmail request status: ')
-                              and (not args.released or case['name'] not in contract['unreleased']['cases'])]
+                              if case['name'].startswith('Gmail request status: ')]
         accounts.extend({'provider': 'gmail', 'email': case['params']['accountId']}
                         for case in gmail_status_cases)
         registry.write_text(json.dumps({'version': 1, 'activeId': 'contract@example.org',
@@ -463,8 +469,7 @@ def main():
             connection.close()
             database.chmod(0o600)
         summary_cases = [case for case in contract['contractCases']
-                         if case['name'] == 'Local summaries return cached effective labels and query matches'
-                         and (not args.released or case['name'] not in contract['unreleased']['cases'])]
+                         if case['name'] == 'Local summaries return cached effective labels and query matches']
         if summary_cases:
             folder = state_root / 'omamail/mail' / hashlib.sha256(b'contract@example.org').hexdigest()
             folder.mkdir(parents=True, mode=0o700)

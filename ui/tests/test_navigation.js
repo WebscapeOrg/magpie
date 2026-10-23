@@ -42,20 +42,17 @@ deepEqual(nav.kinds(stack), ["list", "settings"])
 assert.strictEqual(nav.depth(stack), 2)
 deepEqual(nav.top(stack), { kind: "settings" })
 
-stack = nav.push(stack, nav.entry("picker"))
-stack = nav.push(stack, nav.entry("setup", { provider: "imap", draft: true }))
-deepEqual(nav.kinds(stack), ["list", "settings", "picker", "setup"])
-deepEqual(nav.top(stack), { kind: "setup", provider: "imap", draft: true })
+stack = nav.push(stack, nav.entry("setup", { draft: true }))
+deepEqual(nav.kinds(stack), ["list", "settings", "setup"])
+deepEqual(nav.top(stack), { kind: "setup", draft: true })
 
-stack = nav.pop(stack)
-deepEqual(nav.kinds(stack), ["list", "settings", "picker"])
 stack = nav.pop(stack)
 deepEqual(nav.kinds(stack), ["list", "settings"])
 stack = nav.pop(stack)
 deepEqual(nav.kinds(stack), ["list"])
 
-deepEqual(nav.kinds(nav.replace(nav.push(list, nav.entry("settings")), nav.entry("picker"))),
-  ["list", "picker"], "replace swaps the top without recording a step")
+deepEqual(nav.kinds(nav.replace(nav.push(list, nav.entry("settings")), nav.entry("setup"))),
+  ["list", "setup"], "replace swaps the top without recording a step")
 deepEqual(nav.replace([], nav.entry("settings")), [{ kind: "settings" }],
   "replacing the top of nothing is a stack of that one entry")
 
@@ -112,8 +109,8 @@ deepEqual(nav.kinds(nav.pop([nav.entry("list"), nav.entry("reader", { id: "m1" }
 const calendar = [nav.entry("calendar")]
 assert.strictEqual(nav.pop(list), list)
 assert.strictEqual(nav.pop(calendar), calendar)
-const picker = [nav.entry("picker")]
-assert.strictEqual(nav.pop(picker), picker, "a first-run picker is a root too")
+const setup = [nav.entry("setup", { draft: false })]
+assert.strictEqual(nav.pop(setup), setup, "first-run setup is a root too")
 assert.notStrictEqual(nav.pop(reader1), reader1)
 
 deepEqual(nav.pop([]), [{ kind: "list" }])
@@ -137,8 +134,8 @@ deepEqual(nav.page([nav.entry("help")]), { kind: "list" })
 deepEqual(nav.replaceRoot(reader1, "calendar"), [{ kind: "calendar" }])
 deepEqual(nav.replaceRoot(helpOverCompose, "list"), [{ kind: "list" }])
 deepEqual(nav.resetTo(helpOverCompose, "list"), [{ kind: "list" }])
-deepEqual(nav.resetTo(reader1, "picker"), [{ kind: "picker" }],
-  "a first-run root resets to the picker, not the list")
+deepEqual(nav.resetTo(reader1, "setup"), [{ kind: "setup" }],
+  "a first-run root resets to setup")
 deepEqual(nav.replaceRoot(reader1, "not-a-kind"), [{ kind: "list" }])
 deepEqual(nav.replaceRoot(null, "calendar"), [{ kind: "calendar" }])
 
@@ -148,27 +145,14 @@ deepEqual(nav.rootFor({ anyReady: true, view: "reader" }), [{ kind: "list" }],
   "only the calendar is a root; anything else is the list")
 deepEqual(nav.rootFor({ anyReady: true }), [{ kind: "list" }])
 
-deepEqual(nav.rootFor({ anyReady: false, hasSavedAccounts: false }), [{ kind: "picker" }])
-
-deepEqual(nav.rootFor({ anyReady: false, hasSavedAccounts: true, setupUnderway: true, provider: "imap" }),
-  [{ kind: "picker" }, { kind: "setup", provider: "imap", draft: false }])
-
-deepEqual(nav.rootFor({ anyReady: false, hasSavedAccounts: true, setupUnderway: false, provider: "imap" }),
-  [{ kind: "picker" }])
-
-deepEqual(nav.rootFor({ anyReady: false, hasSavedAccounts: false, view: "calendar" }), [{ kind: "picker" }])
-deepEqual(nav.rootFor({ anyReady: false, hasSavedAccounts: true, setupUnderway: true, provider: "gmail", view: "calendar" }),
-  [{ kind: "picker" }, { kind: "setup", provider: "gmail", draft: false }])
-
-deepEqual(nav.rootFor({ anyReady: false, hasSavedAccounts: false, setupUnderway: true, provider: "imap" }),
-  [{ kind: "picker" }])
-deepEqual(nav.rootFor(null), [{ kind: "picker" }])
-deepEqual(nav.rootFor({}), [{ kind: "picker" }])
-
+deepEqual(nav.rootFor({ anyReady: false, hasSavedAccounts: false }), [{ kind: "setup", draft: false }])
+deepEqual(nav.rootFor({ anyReady: false, hasSavedAccounts: true }), [{ kind: "setup", draft: false }])
+deepEqual(nav.rootFor({ anyReady: false, view: "calendar" }), [{ kind: "setup", draft: false }])
+deepEqual(nav.rootFor(null), [{ kind: "setup", draft: false }])
+deepEqual(nav.rootFor({}), [{ kind: "setup", draft: false }])
+assert.strictEqual(nav.KINDS.indexOf("picker"), -1, "Gmail setup has no provider-choice page")
 
 deepEqual(nav.kinds(helpOverCompose), ["list", "reader", "compose", "help"])
-deepEqual(nav.kinds(nav.rootFor({ anyReady: false, hasSavedAccounts: true, setupUnderway: true, provider: "hey" })),
-  ["picker", "setup"])
 
 
 const before = [nav.entry("list"), nav.entry("reader", { id: "m1" }), nav.entry("compose", { returnTo: 1 })]

@@ -10,7 +10,7 @@ Item {
       textColor: palette.text
       accentColor: palette.highlight
       panelFontFamily: "sans-serif"
-      allMailboxes: Provider.mailboxes("imap")
+      allMailboxes: Provider.mailboxes("gmail")
     }
   }
   SystemPalette { id: palette }

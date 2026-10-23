@@ -36,10 +36,16 @@ The list header keeps Search, Folder, Compose and the account selector; the Magp
 
 In the list view, the mailbox selector sits beside the menu in the position used by Back when reading a message. In the single-column message reader, ← Back sits beside the menu in the top toolbar and uses the same outlined button style as Compose. Escape keeps its existing navigation behavior. Folder and the mailbox selector share the outlined toolbar style; the menu glyph is twice its former size.
 
-Messages with file attachments show a small Lucide paperclip before the list’s summary line, with a gap before the text. The indicator fits within the existing text height and does not increase the row or line height. The MIME classifier excludes inline sender logos; JMAP uses its server’s attachment flag.
+Messages with file attachments show a small Lucide paperclip before the list’s summary line, with a gap before the text. The indicator fits within the existing text height and does not increase the row or line height. The MIME classifier excludes inline sender logos.
 
 Reader attachments appear as individual cards above the message actions, with a filename, file type, size and a separate Save to Downloads control. Click a card to open its file. The shelf scrolls horizontally when needed and stays bounded so the message remains readable. Image files show a static thumbnail; PDFs show their first page when the isolated Linux preview worker is available. Unsupported, oversized or unreadable files keep their named file tile and their Open and Save actions. Previews require the checkout’s API 8 backend; older backends retain the cards and normal file actions.
 
 Contact photos fill the circular avatar. Organization logos are fitted onto a transparent square with 30% radial clearance before caching; the UI displays every prepared image at full size. LinkedIn uses its official 144 px tile and xneelo its official 300 px site icon; other organizations request up to 256 px through the existing domain-only logo service. The avatar cache revision refreshes older entries automatically. Sources: [LinkedIn brand site](https://brand.linkedin.com/) and [xneelo](https://xneelo.co.za/).
 
 Unavailable overviews show a specific safe reason for worker startup, AI response, format/length, evidence validation or mail preparation failures, followed by the retry action. Older cached failures explicitly say no reason was saved. Hovering an elided overview reveals the full explanation. Paused, queued and running states remain distinct. This uses the unreleased API 8 snapshot contract; backend disconnection or an older backend has its own explanation.
+
+## Gmail-only accounts
+
+Magpie uses the Gmail API for all mailboxes and Google Calendar for calendars. Google Workspace custom domains and multiple accounts are supported. Add mailbox opens Google setup directly. Existing credentials, account identities, downloaded mail, drafts, aliases and calendar choices are preserved. Unsupported provider records are never converted into Gmail accounts or silently deleted.
+
+Unified search prepares syntax once, then each account resolves its own `me` and labels. Inbox overviews reuse downloaded message content. These changes preserve the existing quota scheduler and do not increase background request concurrency.

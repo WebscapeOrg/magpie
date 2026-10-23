@@ -405,15 +405,6 @@ impl Session {
             .await
     }
 
-    pub(crate) async fn background_call(
-        &self,
-        method: &str,
-        params: &Value,
-    ) -> Result<Value, &'static str> {
-        self.call_in_lane(method, params, gmail_http::Lane::Background, false)
-            .await
-    }
-
     pub(crate) async fn poll_call(
         &self,
         method: &str,

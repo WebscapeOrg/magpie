@@ -10,8 +10,8 @@ import "../../account/Unified.js" as Unified
 
 // Invariant: The batch's two boundaries, driven against a client the test controls.
 //
-// Ownership: an IMAP id is a UID and a folder, unique only inside one
-// account, so ticks made in one mailbox must never be dispatched through
+// Ownership: the same message id can appear in multiple Gmail accounts,
+// so ticks made in one mailbox must never be dispatched through
 // another — however the switch reached the service. Reconciliation: one
 // request per message answers per message, so a refusal on one row must
 // put back that row and no other, and a whole-batch refusal must read the
@@ -100,9 +100,7 @@ Item {
 
     function entry(email) {
       return {
-        email: email, provider: "imap", clientId: "", clientSecret: "",
-        imap: { imapHost: "imap.example.com", imapPort: 993, smtpHost: "smtp.example.com", smtpPort: 465,
-          username: email, aliases: [], insecure: false },
+        email: email, provider: "gmail",
         label: "", signature: ""
       }
     }
@@ -127,8 +125,8 @@ Item {
         account.clientOverride = controlledClient
         account.auth.toolsChecked = true
         account.auth.missingTools = []
-        account.auth.passwordChecked = true
-        account.auth.password = "test-password"
+        account.auth.credentials = {clientId: "123-example.apps.googleusercontent.com", clientSecret: "synthetic-secret"}
+        account.auth.loggedIn = true
         tryCompare(account, "ready", true)
         account.listLoaded = true
       }
@@ -144,58 +142,58 @@ Item {
     }
 
     function test_unified_trash_restores_failed_checks_and_reports_all_accounts() {
-      seed([entry(ada), entry(bob)], "imap:" + ada)
+      seed([entry(ada), entry(bob)], ada)
       var first = mailService.accountAt(0)
       var second = mailService.accountAt(1)
-      first.messages = [row("1:INBOX"), row("2:INBOX"), row("3:INBOX")]
-      second.messages = [row("1:INBOX"), row("4:INBOX")]
+      first.messages = [row("message-1"), row("message-2"), row("message-3")]
+      second.messages = [row("message-1"), row("message-4")]
       mailService.setUnifiedMailboxes(true)
-      var failed = Unified.unifiedId(first.accountId, "2:INBOX")
-      var ids = [Unified.unifiedId(first.accountId, "1:INBOX"), failed,
-        Unified.unifiedId(second.accountId, "1:INBOX")]
+      var failed = Unified.unifiedId(first.accountId, "message-2")
+      var ids = [Unified.unifiedId(first.accountId, "message-1"), failed,
+        Unified.unifiedId(second.accountId, "message-1")]
       tryVerify(function() { return mailService.messages.length === 5 })
       app.checkedAccountId = mailService.activeAccountId
       app.checkedIds = ids
       app.cursorId = ids[0]
-      record.refuse = "2:INBOX"
+      record.refuse = "message-2"
       record.hold = true
       verify(app.actOnChecked("trash"))
       compare(app.checkedIds, [])
       tryVerify(function() { return record.trashed.length === 3 })
-      compare(record.trashed.filter(function(id) { return id === "1:INBOX" }).length, 2,
+      compare(record.trashed.filter(function(id) { return id === "message-1" }).length, 2,
         "the identical local id reaches both owning accounts")
       record.finish()
       tryCompare(app, "checkedIds", [failed])
       tryVerify(function() { return mailService.lastError.indexOf("2 of 3 selected across 2 mailboxes") >= 0 })
       verify(mailService.lastError.indexOf(ada + ": 1 completed, 1 failed") >= 0)
       verify(mailService.lastError.indexOf(bob + ": 1 completed, 0 failed") >= 0)
-      compare(first.messages.map(function(message) { return message.id }), ["2:INBOX", "3:INBOX"])
-      compare(second.messages.map(function(message) { return message.id }), ["4:INBOX"])
+      compare(first.messages.map(function(message) { return message.id }), ["message-2", "message-3"])
+      compare(second.messages.map(function(message) { return message.id }), ["message-4"])
     }
 
     function test_batch_completion_reports_a_whole_batch_failure_once() {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX"), row("2:INBOX")]
+      account.messages = [row("message-1"), row("message-2")]
       record.refuseBatch = true
       var answers = []
-      verify(account.actMany(["1:INBOX", "2:INBOX"], "markRead", function(result) { answers.push(result) }))
+      verify(account.actMany(["message-1", "message-2"], "markRead", function(result) { answers.push(result) }))
       tryVerify(function() { return answers.length === 1 })
-      compare(answers[0].failedIds, ["1:INBOX", "2:INBOX"])
+      compare(answers[0].failedIds, ["message-1", "message-2"])
       verify(answers[0].error !== "")
       compare(account.messages.length, 2)
     }
 
     function test_queued_batches_keep_every_completion_callback() {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX"), row("2:INBOX")]
+      account.messages = [row("message-1"), row("message-2")]
       record.hold = true
       var answers = []
-      verify(account.actMany(["1:INBOX", "2:INBOX"], "markRead", function(result) { answers.push(result) }))
+      verify(account.actMany(["message-1", "message-2"], "markRead", function(result) { answers.push(result) }))
       tryCompare(account, "pendingAction", "markRead")
       for (var itemIndex = 0; itemIndex < 2; itemIndex++)
-        verify(account.actMany(["1:INBOX", "2:INBOX"], "markRead", function(result) { answers.push(result) }))
+        verify(account.actMany(["message-1", "message-2"], "markRead", function(result) { answers.push(result) }))
       tryVerify(function() { return account.queuedActions.length === 2 })
       record.finish()
       tryVerify(function() { return answers.length === 3 })
@@ -203,14 +201,14 @@ Item {
       compare(record.batches.length, 3)
     }
     function test_sign_out_finishes_queued_batches_without_dispatching_them() {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX"), row("2:INBOX")]
+      account.messages = [row("message-1"), row("message-2")]
       record.hold = true
       var answers = []
-      verify(account.actMany(["1:INBOX", "2:INBOX"], "markRead", function(result) { answers.push(result) }))
+      verify(account.actMany(["message-1", "message-2"], "markRead", function(result) { answers.push(result) }))
       tryCompare(account, "pendingAction", "markRead")
-      verify(account.actMany(["1:INBOX", "2:INBOX"], "markRead", function(result) { answers.push(result) }))
+      verify(account.actMany(["message-1", "message-2"], "markRead", function(result) { answers.push(result) }))
       tryVerify(function() { return account.queuedActions.length === 1 })
       compare(record.batches.length, 1)
       account.signOut()
@@ -218,7 +216,7 @@ Item {
       compare(account.actionCompletions.length, 0)
       compare(account.queuedActions.length, 0)
       for (var itemIndex = 0; itemIndex < answers.length; itemIndex++) {
-        compare(answers[itemIndex].failedIds, ["1:INBOX", "2:INBOX"])
+        compare(answers[itemIndex].failedIds, ["message-1", "message-2"])
         compare(answers[itemIndex].error, "Account signed out")
       }
       record.finish()
@@ -246,10 +244,10 @@ Item {
     }
 
     function test_pane_widths_leave_room_for_the_reader(data) {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX")]
-      account.selectedId = "1:INBOX"
+      account.messages = [row("message-1")]
+      account.selectedId = "message-1"
       account.selectedMessage = account.messages[0]
       app.open()
       app.pushEntry("reader", { id: account.selectedId })
@@ -291,27 +289,27 @@ Item {
 
     function test_reader_mark_unread_uses_the_visible_selection_data() {
       return [
-        { tag: "checked-open-message", checked: true, outside: false, compact: false, starred: false, expected: "1:INBOX,2:INBOX" },
-        { tag: "checked-messages-already-starred", checked: true, outside: false, compact: false, starred: true, expected: "1:INBOX,2:INBOX" },
-        { tag: "open-message-outside-selection", checked: true, outside: true, compact: false, starred: false, expected: "3:INBOX" },
-        { tag: "compact-reader-hides-selection", checked: true, outside: false, compact: true, starred: false, expected: "1:INBOX" },
-        { tag: "no-selection", checked: false, outside: false, compact: false, starred: false, expected: "1:INBOX" }
+        { tag: "checked-open-message", checked: true, outside: false, compact: false, starred: false, expected: "message-1,message-2" },
+        { tag: "checked-messages-already-starred", checked: true, outside: false, compact: false, starred: true, expected: "message-1,message-2" },
+        { tag: "open-message-outside-selection", checked: true, outside: true, compact: false, starred: false, expected: "message-3" },
+        { tag: "compact-reader-hides-selection", checked: true, outside: false, compact: true, starred: false, expected: "message-1" },
+        { tag: "no-selection", checked: false, outside: false, compact: false, starred: false, expected: "message-1" }
       ]
     }
 
     function test_selection_toggles_and_shift_clears_a_range() {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX"), row("2:INBOX"), row("3:INBOX")]
+      account.messages = [row("message-1"), row("message-2"), row("message-3")]
       app.open()
-      app.cursorId = "1:INBOX"
+      app.cursorId = "message-1"
       app.runShortcut("toggleCheck", "Space")
-      compare(app.checkedIds.join(","), "1:INBOX")
+      compare(app.checkedIds.join(","), "message-1")
       app.runShortcut("toggleCheck", "Space")
       compare(app.checkedIds.length, 0)
-      app.checkRange("3:INBOX")
-      compare(app.checkedIds.join(","), "1:INBOX,2:INBOX,3:INBOX")
-      app.checkRange("1:INBOX")
+      app.checkRange("message-3")
+      compare(app.checkedIds.join(","), "message-1,message-2,message-3")
+      app.checkRange("message-1")
       compare(app.checkedIds.length, 0)
       app.close()
     }
@@ -321,17 +319,17 @@ Item {
     }
 
     function test_ctrl_temporarily_replaces_actions_with_checkboxes() {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX")]
+      account.messages = [row("message-1")]
       app.open()
-      app.cursorId = "1:INBOX"
+      app.cursorId = "message-1"
       var keyboard = having(app, function(item) { return item.ctrlDown !== undefined })
       verify(keyboard !== null)
       keyboard.parkKeyboard()
       wait(20)
       var target = having(app, function(item) {
-        return item.summary && item.summary.id === "1:INBOX"
+        return item.summary && item.summary.id === "message-1"
           && item.checkToggled !== undefined
       })
       verify(target !== null)
@@ -349,7 +347,7 @@ Item {
       mouseClick(target, 32, target.height / 2, Qt.LeftButton, Qt.ControlModifier)
       compare(check.visible, true, "selection mode survives releasing Ctrl")
       compare(unread.visible, false)
-      compare(app.checkedIds.join(","), "1:INBOX")
+      compare(app.checkedIds.join(","), "message-1")
       // Invariant: Visibility changes synchronously, but Row lays out its replacement
       // controls on the next polish. Wait for the actual checkbox hit target,
       // otherwise this click can use the old three-button lane coordinates.
@@ -363,41 +361,41 @@ Item {
     }
 
     function test_ctrl_click_toggles_without_opening(data) {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX"), row("2:INBOX")]
+      account.messages = [row("message-1"), row("message-2")]
       app.open()
       if (data.reading) {
-        account.selectedId = "1:INBOX"
+        account.selectedId = "message-1"
         app.pushEntry("reader", { id: account.selectedId })
       }
-      app.toggleCheck("1:INBOX")
+      app.toggleCheck("message-1")
       wait(0)
       var target = having(app, function(item) {
-        return item.summary && item.summary.id === "2:INBOX"
+        return item.summary && item.summary.id === "message-2"
           && item.checkToggled !== undefined
       })
       verify(target !== null)
       var opened = account.selectedId
       var view = app.currentView
       mouseClick(target, 32, target.height / 2, Qt.LeftButton, Qt.ControlModifier)
-      compare(app.checkedIds.join(","), "1:INBOX,2:INBOX")
+      compare(app.checkedIds.join(","), "message-1,message-2")
       compare(account.selectedId, opened)
       compare(app.currentView, view)
       mouseClick(target, 32, target.height / 2, Qt.LeftButton, Qt.ControlModifier)
-      compare(app.checkedIds.join(","), "1:INBOX")
+      compare(app.checkedIds.join(","), "message-1")
       compare(account.selectedId, opened)
       compare(app.currentView, view)
       app.close()
     }
 
     function test_reader_mark_unread_uses_the_visible_selection(data) {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      var messages = [row("1:INBOX"), row("2:INBOX"), row("3:INBOX")]
+      var messages = [row("message-1"), row("message-2"), row("message-3")]
       for (var itemIndex = 0; itemIndex < messages.length; itemIndex++) messages[itemIndex].starred = data.starred
       account.messages = messages
-      account.selectedId = data.outside ? "3:INBOX" : "1:INBOX"
+      account.selectedId = data.outside ? "message-3" : "message-1"
       account.selectedMessage = messages[data.outside ? 2 : 0]
       app.open()
       var window = having(app, function(item) { return item.title === "🐦 Magpie" })
@@ -405,8 +403,8 @@ Item {
       window.width = Style.space(data.compact ? 600 : 980)
       app.pushEntry("reader", { id: account.selectedId })
       if (data.checked) {
-        verify(app.toggleCheck("1:INBOX"))
-        verify(app.toggleCheck("2:INBOX"))
+        verify(app.toggleCheck("message-1"))
+        verify(app.toggleCheck("message-2"))
       }
       compare(app.selectionActive, data.checked && !data.compact)
       var cursorBefore = app.cursorId
@@ -427,19 +425,19 @@ Item {
       window.width = MailStyle.space(980)
     }
 
-    // Invariant: Ada and Bob both hold 42:INBOX. Ticked in Ada's list, the id must not
+    // Invariant: Ada and Bob both hold message-42. Ticked in Ada's list, the id must not
     // become a trash request through Bob's client, whether the switch came
     // through the window or straight to the service.
     function test_ticks_do_not_cross_an_account_switch() {
-      seed([entry(ada), entry(bob)], "imap:" + ada)
-      mailService.accountAt(0).messages = [row("42:INBOX"), row("43:INBOX")]
-      mailService.accountAt(1).messages = [row("42:INBOX")]
-      app.cursorId = "42:INBOX"
-      verify(app.toggleCheck("42:INBOX"))
+      seed([entry(ada), entry(bob)], ada)
+      mailService.accountAt(0).messages = [row("message-42"), row("message-43")]
+      mailService.accountAt(1).messages = [row("message-42")]
+      app.cursorId = "message-42"
+      verify(app.toggleCheck("message-42"))
       compare(app.checkedIds.length, 1)
 
       verify(app.switchAccount(1))
-      compare(mailService.activeAccountId, "imap:" + bob)
+      compare(mailService.activeAccountId, bob)
       compare(app.checkedIds.length, 0, "the switch dropped the ticks")
       compare(app.cursorId, "", "and the cursor, which is an id of Ada's too")
       app.runShortcut("trash", "d")
@@ -447,33 +445,33 @@ Item {
       compare(record.trashed.length, 0, "nothing was trashed through Bob")
 
       verify(mailService.switchToIndex(0))
-      app.cursorId = "42:INBOX"
-      verify(app.toggleCheck("42:INBOX"))
+      app.cursorId = "message-42"
+      verify(app.toggleCheck("message-42"))
       verify(mailService.switchToIndex(1))
       wait(30)
       compare(app.checkedIds.length, 0, "a switch at the service drops them too")
-      app.checkedIds = ["42:INBOX"]
-      app.checkedAccountId = "imap:" + ada
+      app.checkedIds = ["message-42"]
+      app.checkedAccountId = ada
       compare(app.actOnChecked("trash"), false, "ticks owned by another mailbox build no batch")
       compare(record.trashed.length, 0)
     }
 
     function test_a_partly_refused_trash_restores_only_the_refused_rows() {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX"), row("2:INBOX"), row("3:INBOX")]
-      record.refuse = "2:INBOX"
-      app.cursorId = "1:INBOX"
-      verify(app.toggleCheck("1:INBOX"))
-      verify(app.toggleCheck("2:INBOX"))
+      account.messages = [row("message-1"), row("message-2"), row("message-3")]
+      record.refuse = "message-2"
+      app.cursorId = "message-1"
+      verify(app.toggleCheck("message-1"))
+      verify(app.toggleCheck("message-2"))
       record.hold=true
       app.runShortcut("trash", "d")
       tryCompare(account, "pendingAction", "trash")
       compare(account.messages.length, 1, "both rows left optimistically")
-      tryCompare(record, "trashed", ["1:INBOX", "2:INBOX"])
+      tryCompare(record, "trashed", ["message-1", "message-2"])
       record.finish()
       tryVerify(function() { return account.messages.length === 2 }, 1000)
-      compare(account.messages.map(function(message) { return message.id }), ["2:INBOX", "3:INBOX"],
+      compare(account.messages.map(function(message) { return message.id }), ["message-2", "message-3"],
         "the refused row is back in its place; the accepted one is gone")
       verify(account.lastError.indexOf("1 of 2") >= 0, "the note counts the refusal: " + account.lastError)
     }
@@ -483,37 +481,37 @@ Item {
     // is read again from the server, which is what makes older mail
     // reachable after a partial refusal.
     function test_a_partly_refused_trash_reads_the_page_again() {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX"), row("2:INBOX"), row("3:INBOX")]
+      account.messages = [row("message-1"), row("message-2"), row("message-3")]
       account.nextPageToken = "older-page"
-      record.refuse = "2:INBOX"
-      app.cursorId = "1:INBOX"
-      verify(app.toggleCheck("1:INBOX"))
-      verify(app.toggleCheck("2:INBOX"))
+      record.refuse = "message-2"
+      app.cursorId = "message-1"
+      verify(app.toggleCheck("message-1"))
+      verify(app.toggleCheck("message-2"))
       var listsBefore = record.lists
       record.hold=true
       app.runShortcut("trash", "d")
       tryCompare(account, "pendingAction", "trash")
       compare(account.hasMore, false, "the optimistic page has no token")
-      tryCompare(record, "trashed", ["1:INBOX", "2:INBOX"])
+      tryCompare(record, "trashed", ["message-1", "message-2"])
       record.finish()
       tryVerify(function() { return account.messages.length === 2 }, 1000)
       tryVerify(function() { return record.lists > listsBefore }, 1000)
-      compare(account.messages.map(function(message) { return message.id }), ["2:INBOX", "3:INBOX"],
+      compare(account.messages.map(function(message) { return message.id }), ["message-2", "message-3"],
         "the restored rows stay on screen while the server answers")
       verify(account.listLoading, "the page is being read again")
       verify(account.lastError.indexOf("1 of 2") >= 0, "the note is up while the page is read: " + account.lastError)
     }
 
     function test_a_refresh_waiting_on_a_partly_refused_batch_runs_after_it() {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX"), row("2:INBOX"), row("3:INBOX")]
-      record.refuse = "2:INBOX"
-      app.cursorId = "1:INBOX"
-      verify(app.toggleCheck("1:INBOX"))
-      verify(app.toggleCheck("2:INBOX"))
+      account.messages = [row("message-1"), row("message-2"), row("message-3")]
+      record.refuse = "message-2"
+      app.cursorId = "message-1"
+      verify(app.toggleCheck("message-1"))
+      verify(app.toggleCheck("message-2"))
       var listsBefore = record.lists
       record.hold=true
       app.runShortcut("trash", "d")
@@ -521,23 +519,23 @@ Item {
       account.loadMessages(false, true, "")
       compare(record.lists, listsBefore, "the refresh waits on the action")
       verify(account.deferredListLoad !== null, "and is remembered")
-      tryCompare(record, "trashed", ["1:INBOX", "2:INBOX"])
+      tryCompare(record, "trashed", ["message-1", "message-2"])
       record.finish()
       tryVerify(function() { return account.pendingAction === "" }, 1000)
       tryVerify(function() { return record.lists > listsBefore }, 1000)
       compare(account.deferredListLoad, null, "the waiting refresh ran")
-      compare(account.messages.map(function(message) { return message.id }), ["2:INBOX", "3:INBOX"],
+      compare(account.messages.map(function(message) { return message.id }), ["message-2", "message-3"],
         "with the refused row back and the accepted one gone")
       verify(account.lastError.indexOf("1 of 2") >= 0, account.lastError)
     }
 
     function test_a_refresh_waiting_on_a_batch_runs_after_it() {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX"), row("2:INBOX")]
-      app.cursorId = "1:INBOX"
-      verify(app.toggleCheck("1:INBOX"))
-      verify(app.toggleCheck("2:INBOX"))
+      account.messages = [row("message-1"), row("message-2")]
+      app.cursorId = "message-1"
+      verify(app.toggleCheck("message-1"))
+      verify(app.toggleCheck("message-2"))
       var listsBefore = record.lists
       record.hold=true
       app.runShortcut("markRead", "I")
@@ -553,16 +551,16 @@ Item {
     // Invariant: A whole-batch refusal from a client that answers with one word is not
     // proof that nothing changed: the list is read again from the server.
     function test_a_refused_batch_reads_the_list_again() {
-      seed([entry(ada)], "imap:" + ada)
+      seed([entry(ada)], ada)
       var account = mailService.accountAt(0)
-      account.messages = [row("1:INBOX"), row("2:INBOX")]
+      account.messages = [row("message-1"), row("message-2")]
       record.refuseBatch = true
-      app.cursorId = "1:INBOX"
-      verify(app.toggleCheck("1:INBOX"))
-      verify(app.toggleCheck("2:INBOX"))
+      app.cursorId = "message-1"
+      verify(app.toggleCheck("message-1"))
+      verify(app.toggleCheck("message-2"))
       var listsBefore = record.lists
       app.runShortcut("archive", "e")
-      tryCompare(record, "batches", ["1:INBOX,2:INBOX"])
+      tryCompare(record, "batches", ["message-1,message-2"])
       tryVerify(function() { return record.lists > listsBefore }, 1000)
     }
   }

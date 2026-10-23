@@ -50,15 +50,6 @@ pub(crate) fn domain_action(operation: &str) -> Result<&'static str, &'static st
     }
 }
 
-/// The canonical mailbox whose absence prevents an honest action preview.
-pub(crate) fn action_mailbox(action: &str) -> Option<&'static str> {
-    match action {
-        "archive" => Some("archive"),
-        "trash" => Some("trash"),
-        "spam" => Some("spam"),
-        _ => None,
-    }
-}
 pub fn action_targets(row: &Value, action: &str) -> Value {
     let b = block(row);
     if action_scope(action) == "conversation" && !rows(&b["memberIds"]).is_empty() {
@@ -171,9 +162,7 @@ pub fn changes(action: &str, source: &str) -> Value {
     json!({"add":add,"remove":remove})
 }
 
-/// Every mail action's label projection. Trash has a dedicated transport verb
-/// on several providers, but its preview still states the mailbox label it
-/// would add.
+/// Every mail action's label projection, including Gmail's dedicated trash verb.
 pub(crate) fn action_changes(action: &str) -> Value {
     if action == "trash" {
         return json!({"add":["TRASH"],"remove":[]});

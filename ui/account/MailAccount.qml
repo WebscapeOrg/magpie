@@ -11,9 +11,7 @@ import "../message/Outbox.js" as Outbox
 import "Model.js" as Model
 import "SearchState.js" as SearchState
 import "Accounts.js" as Accounts
-import "Aliases.js" as Aliases
 import "../providers/Registry.js" as Provider
-import "../providers/ImapProtocol.js" as Imap
 import "../providers/OAuth.js" as OAuth
 
 // Performance: Every account polls unread counts; list refreshes follow visibility, baseline checks, unread-count changes and actions. Bodies load on demand.
@@ -39,17 +37,10 @@ Item {
   property var platform: null
   property string syncFingerprint: ""
   property string configuredEmail: ""
-  property string oauthClientId: ""
 
   property string accountId: ""
 
-  property string providerId: Provider.DEFAULT_ID
-  // Invariant: Persisted IMAP settings pass the same normalization as setup input before connecting.
-  property var imapSettings: null
-
-  property string senderName: ""
-  // Invariant: Persisted JMAP settings are normalized before sending credentials.
-  property var jmapSettings: null
+  readonly property string providerId: "gmail"
   // Invariant: Only the account that predates multi-account support may adopt the legacy client-keyed token.
   property bool mayAdoptLegacyToken: true
   property bool active: false
@@ -84,7 +75,7 @@ Item {
   readonly property int undoSendSeconds: Outbox.normalizeDelay(
     setting("undoSendSeconds", Outbox.DEFAULT_DELAY_SECONDS))
 
-  // Invariant: Provider changes briefly leave both loaders empty; consumers must tolerate null objects.
+  // Invariant: Authentication loads before the Gmail client; consumers tolerate startup without either object.
   readonly property var auth: authLoader.item
   readonly property var api: apiLoader.item
   readonly property alias cache: cacheStore
@@ -122,9 +113,9 @@ Item {
   property string mailboxKey: "inbox"
   property string searchQuery: ""
   property string searchRaw: ""
-  // Invariant: Provider-built mailbox queries bypass typed-search conversion, which would turn IMAP folder names into message text searches.
+  // Invariant: Label queries retain their source label for subsequent move actions.
   property string rawQuery: ""
-  // Invariant: Gmail moves remove the label behind the current view; IMAP moves already identify their source folder.
+  // Invariant: Gmail moves remove the label behind the current view.
   property string rawLabelId: ""
   property var messages: []
   property var previewMessages: []
@@ -287,14 +278,9 @@ Item {
 
   property var profile: null
   readonly property string accountEmail: profile ? String(profile.email || "") : ""
-  readonly property var availableSendAsAliases: {
-    var rows = sendAsAliases.length > 0 ? sendAsAliases
-      : (accountEmail === "" ? []
-        : [{ email: accountEmail, displayName: "", isPrimary: true, isDefault: true }])
-    // Invariant: Apply the configured sender name only on API 7+, where agent sends use the same naming rule.
-    var named = Accounts.namesSender(providerId) && !!backend && backend.ready && backend.apiVersion >= 7
-    return named ? Aliases.withSenderName(rows, senderName) : rows
-  }
+  readonly property var availableSendAsAliases: sendAsAliases.length > 0 ? sendAsAliases
+    : (accountEmail === "" ? []
+      : [{ email: accountEmail, displayName: "", isPrimary: true, isDefault: true }])
   // Invariant: The loaded profile owns the default reply address; configuredEmail supplies it before profile loading finishes.
   readonly property string ownAddress: accountEmail !== "" ? accountEmail : configuredEmail
   property int inboxUnread: 0
@@ -338,7 +324,6 @@ Item {
 
   readonly property string setupState: {
 
-    if (!Provider.isConnectable(providerId)) return "unavailable"
     if (!auth) return "signed_out"
     return Model.setupState({
       toolsPresent: auth.toolsPresent || !auth.toolsChecked,
@@ -351,39 +336,31 @@ Item {
   // Invariant: Network readiness requires both loaders; restored local mail can open before authentication finishes.
   readonly property bool ready: (setupState === "ready" || (localMailbox.available && localMailbox.hasMail)) && !!api
     && (!backend || !backend.executable || backend.ready === true)
-  readonly property bool nativePolling: Provider.nativeSync(providerId) && !!backend
+  readonly property bool nativePolling: !!backend
     && !!backend.protocolInfo && Array.isArray(backend.protocolInfo.methods)
     && backend.protocolInfo.methods.indexOf("mail.watch") >= 0
   readonly property bool busy: listLoading || detailLoading || countLoading
     || (auth ? auth.sessionBusy : false) || sending || pendingAction !== ""
-  // Invariant: Provider-produced query strings remain opaque to the account coordinator and its cache.
-  property string resolvedProviderQuery: ""
-  property string resolvedProviderInput: ""
   property int providerQuerySerial: 0
   property int providerLabelSerial: 0
-  readonly property string providerQueryInput: JSON.stringify([providerId, mailboxKey, searchQuery, defaultQuery])
-  readonly property bool providerQueryNeedsResolution: searchQuery.trim() !== ""
-    || (mailboxKey === "inbox" && defaultQuery.trim() !== "" && defaultQuery.trim() !== Provider.get(providerId).inheritedDefault)
   readonly property string effectiveQuery: rawQuery !== "" ? rawQuery
     : searchRaw !== "" ? searchRaw
-    : resolvedProviderInput === providerQueryInput ? resolvedProviderQuery
-    : Provider.mailboxFor(providerId, mailboxKey).query
+    : searchQuery !== "" ? searchQuery
+    : mailboxKey === "inbox" && defaultQuery !== "" ? defaultQuery
+    : Provider.mailboxFor("gmail", mailboxKey).query
   readonly property bool hasMore: nextPageToken !== ""
   // Invariant: Cached search rows may be visible while the server continues extending the result.
   readonly property bool serverSearchLoading: submittedSearchSession.active
     ? submittedSearchSession.phase === "checking"
     : searchQuery !== "" && rawQuery === "" && listLoading && !localMailbox.available
   readonly property string resultSummary: Model.resultSummary(messages, resultEstimate, hasMore)
-  readonly property string barTooltip: Model.barTooltip(setupState, accountEmail, inboxUnread,
-    Provider.badge(providerId), Provider.authKind(providerId))
+  readonly property string barTooltip: Model.barTooltip(setupState, accountEmail, inboxUnread)
 
   readonly property string setupHeadline:
-    Model.setupHeadline(setupState, Provider.badge(providerId), Provider.authKind(providerId))
-  readonly property string setupDetail: Model.setupDetail(setupState,
-    auth ? auth.missingTools : [], Provider.unavailableReason(providerId),
-    Provider.badge(providerId), Provider.authKind(providerId))
+    Model.setupHeadline(setupState)
+  readonly property string setupDetail: Model.setupDetail(setupState, auth ? auth.missingTools : [])
   readonly property string setupActionLabel:
-    Model.setupActionLabel(setupState, Provider.badge(providerId), Provider.authKind(providerId))
+    Model.setupActionLabel(setupState)
 
   readonly property string signInProgress: {
     if (!auth) return ""
@@ -392,9 +369,7 @@ Item {
     if (!auth.credentialsPresent) return ""
 
     if (auth.loginBusy)
-      return Provider.usesOAuth(providerId)
-        ? "Finish the sign-in in your browser…"
-        : "Checking the mailbox…"
+      return "Finish the sign-in in your browser…"
     if (auth.sessionBusy) return "Restoring the saved session…"
     return ""
   }
@@ -485,30 +460,6 @@ Item {
       root.countPrimed = true
       if ((first || page.estimate > before) && !root.listLoading)
         root.loadMessages(false)
-    })
-  }
-
-  // Invariant: The Outlook connection check is read-only and returns capabilities, never credentials or provider payloads.
-  function checkMicrosoftConnection(callback) {
-    if (typeof callback !== "function") return
-    var report = { mail: false, graph: false, calendar: false }
-    if (providerId !== "outlook" || !auth || !auth.loggedIn || !backend || !backend.ready || !(backend.apiVersion >= 5)) {
-      callback(report)
-      return
-    }
-    var owner = auth
-    var expectedAccount = accountId
-    function current() {
-      return providerId === "outlook" && auth === owner && owner.loggedIn
-        && accountId === expectedAccount
-    }
-    backend.call("outlook.connectionCheck", { accountId: expectedAccount }, function(result, error) {
-      if (!current()) return
-      callback({
-        mail: !error && !!result && result.mail === true,
-        graph: !error && !!result && result.graph === true,
-        calendar: !error && !!result && result.calendar === true
-      })
     })
   }
 
@@ -689,28 +640,6 @@ Item {
     }
     // Invariant: Pending optimistic edits defer same-query refreshes; navigation to another cache key may still load.
     if (!ready) return
-    if (rawQuery === "" && searchRaw === "" && providerQueryNeedsResolution
-        && resolvedProviderInput !== providerQueryInput) {
-      if (!backend || !backend.ready) return
-      // Invariant: Invalidate the prior list before asynchronous query resolution so it cannot paint into the new view.
-      listSerial++
-      abortRequest(listHandle)
-      listHandle = null
-      listLoading = true
-      var queryInput = providerQueryInput
-      var queryAccount = accountId
-      var querySerial = ++providerQuerySerial
-      backend.call("providers.resolve", {provider: providerId, operation: "query", mailbox: mailboxKey,
-        search: searchQuery, defaultQuery: defaultQuery}, function(result, error) {
-        if (querySerial !== root.providerQuerySerial || queryAccount !== root.accountId
-            || queryInput !== root.providerQueryInput) return
-        if (error) { root.listLoading = false; root.note("Could not prepare this search"); return }
-        root.resolvedProviderQuery = String((result || {}).value || "")
-        root.resolvedProviderInput = queryInput
-        root.loadMessages(append, skipCache, preservedError)
-      })
-      return
-    }
     if ((pendingAction !== "" || actionPreparations > 0) && cacheKey === pendingActionQuery) {
       var cleared = !listLoaded
       // Invariant: Returning A→B→A needs a fresh serial even while A is deferred, or B can paint into A.
@@ -1502,7 +1431,7 @@ Item {
     var needs = Model.actionCapability(action)
     if (needs === "" || actionCapabilities[needs] === true) return false
     var refused = Provider.refusal(providerId, needs, capabilityRefusals)
-    note(refused !== "" ? refused : Model.actionUnavailable(action, Provider.badge(providerId)))
+    note(refused !== "" ? refused : Model.actionUnavailable(action))
     return true
   }
 
@@ -1764,7 +1693,7 @@ Item {
     var firstError = ""
     function loadAttachment(index) {
       var source = listed[index] || ({})
-      if (draftKey && backend && backend.ready && Number(backend.apiVersion)>=8 && providerId!=="hey") {
+      if (draftKey && backend && backend.ready && Number(backend.apiVersion)>=8) {
         handles.push(backend.call("attachment.retain",{accountId:accountId,draftKey:String(draftKey),
           messageId:String(messageId),attachmentId:String(source.attachmentId || ""),
           filename:String(source.filename || "attachment"),mimeType:String(source.mimeType || "application/octet-stream")},function(result,error) {
@@ -1988,7 +1917,7 @@ Item {
     var handle = {aborted: false, children: []}
     var account = accountId
     if (!backend) { if (typeof callback === "function") callback(null, "Mail backend is unavailable"); return handle }
-    if (Number(backend.apiVersion)>=8 && providerId!=="hey") {
+    if (Number(backend.apiVersion)>=8) {
       var nativeJob=backend.call("draft.compose",{accountId:account,fields:composeFields},function(saved,error) {
         if (handle.aborted || account!==root.accountId) return
         if (typeof callback === "function") callback(saved,error ? "Could not save this draft online. Your local draft has been kept." : "")
@@ -2167,43 +2096,50 @@ Item {
     loadMessages(false)
   }
 
-  // Invariant: App-built raw queries bypass typed-search conversion.
+  function prepareSearch(query, reference) {
+    providerLabelSerial++
+    providerQuerySerial++
+    if (submittedSearchSession.available) submittedSearchSession.prepare(query, reference)
+    return providerQuerySerial
+  }
+
+  function searchPrepared(query, reference, serial) {
+    if (serial !== undefined && serial !== providerQuerySerial) return
+    providerLabelSerial++
+    providerQuerySerial++
+    applySearch(String(query || ""), String(query || ""), Number(reference) || Date.now())
+  }
+
+  // Invariant: Standalone account callers validate once; Service fans out an already prepared query.
   function search(text, raw, reference) {
     var referenceTime = Number(reference) || Date.now()
     var query = String(text || "").trim()
     var built = String(raw || "").trim()
-    if (submittedSearchSession.available && query !== "" && built === "") {
-      if (query === submittedSearchSession.requestedQuery && (submittedSearchSession.phase === "local"
-          || submittedSearchSession.phase === "checking" || submittedSearchSession.phase === "preparing")) return
-      submittedSearchSession.prepare(query, referenceTime)
-    } else if (query === searchQuery && built === searchRaw && rawQuery === ""
-        && submittedSearchSession.phase === "") return
-    providerLabelSerial++
-    var serial = ++providerQuerySerial
-    if (query !== "" && built === "") {
-      if (!backend || !backend.ready) return
-      var boundAccount = accountId
-      var input = providerQueryInput
-      var parameters = {provider: providerId, operation: "query", mailbox: mailboxKey,
-        search: query, defaultQuery: defaultQuery}
-      if (submittedSearchSession.available) { parameters.accountId = accountId; parameters.asOf = referenceTime }
-      backend.call("providers.resolve", parameters, function(result, error) {
-        if (!root || serial !== root.providerQuerySerial || boundAccount !== root.accountId
-            || input !== root.providerQueryInput) return
-        if (error) {
-          if (root.submittedSearch.available) root.submittedSearch.reject("Could not prepare this search. Try again.")
-          else root.note("Could not prepare this search")
-          return
-        }
-        if (root.submittedSearch.available && result && result.search && result.search.valid === false) {
-          root.submittedSearch.reject(String(result.search.message || "Check quotes, groups and filter values, then try again."))
-          return
-        }
-        root.applySearch(query, String((result || {}).value || ""), referenceTime)
-      })
+    if (!query || built) {
+      providerLabelSerial++
+      providerQuerySerial++
+      applySearch(query, built, referenceTime)
       return
     }
-    applySearch(query, built, referenceTime)
+    if (query === submittedSearchSession.requestedQuery && (submittedSearchSession.phase === "local"
+        || submittedSearchSession.phase === "checking" || submittedSearchSession.phase === "preparing")) return
+    if (!backend || !backend.ready) return
+    var serial = prepareSearch(query, referenceTime)
+    var identity = accountId
+    backend.call("providers.resolve", {provider: "gmail", operation: "query", search: query,
+      accountId: identity, asOf: referenceTime}, function(result, error) {
+      if (!root || serial !== root.providerQuerySerial || identity !== root.accountId) return
+      if (error || !result) {
+        if (root.submittedSearch.available) root.submittedSearch.reject("Could not prepare this search. Try again.")
+        else root.note("Could not prepare this search")
+        return
+      }
+      if (result.search && result.search.valid === false) {
+        root.submittedSearch.reject(String(result.search.message || "Check quotes, groups and filter values, then try again."))
+        return
+      }
+      root.searchPrepared(query, referenceTime, serial)
+    })
   }
 
   signal searchStarted()
@@ -2252,9 +2188,8 @@ Item {
     if (!backend || !backend.ready) return
     var serial = ++providerLabelSerial
     var boundAccount = accountId
-    var boundProvider = providerId
     backend.call("providers.resolve", {provider: providerId, operation: "labelQuery", value: String(name || "")}, function(result, error) {
-      if (serial !== root.providerLabelSerial || boundAccount !== root.accountId || boundProvider !== root.providerId || error) return
+      if (serial !== root.providerLabelSerial || boundAccount !== root.accountId || error) return
       var query = String((result || {}).value || "")
       var id = String(labelId || "")
       if (query === "" || (query === root.rawQuery && id === root.rawLabelId)) return
@@ -2274,9 +2209,8 @@ Item {
   function openProviderUrl(operation, value) {
     if (!backend || !backend.ready) return
     var boundAccount = accountId
-    var boundProvider = providerId
     backend.call("providers.resolve", {provider: providerId, operation: operation, value: String(value || "")}, function(result, error) {
-      if (error || boundAccount !== root.accountId || boundProvider !== root.providerId) return
+      if (error || boundAccount !== root.accountId) return
       var url = String((result || {}).value || "")
       if (url !== "" && root.platform && typeof root.platform.openExternal === "function")
         root.platform.openExternal(url)
@@ -2311,18 +2245,13 @@ Item {
 
   function signIn() { if (auth) auth.beginLogin() }
   function withAccessToken(callback) {
-    if (providerId !== "gmail" || !auth) {
-      callback("", "This is not a Google account")
+    if (!auth) {
+      callback("", "This Google account is not signed in")
       return
     }
     auth.withAccessToken(callback)
   }
   function cancelSignIn() { if (auth) auth.cancelLogin() }
-
-  function signInWithPassword(secret) {
-    if (!auth || !Provider.usesPassword(providerId)) return false
-    return auth.signIn(secret)
-  }
 
   function signOut() {
     intents.clear()
@@ -2396,46 +2325,16 @@ Item {
 
   signal accountIdentified(string email)
 
-  // Invariant: Persist learned server settings through the owning account entry; this object only holds its bound copy.
-  signal serverSettingsLearned(var jmap)
-
-  // Invariant: Instantiate only the selected provider pair so another provider cannot probe dependencies or credentials.
-  property bool providerLoadersReady: false
   property Component clientOverride: null
-
-  function loadProvider() {
-    apiLoader.active = false
-    var component = providerId === "imap" ? imapAuthComponent
-      : (providerId === "jmap" ? jmapAuthComponent
-      : (providerId === "outlook" ? outlookAuthComponent
-        : (providerId === "hey" ? heyAuthComponent : gmailAuthComponent)))
-    if (authLoader.sourceComponent === component) loadClient()
-    else authLoader.sourceComponent = component
-  }
-
-  function loadClient() {
-    apiLoader.active = false
-    apiLoader.sourceComponent = clientOverride ? clientOverride
-      : (providerId === "imap" || providerId === "outlook" ? imapClientComponent
-        : (providerId === "jmap" ? jmapClientComponent
-          : (providerId === "hey" ? heyClientComponent : gmailClientComponent)))
-    apiLoader.active = !!authLoader.item
-  }
-
-  onProviderIdChanged: if (providerLoadersReady) loadProvider()
-  onClientOverrideChanged: if (providerLoadersReady) loadClient()
-  Component.onCompleted: {
-    providerLoadersReady = true
-    loadProvider()
-  }
 
   Loader {
     id: authLoader
-    onLoaded: root.loadClient()
+    sourceComponent: gmailAuthComponent
   }
   Loader {
     id: apiLoader
-    active: false
+    active: !!authLoader.item
+    sourceComponent: root.clientOverride || gmailClientComponent
   }
 
   Component {
@@ -2448,7 +2347,7 @@ Item {
       accountId: root.accountId
       mayAdoptLegacyToken: root.mayAdoptLegacyToken
       oauthPort: root.oauthPort
-      loginHint: root.accountEmail
+      loginHint: root.ownAddress
 
       onLoginSucceeded: {
         root.lastError = lastError
@@ -2461,127 +2360,8 @@ Item {
   }
 
   Component {
-    id: imapAuthComponent
-
-    ImapAuth {
-      backend: root.backend
-      platform: root.platform
-      pluginDir: root.pluginDir
-      accountId: root.accountId
-      // Invariant: Normalize persisted server settings at the connection boundary just as setup input is normalized.
-      settings: Imap.normalizeSettings(root.imapSettings)
-
-      onLoginSucceeded: {
-        root.lastError = lastError
-        root.afterSignIn()
-      }
-      onLoggedOut: root.clearNotice()
-      onCredentialsSaved: root.note("Mailbox saved")
-      onSessionUnavailable: function(reason) { root.fail(reason) }
-    }
-  }
-
-  Component {
-    id: jmapAuthComponent
-
-    JmapAuth {
-      backend: root.backend
-      platform: root.platform
-      pluginDir: root.pluginDir
-      accountId: root.accountId
-      // Invariant: JMAP discovery requires the configured address before it can derive the server domain.
-      address: root.configuredEmail
-      settings: Accounts.makeJmapSettings(root.jmapSettings)
-
-      // Invariant: Verified JMAP settings update the owning account entry so its binding survives reload.
-      onSessionVerified: function(result) {
-        root.serverSettingsLearned(Accounts.jmapSettingsAfterSignIn(settings, result))
-      }
-      onLoginSucceeded: {
-        root.lastError = lastError
-        root.afterSignIn()
-      }
-      onLoggedOut: root.clearNotice()
-      onCredentialsSaved: root.note("Mailbox saved")
-      onSessionUnavailable: function(reason) { root.fail(reason) }
-    }
-  }
-
-  Component {
-    id: heyAuthComponent
-
-    HeyAuth {
-      backend: root.backend
-      pluginDir: root.pluginDir
-      accountId: root.accountId
-
-      onLoginSucceeded: {
-        root.lastError = lastError
-        root.afterSignIn()
-      }
-      onLoggedOut: root.clearNotice()
-      onCredentialsSaved: root.note("Mailbox saved")
-      onSessionUnavailable: function(reason) { root.fail(reason) }
-    }
-  }
-
-  Component {
-    id: outlookAuthComponent
-
-    OutlookAuth {
-      platform: root.platform
-      backend: root.backend
-      pluginDir: root.pluginDir
-      accountId: root.accountId
-      configuredClientId: root.oauthClientId
-      configuredEmail: root.configuredEmail
-      entrySettings: root.imapSettings
-
-      onLoginSucceeded: {
-        root.lastError = lastError
-        root.afterSignIn()
-      }
-      onLoggedOut: root.clearNotice()
-      onSessionUnavailable: function(reason) { root.fail(reason) }
-      onGraphRefused: function(reason) { root.note(reason) }
-    }
-  }
-
-  Component {
     id: gmailClientComponent
     GmailApiClient { auth: authLoader.item; backend: root.backend }
-  }
-
-  Component {
-    id: heyClientComponent
-    HeyClient { auth: authLoader.item; backend: root.backend }
-  }
-
-  Component {
-    id: imapClientComponent
-    ImapClient {
-      auth: authLoader.item
-      email: root.configuredEmail
-      backend: root.backend
-    }
-  }
-
-  Component {
-    id: jmapClientComponent
-    JmapClient {
-      backend: root.backend
-      auth: authLoader.item
-      email: root.configuredEmail
-      // Invariant: A JMAP session is cached server state, not persisted account configuration.
-      cache: cacheStore
-
-      // Invariant: Apply remote mailbox changes before refreshing mail so new messages can resolve their mailbox rows.
-      onRemoteChanged: function(plan) {
-        if (!root.ready || !plan) return
-        if (plan.mailboxes) root.loadLabels()
-        if (plan.mail) root.refresh()
-      }
-    }
   }
 
   CacheStore {

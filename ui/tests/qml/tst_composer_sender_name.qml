@@ -20,7 +20,6 @@ Item {
     Accounts.MailAccount {
       pluginDir: "/synthetic/plugin"
       configuredEmail: "ada@example.org"
-      senderName: "Ada Lovelace"
       active: false
       windowOpen: false
     }
@@ -42,32 +41,14 @@ Item {
       return null
     }
 
-    function test_imap_and_outlook_name_the_primary_address_from_api_7() {
-      var providers = ["imap", "outlook"]
-      for (var index = 0; index < providers.length; index++) {
-        var backend = connected(6)
-        var account = createTemporaryObject(accountFactory, parent,
-          { backend: backend, providerId: providers[index] })
-        account.profile = ({ email: "ada@example.org" })
-        compare(backend.ready, true)
-        compare(primary(account).displayName, "",
-          providers[index] + ": API 6 cannot name agent sends, so the composer does not either")
-        backend.protocolInfo = ({ apiVersion: 7 })
-        compare(primary(account).displayName, "Ada Lovelace", providers[index])
-        backend.latestApiVersion = 8
-        backend.protocolInfo = ({ apiVersion: 8 })
-        compare(primary(account).displayName, "Ada Lovelace", providers[index] + ": a later API keeps it")
-        backend.connected = false
-        compare(primary(account).displayName, "", providers[index] + ": nothing is promised offline")
-      }
-    }
-
     function test_a_server_named_mailbox_keeps_its_own_name() {
       var account = createTemporaryObject(accountFactory, parent,
-        { backend: connected(7), providerId: "gmail" })
+        { backend: connected(7) })
       account.profile = ({ email: "ada@example.org" })
       compare(account.availableSendAsAliases.length, 1)
       compare(account.availableSendAsAliases[0].displayName, "")
+      account.sendAsAliases = [{email:"ada@example.org",displayName:"Ada from Gmail",isPrimary:true,isDefault:true}]
+      compare(account.availableSendAsAliases[0].displayName, "Ada from Gmail")
     }
   }
 }

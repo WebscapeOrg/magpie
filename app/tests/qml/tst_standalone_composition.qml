@@ -25,6 +25,7 @@ TestCase {
     property var accountSummaries: []
     property bool backendCanDiscoverCalendars: true
     property bool unifiedCalendarView: false
+    property int calendarSnoozeMinutes: 5
     property string calendarPalettePath: ""
     property string colorKey: "accent"
     property bool savingSource: false
@@ -33,7 +34,8 @@ TestCase {
     property int toggleCalls: 0
     property bool enabledValue: true
     property var availableSources: ({version:1, sources:[{
-      id:"icloud:one", kind:"icloud", name:"Personal", accountId:"imap:fixture@icloud.com",
+      id:"google:one", kind:"google", name:"Personal", accountId:"fixture@example.org",
+      calendarId:"primary",
       enabled:enabledValue, discovered:true, colorKey:colorKey
     }]})
     signal calendarSaved(bool ok, string error)
@@ -144,7 +146,7 @@ TestCase {
     calendarFixture.colorKey = "blue"
     var settings = createTemporaryObject(calendarComponent, testCase)
     verify(settings)
-    settings.colorEditingId = "icloud:one"
+    settings.colorEditingId = "google:one"
     var sourceSwatch = findChild(settings, "calendar-source-color-swatch")
     verify(sourceSwatch)
     for (var slot in colors) {
@@ -543,7 +545,7 @@ TestCase {
       + ' function open(value) { opened = true; payload = value }'
       + ' function close() { opened = false } }', testCase)
     composition.shell.app = fakeApp
-    var payload = JSON.stringify({accountId:"imap:a@example.org",messageId:"7:INBOX"})
+    var payload = JSON.stringify({accountId:"a@example.org",messageId:"message-7"})
     verify(composition.shell.summon("omamail", payload))
     compare(fakeApp.payload, payload)
     verify(fakeApp.opened)
@@ -595,26 +597,24 @@ TestCase {
   }
 
   function test_cold_start_activation_is_consumed_once() {
-    host.pendingNotificationActivation = ({accountId:"imap:a@example.org",messageId:"7:INBOX"})
+    host.pendingNotificationActivation = ({accountId:"a@example.org",messageId:"message-7"})
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
     composition.service.accountsLoaded = false
     compare(host.pendingNotificationActivation,
-      {accountId:"imap:a@example.org",messageId:"7:INBOX"},
+      {accountId:"a@example.org",messageId:"message-7"},
       "the native route remains durable until the registry can validate it")
     compare(composition.app.cursorId, "", "native values are not routed before registry validation")
     composition.service.accountList = ({version:1,accounts:[{
-      id:"imap:a@example.org",email:"a@example.org",provider:"imap",
-      imap:{imapHost:"imap.example.org",imapPort:993,smtpHost:"smtp.example.org",
-        smtpPort:465,username:"a@example.org",aliases:[],insecure:false}
-    }],activeId:"imap:a@example.org"})
+      id:"a@example.org",email:"a@example.org",provider:"gmail"
+    }],activeId:"a@example.org"})
     composition.service.accountsLoaded = true
-    tryCompare(composition.app, "cursorId", "7:INBOX")
+    tryCompare(composition.app, "cursorId", "message-7")
     compare(host.pendingNotificationActivation, {})
   }
 
   function test_cold_start_activation_opens_an_ordinary_window_if_registry_stalls() {
-    host.pendingNotificationActivation = ({accountId:"imap:a@example.org",messageId:"7:INBOX"})
+    host.pendingNotificationActivation = ({accountId:"a@example.org",messageId:"message-7"})
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
     composition.service.accountsLoaded = false
@@ -624,36 +624,32 @@ TestCase {
     fallback.restart()
     tryCompare(composition.app, "opened", true)
     compare(host.pendingNotificationActivation,
-      {accountId:"imap:a@example.org",messageId:"7:INBOX"})
+      {accountId:"a@example.org",messageId:"message-7"})
   }
 
   function test_live_activation_waits_for_registry_and_acknowledges_after_routing() {
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
     composition.service.accountsLoaded = false
-    host.activateNotification("imap:a@example.org", "8:INBOX")
+    host.activateNotification("a@example.org", "message-8")
     compare(host.pendingNotificationActivation,
-      {accountId:"imap:a@example.org",messageId:"8:INBOX"})
+      {accountId:"a@example.org",messageId:"message-8"})
     composition.service.accountList = ({version:1,accounts:[{
-      id:"imap:a@example.org",email:"a@example.org",provider:"imap",
-      imap:{imapHost:"imap.example.org",imapPort:993,smtpHost:"smtp.example.org",
-        smtpPort:465,username:"a@example.org",aliases:[],insecure:false}
-    }],activeId:"imap:a@example.org"})
+      id:"a@example.org",email:"a@example.org",provider:"gmail"
+    }],activeId:"a@example.org"})
     composition.service.accountsLoaded = true
-    tryCompare(composition.app, "cursorId", "8:INBOX")
+    tryCompare(composition.app, "cursorId", "message-8")
     compare(host.pendingNotificationActivation, {})
   }
 
   function test_cold_start_rejects_an_account_missing_from_the_registry() {
-    host.pendingNotificationActivation = ({accountId:"imap:gone@example.org",messageId:"7:INBOX"})
+    host.pendingNotificationActivation = ({accountId:"gone@example.org",messageId:"message-7"})
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
     composition.service.accountsLoaded = false
     composition.service.accountList = ({version:1,accounts:[{
-      id:"imap:a@example.org",email:"a@example.org",provider:"imap",
-      imap:{imapHost:"imap.example.org",imapPort:993,smtpHost:"smtp.example.org",
-        smtpPort:465,username:"a@example.org",aliases:[],insecure:false}
-    }],activeId:"imap:a@example.org"})
+      id:"a@example.org",email:"a@example.org",provider:"gmail"
+    }],activeId:"a@example.org"})
     composition.service.accountsLoaded = true
     tryCompare(composition.app, "opened", true)
     compare(composition.app.cursorId, "")

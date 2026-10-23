@@ -1,328 +1,8 @@
 .pragma library
 
-.import "../message/Calendar.js" as Ics
-
 function two(value) {
   var number = Math.floor(Number(value) || 0)
   return (number < 10 ? "0" : "") + number
-}
-
-function utcStamp(ms) {
-  var date = new Date(Number(ms) || 0)
-  return date.getUTCFullYear() + two(date.getUTCMonth() + 1) + two(date.getUTCDate())
-    + "T" + two(date.getUTCHours()) + two(date.getUTCMinutes())
-    + two(date.getUTCSeconds()) + "Z"
-}
-
-function caldavReport(startMs, endMs) {
-  return '<?xml version="1.0" encoding="utf-8"?>'
-    + '<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
-    + '<d:prop><d:getetag/><c:calendar-data/></d:prop>'
-    + '<c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT">'
-    + '<c:time-range start="' + utcStamp(startMs) + '" end="' + utcStamp(endMs) + '"/>'
-    + '</c:comp-filter></c:comp-filter></c:filter></c:calendar-query>'
-}
-
-function decodeXml(value) {
-  var named = { lt: "<", gt: ">", quot: "\"", apos: "'", amp: "&" }
-  return String(value || "").replace(/&(lt|gt|quot|apos|amp|#\d+|#[xX][0-9a-fA-F]+);/g,
-    function(whole, reference) {
-      if (reference[0] !== "#") return named[reference]
-      var hexadecimal = reference[1].toLowerCase() === "x"
-      var scalar = parseInt(reference.substring(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10)
-      if (scalar > 0x10ffff || (scalar >= 0xd800 && scalar <= 0xdfff)) return whole
-      return String.fromCodePoint(scalar)
-    })
-}
-
-// Invariant: CalDAV XML text may use entities or CDATA; entity decoding inside CDATA would corrupt event text.
-function decodeXmlText(value) {
-  var text = String(value || "")
-  var output = ""
-  var index = 0
-  while (true) {
-    // Invariant: XML CDATA delimiters are case-sensitive.
-    var start = text.indexOf("<![CDATA[", index)
-    if (start < 0) break
-    var end = text.indexOf("]]>", start + 9)
-    if (end < 0) break
-    output += decodeXml(text.substring(index, start)) + text.substring(start + 9, end)
-    index = end + 3
-  }
-  return output + decodeXml(text.substring(index))
-}
-
-function tagText(block, localName) {
-  var name = String(localName || "").replace(/[^A-Za-z0-9_-]/g, "")
-  if (name === "") return ""
-  var pattern = new RegExp("<(?:[A-Za-z0-9_-]+:)?" + name
-    + "(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[A-Za-z0-9_-]+:)?" + name + ">", "i")
-  var match = pattern.exec(String(block || ""))
-  return match ? decodeXmlText(match[1]) : ""
-}
-
-function caldavResponses(xml) {
-  var input = String(xml || "")
-  var pattern = /<(?:[A-Za-z0-9_-]+:)?response(?:\s[^>]*)?>([\s\S]*?)<\/(?:[A-Za-z0-9_-]+:)?response>/gi
-  var output = []
-  var match
-  while ((match = pattern.exec(input)) !== null) {
-    var data = tagText(match[1], "calendar-data")
-    if (data !== "") output.push({ href: tagText(match[1], "href"), data: data })
-  }
-  return output
-}
-
-function recurrenceParts(value) {
-  var output = {}
-  var pieces = String(value || "").split(";")
-  for (var pieceIndex = 0; pieceIndex < pieces.length; pieceIndex++) {
-    var equals = pieces[pieceIndex].indexOf("=")
-    if (equals < 0) continue
-    output[pieces[pieceIndex].substring(0, equals).toUpperCase().trim()] =
-      pieces[pieceIndex].substring(equals + 1).trim()
-  }
-  return output
-}
-
-var RECURRENCE_DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
-
-function datePart(date, localName, utcName, utc) {
-  return utc ? date[utcName]() : date[localName]()
-}
-
-function calendarDayNumber(date, utc) {
-  return Math.floor(Date.UTC(
-    datePart(date, "getFullYear", "getUTCFullYear", utc),
-    datePart(date, "getMonth", "getUTCMonth", utc),
-    datePart(date, "getDate", "getUTCDate", utc)) / 86400000)
-}
-
-function weekNumber(date, utc) {
-  var day = calendarDayNumber(date, utc)
-  var weekday = datePart(date, "getDay", "getUTCDay", utc)
-  return Math.floor((day - ((weekday + 6) % 7)) / 7)
-}
-
-function nthWeekday(date, utc) {
-  return Math.floor((datePart(date, "getDate", "getUTCDate", utc) - 1) / 7) + 1
-}
-
-function lastWeekday(date, utc) {
-  var year = datePart(date, "getFullYear", "getUTCFullYear", utc)
-  var month = datePart(date, "getMonth", "getUTCMonth", utc)
-  var last = utc ? new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
-    : new Date(year, month + 1, 0).getDate()
-  return -Math.floor((last - datePart(date, "getDate", "getUTCDate", utc)) / 7) - 1
-}
-
-function matchesByDay(date, raw, utc) {
-  var values = String(raw || "").split(",")
-  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
-    var match = values[valueIndex].trim().toUpperCase().match(/^([+-]?\d+)?([A-Z]{2})$/)
-    if (!match || RECURRENCE_DAYS[datePart(date, "getDay", "getUTCDay", utc)] !== match[2])
-      continue
-    if (!match[1]) return true
-    var ordinal = Number(match[1])
-    if (ordinal > 0 && nthWeekday(date, utc) === ordinal) return true
-    if (ordinal < 0 && lastWeekday(date, utc) === ordinal) return true
-  }
-  return false
-}
-
-function matchesNumberList(value, raw) {
-  var values = String(raw || "").split(",")
-  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
-    if (Number(values[valueIndex]) === Number(value)) return true
-  }
-  return false
-}
-
-function recurrenceUntil(value) {
-  var text = String(value || "").trim()
-  var match = text.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/)
-  if (!match) return 0
-  if (match[7]) return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]),
-    Number(match[4] || 0), Number(match[5] || 0), Number(match[6] || 0))
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]),
-    Number(match[4] || 0), Number(match[5] || 0), Number(match[6] || 0)).getTime()
-}
-
-function recurrenceStarts(event, rangeStart, rangeEnd) {
-  if (!event || !event.start || !event.recurrenceRule) return []
-  var parts = recurrenceParts(event.recurrenceRule)
-  var frequency = String(parts.FREQ || "").toUpperCase()
-  if (["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].indexOf(frequency) < 0) return []
-  var interval = Math.max(1, Math.floor(Number(parts.INTERVAL) || 1))
-  var countLimit = Math.max(0, Math.floor(Number(parts.COUNT) || 0))
-  var until = recurrenceUntil(parts.UNTIL)
-  var tzid = String(event.start.tzid || "")
-  var source = event.source || {}
-  var wallFields = tzid !== "" ? Ics.dateFieldsFromLine(source.dtstart) : null
-  var zoned = !!wallFields && !wallFields.dateOnly
-  var base = zoned
-    ? new Date(Date.UTC(wallFields.year, wallFields.month - 1, wallFields.day,
-        wallFields.hour, wallFields.minute, wallFields.second))
-    : new Date(Number(event.start.ms))
-  var cursor = new Date(base.getTime())
-  var utc = zoned
-    || !!(event.source && /Z\s*$/i.test(String(event.source.dtstart || "")))
-  var output = []
-  var count = 0
-  var rangeLimit = Number(rangeEnd) || base.getTime()
-  var limit = zoned ? rangeLimit + 86400000
-    : Math.min(rangeLimit, until > 0 ? until + 1 : rangeLimit)
-
-  // Performance: recurrence deltas allow skipping old days unless COUNT requires counting from the base.
-  var from = Number(rangeStart) || 0
-  if (countLimit === 0 && from > 0) {
-    var skipped = Math.floor((from - 2 * 86400000 - base.getTime()) / 86400000)
-    if (skipped > 0) {
-      if (utc) cursor.setUTCDate(cursor.getUTCDate() + skipped)
-      else cursor.setDate(cursor.getDate() + skipped)
-    }
-  }
-
-  for (var scanned = 0; scanned < 10000 && cursor.getTime() < limit; scanned++) {
-    var cursorYear = datePart(cursor, "getFullYear", "getUTCFullYear", utc)
-    var baseYear = datePart(base, "getFullYear", "getUTCFullYear", utc)
-    var cursorMonth = datePart(cursor, "getMonth", "getUTCMonth", utc)
-    var baseMonth = datePart(base, "getMonth", "getUTCMonth", utc)
-    var cursorDate = datePart(cursor, "getDate", "getUTCDate", utc)
-    var baseDate = datePart(base, "getDate", "getUTCDate", utc)
-    var dayDelta = calendarDayNumber(cursor, utc) - calendarDayNumber(base, utc)
-    var monthDelta = (cursorYear - baseYear) * 12 + cursorMonth - baseMonth
-    var yearDelta = cursorYear - baseYear
-    var matches = false
-    if (frequency === "DAILY") {
-      matches = dayDelta >= 0 && dayDelta % interval === 0
-    } else if (frequency === "WEEKLY") {
-      var weekdayMatch = parts.BYDAY
-        ? matchesByDay(cursor, parts.BYDAY, utc)
-        : datePart(cursor, "getDay", "getUTCDay", utc)
-          === datePart(base, "getDay", "getUTCDay", utc)
-      matches = weekdayMatch && (weekNumber(cursor, utc) - weekNumber(base, utc)) % interval === 0
-    } else if (frequency === "MONTHLY") {
-      var monthDayMatch = parts.BYMONTHDAY
-        ? matchesNumberList(cursorDate, parts.BYMONTHDAY)
-        : (parts.BYDAY ? matchesByDay(cursor, parts.BYDAY, utc)
-          : cursorDate === baseDate)
-      matches = monthDelta >= 0 && monthDelta % interval === 0 && monthDayMatch
-    } else if (frequency === "YEARLY") {
-      var monthMatch = parts.BYMONTH
-        ? matchesNumberList(cursorMonth + 1, parts.BYMONTH)
-        : cursorMonth === baseMonth
-      var yearDayMatch = parts.BYMONTHDAY
-        ? matchesNumberList(cursorDate, parts.BYMONTHDAY)
-        : (parts.BYDAY ? matchesByDay(cursor, parts.BYDAY, utc)
-          : cursorDate === baseDate)
-      matches = yearDelta >= 0 && yearDelta % interval === 0 && monthMatch && yearDayMatch
-    }
-    var occurrenceMs = cursor.getTime()
-    if (zoned) {
-      occurrenceMs = Ics.timeInZone({
-        year: cursor.getUTCFullYear(), month: cursor.getUTCMonth() + 1,
-        day: cursor.getUTCDate(), hour: cursor.getUTCHours(),
-        minute: cursor.getUTCMinutes(), second: cursor.getUTCSeconds()
-      }, tzid, source.timezones).ms
-    }
-    if (matches && occurrenceMs >= Number(event.start.ms)) {
-      count++
-      if (countLimit > 0 && count > countLimit) break
-      if (!until || occurrenceMs <= until) output.push(occurrenceMs)
-    }
-    if (until && occurrenceMs > until) break
-    if (utc) cursor.setUTCDate(cursor.getUTCDate() + 1)
-    else cursor.setDate(cursor.getDate() + 1)
-  }
-  return output
-}
-
-function eventInRange(event, startMs, endMs) {
-  if (!event || !event.start) return false
-  var start = Number(event.start.ms)
-  var end = event.end ? Number(event.end.ms) : start + 1
-  return start < Number(endMs) && end > Number(startMs)
-}
-
-function occurrenceOf(event, startMs) {
-  var copy = {}
-  for (var key in event) copy[key] = event[key]
-  var delta = Number(startMs) - Number(event.start.ms)
-  copy.start = { ms: Number(startMs), allDay: event.start.allDay,
-    tzid: event.start.tzid, resolved: event.start.resolved }
-  copy.end = event.end ? { ms: Number(event.end.ms) + delta, allDay: event.end.allDay,
-    tzid: event.end.tzid, resolved: event.end.resolved } : null
-  copy.recurrenceIdMs = Number(startMs)
-  return copy
-}
-
-function expandRecurringEvents(events, startMs, endMs) {
-  var values = Array.isArray(events) ? events : []
-  var masters = []
-  var overrides = {}
-  var standalone = []
-  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
-    var item = values[valueIndex]
-    if (!item) continue
-    if (item.recurrenceIdMs) {
-      overrides[String(item.uid) + "\n" + Number(item.recurrenceIdMs)] = item
-    } else if (item.recurrenceRule) masters.push(item)
-    else standalone.push(item)
-  }
-  var output = []
-  var usedOverrides = {}
-  for (var standaloneIndex = 0; standaloneIndex < standalone.length; standaloneIndex++) {
-    if (standalone[standaloneIndex].status !== "CANCELLED" && eventInRange(standalone[standaloneIndex], startMs, endMs))
-      output.push(standalone[standaloneIndex])
-  }
-  for (var masterIndex = 0; masterIndex < masters.length; masterIndex++) {
-    var master = masters[masterIndex]
-    if (master.status === "CANCELLED") continue
-    var excluded = {}
-    var exclusions = Array.isArray(master.excludedMs) ? master.excludedMs : []
-    for (var exclusionIndex = 0; exclusionIndex < exclusions.length; exclusionIndex++) excluded[Number(exclusions[exclusionIndex])] = true
-    var starts = recurrenceStarts(master, startMs, endMs)
-    for (var startIndex = 0; startIndex < starts.length; startIndex++) {
-      var key = String(master.uid) + "\n" + Number(starts[startIndex])
-      var replacement = overrides[key]
-      if (replacement) {
-        usedOverrides[key] = true
-        if (replacement.status !== "CANCELLED" && eventInRange(replacement, startMs, endMs))
-          output.push(replacement)
-      } else if (!excluded[Number(starts[startIndex])]) {
-        var occurrence = occurrenceOf(master, starts[startIndex])
-        if (eventInRange(occurrence, startMs, endMs)) output.push(occurrence)
-      }
-    }
-  }
-  for (var overrideKey in overrides) {
-    var detached = overrides[overrideKey]
-    if (!usedOverrides[overrideKey] && detached.status !== "CANCELLED"
-        && eventInRange(detached, startMs, endMs)) output.push(detached)
-  }
-  output.sort(compareEvents)
-  return output
-}
-
-function eventsFromCaldav(xml, sourceId, rangeStart, rangeEnd) {
-  var responses = caldavResponses(xml)
-  var output = []
-  for (var responseIndex = 0; responseIndex < responses.length; responseIndex++) {
-    var events = Ics.eventsFrom(responses[responseIndex].data)
-    for (var eventIndex = 0; eventIndex < events.length; eventIndex++) {
-      events[eventIndex].sourceId = String(sourceId || "")
-      events[eventIndex].href = responses[responseIndex].href
-      // Invariant: CalDAV replaces the entire resource; preserve fields the editor cannot model.
-      events[eventIndex].calendarData = responses[responseIndex].data
-      output.push(events[eventIndex])
-    }
-  }
-  if (Number(rangeStart) && Number(rangeEnd))
-    return expandRecurringEvents(output, Number(rangeStart), Number(rangeEnd))
-  output = output.filter(function(event) { return event.status !== "CANCELLED" })
-  output.sort(compareEvents)
-  return output
 }
 
 function googleMoment(value, dateOnly) {
@@ -378,112 +58,13 @@ function eventsFromGoogle(payload, sourceId) {
 
 function eventKey(event) {
   if (!event) return ""
-  return String(event.sourceId || "") + "\n" + String(event.googleId || event.graphId
+  return String(event.sourceId || "") + "\n" + String(event.googleId
     || String(event.uid || "") + "\n" + String(event.recurrenceIdMs || event.start && event.start.ms || ""))
 }
 
-var GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
-
-// Invariant: Graph timestamps omit an offset and name their timezone separately.
-function graphMoment(value, allDay) {
-  var text = String(value && value.dateTime || "")
-  if (text === "") return null
-  var ms
-  if (allDay) {
-    ms = new Date(Number(text.substring(0, 4)), Number(text.substring(5, 7)) - 1,
-      Number(text.substring(8, 10))).getTime()
-  } else {
-    ms = Date.parse(text.replace(/(\.\d+)?$/, "") + "Z")
-  }
-  if (!isFinite(ms)) return null
-  return { ms: ms, allDay: !!allDay, tzid: "", resolved: true }
-}
-
-function graphPerson(value) {
-  var address = value && value.emailAddress ? value.emailAddress : {}
-  return { email: String(address.address || ""), displayName: String(address.name || "") }
-}
-
-function eventsFromGraph(payload, sourceId) {
-  var items = payload && Array.isArray(payload.value) ? payload.value : []
-  var output = []
-  for (var itemIndex = 0; itemIndex < items.length; itemIndex++) {
-    var item = items[itemIndex] || {}
-    if (item.isCancelled === true) continue
-    var allDay = item.isAllDay === true
-    var start = graphMoment(item.start, allDay)
-    if (!start) continue
-    var attendees = Array.isArray(item.attendees) ? item.attendees : []
-    var people = []
-    for (var attendeeIndex = 0; attendeeIndex < attendees.length; attendeeIndex++) people.push(graphPerson(attendees[attendeeIndex]))
-    output.push({
-      method: "", uid: String(item.iCalUId || item.id || ""),
-      // Invariant: Graph writes require its item ID; occurrence identities differ from their series master.
-      graphId: String(item.id || ""),
-      sequence: 0,
-      summary: String(item.subject || "Untitled event"),
-      description: String(item.bodyPreview || ""),
-      location: String(item.location && item.location.displayName || ""),
-      status: "CONFIRMED", organizer: item.organizer ? graphPerson(item.organizer) : null,
-      attendees: people,
-      start: start, end: graphMoment(item.end, allDay),
-      recurrence: "", meetLink: String(item.onlineMeeting && item.onlineMeeting.joinUrl || ""),
-      sourceId: String(sourceId || ""), href: String(item.webLink || ""), source: null
-    })
-  }
-  output.sort(compareEvents)
-  return output
-}
-
-// Invariant: Graph timed writes use UTC timestamps; all-day writes use local date boundaries.
-function graphStamp(ms) {
-  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "")
-}
-
-function graphEventBody(fields, allDay) {
-  var body = {
-    subject: fields.title,
-    body: { contentType: "text", content: String(fields.description || "") },
-    location: { displayName: String(fields.location || "") },
-    isAllDay: allDay === true
-  }
-  if (allDay === true) {
-    body.start = { dateTime: isoDate(new Date(fields.start)) + "T00:00:00", timeZone: "UTC" }
-    body.end = { dateTime: isoDate(new Date(fields.end)) + "T00:00:00", timeZone: "UTC" }
-  } else {
-    body.start = { dateTime: graphStamp(fields.start), timeZone: "UTC" }
-    body.end = { dateTime: graphStamp(fields.end), timeZone: "UTC" }
-  }
-  return body
-}
-
 // Invariant: provider-facing messages must not expose native backend diagnostics.
-function nativeRequestError(kind) {
-  if (kind === "microsoft")
-    return "Microsoft calendar request failed. Check Graph permissions in Settings, then sign in again"
-  if (kind === "google")
-    return "Google could not complete this calendar request. Refresh the event and try again"
-  if (kind === "caldav")
-    return "CalDAV calendar request failed. Check its server address and password in Settings"
-  // Invariant: iCloud calendar access uses the mailbox app-specific password.
-  if (kind === "icloud")
-    return "iCloud calendar request failed. Check the mailbox's app-specific password in Settings"
-  return "The calendar request failed"
-}
-
-function icsText(value) {
-  return String(value || "").replace(/\\/g, "\\\\").replace(/\r\n?|\n/g, "\\n")
-    .replace(/,/g, "\\,").replace(/;/g, "\\;")
-}
-
-function icsUtc(ms) {
-  return new Date(Number(ms)).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z")
-}
-
-// Invariant: date-only ICS stamps use local calendar dates, including daylight-saving transitions.
-function icsDate(ms) {
-  var date = new Date(Number(ms))
-  return date.getFullYear() + two(date.getMonth() + 1) + two(date.getDate())
+function nativeRequestError() {
+  return "Google could not complete this calendar request. Refresh the event and try again"
 }
 
 function recurrenceRule(raw) {
@@ -537,37 +118,6 @@ function validateEventFields(fields) {
   if (end <= start) return { ok: false, error: "End time must be after start time" }
   return { ok: true, title: title, start: start, end: end,
     description: String(value.description || ""), location: String(value.location || "") }
-}
-
-function veventLines(uid, sequence, stampMs, fields, rule, allDay) {
-  var lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Omamail//Calendar//EN",
-    "BEGIN:VEVENT", "UID:" + uid, "DTSTAMP:" + icsUtc(stampMs)]
-  if (sequence > 0) lines.push("SEQUENCE:" + sequence)
-  // Invariant: all-day events use dates with an exclusive end, never midnight timestamps.
-  if (allDay === true)
-    lines.push("DTSTART;VALUE=DATE:" + icsDate(fields.start),
-      "DTEND;VALUE=DATE:" + icsDate(fields.end))
-  else
-    lines.push("DTSTART:" + icsUtc(fields.start), "DTEND:" + icsUtc(fields.end))
-  lines.push("SUMMARY:" + icsText(fields.title))
-  if (fields.description !== "") lines.push("DESCRIPTION:" + icsText(fields.description))
-  if (fields.location !== "") lines.push("LOCATION:" + icsText(fields.location))
-  if (rule !== "") lines.push("RRULE:" + rule)
-  lines.push("END:VEVENT", "END:VCALENDAR", "")
-  return lines
-}
-
-function editableEventLines(sequence, stampMs, fields, allDay) {
-  var lines = ["DTSTAMP:" + icsUtc(stampMs), "SEQUENCE:" + sequence]
-  if (allDay === true)
-    lines.push("DTSTART;VALUE=DATE:" + icsDate(fields.start),
-      "DTEND;VALUE=DATE:" + icsDate(fields.end))
-  else
-    lines.push("DTSTART:" + icsUtc(fields.start), "DTEND:" + icsUtc(fields.end))
-  lines.push("SUMMARY:" + icsText(fields.title))
-  if (fields.description !== "") lines.push("DESCRIPTION:" + icsText(fields.description))
-  if (fields.location !== "") lines.push("LOCATION:" + icsText(fields.location))
-  return lines
 }
 
 function googleEventBody(fields, allDay) {
@@ -774,10 +324,7 @@ function createEvent(fields, nowMs) {
   var uid = "omamail-" + Math.floor(Number(nowMs) || Date.now())
   var result = {
     ok: true, uid: uid,
-    ics: veventLines(uid, 0, Number(nowMs) || Date.now(), checked, recurrence.rule, fields.allDay === true).join("\r\n"),
     google: googleEventBody(checked, fields.allDay === true),
-    graph: graphEventBody(checked, fields.allDay === true),
-    // Invariant: Graph recurrence is structured data; a display string must not be written back as an ICS rule.
     recurring: recurrence.rule !== ""
   }
   if (recurrence.rule !== "") result.google.recurrence = ["RRULE:" + recurrence.rule]
@@ -817,116 +364,25 @@ function deleteRequest(event, source, canReadSeries) {
 
 function writeRefusal(source, event, operation) {
   if (!source) return "Choose a calendar"
+  if (source.kind !== "google") return "Only Google calendars are supported"
   if (source.readOnly === true) return "This calendar is read-only"
-  if (operation === "reschedule" && source.kind !== "google")
-    return "Open the event editor to change its time"
-  if (source.kind === "google" && event && event.eventType === "fromGmail" && operation !== "delete")
+  if (event && event.eventType === "fromGmail" && operation !== "delete")
     return "Google does not allow changing the time or details of events created from Gmail"
-  if (source.kind === "google" && event && event.organizer && event.organizer.self === false
+  if (event && event.organizer && event.organizer.self === false
       && event.guestsCanModify !== true && operation !== "delete")
     return "Only the organizer can change this event"
-  if (source.kind !== "caldav" && source.kind !== "icloud") return ""
-  // Invariant: malformed RECURRENCE-ID still denotes an occurrence; it must never authorize rewriting the series.
-  var rawRecurrenceId = event && event.source
-    ? String(event.source.recurrenceId || "") : ""
-  if (String(event && event.recurrenceRule || "") !== ""
-      || Number(event && event.recurrenceIdMs) > 0 || rawRecurrenceId !== "")
-    return "Recurring CalDAV events can only be changed in a full calendar client"
   return ""
 }
 
-// Invariant: CalDAV updates retain UID and unrelated components in the original resource.
-function updateEvent(fields, existing, nowMs) {
+function updateEvent(fields, existing) {
   var event = existing || {}
   var uid = String(event.uid || "")
   if (uid === "") return { ok: false, error: "The event has no identity to update" }
   var checked = validateEventFields(fields)
   if (!checked.ok) return checked
-  var sequence = Math.max(0, Math.floor(Number(event.sequence) || 0)) + 1
-   var allDay = fields.allDay === undefined ? !!(event.start && event.start.allDay) : fields.allDay === true
-  var stampMs = Number(nowMs) || Date.now()
-  var original = String(event.calendarData || "")
-  var rewritten = original === "" ? "" : Ics.rewriteEvent(original, uid,
-    editableEventLines(sequence, stampMs, checked, allDay),
-    ["DTSTAMP", "SEQUENCE", "DTSTART", "DTEND", "DURATION", "SUMMARY",
-      "DESCRIPTION", "LOCATION"])
-  return {
-    ok: true, uid: uid,
-    ics: rewritten !== "" ? rewritten
-      : veventLines(uid, sequence, stampMs, checked, "", allDay).join("\r\n"),
-    google: googleEventPatch(checked, allDay, !!(event.start && event.start.allDay)),
-    graph: graphEventBody(checked, allDay)
-  }
-}
-
-function httpsAuthority(url) {
-  var text = String(url || "")
-  if (text === "" || /\s/.test(text)) return null
-  var match = /^(https):\/\/([^\/?#]+)/i.exec(text)
-  if (!match) return null
-  var authority = match[2]
-  var at = authority.lastIndexOf("@")
-  if (at >= 0) authority = authority.substring(at + 1)
-  var host = ""
-  var port = ""
-  if (authority.charAt(0) === "[") {
-    var close = authority.indexOf("]")
-    if (close < 0) return null
-    host = authority.substring(0, close + 1).toLowerCase()
-    var rest = authority.substring(close + 1)
-    if (rest !== "" && rest.charAt(0) !== ":") return null
-    port = rest === "" ? "" : rest.substring(1)
-  } else {
-    var colon = authority.lastIndexOf(":")
-    if (colon >= 0) {
-      host = authority.substring(0, colon).toLowerCase()
-      port = authority.substring(colon + 1)
-    } else {
-      host = authority.toLowerCase()
-    }
-  }
-  if (host === "" || host === "[]") return null
-  if (port !== "" && !/^[0-9]{1,5}$/.test(port)) return null
-  if (port !== "" && (Number(port) < 1 || Number(port) > 65535)) return null
-  return { host: host, port: port === "" ? "443" : String(Number(port)) }
-}
-
-function urlAuthority(url) {
-  var parts = httpsAuthority(url)
-  if (!parts) return ""
-  return parts.port === "443"
-    ? "https://" + parts.host
-    : "https://" + parts.host + ":" + parts.port
-}
-
-function urlOrigin(url) {
-  var parts = httpsAuthority(url)
-  return parts ? "https://" + parts.host + ":" + parts.port : ""
-}
-
-// Invariant: an event href must stay on the configured HTTPS origin before credentials are used.
-function caldavEventUrl(sourceUrl, event) {
-  var base = String(sourceUrl || "")
-  var origin = urlOrigin(base)
-  if (origin === "") return ""
-  var href = String(event && event.href || "")
-  if (/\s/.test(href)) return ""
-  var resolved = ""
-  if (/^https:\/\//i.test(href) || href.substring(0, 2) === "//") {
-    var candidate = href.substring(0, 2) === "//" ? "https:" + href : href
-    resolved = candidate.replace(/^(https:\/\/)[^\/?#]*@/i, "$1")
-  } else if (href.charAt(0) === "/") {
-    resolved = urlAuthority(base) + href
-  } else if (href !== "") {
-    var collection = base.charAt(base.length - 1) === "/" ? base : base + "/"
-    resolved = collection + href
-  } else {
-    var uid = String(event && event.uid || "")
-    if (uid === "") return ""
-    var root = base.charAt(base.length - 1) === "/" ? base : base + "/"
-    resolved = root + encodeURIComponent(uid) + ".ics"
-  }
-  return urlOrigin(resolved) === origin ? resolved : ""
+  var allDay = fields.allDay === undefined ? !!(event.start && event.start.allDay) : fields.allDay === true
+  return { ok: true, uid: uid,
+    google: googleEventPatch(checked, allDay, !!(event.start && event.start.allDay)) }
 }
 
 // Performance: preserve event-list identity when a refresh would render the same values.

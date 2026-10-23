@@ -1,5 +1,7 @@
 # Rust network migration evidence
 
+This is the historical multi-provider migration record. Magpie now supports Gmail and Google Calendar only; non-Google adapters and their legacy shell transports have been removed. The historical measurements below do not certify the Gmail-only build. Current boundaries are documented in [BACKEND.md](BACKEND.md) and [providers/README.md](providers/README.md).
+
 This checklist tracks the complete application migration requested on 2026-09-11.
 An implementation file is not completion evidence: the production UI must reach
 it, the previous transport must be unreachable, and behavior/security tests must

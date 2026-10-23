@@ -18,7 +18,6 @@ Item {
     property string clientDescription: "client"
     property string credentialsPath: "/synthetic/credentials.json"
     property var credentials: null
-    property var settings: ({username: "", aliases: [], imapHost: "", imapPort: 993, smtpHost: "", smtpPort: 465})
   }
   QtObject {
     id: service
@@ -26,19 +25,7 @@ Item {
     property string accountAddress: ""
     property string accountEmail: ""
     property string accountName: ""
-    property string accountSenderName: ""
-    property bool backendCanNameSender: false
     property string signInProgress: ""
-  }
-  Views.ImapSetupPage {
-    id: imap
-    width: 600
-    service: service
-    textColor: Qt.rgba(238/255, 238/255, 238/255, 1)
-    dimColor: Qt.rgba(170/255, 170/255, 170/255, 1)
-    dangerColor: Qt.rgba(255/255, 102/255, 102/255, 1)
-    accentColor: Qt.rgba(233/255, 163/255, 95/255, 1)
-    panelFontFamily: "monospace"
   }
   Views.SetupPage {
     id: gmail
@@ -69,12 +56,9 @@ Item {
       auth.credentialsPath = "/synthetic/credentials.json"
       service.signInProgress = ""
     }
-    function test_imap_server_error_is_literal() {
-      auth.lastError = markup
-      compare(findChild(imap, "imap-error").textFormat, Text.PlainText)
-    }
     function test_gmail_runtime_values_are_literal_data() {
-      return [{tag: "progress", field: "signInProgress", serviceField: true},
+      return [{tag: "error", field: "lastError", serviceField: false},
+        {tag: "progress", field: "signInProgress", serviceField: true},
         {tag: "client", field: "clientDescription", serviceField: false},
         {tag: "path", field: "credentialsPath", serviceField: false}]
     }

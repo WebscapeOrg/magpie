@@ -15,7 +15,6 @@ clap = { version = "4", features = ["derive"] }
 tabled = { version = "0.20", default-features = false, features = ["std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "rustls-tls-native-roots", "hickory-dns"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "process", "signal"] }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 hickory-resolver = "0.25"
@@ -27,7 +26,6 @@ libc = "0.2"
 mailparse = "0.17"
 encoding_rs = "0.8"
 regex = "1"
-quick-xml = "0.38"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 serde = { version = "1", features = ["derive"] }

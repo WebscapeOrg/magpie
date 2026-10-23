@@ -1,7 +1,5 @@
 .pragma library
 
-.import "Aliases.js" as Aliases
-
 // Invariant: Account changes return fresh records so QML bindings observe them.
 
 var VERSION = 1
@@ -33,95 +31,49 @@ function parseJson(text, fallback) {
 function isSerializedList(text) {
   var raw = parseJson(text, null)
   return isObject(raw) && Number(raw.version) === VERSION
-    && Array.isArray(raw.accounts)
+    && Array.isArray(raw.accounts) && supportsGmailAccounts(text)
 }
 
 function isValidEmail(value) {
-  return EMAIL_PATTERN.test(trimmed(value))
+  return EMAIL_PATTERN.test(trimmed(value)) && !/[\u0000-\u001f\u007f:]/.test(trimmed(value))
 }
 
 function calendarProvider(raw) {
-  var account = raw || {}
-  var provider = trimmed(account.provider).toLowerCase()
-  if (provider === "gmail" || provider === "") return "google"
-  if (provider === "outlook") return "microsoft"
-  if (provider !== "imap") return ""
-  var host = trimmed(account.imap && account.imap.imapHost).toLowerCase()
-  var email = trimmed(account.email).toLowerCase()
-  var domain = email.lastIndexOf("@") >= 0 ? email.substring(email.lastIndexOf("@") + 1) : ""
-  return host === "imap.mail.me.com" || ["icloud.com", "me.com", "mac.com"].indexOf(domain) >= 0
-    ? "icloud" : ""
+  return supportsProvider((raw || {}).provider) ? "google" : ""
 }
 
-// Invariant: Gmail keeps its historical bare-address id; other providers need prefixes so one address can name separate mailboxes.
 function accountId(email, provider) {
+  normalizeProvider(provider)
   if (!isValidEmail(email)) return ""
-  var address = trimmed(email).toLowerCase()
-  var kind = normalizeProvider(provider)
-  return kind === DEFAULT_PROVIDER ? address : kind + ":" + address
+  return trimmed(email).toLowerCase()
 }
 
-// Invariant: Accounts written before provider selection existed are Gmail accounts.
-var PROVIDERS = ["gmail", "outlook", "hey", "imap", "jmap"]
 var DEFAULT_PROVIDER = "gmail"
 
-function normalizeProvider(value) {
+function supportsProvider(value) {
+  if (value !== undefined && value !== null && typeof value !== "string") return false
   var name = trimmed(value).toLowerCase()
-  for (var providerIndex = 0; providerIndex < PROVIDERS.length; providerIndex++) {
-    if (PROVIDERS[providerIndex] === name) return name
-  }
+  return name === "" || name === DEFAULT_PROVIDER
+}
+
+function normalizeProvider(value) {
+  if (!supportsProvider(value)) throw new Error("accounts_provider_unsupported")
   return DEFAULT_PROVIDER
 }
 
-// Invariant: Persist only non-secret server settings. Invalid ports use defaults; clamping would silently select an unintended endpoint.
-function portOr(value, fallback) {
-  var port = Math.floor(Number(value))
-  if (!isFinite(port) || port < 1 || port > 65535) return fallback
-  return port
-}
-
-function makeImapSettings(raw) {
-  var values = raw || {}
-  return {
-    imapHost: trimmed(values.imapHost),
-    imapPort: portOr(values.imapPort, 993),
-    smtpHost: trimmed(values.smtpHost),
-    smtpPort: portOr(values.smtpPort, 465),
-    username: trimmed(values.username),
-    aliases: Aliases.parse(values.aliases),
-    insecure: values.insecure === true,
-    tenant: trimmed(values.tenant),
-    send: trimmed(values.send)
-  }
-}
-
-// Invariant: Persist learned JMAP identity fields, not credentials or mutable session URLs and capabilities.
-function makeJmapSettings(raw) {
-  var values = raw || {}
-  return {
-    sessionUrl: trimmed(values.sessionUrl),
-    username: trimmed(values.username),
-    authScheme: jmapScheme(values.authScheme),
-    accountId: trimmed(values.accountId)
-  }
-}
-
-// Invariant: A partial sign-in result must not erase a previously learned field or the typed username.
-function jmapSettingsAfterSignIn(settings, result) {
-  var current = makeJmapSettings(settings)
-  var learned = result || {}
-  return makeJmapSettings({
-    sessionUrl: trimmed(learned.sessionUrl) !== "" ? learned.sessionUrl : current.sessionUrl,
-    username: current.username,
-    authScheme: trimmed(learned.authScheme) !== "" ? learned.authScheme : current.authScheme,
-    accountId: trimmed(learned.accountId) !== "" ? learned.accountId : current.accountId
+function supportsGmailAccounts(text) {
+  var raw = parseJson(text, null)
+  if (!isObject(raw) || !Array.isArray(raw.accounts)) return true
+  return raw.accounts.every(function(entry) {
+    return !isObject(entry) || supportsProvider(entry.provider)
   })
 }
 
-// Invariant: Discovery mode none is not an account authentication scheme.
-function jmapScheme(value) {
-  var name = trimmed(value).toLowerCase()
-  return name === "bearer" ? "bearer" : "basic"
+function requireGmailAccounts(list) {
+  var entries = Array.isArray((list || {}).accounts) ? list.accounts : []
+  for (var index = 0; index < entries.length; index++) {
+    if (isObject(entries[index])) normalizeProvider(entries[index].provider)
+  }
 }
 
 // Invariant: Pending setup retains its settings without acquiring an addressable account id.
@@ -129,14 +81,12 @@ function makeAccount(account) {
   var raw = account || {}
   var email = trimmed(raw.email)
   var provider = normalizeProvider(raw.provider)
-  return {
+  var entry = {
     id: accountId(email, provider),
     email: email,
     provider: provider,
     clientId: trimmed(raw.clientId),
     clientSecret: trimmed(raw.clientSecret),
-    imap: makeImapSettings(raw.imap),
-    jmap: makeJmapSettings(raw.jmap),
     label: trimmed(raw.label),
     senderName: senderNameText(raw.senderName),
     signature: trimmed(raw.signature),
@@ -146,24 +96,13 @@ function makeAccount(account) {
     // Invariant: A damaged saved address is not a setup draft; a valid address clears pending status automatically.
     pending: raw.pending === true && !isValidEmail(email)
   }
-}
-
-// Invariant: Repair legacy IMAP addresses only on load; adopting usernames while editing would change the address field unexpectedly.
-function repairedAddress(entry) {
-  var raw = entry || {}
-  if (isValidEmail(raw.email)) return raw
-  var provider = normalizeProvider(raw.provider)
-  if (provider !== "imap" && provider !== "outlook") return raw
-  var username = trimmed((raw.imap || {}).username)
-  if (!isValidEmail(username)) return raw
-  var next = {}
-  for (var key in raw) next[key] = raw[key]
-  next.email = username
-  return next
+  if (isObject(raw.refusals)) entry.refusals = JSON.parse(JSON.stringify(raw.refusals))
+  return entry
 }
 
 function copyList(list) {
   var source = list || emptyList()
+  requireGmailAccounts(source)
   return {
     version: VERSION,
     accounts: Array.isArray(source.accounts) ? source.accounts.slice() : [],
@@ -385,12 +324,6 @@ function setLabel(list, id, text) {
   return next
 }
 
-// Invariant: IMAP and Outlook use the local sender name; the other providers own their sender identities.
-function namesSender(provider) {
-  var id = String(provider || "")
-  return id === "imap" || id === "outlook"
-}
-
 // Invariant: A sender name is one header value; pasted control whitespace cannot introduce a header.
 function senderNameText(value) {
   return trimmed(String(value === undefined || value === null ? "" : value)
@@ -438,13 +371,14 @@ function setActive(list, id) {
 // Invariant: Unreadable startup data must still allow first-run setup; live replacement has a separate validation gate.
 function load(text) {
   var raw = parseJson(text, null)
+  requireGmailAccounts(raw)
   if (!isSerializedList(text)) return emptyList()
 
   var next = emptyList()
   var entries = Array.isArray(raw.accounts) ? raw.accounts : []
   for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
     if (!isObject(entries[entryIndex])) continue
-    var entry = makeAccount(repairedAddress(entries[entryIndex]))
+    var entry = makeAccount(entries[entryIndex])
     // Invariant: Derive identities from validated addresses so persisted ids cannot create aliases for the same account.
     if (entry.id && indexOfId(next.accounts, entry.id) >= 0) continue
     next.accounts.push(entry)
@@ -459,12 +393,7 @@ function load(text) {
 function carriesData(entry) {
   var raw = entry || {}
   if (trimmed(raw.id) !== "") return true
-  var imap = raw.imap || {}
-  var jmap = raw.jmap || {}
-  return trimmed(imap.username) !== "" || trimmed(imap.imapHost) !== ""
-    || trimmed(jmap.username) !== "" || trimmed(jmap.sessionUrl) !== ""
-    || trimmed(jmap.accountId) !== ""
-    || trimmed(raw.clientId) !== "" || trimmed(raw.clientSecret) !== ""
+  return trimmed(raw.clientId) !== "" || trimmed(raw.clientSecret) !== ""
 }
 
 // Invariant: A write cannot silently omit a persisted mailbox; explicit removal must update the permitted identity set first.

@@ -1,4 +1,4 @@
-//! Invariant: Task arguments become provider-neutral requests; domain code validates them.
+//! Invariant: Task arguments become mail requests; domain code validates them.
 use clap::{Args, ValueEnum};
 use serde_json::{Value, json};
 use std::{io::Read, path::PathBuf};
@@ -181,5 +181,62 @@ impl Send {
         params["attachments"] = json!(attachments);
         params["execute"] = json!(self.execution.execute);
         Ok(params)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    fn send() -> Send {
+        Send {
+            account: AccountArg {
+                account: Some("one@example.org".into()),
+            },
+            execution: ExecuteArg { execute: false },
+            to: vec!["one@example.net".into(), "two@example.net".into()],
+            cc: vec!["copy@example.net".into()],
+            bcc: vec!["hidden@example.net".into()],
+            from: "alias@example.org".into(),
+            subject: "Unicode subject 工".into(),
+            attach: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn send_stdin_and_repeated_recipients_preserve_the_preview_request() {
+        let request = send()
+            .params(Cursor::new("Body\nمرحبا\n".as_bytes()))
+            .unwrap();
+        assert_eq!(
+            request,
+            json!({
+                "account":"one@example.org",
+                "to":["one@example.net","two@example.net"],
+                "cc":["copy@example.net"],
+                "bcc":["hidden@example.net"],
+                "from":"alias@example.org",
+                "subject":"Unicode subject 工",
+                "body":"Body\nمرحبا\n",
+                "attachments":[],
+                "execute":false
+            })
+        );
+    }
+
+    #[test]
+    fn send_refuses_non_utf8_and_oversized_input_before_attachment_access() {
+        let mut request = send();
+        request.attach = vec![PathBuf::from("/unreadable-synthetic-file")];
+        assert_eq!(
+            request.params(Cursor::new([0xff])),
+            Err("mail_send_invalid_body")
+        );
+        let body = vec![b'x'; crate::mail::send::MAX_BODY + 1];
+        assert_eq!(
+            request.params(Cursor::new(body)),
+            Err("mail_send_invalid_body")
+        );
     }
 }

@@ -2,13 +2,9 @@
 
 The CLI and the Omarchy plugin share a persistent Rust backend. The shell still
 constructs `Service.qml`, which owns the backend process independently of any
-window. QML owns theme, focus, layout, rendering and interaction state. Network
-requests use native asynchronous Rust transports; HEY is the deliberate
-exception, driven by Rust through the official `hey` executable because HEY
-provides no supported public mail API.
+window. QML owns theme, focus, layout, rendering and interaction state. Network requests use native asynchronous Rust transports for Gmail and Google Calendar.
 
-The backend now includes Gmail reads and mutations, native IMAP/SMTP, JMAP
-transport and domain modules, OAuth networking, calendar networking, public
+The backend now includes Gmail reads and mutations, Google OAuth and calendar networking, public
 image fetching and unsubscribe requests, private account/cache persistence,
 attachments, contacts and automatic mailbox checks. Shared Rust modules also own
 MIME composition, message summaries and direction, HTML sanitization and reader
@@ -60,7 +56,7 @@ probe; `version --json` returns a JSON version object. `serve` always speaks the
 line-framed JSON-RPC protocol and rejects `--json`.
 
 `omamail info` prints a human-readable table; add `--json` for JSON. `omamail serve` reads newline-terminated JSON
-requests on persistent stdin/stdout pipes using JSON-RPC 2.0 envelopes. QML starts one backend and communicate directly through these pipes, without invoking CLI commands for data operations. Unix sockets are not used. CLI commands share the Rust domain implementation; they do not currently attach to the GUI process.
+requests on persistent stdin/stdout pipes using JSON-RPC 2.0 envelopes. QML starts one backend and communicates directly through these pipes, without invoking CLI commands for data operations. Unix sockets are not used. CLI commands share the Rust domain implementation; they do not currently attach to the GUI process.
 
 Example request:
 
@@ -79,13 +75,10 @@ An explicit rate-limit refusal is retried with exponential backoff (1 s, 2 s, 4 
 Gmail transport diagnostics are retained in the private platform state directory at `omamail/diagnostics/gmail.json` (on Linux, `${XDG_STATE_HOME:-~/.local/state}/omamail/diagnostics/gmail.json`). The file holds at most 200 attempts and 64 KiB. Each record contains UTC time, process and temporary session/request numbers, a fixed operation name and lane, quota cost, attempt number, HTTP status, an allowlisted reason, numeric retry delay, wait/elapsed milliseconds, and a fixed outcome. A `localBudget` reason with no HTTP status means the app refused or deferred the request before contacting Gmail. No account addresses, IDs, URLs, queries, message content, credential bytes, arbitrary headers or raw server error text are recorded. Diagnostics storage uses descriptor-relative private files, refuses links, and never fails a mail operation when logging is unavailable. The existing error-diagnosis report includes a sanitized transport history alongside backend errors; opening diagnostics remains explicit.
 
 
-Every TLS connection the backend opens — Gmail, JMAP, Microsoft, calendars, public HTTP and IMAP/SMTP — verifies the peer against the bundled Mozilla list plus the operating system's certificate store (`/etc/ssl/certs`, or `SSL_CERT_FILE` and `SSL_CERT_DIR` when set), so a mail server behind a private authority the system trusts is reachable, as it was under curl before the backend existed. reqwest's `rustls-tls-native-roots` feature does this for HTTPS; `src/tls/` builds the same union once for the tokio-rustls connections IMAP and SMTP make. An entry in the system store that rustls cannot parse is skipped, not fatal.
+Gmail, Google Calendar and public HTTP verify TLS peers using the configured native trust roots. Credential destinations remain fixed by the Google transport; sender-controlled public resources retain separate public-address confinement.
 
 Blocking keyring and file operations run on a separate bounded thread pool;
-the runtime has two async workers and at most eight blocking workers. The
-official HEY child processes use asynchronous pipes, output limits, deadlines
-and process-group cleanup. Other native providers enforce their own request
-deadlines. The 25-second RPC timeout currently wraps Gmail operations; expired
+the runtime has two async workers and at most eight blocking workers. Native requests enforce their deadlines. The 25-second RPC timeout currently wraps Gmail operations; expired
 queued requests for every method are rejected before dispatch. An operation
 that has already submitted a mutation must not be automatically retried: a
 lost reply does not establish whether the provider applied it.
@@ -95,7 +88,7 @@ serializes output. `system.quit` and EOF drain accepted work; a quit batch
 completes in order before shutdown. Batches execute entries sequentially to
 preserve dependent uploads. Different frames do not establish mutation order.
 UI handles suppress stale results; cancellation is explicit where provided
-(such as OAuth, JMAP streams and mailbox watches), not a general guarantee that
+(such as OAuth and mailbox watches), not a general guarantee that
 an already-dispatched mutation can be recalled. `system.info`, `accounts.list`
 and `providers.list` require empty object params, which may be omitted.
 
@@ -162,7 +155,7 @@ omamail archive 'MESSAGE_ID' --execute --json
 
 `list` defaults to Inbox and 25 rows; `--limit` accepts 1–100. Mailboxes are
 `inbox`, `unread`, `starred`, `sent`, `drafts`, `archive`, `spam`, and `trash`,
-subject to account capabilities. Search syntax follows the account's provider.
+subject to account restrictions. Search uses Gmail syntax.
 List results include `accountId`, `messages`, `nextPageToken`, and `estimate`;
 an empty next-page token ends pagination. `read` returns safe text and attachment
 metadata without marking the message read or exporting attachment files.
@@ -187,24 +180,16 @@ The fragment above is under `result.message` in CLI JSON output (under `message`
 `mark` accepts exactly `read`, `unread`, `star`, and `unstar`. Actions accept
 multiple message IDs. Their previews retain `requestedIds` and show the resolved
 `targetIds`, including expanded conversation members where applicable.
-The complete ID list is validated against the provider's syntax before any
-provider lookup or mutation chunk. HEY uses numeric `posting:topic` IDs;
-IMAP/Outlook use a positive 32-bit `UID:folder`. Validation never rewrites ID
-spelling, folder bytes, or leading zeroes. A malformed later ID refuses the
-whole request without executing earlier valid IDs.
+The complete ID list is validated as Gmail message IDs before any lookup or mutation chunk. A malformed later ID refuses the whole request without executing earlier valid IDs. Message IDs remain account-qualified at ownership boundaries.
 
 Every state-changing command is a dry run unless `--execute` is present.
 JSON previews return `{"ok":true,"result":{"dryRun":true,"executed":false,...}}`
 and exit 0. A dry run may make bounded read-only queries to resolve identities,
 capabilities or conversation members; it does not mutate the mailbox, accounts
 or caches, write files, create drafts, submit messages or enqueue outbox entries.
-Provider capabilities can refuse an operation. `--execute` is an execution
+Account authorization and saved refusals can refuse an operation. `--execute` is an execution
 switch, not proof of human approval; there is no confirmation code. Automation
 must obtain any approval its own workflow requires before setting it.
-
-Archive and trash previews for IMAP and Outlook read the server's current
-LIST/SPECIAL-USE folders. Missing destinations are refused, and execution uses
-the same discovered folder names without another destination lookup.
 
 `send` reads a UTF-8 body from stdin, up to 16 MiB. There is no body argument.
 Repeat `--to`, `--cc`, `--bcc`, or `--attach` as needed. Attachments require
@@ -217,11 +202,7 @@ printf 'Hello,\nThe report is ready.\n' | omamail send --account me@example.org 
 ```
 
 Executed actions report confirmed `succeededIds` and `failedIds`; partial
-failure exits 1 and retains the result beside the JSON error. IMAP and Outlook
-retain each fully acknowledged folder group even if a later group fails or
-times out, invalidate action caches after confirmed success, and never retry
-acknowledged targets. An unfinished group is not claimed as successful even
-if some of its commands were accepted. Executed sends
+failure exits 1 and retains the result beside the JSON error. Executed sends
 use the durable outbox. `executed: true` means execution was requested;
 delivery is authoritative only through the returned `outbox` entry matching
 `sendId`. The CLI waits for that entry: `sent` exits 0, while failure,
@@ -246,8 +227,7 @@ stderr. Invalid command syntax exits 2. JSON-RPC uses numeric error codes:
 unknown fields and nonboolean `execute` are rejected with `-32602` before any
 operation starts; a domain failure uses `-32000` and its static error name as
 `message`. RPC `execute` defaults to false and accepts only a JSON boolean.
-The low-level `call` command also exposes older provider-specific mutation
-methods; the dry-run guarantee belongs to these four `mail.*` operations and
+The low-level `call` command also exposes Gmail mutation methods; the dry-run guarantee belongs to these four `mail.*` operations and
 the seven root commands.
 
 ## Domain ownership
@@ -255,25 +235,13 @@ the seven root commands.
 | Area | Rust backend responsibility | UI or external boundary |
 | --- | --- | --- |
 | Gmail | Fixed-origin pooled HTTP; per-account token refresh; list, metadata/full message, attachments, labels/counts, profile and send-as; modify/batch modify, trash/restore, label changes, sending and draft create/update/delete. Draft message IDs are resolved to draft resources in Rust with bounded pagination. | QML tracks selection, displays progress and composes the user's message. |
-| IMAP / SMTP | Async DNS, verified TLS/STARTTLS, authenticated connection reuse, bounded octet-aware literals, special-use folders, UID search windows and continuations, counts, MIME reads, attachment extraction, mutations, folder changes, drafts and submission. A dedicated INBOX IDLE connection per watched account wakes the background check. Rust validates the SMTP envelope and preserves confirmed-send results if filing the Sent copy fails. | `ImapClient.qml` is a presentation adapter using account-bound domain requests. Setup presentation remains in QML; cached-query interpretation runs in Rust, and old wire helpers remain as test references. |
-| Outlook | Native Microsoft OAuth and Graph sending; native IMAP handles mailbox reads with XOAUTH2. | Browser/device authorization still requires the user's interaction. |
-| JMAP | HTTPS session discovery and requests, bounded SSE parsing/reconnection, native query/mailbox/read/mutation/resource modules and background checks. Resource conversion preserves MIME depth bounds, charset and conversation-count semantics. | `JmapClient.qml` and `JmapPush.qml` pass account-bound domain requests and display returned state. Legacy JS helpers remain for presentation/configuration and parity tests. |
-| HEY | Async execution of the official client, account identity checks, queries/paging, resource conversion, HTML feature negotiation, profile/labels/send-as, login lifecycle, supported actions, sends and drafts. | `hey` owns its OAuth credential and supported service interface. No private HEY endpoints are accessed and no unavailable capability is invented. |
-| Authentication | Native Google/Microsoft token networking, Google loopback callback, credential lookup/store/clear, fixed credential destinations and account-bound tokens. Gmail first-login identity is verified and its refresh token stored before the UI receives success. | Keyring access uses the system credential service; opening the browser remains a desktop interaction. |
-| Calendar | Native Google/Microsoft and CalDAV requests and pagination, Microsoft/iCloud account-calendar discovery, and origin checks before CalDAV credential access. | Calendar presentation, iCalendar interpretation and compose/RSVP state remain in UI modules where not explicitly migrated. |
+| Authentication | Native Google token networking, Google loopback callback, credential lookup/store/clear, fixed credential destinations and account-bound tokens. Gmail first-login identity is verified and its refresh token stored before the UI receives success. | Keyring access uses the system credential service; opening the browser remains a desktop interaction. |
+| Calendar | Native Google Calendar discovery, requests and pagination, account ownership, write permissions and origin-confined credential access. | Calendar presentation, iCalendar interpretation and compose/RSVP state remain in UI modules where not explicitly migrated. |
 | Local data | Account read/save with conflict detection; private body/calendar persistence; session-owned query cache policy and persistence; bounded render cache; local contacts and attachment read/store. | QML keeps returned snapshots, selection and progress for drawing the interface. |
 | Message content | MIME parsing and outgoing composition; header/address decoding, summaries, body/attachment extraction, direction and signature import; HTML sanitization and reader document preparation. | QML owns editor text, theme values and drawing the returned document. |
 | Actions | Model transforms, unified mailbox calculations and account-bound intent reconciliation. | QML submits user intent and displays authoritative returned state; provider requests remain separate from pure model transforms. |
 | Delivery and recovery | Durable outbox state, undo deadlines, serial delivery, authoritative cancellation and uncertain-delivery handling; private compose recovery with revision conflicts. | QML parks/restores editor drafts and displays countdowns and status. It never starts delivery from a UI timer. |
 | Sender-controlled URLs | Native public HTTP for remote raster images and unsubscribe, with checked DNS and pinned connections, TLS verification, no redirects, size/deadline bounds and image signature checks. | Native HTML preparation applies the resource policy; QML records the user’s image permission and draws approved raster data. |
-
-The official HEY adapter keeps the posting/topic distinction, uses JSON outputs,
-and negotiates optional HTML flags for older installed clients. Account checks
-cannot prevent another application changing HEY's global login between commands.
-Unsupported attachments and operations are refused rather than emulated; installed
-`hey` capabilities remain the ceiling. Process diagnostics are never copied
-verbatim into user-facing errors. Synthetic executable fixtures establish command
-and process behavior, not compatibility with every released HEY version.
 
 `message.parse` and `message.parseUpload` use the shared Rust MIME parser.
 `omamail message parse --json` reads up to 16 MiB of RFC 822 bytes from stdin;
@@ -323,7 +291,7 @@ not authorize a production fallback. The immutable benchmark oracle is under
 
 ## Cached reader data and disk limits
 
-API 8 adds a durable Gmail replica and account/draft-scoped attachment handles. See [local mail and responsiveness](LOCAL-MAIL.md) for ownership, coverage, offline edits, recovery and measurement boundaries. The disposable cache below remains the fallback for older backends and other providers.
+API 8 adds a durable Gmail replica and account/draft-scoped attachment handles. See [local mail and responsiveness](LOCAL-MAIL.md) for ownership, coverage, offline edits, recovery and measurement boundaries. The disposable cache below remains the fallback for compatible older backends.
 
 `cache.resourceRead`, `cache.resourcePut` and `cache.resourceClear` manage full
 provider message resources. Parsed body files and these resources share a
@@ -383,7 +351,7 @@ public answers into private storage.
 
 ## Automatic mailbox checks
 
-API 8 Gmail accounts use the local replica watch instead of this summary poll/preloader; the paths below remain in use for other providers and compatible older backends.
+API 8 Gmail accounts use the local replica watch; the summary poll below remains available for compatible older backends.
 
 `mail.watch` registers one background task per account with a query, page size
 (default 25, UI supplies its configured page size), and interval
@@ -393,32 +361,9 @@ run independently of window lifetime, are bounded to 25 seconds and do not
 overlap for the same account. Different accounts check concurrently. Replacing
 a watch invalidates its previous generation so stale results cannot publish.
 
-Inbox preloading runs after the first successful check, when the mailbox
-fingerprint changes, and at the configured check interval so changes outside an
-unread-only badge query are also found. It warms the configured first page in
-the same query cache the UI reads. Full resources already cached are reused.
-At most two background provider requests run concurrently; each request has a
-10-second deadline and a warming job has a 180-second deadline. Replacing or
-removing the watch and shutting down invalidate pending cache commits.
+API 8 accounts use the local Gmail history-sync worker instead of the compatibility summary poll. The generic protocol preloader and push adapters have been removed. Saved message and neighbour prefetch remain account-owned, read-only and bounded; they do not fetch remote images or mark messages read.
 
-Automatic preloading is limited to small messages/resources (2 MiB), with
-unknown-size IMAP/Outlook messages skipped before fetching their whole MIME
-body. Larger messages remain available on demand under the existing limits;
-this does not change the 16 MiB parser or other interactive size limits.
-Preloading issues read-only requests and never marks messages read. `j`/`k`
-navigation opens the selected message explicitly, so its normal mark-read
-behavior is separate from preloading.
-
-All five providers have native check paths: Gmail reads an unread query and a
-small metadata sample; HEY uses its official unread listing; JMAP performs
-`Email/query` and `Email/get`; IMAP and Outlook read mailbox status. The last
-pair currently provide counts/fingerprints without message preview samples.
-The backend publishes `mail.updated` notifications containing the account,
-sequence, timestamp, count, available message samples and static error state.
-A failure preserves the last successful data. Native fingerprints also detect changed message samples when the count stays equal. The service updates desktop
-state from these events instead of using an open reader's timer to fetch mail.
-
-Checks run on the watch interval. IMAP and Outlook watches also keep one dedicated connection per account idling on INBOX (RFC 2177). It is opened with `EXAMINE`, so watching never clears `\Recent`, and an untagged `EXISTS`, `EXPUNGE` or `FETCH` wakes the account's check instead of waiting for the interval; further changes within two seconds of the first wake it once. IDLE is ended and issued again every four minutes, which keeps a quiet connection alive through middleboxes and notices one that died silently; a wall-clock jump after the machine sleeps ends the session at once. A failed session reconnects after five seconds, doubling to five minutes with some jitter, reset once a session completes a refresh; a failed login or unavailable credential waits the full five minutes. Every session after the first asks for one check, because a change during the gap raised nothing. A server that ends IDLE on its own counts as a failed session rather than being idled again at once. Only a server that does not advertise IDLE ends the attempt, for as long as the watch lasts. Replacing, removing or shutting down the watch closes the connection, and polling continues in every case. JMAP's separate event stream supplies its push support; Gmail and HEY remain periodic.
+The retained Gmail compatibility watch reads a bounded unread query and a small metadata sample. It publishes `mail.updated` notifications with the account, sequence, timestamp, count, samples and static error state. Failure preserves the last successful data. Gmail request pacing applies to both this path and local synchronization.
 
 The backend also observes account-registry revisions and publishes
 `accounts.changed` without including account settings or credentials. Shutdown
@@ -439,8 +384,7 @@ Earlier network-migration evidence is recorded in [NETWORK-MIGRATION.md](NETWORK
 The newer content, cache, model and outbox integration must be checked with the
 current full suite; historical results do not certify later changes. Live
 interoperability remains to be checked where synthetic fixtures cannot establish
-compatibility. External browser, keyring, desktop-opening and official HEY
-integrations remain intentional.
+compatibility. External browser, keyring and desktop-opening integrations remain intentional.
 Release installation/bootstrap scripts may download artifacts before a backend
 exists; that is separate from production mail networking. Legacy scripts must
 not remain a hidden fallback for migrated operations.

@@ -34,9 +34,7 @@ Item {
     id: account
     pluginDir:"/synthetic/plugin"
     backend:backend
-    providerId:"imap"
     configuredEmail:"ada@example.org"
-    imapSettings:({imapHost:"imap.example.org",imapPort:993,smtpHost:"smtp.example.org",smtpPort:465,username:"ada@example.org"})
     clientOverride:clientFactory
   }
   TestCase {
@@ -45,7 +43,8 @@ Item {
     function init(){
       account.accountId="ada@example.org"
       account.auth.toolsChecked=true;account.auth.missingTools=[]
-      account.auth.passwordChecked=true;account.auth.password="synthetic-password"
+      account.auth.credentials = {clientId: "123-example.apps.googleusercontent.com", clientSecret: "synthetic-secret"}
+      account.auth.loggedIn = true
       backend.apiVersion=8
       account.selectedId="one";account.selectedAttachments=[file]
       compare(account.ready,true)

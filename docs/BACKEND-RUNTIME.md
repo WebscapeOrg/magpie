@@ -101,23 +101,9 @@ The isolated provider launch preserves model/authentication configuration while 
 
 Proposal cards show their saved From, To and optional Cc, Bcc and Reply-To. If routing in the corresponding open composer changes, direct card sending is disabled and rechecked at dispatch. Use this version applies subject/body without replacing the edited recipients; the normal composer Send then reviews and sends the current routing.
 
-## API 7 sender name for IMAP and Outlook
+## Historical non-Google APIs
 
-An IMAP or Outlook account entry may carry a top-level `senderName`. `mail.send` uses it, trimmed, as the display name of the mailbox's own address in the From header; aliases keep their own names. An empty or missing value sends the bare address, as before. Starting at API 7 the UI offers the name as "Your name" in Settings → Mailboxes and on the IMAP and Outlook setup pages, and the composer names the From address with it. On an older backend the fields are hidden and the composer leaves the stored value unused, so composer and agent sends both carry the bare address rather than disagreeing.
-
-## API 6 account-wide IMAP search
-
-IMAP and Outlook text searches, and IMAP address searches, resolve to `search:<criteria>`. IMAP All mail resolves to `search:ALL`; folder queries remain folder-scoped. The IMAP UI keeps Archive on API 5 and exposes All mail starting at API 6.
-
-`imap.list` and `imap.listContinue` return an empty `page` plus an opaque work `continuation` until the scan and page assembly have finished. Continue with the same account, query, request token and original `pageToken`, including when a later page needs a new scan. Partial scans are not a globally newest-first page. Expired or mismatched work continuations return `imap_search_expired`; refresh starts a new search.
-
-A completed page's opaque `nextPageToken` is a self-contained cursor bound to the account's IMAP endpoint, username, query and versioned scope/ordering semantics. It records the last result's INTERNALDATE, folder, UID and UIDVALIDITY, plus an optional-cache reference. Results sort by INTERNALDATE descending, folder name ascending and UID descending; the next page starts strictly after that position without looking up the previous message. The cursor contains no credentials or credential hashes, and token refresh does not invalidate its binding. Invalid cursor encodings/versions return `invalid_params`; account/query mismatches and detected UIDVALIDITY changes return `imap_search_expired`.
-
-Completed results are cached for five minutes after scan completion, subject to eviction. Available cached results avoid another inventory/search/metadata scan; an absent cache transparently triggers a new scan and applies the same cursor boundary. The CLI and UI use the same path, including across independent CLI invocations and backend restarts. Cached pages verify candidate UIDs and their folders' UIDVALIDITY before returning IDs, skipping expunged candidates and filling from subsequent results. This is live-result pagination with short-lived cache reuse, not a frozen historical snapshot: new messages before the boundary appear on refresh, and moves between physical folders may reappear under a new identity. A message can still disappear after IDs are returned and before a separate message read.
-
-Each call advances at most four scan or page-verification folders, with at most four concurrent workers per account and a 12-second worker deadline inside the existing 22-second request deadline. The scanner captures UIDNEXT, streams a compact UID inventory through individually framed FETCH responses, and issues SEARCH and metadata FETCH operations in windows of at most 4096 existing UIDs. This bounds SEARCH response lines below the 64 KiB transport limit even for ten-digit UIDs, without walking empty numeric UID gaps. Scans are limited to 2048 folders, one million inventoried UIDs and 250,000 matching folder/UID identities; the existing 32 MiB per-command response ceiling also applies. Oversized responses fail explicitly instead of presenting incomplete results as complete. Inventory storage is released after scanning; at most 16 snapshots with a combined budget of two million inventory/result entries are retained. In-progress scans expire after five idle minutes; completed-cache reads do not extend their lifetime. No search state is written to disk.
-
-Search includes aggregate All Mail destinations and excludes Trash/Junk membership from aggregate results. Cross-folder copies are collapsed using server-provided `EMAILID`/`X-GM-MSGID`. A generic server that advertises `\All` but no server identity is searched through its `\All` mailbox alone, because RFC 6154 defines it as every message in the store; scanning physical folders as well would only add copies that cannot be matched without reading them. Its Message-ID header and RFC822.SIZE nominate possible overlaps between All and Trash/Junk, then SHA-256 of complete message bytes verifies those candidates before excluding any aggregate result. Verification reads at most 64 candidates and 8 MiB per folder step with `BODY.PEEK[]` and retains only digests; a candidate larger than 8 MiB is not read and stays in the results. A server with neither `\All` nor a server identity preserves folder/UID copies, so overlapping folders may produce duplicate rows. A sender-written Message-ID, headers or size alone never suppress a result. Copies within one physical folder remain distinct. `mail.list` follows search continuations for at most 120 seconds; other IMAP listings still accept one continuation.
+The published API 7 contract includes other mail providers and non-Google calendars. Magpie's unreleased API 8 removes those implementations and advertises only its current methods. Historical fixtures remain in the frozen released contract so the pinned executable is still tested accurately; they do not imply current runtime support.
 
 ## Magpie API 8 inbox features
 
@@ -125,7 +111,7 @@ Search includes aggregate All Mail destinations and excludes Trash/Junk membersh
 
 ## Attachment indicators and thumbnails (API 8)
 
-`message.summarize`, `message.summaries` and reader summaries carry `hasAttachments`. Gmail list reads request MIME metadata through a partial response without body data; IMAP/Outlook request BODYSTRUCTURE alongside header-only PEEK reads; JMAP requests its attachment flag. The shared classifier excludes inline/CID sender images. The list indicator requires a connected API 8 backend.
+`message.summarize`, `message.summaries` and reader summaries carry `hasAttachments`. Gmail list reads request MIME metadata through a partial response without body data. The shared classifier excludes inline/CID sender images. The list indicator requires a connected API 8 backend.
 
 `attachment.thumbnail` accepts attachment bytes and a supported MIME type and returns prepared PNG data only. The reader fetches visible attachments through their owning account, serializes preview requests, limits each input to 8 MiB and reserves at most 16 MiB per selected message. Raster decoding is bounded to 4096×4096 and 64 MiB; output fits a 384-pixel square and 512 KiB. On Linux, optional `/usr/bin/bwrap`, `/usr/bin/prlimit` and `/usr/bin/pdftoppm` render the first PDF page with no host home or network access, a read-only system mount, CPU/memory/output limits and a six-second deadline. No unsandboxed PDF fallback runs. Other hosts and missing/refused workers retain the file tile; raster previews and Open/Save remain available. QML gates previews on connected API 8 and refuses remote, local-file, SVG and non-PNG preview sources at the image consumer. This is part of the unreleased API step; it does not change the binary release pin.
 
@@ -139,6 +125,8 @@ Gmail search assistance and the saved-mail-to-Gmail search session require API 8
 
 
 ## Released and unreleased: one step ahead of the pin
+
+A contract that removes or changes released operations carries an optional `releasedContract` snapshot containing the exact published API version, protocol, methods and behavioral cases. Published-binary checks select that immutable snapshot; candidate checks select the top-level current contract. Historical contracts without a snapshot retain the subtraction-based released view. Validators compare the snapshot against the real pinned release, and release folding removes it when advancing the released API. The Gmail-only change keeps released API 7, unreleased API 8 and the existing binary pin; its exact development contract hash changes.
 
 Backends ship in batches, not per merge, so `main` may implement an API the pinned
 binary does not have yet. The contract names that difference and nothing more:

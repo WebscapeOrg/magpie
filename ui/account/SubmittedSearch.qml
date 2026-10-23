@@ -6,7 +6,7 @@ Item {
   id: root
   required property var account
   readonly property var backend: account.backend
-  readonly property bool available: account.providerId === "gmail" && !!backend
+  readonly property bool available: !!backend
     && backend.ready && Number(backend.apiVersion) >= 8
   property string query: ""
   property string requestedQuery: ""

@@ -30,11 +30,7 @@ Item {
           id: "omamail",
           __sourceDir: "/tmp/synthetic"
         })
-      property int passwordCalls: 0
       property int oauthCalls: 0
-      function signInWithPassword(secret) {
-        passwordCalls++;
-      }
       function signIn() {
         oauthCalls++;
       }
@@ -162,17 +158,52 @@ Item {
       service.setAccountLabel("canonical@example.com", "Personal");
       verify(service.accountsWritePayload.indexOf("Personal") >= 0, "later settings remain writable");
     }
-    function test_collision_does_not_dispatch_password_or_oauth() {
+    function accountRequests(service, methods) {
+      return BackendFixture.install(service).requests.filter(function(request) {
+        return methods.indexOf(request.method) >= 0
+      }).length
+    }
+    function test_unsupported_registry_preserves_saved_accounts_and_refuses_changes() {
+      var service = create()
+      var before = Accounts.serialize(service.accountList)
+      var protectedMethods = ["accounts.save", "credentials.get", "credentials.put", "credentials.delete", "auth.begin"]
+      var calls = accountRequests(service, protectedMethods)
+      service.applyAccounts(JSON.stringify({version: 1, activeId: "other@example.com", accounts: [
+        {email: "other@example.com", provider: "imap", imap: {username: "other@example.com"}}
+      ]}))
+      verify(service.accountRegistryError !== "")
+      compare(Accounts.serialize(service.accountList), before)
+      service.applyAccounts("invalid")
+      verify(service.accountRegistryError !== "", "a later read failure cannot clear the incompatible registry guard")
+      service.saveAccounts({allowDrop: true})
+      service.addAccount()
+      compare(service.configureAccount(0, {email: "replacement@example.com"}), false)
+      wait(0)
+      compare(Accounts.serialize(service.accountList), before)
+      compare(accountRequests(service, protectedMethods), calls, "rejected configuration cannot read/write credentials or save accounts")
+    }
+    function test_initial_unsupported_read_does_not_create_a_setup_placeholder() {
+      var service = createTemporaryObject(serviceComponent, parent)
+      verify(service !== null)
+      BackendFixture.markReady(service)
+      var request = latestRequest(service, "accounts.read")
+      verify(request !== "")
+      var before = Accounts.serialize(service.accountList)
+      service.backend.receive(JSON.stringify({jsonrpc:"2.0", id:request, error:{code:-32000,message:"accounts_provider_unsupported"}}))
+      verify(service.accountRegistryError !== "")
+      compare(Accounts.serialize(service.accountList), before)
+      compare(service.accountList.accounts.length, 0)
+      service.addAccount()
+      service.saveAccounts({allowDrop:true})
+      compare(accountRequests(service, ["accounts.save", "credentials.get", "credentials.put", "credentials.delete", "auth.begin"]), 0)
+    }
+    function test_collision_does_not_dispatch_oauth() {
       var service = create();
       var before = Accounts.serialize(service.accountList);
-      compare(service.configureCurrentAccountAndSignIn({
-        email: "other@example.com"
-      }, "SYNTHETIC"), false);
       compare(service.configureCurrentAccountAndSignInOAuth({
         email: "other@example.com"
       }), false);
       wait(0);
-      compare(service.passwordCalls, 0);
       compare(service.oauthCalls, 0);
       compare(service.accountsWritePayload, "");
       compare(Accounts.serialize(service.accountList), before);

@@ -9,7 +9,7 @@ Item {
   }
   TestCase {
     name: "ServiceBackendPath"
-    function test_microsoft_connection_requirement_is_fixed_across_releases() {
+    function test_calendar_requirements_are_fixed_across_releases() {
       var service = createTemporaryObject(factory, parent)
       verify(service !== null)
       var backend = service.backend
@@ -17,49 +17,20 @@ Item {
       backend.latestApiVersion = 8
       backend.launchEnabled = true
       backend.connected = true
-      backend.protocolInfo = ({ apiVersion: 2 })
-      compare(service.backendCanCheckMicrosoftConnection, false)
-      compare(service.backendCanDiscoverCalendars, false)
-      backend.protocolInfo = ({ apiVersion: 3 })
-      compare(service.backendCanCheckMicrosoftConnection, false,
-        "published API 3 adds mail CLI methods, not connection checks")
-      compare(service.backendCanDiscoverCalendars, false,
-        "published API 3 cannot address discovered account calendars")
       backend.protocolInfo = ({ apiVersion: 4 })
       compare(service.backendCanDiscoverCalendars, false)
-      compare(service.backendCanCheckMicrosoftConnection, false,
-        "published API 4 adds native credentials, not connection checks")
+      compare(service.backendCanGoogleCalendars, false)
       backend.protocolInfo = ({ apiVersion: 5 })
-      compare(service.backendCanCheckMicrosoftConnection, true)
       compare(service.backendCanDiscoverCalendars, true)
-      backend.latestApiVersion = 6
-      compare(service.backendCanCheckMicrosoftConnection, true,
-        "a later API must not disable an already supported connection check")
+      compare(service.backendCanGoogleCalendars, false)
       backend.protocolInfo = ({ apiVersion: 6 })
-      compare(service.backendCanCheckMicrosoftConnection, true)
       compare(service.backendCanDiscoverCalendars, true)
-      backend.connected = false
-      compare(service.backendCanCheckMicrosoftConnection, false)
-      compare(service.backendCanDiscoverCalendars, false)
-    }
-    function test_sender_name_requirement_is_fixed_across_releases() {
-      var service = createTemporaryObject(factory, parent)
-      verify(service !== null)
-      var backend = service.backend
-      backend.expectedApiVersion = 7
-      backend.latestApiVersion = 8
-      backend.launchEnabled = true
-      backend.connected = true
-      backend.protocolInfo = ({ apiVersion: 6 })
-      compare(service.backendCanNameSender, false, "published API 6 ignores a stored sender name")
-      backend.protocolInfo = ({ apiVersion: 7 })
-      compare(service.backendCanNameSender, true)
-      backend.latestApiVersion = 8
+      compare(service.backendCanGoogleCalendars, true)
       backend.protocolInfo = ({ apiVersion: 8 })
-      compare(service.backendCanNameSender, true,
-        "a later API must not take the sender name away")
+      compare(service.backendCanGoogleCalendars, true)
       backend.connected = false
-      compare(service.backendCanNameSender, false)
+      compare(service.backendCanDiscoverCalendars, false)
+      compare(service.backendCanGoogleCalendars, false)
     }
     function test_calendar_requests_obey_the_connected_api() {
       var service = createTemporaryObject(factory, parent)
@@ -69,35 +40,29 @@ Item {
       backend.latestApiVersion = 8
       backend.launchEnabled = true
       backend.connected = true
-      backend.protocolInfo = ({ apiVersion: 4 })
+      backend.protocolInfo = ({ apiVersion: 5 })
       var controller = service.calendarController
       var initialRequests = Object.keys(backend.pending).length
-      var sources = [{kind: "microsoft", calendarId: "other-calendar"}, {kind: "icloud"}]
+      var source = {kind: "google", calendarId: "shared@example.org"}
       var operations = ["list", "create", "update", "delete"]
       var refused = 0
-      for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
-        for (var operationIndex = 0; operationIndex < operations.length; operationIndex++) {
-          controller.nativeRequest(sources[sourceIndex], operations[operationIndex], {}, function(result, error) {
-            compare(result, null)
-            compare(error, "Update the backend to access this calendar")
-            refused++
-          })
-        }
+      for (var operationIndex = 0; operationIndex < operations.length; operationIndex++) {
+        controller.nativeRequest(source, operations[operationIndex], {}, function(result, error) {
+          compare(result, null)
+          compare(error, "Update the backend to access Google calendars")
+          refused++
+        })
       }
-      compare(refused, 8)
-      compare(Object.keys(backend.pending).length, initialRequests,
-        "API 4 must not receive unsupported calendar.request parameters")
-      controller.nativeRequest({kind: "microsoft", calendarId: ""}, "list", {}, function() {})
+      compare(refused, 4)
+      compare(Object.keys(backend.pending).length, initialRequests)
+      controller.nativeRequest({kind: "google", calendarId: ""}, "list", {}, function() {})
       compare(Object.keys(backend.pending).length, initialRequests + 1,
-        "the established default calendar still works on API 4")
-      backend.protocolInfo = ({ apiVersion: 5 })
-      for (var supported = 0; supported < sources.length; supported++) {
-        for (var action = 0; action < operations.length; action++) {
-          controller.nativeRequest(sources[supported], operations[action], {}, function() {})
-        }
-      }
-      compare(Object.keys(backend.pending).length, initialRequests + 9,
-        "API 5 supports all discovered-calendar operations")
+        "the historical Google primary calendar still works on API 5")
+      backend.protocolInfo = ({ apiVersion: 6 })
+      var supportedRequests = Object.keys(backend.pending).length
+      for (var action = 0; action < operations.length; action++)
+        controller.nativeRequest(source, operations[action], {}, function() {})
+      compare(Object.keys(backend.pending).length, supportedRequests + 4)
     }
     function test_resolved_runtime_path_starts_backend() {
       var service = createTemporaryObject(factory, parent)

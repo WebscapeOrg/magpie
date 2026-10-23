@@ -45,7 +45,7 @@ Exercise a development instance through the documented development launch flow. 
 3. Queue read/unread, star/unstar and folder changes offline. Check immediate local state, queued Undo, rapid reversals, reconnect reconciliation and visible conflicts after a server-side deletion.
 4. With a controlled send recorder, explicitly press Send offline, restart before transmission, then reconnect. Verify one delivery. Interrupt a send after transmission begins and verify the recovered state is unknown with no automatic retry. Cancel during preflight and verify the recorder receives nothing.
 5. Restore a draft with retained file handles, switch accounts and attempt foreign-draft handle reuse. Confirm the wrong account/draft cannot obtain the bytes and that the owning draft still works.
-6. Switch calendar months and accounts while responses are pending. Confirm the selected range stays visible, newer empty ranges do not resurrect removed events, and bar/reminder reads reuse cached ranges. Check recurrence and DST cases across Google, Graph and CalDAV.
+6. Switch calendar months and accounts while responses are pending. Confirm the selected range stays visible, newer empty ranges do not resurrect removed events, and bar/reminder reads reuse cached ranges. Check Google Calendar recurrence, shared/read-only permissions and DST cases.
 7. Use the new status and send controls by keyboard, screen reader and enlarged text. The synthetic Qt screenshots establish component layout at one scale; they do not establish whole-desktop accessibility or every active Omarchy theme.
 
 ## End-to-end performance acceptance

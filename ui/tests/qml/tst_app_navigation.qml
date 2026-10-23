@@ -34,11 +34,7 @@ Item {
     property string clientDescription: ""
     property string credentialsPath: ""
     property var credentials: null
-    property var settings: ({
-      imapHost: "imap.example.org", imapPort: 993,
-      smtpHost: "smtp.example.org", smtpPort: 465,
-      username: "", aliases: [], insecure: false
-    })
+
 
     function recheck() {}
     function saveCredentials() {}
@@ -81,7 +77,7 @@ Item {
     property int inboxUnread: 0
     property real bodyZoom: 1
     property string bodyMode: "reader"
-    property string providerId: "imap"
+    property string providerId: "gmail"
     property string pluginDir: ""
     property string accountEmail: "me@example.com"
     property string accountAddress: "me@example.com"
@@ -99,7 +95,7 @@ Item {
     property string syncedLabel: ""
     property string recipientContactStatus: ""
     property var auth: fakeAuth
-    property var accountSummaries: [{ provider: "imap", email: "me@example.com", active: true }]
+    property var accountSummaries: [{ provider: "gmail", email: "me@example.com", active: true }]
     property var mailboxes: []
     property var labels: []
     property var messages: [{ id: "message-1", subject: "One" }]
@@ -134,7 +130,7 @@ Item {
     function accountEmailFor(_accountId) { return accountEmail }
     function editingIndex() { return 0 }
     function addAccount(provider) {
-      record("add:" + String(provider || ""))
+      record("add:gmail")
       accountCount += 1
       accountAdded()
     }
@@ -206,7 +202,7 @@ Item {
     function refuseUnavailableAction(action) {
       record("guard:" + String(action || ""))
       if (!refuseMove) return false
-      note("HEY has no destination you can name")
+      note("Choose an account before moving this message")
       return true
     }
   }
@@ -260,7 +256,7 @@ Item {
       mailService.lastSavedDraft = null
       mailService.refuseMove = false
       mailService.accountCount = 1
-      mailService.providerId = "imap"
+      mailService.providerId = "gmail"
       mailService.hasSavedAccounts = true
       mailService.anyAccountReady = true
       mailService.searchQuery = ""
@@ -332,28 +328,18 @@ Item {
       verify(settingsBack && settingsBack.visible, "Settings always has a Back: it is never a root")
 
       app.addMailbox()
-      compare(kinds(), "list,settings,picker")
-      waitForRendering(app)
-      verify(typeof page().chosen === "function", "the chooser is on the page")
-      // Invariant: `visible` reads effective visibility: a chooser that exists inside a
-      // hidden page is a blank window, which is what Add a mailbox once was.
-      verify(page().visible, "and is drawn")
-
-      page().chosen("gmail")
-      compare(kinds(), "list,settings,picker,setup")
+      compare(kinds(), "list,settings,setup")
       compare(mailService.count("add:gmail"), 1, "a saved account exists, so Add makes a row")
-      compare(app.editingProvider, "gmail")
       verify(app.accountDraftOpen, "the row is a draft until it is saved")
       waitForRendering(app)
+      verify(page().visible, "the Gmail setup page is drawn")
+      verify(typeof page().signInNamed === "function")
       var back = named(app, "page-back")
-      verify(back && back.visible, "the form has a Back, because there is a chooser under it")
+      verify(back && back.visible)
 
       back.activated()
-      compare(kinds(), "list,settings,picker")
-      compare(mailService.count("discard"), 1, "backing out of a draft discards its row")
-
-      app.back()
       compare(kinds(), "list,settings")
+      compare(mailService.count("discard"), 1, "backing out of a draft discards its row")
       app.back()
       compare(kinds(), "list")
       compare(mailService.count("discard"), 1, "and only that once")
@@ -769,25 +755,17 @@ Item {
       mailService.anyAccountReady = false
       mailService.hasSavedAccounts = false
       waitForRendering(app)
-      compare(kinds(), "picker", "nothing saved: the question is the whole window")
-      verify(page(), "the provider chooser is loaded")
-      verify(!named(app, "page-back").visible, "and there is nothing to go back to")
+      compare(kinds(), "setup", "first run opens Gmail setup directly")
+      verify(page() && page().visible)
+      verify(!named(app, "page-back").visible, "the initial setup is the root")
 
       mailService.hasSavedAccounts = true
       fakeAuth.credentialsPresent = true
       waitForRendering(app)
-      compare(kinds(), "picker,setup")
-      compare(app.editingProvider, "imap")
-      var back = named(app, "page-back")
-      verify(back && back.visible, "the form has a way back")
-
-      back.activated()
-      compare(kinds(), "picker")
+      compare(kinds(), "setup", "an unsigned saved account stays on setup")
+      app.goBack()
+      compare(fakeShell.hidden.length, 1, "Escape closes the root")
       compare(mailService.count("discard"), 0, "a saved row is not a draft")
-
-      mailService.providerId = "gmail"
-      waitForRendering(app)
-      compare(kinds(), "picker", "a root the user moved off is not rebuilt under them")
 
       mailService.anyAccountReady = true
       waitForRendering(app)
@@ -850,7 +828,6 @@ Item {
       app.openSettings()
       app.editAccount(0)
       compare(kinds(), "list,settings,setup")
-      compare(app.editingProvider, "imap")
       verify(!app.accountDraftOpen)
       app.back()
       compare(kinds(), "list,settings")
@@ -864,9 +841,9 @@ Item {
       app.runShortcut("moveToLabel", "v")
 
       compare(mailService.count("guard:label:destination"), 1,
-        "the provider guard answers the key before a destination is requested")
+        "the account guard answers the key before a destination is requested")
       compare(named(app, "label-picker").opened, false)
-      compare(mailService.actionStatus, "HEY has no destination you can name")
+      compare(mailService.actionStatus, "Choose an account before moving this message")
     }
   }
 }

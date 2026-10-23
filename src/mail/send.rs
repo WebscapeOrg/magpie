@@ -1,5 +1,5 @@
 //! Invariant: Validate a semantic message once; previews own no mutable service or storage.
-use super::{Account, Provider, SendRequest};
+use super::{Account, SendRequest};
 use base64::{
     Engine,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
@@ -267,7 +267,6 @@ impl Prepared {
         let bytes = URL_SAFE_NO_PAD
             .decode(encoded)
             .map_err(|_| "invalid_message")?;
-        validate_size(self.account.provider, bytes.len(), encoded.len())?;
         verify_envelope(&bytes, &self.fields)?;
         Ok(payload)
     }
@@ -291,21 +290,6 @@ pub(super) fn verify_envelope(bytes: &[u8], fields: &Value) -> Result<()> {
         if crate::message::envelope::addresses(&headers, name)? != expected {
             return Err("mail_send_envelope_mismatch");
         }
-    }
-    Ok(())
-}
-
-pub(super) fn validate_size(
-    provider: Provider,
-    decoded_len: usize,
-    encoded_len: usize,
-) -> Result<()> {
-    if (provider == Provider::Hey && encoded_len > 16 * 1024 * 1024 * 4 / 3)
-        || (provider == Provider::Jmap && encoded_len > 24 * 1024 * 1024)
-        || (matches!(provider, Provider::Imap | Provider::Outlook)
-            && decoded_len > crate::message::MAX_MESSAGE)
-    {
-        return Err("message_too_large");
     }
     Ok(())
 }

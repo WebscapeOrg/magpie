@@ -111,9 +111,11 @@ mod tests {
         }
         let revert = Revert;
         let key = CredentialKey {
-            provider: "imap".into(),
-            account_id: "imap:denied-fixture@example.invalid".into(),
-            kind: CredentialKind::ImapPassword,
+            provider: "gmail".into(),
+            account_id: "denied-fixture@example.invalid".into(),
+            kind: CredentialKind::GoogleRefreshToken {
+                client_id: "synthetic-client".into(),
+            },
         };
         let read = get(&key).map(|_| ());
         let write = put(&key, b"synthetic-denied-write");

@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
+import "../../providers" as Providers
 import "BackendFixture.js" as BackendFixture
 import "NativeIntentFixture.js" as NativeIntentFixture
 
@@ -27,12 +28,21 @@ Item {
     shell: fakeShell
   }
 
+  Component {
+    id: refusingClient
+    Providers.GmailApiClient {
+      auth: null
+      property var refusals: ({move:"Moving messages is unavailable for this account"})
+    }
+  }
+
   TestCase {
     name: "MoveWiring"
     when: windowShown
+    property var backendFixture: null
 
     function initTestCase() {
-      BackendFixture.markReady(mailService)
+      backendFixture = BackendFixture.markReady(mailService)
       NativeIntentFixture.install(mailService)
     }
 
@@ -47,12 +57,12 @@ Item {
       return null
     }
 
-    function installAccount(provider, id, email) {
+    function installAccount(email) {
       mailService.accountsLoaded = true
       mailService.accountList = ({
         version: 1,
-        accounts: [{ id: id, email: email, provider: provider, clientId: "" }],
-        activeId: id
+        accounts: [{ id: email, email: email, provider: "gmail", clientId: "" }],
+        activeId: email
       })
       tryCompare(mailService, "accountCount", 1)
       tryVerify(function() { return mailService.current !== null }, 1000,
@@ -88,7 +98,7 @@ Item {
     }
 
     function test_gmail_label_identity_reaches_the_picker_and_move_model() {
-      var account = installAccount("gmail", "me@example.com", "me@example.com")
+      var account = installAccount("me@example.com")
       account.mailboxKey = "starred"
       account.labels = [
         { id: "Label_3", name: "Bills", rawName: "Bills", system: false, unread: 0 },
@@ -139,30 +149,41 @@ Item {
       compare(account.messages[0].id, "two")
     }
 
-    function test_hey_refusal_crosses_the_real_service_before_the_picker() {
-      installAccount("hey", "hey:me@hey.com", "me@hey.com")
+    function test_gmail_account_refusal_crosses_the_real_service_before_the_picker() {
+      var account = installAccount("me@example.com")
+      account.clientOverride = refusingClient
+      tryCompare(account, "canMove", false)
+      account.messages = [{id:"message-1",labelIds:["INBOX"],subject:"One"}]
       app.cursorId = "message-1"
+      var before = JSON.stringify(account.messages)
+      var requestCount = backendFixture.requests.length
 
       compare(app.openLabelPicker(), false)
 
       compare(named(app, "label-picker").opened, false)
-      compare(mailService.actionStatus, "HEY has no destination you can name")
+      compare(mailService.actionStatus, "Moving messages is unavailable for this account")
+      compare(JSON.stringify(account.messages), before)
+      compare(account.actionPreparations, 0)
+      compare(account.pendingAction, "")
+      compare(backendFixture.requests.length, requestCount,
+        "a refused picker must not prepare an optimistic action or send a request")
     }
 
-    function test_imap_current_folder_is_not_a_uid_move_destination() {
-      var account = installAccount("imap", "imap:me@example.com", "me@example.com")
+    function test_current_gmail_label_is_not_its_own_move_destination() {
+      var account = installAccount("me@example.com")
       account.labels = [
-        { id: "Archive", name: "Archive", rawName: "Archive", system: false, unread: 0 },
-        { id: "Receipts", name: "Receipts", rawName: "Receipts", system: false, unread: 0 }
+        { id: "Label_Archive", name: "Archive", rawName: "Archive", system: false, unread: 0 },
+        { id: "Label_Receipts", name: "Receipts", rawName: "Receipts", system: false, unread: 0 }
       ]
 
-      var slot = labelSlot("Archive")
+      var slot = labelSlot("Label_Archive")
       verify(slot >= 0)
       app.goSlot(slot)
 
-      tryCompare(account, "rawLabelId", "Archive")
-      compare(labelIds(named(app, "label-picker").matchingLabels), ["Receipts"],
-        "the current folder cannot become a same-folder UID MOVE")
+      tryCompare(account, "rawLabelId", "Label_Archive")
+      compare(mailService.rawQuery, "label:Archive")
+      compare(labelIds(named(app, "label-picker").matchingLabels), ["Label_Receipts"],
+        "moving to the current Gmail label must not remove its message from the view")
     }
   }
 }

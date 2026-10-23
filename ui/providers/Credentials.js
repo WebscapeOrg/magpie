@@ -44,7 +44,30 @@ function trimmed(value) {
  * "web" for a web client. A web client cannot complete the loopback flow, so
  * it is read but reported as the wrong type rather than silently half-working.
  */
+var UNSUPPORTED_CLIENT_MESSAGE = "Only Google clients are supported. Your saved client settings have not been changed."
+
+function supportsGoogleClient(raw) {
+  if (!raw || typeof raw !== "object") return true
+  var value = raw.provider
+  if (value !== undefined && value !== null
+      && (typeof value !== "string" || (value.trim() !== "" && value.trim().toLowerCase() !== "gmail"))) return false
+  var blocks = [raw.installed, raw.web]
+  for (var index = 0; index < blocks.length; index++) {
+    var block = blocks[index]
+    if (block && typeof block === "object" && !supportsGoogleClient({provider:block.provider})) return false
+  }
+  var entries = Array.isArray(raw.accounts) ? raw.accounts : []
+  for (var index = 0; index < entries.length; index++)
+    if (!supportsGoogleClient(entries[index])) return false
+  return true
+}
+
+function supportsGoogleClients(text) {
+  return supportsGoogleClient(parseJson(text, null))
+}
+
 function fromObject(raw) {
+  if (!supportsGoogleClient(raw)) return {ok:false,error:UNSUPPORTED_CLIENT_MESSAGE,credentials:empty()}
   if (!raw || typeof raw !== "object") return { ok: false, error: "Not a credentials file", credentials: empty() }
   var kind = ""
   var body = raw
@@ -145,6 +168,7 @@ function emptyStore() {
  * sign-in has produced one, "" for a file written before accounts had names.
  */
 function accountEntry(accountId, credentials) {
+  if (!supportsGoogleClient(credentials)) throw new Error("credentials_provider_unsupported")
   var value = credentials || empty()
   return {
     id: trimmed(accountId),
@@ -166,6 +190,7 @@ function isStore(value) {
  * the single-account callers that predate this module's split keep working.
  */
 function asStore(value) {
+  if (!supportsGoogleClient(value)) throw new Error("credentials_provider_unsupported")
   if (!isStore(value)) return { accounts: [accountEntry("", value)] }
   var store = emptyStore()
   for (var itemIndex = 0; itemIndex < value.accounts.length; itemIndex++) {
@@ -254,6 +279,7 @@ function serialize(value) {
  * edited entry should not sign every other account out.
  */
 function storeFromObject(raw) {
+  if (!supportsGoogleClient(raw)) throw new Error("credentials_provider_unsupported")
   var store = emptyStore()
   if (!raw || typeof raw !== "object") return store
 
@@ -380,59 +406,6 @@ function legacyKeyringAttributes(clientId) {
   var id = trimmed(clientId)
   if (!id) return []
   return ["service", KEYRING_SERVICE, "kind", KEYRING_KIND, "client-id", id]
-}
-
-// Invariant: An IMAP account has no OAuth client to key on — it has a server and a
-// password. The attributes therefore key on the account alone, under a kind of
-// their own so an IMAP password and a Gmail refresh token for the same address
-// are two entries rather than one overwriting the other.
-var IMAP_KEYRING_KIND = "imap-password"
-
-function imapKeyringAttributes(accountId) {
-  var id = accountKey(accountId)
-  // Invariant: As above: an empty attribute value is a wildcard to secret-tool, which
-  // would hand back some other account's password. An account with no name yet
-  // gets the literal placeholder, which no address can collide with.
-  return ["service", KEYRING_SERVICE, "kind", IMAP_KEYRING_KIND,
-    "account", id || UNNAMED_ACCOUNT]
-}
-
-// Invariant: A JMAP account has no OAuth client either, and its secret is an app password
-// or an API token rather than a password — one credential, whichever of the
-// two schemes turned out to work, so one entry keyed on the account alone.
-//
-// Its own kind, for the reason IMAP's has one: one address can be a Gmail
-// mailbox, an IMAP mailbox and a JMAP mailbox at the same time, and a refresh
-// token, a password and an app password for it are three entries rather than
-// one overwriting the next. The account ids differ as well — this one is
-// prefixed `jmap:` — so the kind is belt and braces, and it is what makes an
-// entry readable as what it is when somebody opens their keyring.
-var JMAP_KEYRING_KIND = "jmap-secret"
-
-function jmapKeyringAttributes(accountId) {
-  var id = accountKey(accountId)
-  // Invariant: As above: an empty attribute value is a wildcard to secret-tool, which
-  // would hand back some other account's secret. An account with no name yet
-  // gets the literal placeholder, which no address can collide with.
-  return ["service", KEYRING_SERVICE, "kind", JMAP_KEYRING_KIND,
-    "account", id || UNNAMED_ACCOUNT]
-}
-
-// Invariant: An Outlook refresh token belongs to both the public OAuth client and the
-// mailbox that granted it. Keeping a separate kind prevents a Hotmail address
-// also added through Gmail or generic IMAP from sharing a secret by accident.
-var OUTLOOK_KEYRING_KIND = "outlook-refresh-token"
-
-function outlookKeyringAttributes(clientId, accountId) {
-  var client = trimmed(clientId)
-  var id = accountKey(accountId)
-  if (!client || !id) return []
-  return [
-    "service", KEYRING_SERVICE,
-    "kind", OUTLOOK_KEYRING_KIND,
-    "client-id", client,
-    "account", id
-  ]
 }
 
 /** Entries from before the Omamail rename also predate Calendar permission.

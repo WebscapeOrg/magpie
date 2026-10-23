@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
@@ -11,11 +12,58 @@
 
 namespace {
 constexpr qint64 maximumTextFileBytes = 16 * 1024 * 1024;
+constexpr qint64 maximumClientFileBytes = 1024 * 1024;
 
 QVariantMap result(bool ok, const QString &text = {}, const QString &error = {})
 {
     return {{QStringLiteral("ok"), ok}, {QStringLiteral("text"), text},
             {QStringLiteral("error"), error}};
+}
+
+bool acceptsGoogleClients(const QByteArray &bytes, QString *error)
+{
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+    if (bytes.size() > maximumClientFileBytes
+        || parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        *error = QStringLiteral("Could not validate OAuth clients. The file has not been changed.");
+        return false;
+    }
+    const auto supported = [](const QJsonValue &provider) {
+        return provider.isUndefined() || provider.isNull()
+            || (provider.isString() && (provider.toString().trimmed().isEmpty()
+                || provider.toString().trimmed().compare(QStringLiteral("gmail"),
+                                                        Qt::CaseInsensitive) == 0));
+    };
+    const auto supportedRecord = [&](const QJsonObject &record) {
+        return supported(record.value(QStringLiteral("provider")))
+            && supported(record.value(QStringLiteral("installed")).toObject().value(QStringLiteral("provider")))
+            && supported(record.value(QStringLiteral("web")).toObject().value(QStringLiteral("provider")));
+    };
+    const QJsonObject object = document.object();
+    bool accepted = supportedRecord(object);
+    for (const QJsonValue &entry : object.value(QStringLiteral("accounts")).toArray())
+        accepted = accepted && supportedRecord(entry.toObject());
+    if (!accepted)
+        *error = QStringLiteral("Only Gmail accounts are supported. Your saved credentials have not been changed.");
+    return accepted;
+}
+
+bool acceptsCredentialReplacement(const QString &path, const QByteArray &bytes, QString *error)
+{
+    if (!acceptsGoogleClients(bytes, error)) return false;
+    const QFileInfo existing(path);
+    if (existing.isSymLink()) {
+        *error = QStringLiteral("Could not validate saved OAuth clients. The file has not been changed.");
+        return false;
+    }
+    if (!existing.exists()) return true;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly) || file.size() > maximumClientFileBytes) {
+        *error = QStringLiteral("Could not read saved OAuth clients. The file has not been changed.");
+        return false;
+    }
+    return acceptsGoogleClients(file.read(maximumClientFileBytes + 1), error);
 }
 
 const QSet<QString> &allowedSettings()
@@ -112,13 +160,18 @@ QVariantMap FileStore::write(const QString &path, const QString &text, bool atom
         emit failed(path, error);
         return result(false, {}, error);
     }
+    const QByteArray bytes = text.toUtf8();
+    QString error;
+    if (QFileInfo(path).fileName() == QStringLiteral("credentials.json")
+        && !acceptsCredentialReplacement(path, bytes, &error)) {
+        emit failed(path, error);
+        return result(false, {}, error);
+    }
     if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
         const QString error = QStringLiteral("Could not create the parent directory");
         emit failed(path, error);
         return result(false, {}, error);
     }
-    const QByteArray bytes = text.toUtf8();
-    QString error;
     bool ok = false;
     if (atomic) {
         // Invariant: Replacing a file on Windows fails with a sharing violation while

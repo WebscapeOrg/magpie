@@ -14,7 +14,7 @@ Item {
   ]
   property var mailService: ({
     labels: labels, mailboxes: [{ key: "inbox", label: "Inbox", icon: "inbox" }],
-    collapsedFolders: [], rawQuery: "", mailboxKey: "inbox", searchQuery: "", providerId: "imap"
+    collapsedFolders: [], rawQuery: "", mailboxKey: "inbox", searchQuery: "", providerId: "gmail"
   })
 
   Mail.MailboxSidebar {

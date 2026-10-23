@@ -36,6 +36,61 @@ if [ -z "$payload" ]; then
   exit 3
 fi
 
+if [ "$name" = credentials.json ]; then
+  printf '%s\n' "$payload" | python3 -c '
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+
+def validate_provider(value):
+    if not isinstance(value, dict):
+        return
+    provider = value.get("provider")
+    if provider is not None and (
+        not isinstance(provider, str) or provider.strip().lower() not in ("", "gmail")
+    ):
+        raise ValueError()
+
+def validate_record(value):
+    validate_provider(value)
+    if isinstance(value, dict):
+        for key in ("installed", "web"):
+            validate_provider(value.get(key))
+
+def validate(value):
+    if not isinstance(value, dict):
+        raise ValueError()
+    validate_record(value)
+    if isinstance(value.get("accounts"), list):
+        for account in value["accounts"]:
+            validate_record(account)
+
+def invalid_constant(value):
+    raise ValueError()
+
+def read_clients(source):
+    limit = 1024 * 1024
+    data = source.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError()
+    validate(json.loads(data.decode("utf-8"), parse_constant=invalid_constant))
+
+try:
+    read_clients(sys.stdin.buffer)
+    target = Path(sys.argv[1])
+    if os.path.lexists(target):
+        if not stat.S_ISREG(target.lstat().st_mode):
+            raise ValueError()
+        with target.open("rb") as source:
+            read_clients(source)
+except (OSError, ValueError, RecursionError):
+    print("refusing to replace unsupported or unreadable Google client settings", file=sys.stderr)
+    sys.exit(6)
+' "$target"
+fi
+
 # A plugin reload can briefly leave the retiring service with only its setup
 # row in memory. If that stale instance reaches this writer after a real list
 # has already been stored, accepting the write would replace every mailbox

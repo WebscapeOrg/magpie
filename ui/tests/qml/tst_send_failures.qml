@@ -51,24 +51,25 @@ Item {
       var fixture = BackendFixture.install(mailService)
       // Invariant: Repeated API/account setup must not fill the bounded RPC queue with
       // unanswered background cache reads and starve the send under test.
-      fixture.answers = {"cache.calendarRead":null, "cache.queryRestore":null}
+      fixture.answers = {
+        "cache.calendarRead": null, "cache.queryRestore": null,
+        "gmail.profile": function(params) { return {email: params.accountId} },
+        "gmail.labels": [], "gmail.sendAs": [],
+        "gmail.list": {ids: [], estimate: 0, nextPageToken: ""},
+        "gmail.invalidate": {}
+      }
       BackendFixture.markReady(mailService)
       mailService.agentRunner.backend = agentBackend
     }
 
     readonly property string ada: "ada@example.com"
     readonly property string bob: "bob@example.com"
-    readonly property string adaId: "imap:ada@example.com"
-    readonly property string bobId: "imap:bob@example.com"
+    readonly property string adaId: "ada@example.com"
+    readonly property string bobId: "bob@example.com"
 
-    function entry(email, smtp) {
+    function entry(email) {
       return {
-        email: email, provider: "imap", clientId: "", clientSecret: "",
-        imap: {
-          imapHost: "imap.example.com", imapPort: 993,
-          smtpHost: smtp === false ? "" : "smtp.example.com", smtpPort: 465,
-          username: email, aliases: [], insecure: false
-        },
+        email: email, provider: "gmail",
         label: "", signature: ""
       }
     }
@@ -90,8 +91,8 @@ Item {
       verify(account.auth !== null)
       account.auth.toolsChecked = true
       account.auth.missingTools = []
-      account.auth.passwordChecked = true
-      account.auth.password = "test-password"
+      account.auth.credentials = {clientId:"123-example.apps.googleusercontent.com",clientSecret:"synthetic-secret"}
+      account.auth.loggedIn = true
       tryCompare(account, "ready", true)
     }
 
@@ -358,11 +359,11 @@ Item {
 
     function test_zero_delay_native_failure_restores_the_composer(data) {
       mailService.applySettings({ undoSendSeconds: 0 })
-      seed([entry(ada, false)], adaId)
+      seed([entry(ada)], adaId)
       var compose = composeView()
       app.startCompose("new")
       named(compose, "compose-to-field").text = "person@example.com"
-      named(compose, "compose-subject-field").text = "No SMTP"
+      named(compose, "compose-subject-field").text = "Delivery failed"
       named(compose, "compose-body-editor").text = "Keep every word"
       compose.submit()
       tryCompare(compose, "opened", false, 5000,
@@ -370,20 +371,20 @@ Item {
       tryVerify(function() { return pending("outbox.enqueue", adaId) !== null })
       var request = pending("outbox.enqueue", adaId)
       request.answered = true
-      compare(request.params.provider, "imap")
+      compare(request.params.provider, "gmail")
       compare(request.params.delaySeconds, 0)
       // Invariant: Rust's authoritative failure must cross account and Service boundaries;
-      // the UI does not issue an imap.send or replay the uncertain delivery.
+      // the UI does not send directly or replay the uncertain delivery.
       BackendFixture.respond(mailService, request, {snapshot:{accountId:adaId,
         revision:++outboxRevision,entries:[{id:request.params.sendId,state:data.state}]}})
       tryCompare(compose, "opened", true)
-      compare(named(compose, "compose-subject-field").text, "No SMTP")
+      compare(named(compose, "compose-subject-field").text, "Delivery failed")
       compare(named(compose, "compose-body-editor").text, "Keep every word")
       tryCompare(app.composeRecovery, "active", true)
       compare(app.composeRecovery.draft.body, "Keep every word")
       var requests = BackendFixture.install(mailService).requests
       for (var itemIndex = 0; itemIndex < requests.length; itemIndex++)
-        verify(requests[itemIndex].method !== "imap.send", "UI cannot send or retry mail after a backend result")
+        verify(requests[itemIndex].method !== "gmail.send", "UI cannot send or retry mail after a backend result")
     }
 
     function test_a_second_send_parks_behind_the_first_and_undo_takes_back_the_newest() {

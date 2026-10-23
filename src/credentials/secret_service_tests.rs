@@ -303,9 +303,11 @@ impl Fixture {
 }
 fn key() -> CredentialKey {
     CredentialKey {
-        provider: "imap".into(),
-        account_id: "imap:prompt-fixture@example.invalid".into(),
-        kind: CredentialKind::ImapPassword,
+        provider: "gmail".into(),
+        account_id: "prompt-fixture@example.invalid".into(),
+        kind: CredentialKind::GoogleRefreshToken {
+            client_id: "synthetic-client".into(),
+        },
     }
 }
 

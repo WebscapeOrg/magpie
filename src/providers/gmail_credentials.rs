@@ -59,9 +59,22 @@ fn client(raw: &Value) -> Option<Client> {
         client_secret: secret.into(),
     })
 }
+fn validate_client_provider(raw: &Value) -> Result<(), &'static str> {
+    crate::account::provider(raw)?;
+    for block in ["installed", "web"] {
+        if raw[block].is_object() {
+            crate::account::provider(&raw[block])?;
+        }
+    }
+    Ok(())
+}
 fn parse_client(bytes: &[u8], account: &str) -> Result<Client, &'static str> {
     let raw: Value = serde_json::from_slice(bytes).map_err(|_| "gmail_client_invalid")?;
+    validate_client_provider(&raw)?;
     if let Some(entries) = raw["accounts"].as_array() {
+        for entry in entries {
+            validate_client_provider(entry)?;
+        }
         let mut shared = None;
         for entry in entries {
             let Some(value) = client(entry) else {
@@ -218,6 +231,76 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn legacy_and_explicit_google_client_rows_keep_their_current_grant() {
+        for provider in [
+            Value::Null,
+            serde_json::json!(""),
+            serde_json::json!(" GMAIL "),
+        ] {
+            let bytes = serde_json::to_vec(&serde_json::json!({"version":2,"accounts":[{
+                "id":"ONE@example.org", "provider":provider,
+                "clientId":"456-own.apps.googleusercontent.com", "clientSecret":"own"
+            }]}))
+            .unwrap();
+            assert_eq!(
+                parse_client(&bytes, "one@example.org").unwrap().client_id,
+                "456-own.apps.googleusercontent.com"
+            );
+            assert_eq!(
+                parse_client(&bytes, "other@example.org").unwrap().client_id,
+                "456-own.apps.googleusercontent.com"
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_client_rows_are_refused_before_selecting_an_own_or_shared_client() {
+        for provider in [
+            serde_json::json!("imap"),
+            serde_json::json!("outlook"),
+            serde_json::json!("hey"),
+            serde_json::json!("jmap"),
+            serde_json::json!("unknown"),
+            serde_json::json!(false),
+            serde_json::json!({}),
+            serde_json::json!([]),
+        ] {
+            let unsupported = serde_json::json!({"provider":provider,"id":"other@example.org",
+                "clientId":"123-shared.apps.googleusercontent.com"});
+            let own = serde_json::json!({"provider":"gmail","id":"one@example.org",
+                "clientId":"456-own.apps.googleusercontent.com"});
+            for entries in [
+                serde_json::json!([unsupported]),
+                serde_json::json!([own, unsupported]),
+            ] {
+                let bytes = serde_json::to_vec(&serde_json::json!({"accounts":entries})).unwrap();
+                for account in ["one@example.org", "other@example.org", "third@example.org"] {
+                    assert!(matches!(
+                        parse_client(&bytes, account),
+                        Err("accounts_provider_unsupported")
+                    ));
+                }
+            }
+            let mut standalone: Value = serde_json::from_slice(SINGLE).unwrap();
+            standalone["provider"] = provider.clone();
+            assert!(matches!(
+                parse_client(&serde_json::to_vec(&standalone).unwrap(), "one@example.org"),
+                Err("accounts_provider_unsupported")
+            ));
+            for block in ["installed", "web"] {
+                let nested = serde_json::json!({block:{"provider":provider,
+                    "client_id":"123-nested.apps.googleusercontent.com"}});
+                for raw in [nested.clone(), serde_json::json!({"accounts":[own,nested]})] {
+                    assert!(matches!(
+                        parse_client(&serde_json::to_vec(&raw).unwrap(), "one@example.org"),
+                        Err("accounts_provider_unsupported")
+                    ));
+                }
+            }
+        }
+    }
+
     struct Fixture {
         root: PathBuf,
         config: PathBuf,

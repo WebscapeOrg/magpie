@@ -41,10 +41,7 @@ Item {
     id: accountFactory
     Accounts.MailAccount {
       pluginDir: "/synthetic/plugin"
-      providerId: "imap"
       configuredEmail: "ada@example.org"
-      imapSettings: ({ imapHost: "imap.example.org", imapPort: 993,
-        smtpHost: "smtp.example.org", smtpPort: 465, username: "ada@example.org" })
       clientOverride: clientFactory
       active: true
       windowOpen: true
@@ -58,8 +55,8 @@ Item {
       verify(account !== null)
       account.auth.toolsChecked = true
       account.auth.missingTools = []
-      account.auth.passwordChecked = true
-      account.auth.password = "synthetic-password"
+      account.auth.credentials = {clientId: "123-example.apps.googleusercontent.com", clientSecret: "synthetic-secret"}
+      account.auth.loggedIn = true
       compare(account.setupState, "ready")
       compare(account.api.calls, 0, "metadata and listing must wait for validation")
       compare(account.ready, false)

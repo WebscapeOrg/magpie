@@ -1102,8 +1102,7 @@ DropArea {
         return
       }
       root.attachmentReadPending = true
-      var mailbox = typeof root.service.findAccount === "function" ? root.service.findAccount(ownerAccount) : null
-      var stored = job.mode !== "forget" && Number(root.service.backend.apiVersion) >= 8 && (!mailbox || mailbox.providerId !== "hey")
+      var stored = job.mode !== "forget" && Number(root.service.backend.apiVersion) >= 8
       var method = job.mode === "forget" ? "attachment.forget" : stored ? "attachment.import" : "attachment.read"
       var parameters = {path:job.path}
       if (stored) { parameters.accountId = ownerAccount; parameters.draftKey = owner }

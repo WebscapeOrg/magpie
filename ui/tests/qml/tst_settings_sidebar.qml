@@ -32,11 +32,6 @@ Item {
     property string clientDescription: ""
     property string credentialsPath: ""
     property var credentials: null
-    property var settings: ({
-      imapHost: "imap.example.org", imapPort: 993,
-      smtpHost: "smtp.example.org", smtpPort: 465,
-      username: "", aliases: [], insecure: false
-    })
 
     function recheck() {}
     function saveCredentials() {}
@@ -76,7 +71,7 @@ Item {
     property int inboxUnread: 0
     property real bodyZoom: 1
     property string bodyMode: "reader"
-    property string providerId: "imap"
+    property string providerId: "gmail"
     property string pluginDir: ""
     property string accountEmail: "me@example.com"
     property string accountAddress: "me@example.com"
@@ -90,7 +85,7 @@ Item {
     property string syncedLabel: ""
     property string recipientContactStatus: ""
     property var auth: fakeAuth
-    property var accountSummaries: [{ provider: "imap", email: "me@example.com" }]
+    property var accountSummaries: [{ provider: "gmail", email: "me@example.com" }]
     property var mailboxes: []
     property var labels: []
     property var messages: [{ id: "message-1", subject: "One" }]

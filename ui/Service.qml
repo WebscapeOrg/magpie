@@ -52,7 +52,7 @@ Item {
   readonly property bool persistencePending: configWrites > 0 || accountsWriting
     || accountsSaveQueued || accountsReading || accountsReloadQueued || windowWriting
     || windowPrefsSettling.running || sending || runningActionCount > 0 || queuedActionCount > 0
-    || calendarController.savingSource || calendarController.savingPassword
+    || calendarController.savingSource
     || calendarController.creatingEvent || calendarController.eventWriting
   readonly property var capabilities: platform && platform.capabilities
     ? platform.capabilities : ({ agent: true, tray: true, mailto: true, notifications: true })
@@ -109,11 +109,9 @@ Item {
   readonly property bool backendNeedsUpdate: backend.needsUpdate
   // Invariant: Event suggestions require API 2 even after that revision is released.
   readonly property bool backendCanSuggestEvents: backend.ready && backend.apiVersion >= 2
-  readonly property bool backendCanCheckMicrosoftConnection: backend.ready && backend.apiVersion >= 5
   readonly property bool backendCanDiscoverCalendars: backend.ready && backend.apiVersion >= 5
   readonly property bool backendCanGoogleCalendars: backend.ready && backend.apiVersion >= 6
   // Invariant: Backends before API 7 accept only a bare sender address.
-  readonly property bool backendCanNameSender: backend.ready && backend.apiVersion >= 7
   readonly property bool calendarRemindersEnabled: !settings || settings.calendarRemindersEnabled !== false
   readonly property int calendarSnoozeMinutes: Math.max(1, Math.min(1440,
     Math.floor(Number(settings && settings.calendarSnoozeMinutes) || 5)))
@@ -567,17 +565,6 @@ Item {
       return client === "" || (account !== "default"
         && (account.indexOf("@") < 0 || account.indexOf(":") >= 0))
           ? [] : CredentialKeys.keyringAttributes(client, account)
-    if (kind === "outlook-refresh-token")
-      return client === "" || account.indexOf("outlook:") !== 0
-        || account.indexOf("@") < 0 ? []
-          : CredentialKeys.outlookKeyringAttributes(client, account)
-    if (kind === "imap-password")
-      return account.indexOf("imap:") === 0 && account.indexOf("@") >= 0
-        ? CredentialKeys.imapKeyringAttributes(account) : []
-    if (kind === "jmap-secret")
-      return account.indexOf("jmap:") === 0 && account.indexOf("@") >= 0
-        ? CredentialKeys.jmapKeyringAttributes(account) : []
-    if (kind === "calendar-password") return CalendarSources.keyringAttributes(account)
     return []
   }
 
@@ -697,6 +684,7 @@ Item {
   }
 
   property var accountList: Accounts.emptyList()
+  property string accountRegistryError: ""
   property bool accountsLoaded: false
   property string accountsWritePayload: ""
   property var accountsReleasedIds: []
@@ -748,7 +736,7 @@ Item {
   function gmailAccountId() {
     var accounts = accountList ? accountList.accounts : []
     for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
-      if (accounts[accountIndex].provider === "gmail") return accounts[accountIndex].id
+      if (accounts[accountIndex].id) return accounts[accountIndex].id
     }
     return ""
   }
@@ -787,7 +775,6 @@ Item {
     searchPreparation = null
     submittedUnifiedQuery = ""
     searchParticipantIds = null
-    searchGmailOnly = false
     eachHost(function(host) {
       host.stopSearch()
       if (root.unified || host === root.current) host.selectMailbox(root.unified ? root.unifiedMailboxKey : host.mailboxKey)
@@ -841,11 +828,11 @@ Item {
     return true
   }
 
-  // Invariant: Choose the provider before creating its setup row and resolving reusable Gmail client settings.
-  function addAccount(provider) {
+  function addAccount() {
+    if (accountRegistryError !== "") return false
     accountList = Accounts.add(accountList, ({
       email: "", clientId: "", clientSecret: "",
-      provider: provider || Provider.DEFAULT_ID,
+      provider: "gmail",
       // Invariant: Explicit pending state distinguishes a setup draft from a persisted account with damaged identity.
       pending: true
     }))
@@ -922,13 +909,14 @@ Item {
 
   // Invariant: Persist configuration before sign-in so failed authentication retains editable settings. A refused configuration must not proceed to credential storage.
   function configureAccount(index, values) {
+    if (accountRegistryError !== "") return false
     var accounts = accountList.accounts
     if (index < 0 || index >= accounts.length) return false
     var raw = values || ({})
 
     var entry = {}
     for (var key in accounts[index]) entry[key] = accounts[index][key]
-    var keys = ["provider", "email", "clientId", "clientSecret", "imap", "jmap", "label", "senderName"]
+    var keys = ["email", "clientId", "clientSecret", "label"]
     for (var keyIndex = 0; keyIndex < keys.length; keyIndex++)
       if (raw[keys[keyIndex]] !== undefined) entry[keys[keyIndex]] = raw[keys[keyIndex]]
 
@@ -983,6 +971,7 @@ Item {
   }
 
   function commitAccounts(next) {
+    if (accountRegistryError !== "") return false
     if (Accounts.serialize(next) === Accounts.serialize(accountList)) return false
     accountList = next
     saveAccounts()
@@ -990,12 +979,11 @@ Item {
   }
 
   function setAccountLabel(id, text) { commitAccounts(Accounts.setLabel(accountList, id, text)) }
-  function setAccountSenderName(id, text) { commitAccounts(Accounts.setSenderName(accountList, id, text)) }
   function setAccountSignatureHtml(id, html) { commitAccounts(Accounts.setSignatureHtml(accountList, id, html)) }
   function setAccountSignature(id, text) { commitAccounts(Accounts.setSignature(accountList, id, text)) }
 
   function saveAccounts(options) {
-    if (!accountsLoaded) return
+    if (!accountsLoaded || accountRegistryError !== "") return
     // Invariant: Serialize saved rows only and refuse an empty registry; setup drafts must never replace saved accounts.
     var writable = Accounts.savedOnly(accountList)
     if (!Accounts.hasSavedAccounts(writable)) return
@@ -1055,6 +1043,10 @@ Item {
           && (!root.accountsLoaded || root.accountsRevision !== result.revision)) {
         root.accountsRevision = String(result.revision || "")
         root.applyAccounts(JSON.stringify(result.registry))
+      } else if (error && String(error.message || error) === "accounts_provider_unsupported") {
+        root.accountRegistryError = "Only Gmail accounts are supported. Your saved accounts have not been changed."
+        root.accountsSaveQueued = false
+        root.accountsSaveQueuedAllowDrop = false
       } else if (error && !root.accountsLoaded) {
         // Invariant: First-run read failure still creates a placeholder so cold-start notification routing can finish.
         root.applyAccounts("")
@@ -1064,6 +1056,15 @@ Item {
   }
 
   function applyAccounts(raw) {
+    if (!Accounts.supportsGmailAccounts(raw)) {
+      accountRegistryError = "Only Gmail accounts are supported. Your saved accounts have not been changed."
+      accountsSaveQueued = false
+      accountsSaveQueuedAllowDrop = false
+      return
+    }
+    if (accountRegistryError !== "" && !Accounts.isSerializedList(raw)) return
+    accountRegistryError = ""
+
     // Invariant: A transient invalid registry read must not erase an already-loaded account list.
     if (accountsLoaded && !Accounts.isSerializedList(raw)) return
     var loaded = Accounts.load(raw)
@@ -1259,7 +1260,6 @@ Item {
         // Invariant: Editable labels preserve an empty saved value rather than substituting the address.
         label: String(accounts[accountIndex].label || ""),
         provider: String(accounts[accountIndex].provider || ""),
-        senderName: String(accounts[accountIndex].senderName || ""),
         signature: String(accounts[accountIndex].signature || ""),
         signatureHtml: String(accounts[accountIndex].signatureHtml || "")
       })
@@ -1280,7 +1280,7 @@ Item {
         label: Accounts.label(accounts[accountIndex]),
         // Invariant: name preserves an empty saved label; label includes a display fallback.
         name: String(accounts[accountIndex].label || ""),
-        detail: Provider.detail(accounts[accountIndex].provider, accounts[accountIndex]),
+        detail: "",
         unread: host ? host.inboxUnread : 0,
         active: host ? host.active : false,
         signedIn: host ? host.ready : false,
@@ -1343,30 +1343,6 @@ Item {
     return result
   }
 
-  // Invariant: Unified capabilities intersect live host abilities, including server-reported restrictions.
-  readonly property var unifiedAbilities: {
-    if (!unified) return []
-    var _epoch = listEpoch
-    var result = []
-    var accounts = accountList ? accountList.accounts : []
-    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
-      if (!accounts[accountIndex].id) continue
-      var host = accountHosts.objectAt(accountIndex)
-      if (!searchParticipant(host)) continue
-      result.push({
-        archive: !!(host && host.canArchive),
-        spam: !!(host && host.canReportSpam),
-        star: !!(host && host.canStar),
-        labels: !!(host && host.hasLabels),
-        web: !!(host && host.canOpenOnWeb),
-        move: !!(host && host.canMove),
-        conversations: !!(host && host.showsConversations),
-        mailboxes: host ? host.mailboxes : []
-      })
-    }
-    return result
-  }
-
   // Invariant: Coalesce native merge requests and reject responses from older account or view generations.
   property var unifiedSnapshot: ({})
   property int unifiedRevision: 0
@@ -1398,7 +1374,7 @@ Item {
     unifiedRequestPending = true
     var generation = unifiedRevision
     backend.call("model.unified", {
-      sources: unifiedSources, abilities: unifiedAbilities,
+      sources: unifiedSources,
       states: unifiedStates, summaries: accountSummaries
     }, function(value, error) {
       if (!root) return
@@ -1423,7 +1399,6 @@ Item {
   }
 
   onUnifiedSourcesChanged: scheduleUnifiedSnapshot()
-  onUnifiedAbilitiesChanged: scheduleUnifiedSnapshot()
   onUnifiedStatesChanged: scheduleUnifiedSnapshot()
   onAccountSummariesChanged: scheduleUnifiedSnapshot()
   Timer { id: unifiedSnapshotTimer; interval: 0; onTriggered: root.refreshUnifiedSnapshot() }
@@ -1538,7 +1513,6 @@ Item {
     return index >= 0 && index < accounts.length ? accounts[index] : ({})
   }
   readonly property string accountName: String(editingEntry().label || "")
-  readonly property string accountSenderName: String(editingEntry().senderName || "")
   readonly property string accountAddress: String(editingEntry().email || "")
   readonly property int inboxUnread: unified
     ? Number(unifiedSnapshot.totalUnread || 0) : (current ? current.inboxUnread : 0)
@@ -1549,29 +1523,14 @@ Item {
   readonly property bool canMoveToLabel: !unified
     && !!current && current.canMove
 
-  // Invariant: providerId retains the visible account's query and setup semantics; unified action capabilities come from the intersection.
-  readonly property string providerId: current ? current.providerId : Provider.DEFAULT_ID
-  readonly property var mailboxes: unified
-    ? (unifiedSnapshot.mailboxes || [])
-    : (current ? current.mailboxes : Provider.mailboxes(Provider.DEFAULT_ID))
-  readonly property bool canArchive: unified
-    ? !!(unifiedSnapshot.capabilities && unifiedSnapshot.capabilities.archive)
-    : (!current || current.canArchive)
-  readonly property bool canReportSpam: unified
-    ? !!(unifiedSnapshot.capabilities && unifiedSnapshot.capabilities.spam)
-    : (!current || current.canReportSpam)
-  readonly property bool canStar: unified
-    ? !!(unifiedSnapshot.capabilities && unifiedSnapshot.capabilities.star)
-    : (!current || current.canStar)
-  readonly property bool hasLabels: unified
-    ? !!(unifiedSnapshot.capabilities && unifiedSnapshot.capabilities.labels)
-    : (!current || current.hasLabels)
-  // Invariant: Unified web actions require every participating account to support a web view.
-  readonly property bool canOpenOnWeb: unified
-    ? !!(unifiedSnapshot.capabilities && unifiedSnapshot.capabilities.web)
-    : (!current || current.canOpenOnWeb)
+  readonly property string providerId: "gmail"
+  readonly property var mailboxes: current ? current.mailboxes : Provider.mailboxes("gmail")
+  readonly property bool canArchive: unified || !current || current.canArchive
+  readonly property bool canReportSpam: unified || !current || current.canReportSpam
+  readonly property bool canStar: unified || !current || current.canStar
+  readonly property bool hasLabels: true
+  readonly property bool canOpenOnWeb: true
   readonly property bool canOpenWebInbox: !unified && !!current && current.canOpenWebInbox
-  // Invariant: Shortcut availability uses the same unified capability intersection as buttons.
   readonly property var unavailableActions: unified
     ? Model.unavailableActions({
         archive: canArchive, star: canStar, spam: canReportSpam,
@@ -1594,10 +1553,7 @@ Item {
   }
   // Invariant: Send capability belongs to the selected sender account, not the intersection of mailbox capabilities.
   readonly property bool canSend: !current || current.canSend
-  // Invariant: Unified conversation presentation requires every participating account to support conversations.
-  readonly property bool showsConversations: unified
-    ? !!(unifiedSnapshot.capabilities && unifiedSnapshot.capabilities.conversations)
-    : (!!current && current.showsConversations)
+  readonly property bool showsConversations: false
   // Invariant: Reader conversation state belongs to the selected message's account.
   readonly property bool showsRail: conversationProjection.showsRail === true
   // Invariant: Unified thread members carry account-qualified IDs for reader comparisons and actions.
@@ -1661,23 +1617,17 @@ Item {
   property string preparingSearchQuery: ""
   property string submittedUnifiedQuery: ""
   property var searchParticipantIds: null
-  property bool searchGmailOnly: false
   readonly property string searchQuery: unified ? submittedUnifiedQuery : current ? current.searchQuery : ""
   readonly property bool searchActive: searchQuery !== ""
-  readonly property bool searchAssistanceAvailable: {
-    if (!backend || !backend.ready || Number(backend.apiVersion) < 8) return false
-    if (!unified) return !!current && current.providerId === "gmail"
-    var accounts = accountList ? accountList.accounts : []
-    for (var index = 0; index < accounts.length; index++) if (accounts[index].provider === "gmail") return true
-    return false
-  }
+  readonly property bool searchAssistanceAvailable: !!backend && backend.ready
+    && Number(backend.apiVersion) >= 8 && !!current
   readonly property var searchOperators: searchAssistanceAvailable ? Provider.get("gmail").searchOperators : []
   readonly property var searchLabels: {
     var observed = listEpoch
     var seen = Object.create(null)
     var result = []
     eachHost(function(host) {
-      if ((!root.unified && host !== root.current) || host.providerId !== "gmail") return
+      if (!root.unified && host !== root.current) return
       var labels = host.labels || []
       for (var index = 0; index < labels.length; index++) {
         var name = String(labels[index].name || labels[index].id || "")
@@ -1706,12 +1656,10 @@ Item {
       state.label = host.accountEmail || host.accountId
       states.push(state)
     })
-    var scope = searchGmailOnly
-      ? "Gmail accounts · " + states.length + " of " + total + " accounts searched"
-      : "All accounts · " + states.length + " accounts searched"
+    var scope = "All accounts · " + states.length + " accounts searched"
     var result = SearchState.aggregate(states, scope)
-    if (!searchGmailOnly && result.phase === "complete") result.text = "Search complete." + SearchState.pendingText(result.pendingCount)
-    if (!searchGmailOnly && result.phase === "checking") result.text = "Searching accounts…" + SearchState.pendingText(result.pendingCount)
+    if (result.phase === "complete") result.text = "Search complete." + SearchState.pendingText(result.pendingCount)
+    if (result.phase === "checking") result.text = "Searching accounts…" + SearchState.pendingText(result.pendingCount)
     return result
   }
   function stopSearch() {
@@ -1817,8 +1765,8 @@ Item {
   readonly property bool sendPending: !!pendingSendHost
   readonly property int sendSecondsRemaining: pendingSendHost
     ? pendingSendHost.sendSecondsRemaining : 0
-  readonly property string lastError: unified
-    ? (unifiedBatchAction.error || unifiedSnapshotError || unifiedSnapshot.error || "") : (current ? current.lastError : "")
+  readonly property string lastError: accountRegistryError || (unified
+    ? (unifiedBatchAction.error || unifiedSnapshotError || unifiedSnapshot.error || "") : (current ? current.lastError : ""))
   // Invariant: Unified action status reports the newest available account notice.
   readonly property string actionStatus: {
     if (!unified) return current ? current.actionStatus : ""
@@ -1940,7 +1888,6 @@ Item {
     searchPreparation = null
     submittedUnifiedQuery = ""
     searchParticipantIds = null
-    searchGmailOnly = false
     searchGeneration++
     if (!unified) {
       if (current) current.selectMailbox(key)
@@ -1952,53 +1899,62 @@ Item {
   }
   function search(text) {
     var query = String(text || "").trim()
-    if (!unified) {
-      searchPreparation = null
-      if (current) current.search(query)
-      return
-    }
-    if ((query === submittedUnifiedQuery && searchStatus.canStop)
+    if ((query !== "" && query === searchQuery && searchStatus.canStop)
         || (query === preparingSearchQuery && searchPreparation && searchPreparation.phase === "preparing")) return
     var serial = ++searchPreparationSerial
+    var combined = unified
+    var selected = current
+    var reference = Date.now()
+    var participants = []
+    eachHost(function(host) {
+      if ((combined && host.accountId) || (!combined && host === selected))
+        participants.push({id:String(host.accountId || ""), host:host})
+    })
+    preparingSearchQuery = query
     if (!query || !searchAssistanceAvailable) {
-      submitUnifiedSearch(query, false)
+      submitSearch(query, reference, participants, combined)
       return
     }
-    preparingSearchQuery = query
-    var reference = Date.now()
     searchPreparation = SearchState.status("preparing", "", "", 0)
-    backend.call("providers.resolve", {provider:"gmail",operation:"query",mailbox:"inbox",search:query,asOf:reference}, function(result, failure) {
-      if (!root || !root.unified || serial !== root.searchPreparationSerial) return
-      if (failure || !result) {
-        root.searchPreparation = SearchState.status("invalid", "Could not prepare this search. Try again.", "", 0)
+    for (var index = 0; index < participants.length; index++)
+      participants[index].serial = participants[index].host.prepareSearch(query, reference)
+    backend.call("providers.resolve", {provider:"gmail",operation:"query",search:query,asOf:reference}, function(result, failure) {
+      if (!root || serial !== root.searchPreparationSerial || combined !== root.unified
+          || (!combined && selected !== root.current)) return
+      var preparation = result && result.search ? result.search : {}
+      if (failure || !result || preparation.valid === false) {
+        var message = failure || !result ? "Could not prepare this search. Try again."
+          : String(preparation.message || "Check quotes, groups and filter values, then try again.")
+        root.searchPreparation = SearchState.status("invalid", message, "local_search_invalid", 0)
+        for (var index = 0; index < participants.length; index++) {
+          var member = participants[index]
+          if (root.findAccount(member.id) === member.host && member.serial === member.host.providerQuerySerial)
+            member.host.submittedSearch.reject(message)
+        }
         return
       }
-      var preparation = result.search || {}
-      if (preparation.valid === false) {
-        root.searchPreparation = SearchState.status("invalid", String(preparation.message || "Check quotes, groups and filter values, then try again."), "local_search_invalid", 0)
-        return
-      }
-      root.submitUnifiedSearch(query, preparation.structured === true, reference)
+      root.submitSearch(query, reference, participants, combined)
     })
   }
-  function submitUnifiedSearch(query, gmailOnly, reference) {
+
+  function submitSearch(query, reference, participants, combined) {
     searchPreparation = null
     searchGeneration++
-    submittedUnifiedQuery = query
-    var ids = []
-    eachHost(function(host) { if ((!gmailOnly || host.providerId === "gmail") && host.accountId) ids.push(String(host.accountId)) })
-    searchGmailOnly = gmailOnly
-    searchParticipantIds = query ? ids : null
-    eachHost(function(host) {
-      if (root.searchParticipant(host)) host.search(query, "", reference)
-      else host.stopSearch()
-    })
+    if (combined) {
+      submittedUnifiedQuery = query
+      searchParticipantIds = query ? participants.map(function(member) { return member.id }) : null
+    }
+    for (var index = 0; index < participants.length; index++) {
+      var member = participants[index]
+      if ((member.id ? findAccount(member.id) === member.host : current === member.host))
+        member.host.searchPrepared(query, reference, member.serial)
+    }
     bumpListEpoch()
   }
 
-  readonly property bool canManageLabels: !!current && current.labelActions.canManageLabels
+  readonly property bool canManageLabels: !!current && current.ready
 
-  // Invariant: Deferred label actions retain the opening account ID because IMAP folder IDs can collide. Only an omitted account ID resolves to current.
+  // Invariant: Deferred label actions retain the opening account ID because Gmail label IDs can collide. Only an omitted account ID resolves to current.
   function labelOwner(accountId, mustBeReady) {
     var id = String(accountId || "")
     var owner = id === "" ? current : findAccount(id)
@@ -2248,37 +2204,9 @@ Item {
   function signIn() { if (current) current.signIn() }
   function cancelSignIn() { if (current) current.cancelSignIn() }
   function signOut() { if (current) current.signOut() }
-  function checkMicrosoftConnection(callback) {
-    var host = current
-    if (!host || typeof host.checkMicrosoftConnection !== "function") {
-      if (typeof callback === "function") callback({ mail: false, graph: false, calendar: false })
-      return
-    }
-    host.checkMicrosoftConnection(function(report) {
-      if (root.current === host && typeof callback === "function") callback(report)
-    })
-  }
-
-  // Invariant: Providers without password sign-in reject this shared entry point.
-  function signInWithPassword(secret) {
-    return !!current && current.signInWithPassword(secret)
-  }
-
   // Invariant: Setup writes through the editing index because an unnamed row has no account ID.
   function configureCurrentAccount(values) {
     return configureAccount(editingIndex(), values)
-  }
-
-  // Invariant: Configuration can replace the account host; defer password sign-in until the replacement exists.
-  function configureCurrentAccountAndSignIn(values, secret) {
-    if (!configureCurrentAccount(values)) return false
-    var accountId = String(editingEntry().id || "")
-    Qt.callLater(function() {
-      var host = root.findAccount(accountId)
-      if (host) host.signInWithPassword(secret)
-      secret = ""
-    })
-    return true
   }
 
   // Invariant: Save OAuth configuration before the account host starts its browser flow.
@@ -2322,11 +2250,6 @@ Item {
     if (url !== "") openExternal(url)
   }
 
-  // Invariant: A provider client download can differ from its service website.
-  function openProviderClient(id) {
-    var url = Provider.clientUrl(id)
-    if (url !== "") openExternal(url)
-  }
   function openCloudConsole() { if (current) current.openCloudConsole() }
   function openGmailApiPage() { if (current) current.openGmailApiPage() }
 
@@ -2344,27 +2267,13 @@ Item {
     var accounts = accountList && accountList.accounts ? accountList.accounts : []
     for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
       var account = accounts[accountIndex]
-      if (!account || account.id !== accountId || account.provider !== "gmail") continue
+      if (!account || account.id !== accountId) continue
       var host = accountHosts.objectAt(accountIndex)
       if (!host) continue
       host.withAccessToken(callback)
       return
     }
     callback("", "The Google calendar account is not signed in")
-  }
-
-  // Invariant: Microsoft calendars use the owning mailbox's Graph token and calendar scope.
-  function withMicrosoftAccessToken(accountId, callback) {
-    var accounts = accountList && accountList.accounts ? accountList.accounts : []
-    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
-      var account = accounts[accountIndex]
-      if (!account || account.id !== accountId || account.provider !== "outlook") continue
-      var host = accountHosts.objectAt(accountIndex)
-      if (!host || !host.auth || typeof host.auth.withGraphToken !== "function") continue
-      host.auth.withGraphToken(callback)
-      return
-    }
-    callback("", "The Microsoft calendar account is not signed in")
   }
 
   signal replySent(string sendId)
@@ -2441,14 +2350,9 @@ Item {
       accountId: entry ? entry.id : ""
       backend: root.backend
       configuredEmail: entry ? entry.email : ""
-      oauthClientId: entry ? entry.clientId : ""
       // Invariant: Provider and server settings come from the same account entry.
-      providerId: entry ? entry.provider : Provider.DEFAULT_ID
-      imapSettings: entry ? entry.imap : null
-      jmapSettings: entry ? entry.jmap : null
-      senderName: entry ? String(entry.senderName || "") : ""
       // Invariant: Only the first Gmail account may adopt the legacy client-keyed refresh token.
-      mayAdoptLegacyToken: index === 0 && (!entry || entry.provider === "gmail")
+      mayAdoptLegacyToken: index === 0
       settings: root.settings
       monitoredIds: entry ? entry.monitored : []
       // Invariant: Remote-image permission is a reader-wide preference shared by every account.
@@ -2459,7 +2363,6 @@ Item {
       }
       onAccountIdentified: function(email) { root.nameAccount(index, email) }
       // Invariant: Learned JMAP settings update the owning account entry without discarding its other fields.
-      onServerSettingsLearned: function(jmap) { root.configureAccount(index, { jmap: jmap }) }
       onReadyChanged: root.recount()
       onInboxUnreadChanged: root.recount()
       onReplySent: function(sendId) { root.replySent(String(sendId || "")) }

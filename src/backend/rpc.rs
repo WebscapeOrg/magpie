@@ -246,9 +246,9 @@ mod tests {
             });
             started.await.unwrap();
             let session = crate::backend::Session::default();
-            // Invariant: Unknown methods use the same blocking dispatch path as the HEY
-            // process adapter, without invoking a real provider or changing PATH.
-            let frame = br#"{"jsonrpc":"2.0","id":1,"method":"unknown"}"#;
+            // Invariant: Parsing invalid calendar input exercises blocking dispatch without
+            // network, credentials or filesystem effects.
+            let frame = br#"{"jsonrpc":"2.0","id":1,"method":"calendar.parse","params":{"unexpected":true}}"#;
             let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
             let request = handle(frame, &session, deadline);
             tokio::pin!(request);
@@ -264,7 +264,7 @@ mod tests {
             assert!(early.is_none(), "RPC detached a queued blocking operation");
             let (response, quit) = request.await;
             assert!(!quit);
-            assert_eq!(response.unwrap()["error"]["code"], -32601);
+            assert_eq!(response.unwrap()["error"]["code"], -32602);
         });
     }
 }

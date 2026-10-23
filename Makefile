@@ -11,16 +11,7 @@ QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tool
 	ui/account/MailAccount.qml ui/account/LocalMailbox.qml ui/account/AccountResources.qml ui/account/BackendSync.qml ui/account/SendQueue.qml ui/account/Intents.qml ui/account/BatchAction.qml ui/account/UnifiedBatchAction.qml ui/account/UnifiedBatchSelection.qml ui/account/Rsvp.qml ui/account/LabelActions.qml ui/account/Unsubscribe.qml ui/account/NewMailNotification.qml \
 	ui/cache/CacheStore.qml ui/cache/BodyCache.qml \
 	ui/providers/AuthManager.qml ui/providers/GmailApiClient.qml \
-	ui/providers/OutlookAuth.qml \
-	ui/providers/ImapAuth.qml ui/providers/ImapClient.qml \
-	ui/providers/HeyAuth.qml ui/providers/HeyClient.qml \
-	ui/providers/JmapAuth.qml ui/providers/JmapClient.qml ui/providers/JmapPush.qml \
-	ui/components/ImapSetupPage.qml \
-	ui/components/OutlookSetupPage.qml \
-	ui/components/JmapSetupPage.qml \
-	ui/components/HeySetupPage.qml \
-	ui/components/ProviderPicker.qml \
-	ui/components/ProviderLogo.qml \
+	 \
 	ui/components/ProviderHero.qml \
 	ui/components/LinkLabel.qml \
 	ui/components/MailboxSidebar.qml \
@@ -44,7 +35,7 @@ QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tool
 	ui/components/InviteCard.qml \
 	ui/components/SwitcherSearch.qml \
 	ui/components/AccountNameField.qml \
-	ui/components/SenderNameField.qml \
+	 \
 	ui/components/ReaderBlankSlate.qml \
 	ui/components/ReaderSkeleton.qml \
 	ui/components/ComposeView.qml \
@@ -87,8 +78,6 @@ QML_FILES += ui/tests/qml/tst_compose_geometry.qml
 QML_FILES += ui/tests/qml/tst_event_suggestion_lifecycle.qml
 QML_FILES += ui/tests/qml/tst_google_auth_session.qml
 QML_FILES += ui/tests/qml/tst_message_list_geometry.qml
-QML_FILES += ui/tests/qml/tst_password_sign_in_lifecycle.qml
-QML_FILES += ui/tests/qml/tst_provider_session_callbacks.qml
 QML_FILES += ui/tests/qml/tst_reader_image_lifecycle.qml
 QML_FILES += ui/tests/qml/tst_setup_plaintext.qml
 QML_FILES += ui/tests/qml/tst_signature_import_lifecycle.qml
@@ -115,7 +104,7 @@ APP_TARGET_DIR ?= $(CURDIR)/target/standalone
 APP_BACKEND := $(APP_TARGET_DIR)/debug/omamail$(APP_EXEEXT)
 APP_EXECUTABLE := $(APP_BUILD_DIR)/omamail-app$(APP_EXEEXT)
 
-.PHONY: test test-js test-shell test-shell-portable test-shell-independent test-shell-libcurl \
+.PHONY: test test-js test-shell test-shell-portable test-shell-independent \
 	test-qml test-app-qml test-local test-backend-process test-agent-cli-protocols qml-check validate bench install \
 	app-build app-run help
 
@@ -133,6 +122,7 @@ test-backend-process:
 	node ui/tests/test_backend_queue.js target/debug/omamail
 	python3 tests/test_backend_process.py
 	python3 tests/test_search_backend.py
+	python3 tests/test_removed_providers.py
 	python3 tests/test_agent_native_bridge.py
 
 # Invariant: real CLI protocol fixtures are opt-in and use a local model server.
@@ -164,8 +154,6 @@ test-js:
 	node ui/tests/test_backend_compatibility.js
 	node ui/tests/test_backend_runtime.js
 	node ui/tests/test_backend_chunks.js
-	node tests/test_imap_backend.js
-	node tests/test_hey_backend.js
 	node tests/test_gmail_backend.js
 	node ui/tests/test_compose_recovery.js
 	node ui/tests/test_agent.js
@@ -176,7 +164,6 @@ test-js:
 	node ui/tests/test_recipients.js
 	node ui/tests/test_senders.js
 	node ui/tests/test_oauth.js
-	node ui/tests/test_microsoft_oauth.js
 	node ui/tests/test_credentials.js
 	node ui/tests/test_secrets.js
 	node ui/tests/test_gmail_api.js
@@ -210,18 +197,12 @@ test-js:
 	node ui/tests/test_aliases.js
 	node ui/tests/test_menu.js
 	node ui/tests/test_provider.js
-	node ui/tests/test_imap.js
-	node ui/tests/test_jmap.js
-	node ui/tests/test_jmap_threads.js
-	node ui/tests/test_jmap_helpers.js
-	node ui/tests/test_hey.js
 
-test-shell: test-shell-portable test-shell-libcurl
+test-shell: test-shell-portable
 
 # Invariant: portable transport tests assert our policy using controlled servers.
 test-shell-portable: test-shell-independent
 	python3 tests/test_calendar_notifications.py
-	python3 tests/test_curl_config.py
 	python3 tests/test_public_http.py
 
 test-shell-independent:
@@ -259,24 +240,13 @@ test-shell-independent:
 	bash tests/test_link_plugin.sh
 	bash tests/test_mailto.sh
 	bash tests/test_default_mail.sh
-	bash tests/test_transport.sh
-	bash tests/test_jmap_transport.sh
-	python3 tests/test_jmap_stream.py
 	bash tests/test_attachment_open.sh
 	bash tests/test_attachment_save.sh
 	bash tests/test_attachment.sh
-	bash tests/test_calendar_transport.sh
-	bash tests/test_calendar_write.sh
-	bash tests/test_calendar_delete.sh
 	bash tests/test_release_notes.sh
 	bash tests/test_publish.sh
 	python3 tests/test_publish_backend.py
 	bash tests/test_release_source.sh
-
-# Invariant: BODY.PEEK output channels depend on the installed libcurl version.
-# This local gate checks the desktop library; release CI uses the portable gate.
-test-shell-libcurl:
-	bash tests/test_imap_ordering.sh
 
 # Invariant: Arch and Debian install Qt's test runner under different names/paths.
 QMLTESTRUNNER := $(shell command -v qmltestrunner6 2>/dev/null \
@@ -297,7 +267,6 @@ test-qml:
 		exit 1; }
 	cargo build --locked --bin omamail
 	python3 tests/run_qml_native.py "$(QMLTESTRUNNER)" -input ui/tests/qml
-	python3 tests/test_outlook_http.py "$(QMLTESTRUNNER)"
 	python3 tests/test_sidebar_text.py "$(QMLTESTRUNNER)"
 	python3 tests/test_view_resources.py "$(QMLTESTRUNNER)"
 	python3 tests/test_attachment_resources.py "$(QMLTESTRUNNER)"

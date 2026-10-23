@@ -1,8 +1,5 @@
 .pragma library
 
-.import "../providers/Registry.js" as Provider
-
-// Invariant: Unified mailbox controls use capabilities shared by every participating account.
 function messageTime(item) {
   var value = item ? item.date : null
   if (value && typeof value.getTime === "function") return value.getTime()
@@ -27,7 +24,7 @@ function compareTimedRows(left, right) {
   return compareTiebreak(left.row, right.row)
 }
 
-// Invariant: Composed ids use account plus U+001F plus provider id; spaces cannot delimit IMAP ids such as 42:Sent Items.
+// Invariant: Gmail message IDs are account-local; composed IDs retain their owning account.
 var ID_SEPARATOR = "\u001f"
 
 function unifiedId(accountId, messageId) {
@@ -181,52 +178,6 @@ function cursorOffset(messages, cursorId, delta) {
   if (next < 0 || next >= values.length) return ""
   return String(values[next].id || "")
 }
-
-// Invariant: Intersect live account capabilities and mailbox directories; provider defaults may offer folders the server lacks.
-function everyMailboxCan(abilities, capability) {
-  var rows = Array.isArray(abilities) ? abilities : []
-  if (rows.length === 0) return false
-  for (var sourceIndex = 0; sourceIndex < rows.length; sourceIndex++) {
-    if (!rows[sourceIndex] || rows[sourceIndex][capability] !== true) return false
-  }
-  return true
-}
-
-function sharedMailboxRows(abilities) {
-  var rows = Array.isArray(abilities) ? abilities : []
-  if (rows.length === 0) return []
-  var first = rowsOf(rows[0])
-  var result = []
-  for (var capabilityIndex = 0; capabilityIndex < first.length; capabilityIndex++) {
-    var key = String(first[capabilityIndex].key || "")
-    if (key === "") continue
-    var everyone = true
-    for (var sourceIndex = 1; sourceIndex < rows.length; sourceIndex++) {
-      if (!holdsMailbox(rows[sourceIndex], key)) {
-        everyone = false
-        break
-      }
-    }
-    if (everyone) result.push(first[capabilityIndex])
-  }
-  return result
-}
-
-function rowsOf(row) {
-  return row && Array.isArray(row.mailboxes) ? row.mailboxes : []
-}
-
-function holdsMailbox(row, key) {
-  var list = rowsOf(row)
-  for (var sourceIndex = 0; sourceIndex < list.length; sourceIndex++) {
-    if (String(list[sourceIndex].key || "") === key) return true
-  }
-  return false
-}
-
-
-
-
 
 function totalUnread(summaries) {
   var values = Array.isArray(summaries) ? summaries : []

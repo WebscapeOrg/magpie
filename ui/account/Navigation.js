@@ -4,7 +4,7 @@
 var OVERLAYS = ["compose", "eventComposer", "help"]
 
 var KINDS = ["list", "calendar", "reader", "calendarDetail", "settings",
-  "picker", "setup", "compose", "eventComposer", "help"]
+  "setup", "compose", "eventComposer", "help"]
 
 var DEFAULT_KIND = "list"
 
@@ -122,14 +122,11 @@ function overlay(stack) {
   return null
 }
 
-// Invariant: First-run setup retains the picker below its form; account edits must not reset navigation on every keystroke.
 function rootFor(state) {
   var value = isObject(state) ? state : {}
   if (value.anyReady === true)
     return [entry(trimmed(value.view) === "calendar" ? "calendar" : "list")]
-  if (value.hasSavedAccounts === true && value.setupUnderway === true)
-    return [entry("picker"), entry("setup", { provider: trimmed(value.provider), draft: false })]
-  return [entry("picker")]
+  return [entry("setup", { draft: false })]
 }
 
 function kinds(stack) {

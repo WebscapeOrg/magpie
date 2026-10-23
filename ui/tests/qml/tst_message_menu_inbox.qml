@@ -18,8 +18,6 @@ Item {
     property bool hasLabels: true
     property string rawLabelId: ""
     property var messages: []
-    property var hosts: null
-    function hostForId(id) { return hosts ? hosts[id] || null : fakeService }
   }
 
   Omamail.MessageMenu {
@@ -78,7 +76,6 @@ Item {
       menu.close()
       applicationMenu.close()
       fakeService.canOpenOnWeb = false
-      fakeService.hosts = null
       fakeService.canReportSpam = true
     }
 
@@ -157,57 +154,8 @@ Item {
       compare(unarchiveRow().visible, false)
     }
 
-    // Invariant: IMAP has no report-spam action; unarchive moves Junk to Inbox.
-    function test_junk_without_a_spam_verb_offers_it() {
+    function test_spam_is_not_archived_mail_even_if_reporting_spam_is_unavailable() {
       fakeService.canReportSpam = false
-      var summary = archivedMessage()
-      summary.inSpam = true
-      show(summary)
-      compare(menu.archived, true, "Junk with no spam verb is where Move to Inbox means")
-      compare(unarchiveRow().visible, true)
-      compare(unarchiveRow().text, "Move to Inbox")
-      unarchiveRow().activated()
-      compare(actionSpy.signalArguments[0][0], "unarchive")
-      fakeService.canReportSpam = true
-    }
-
-    function test_junk_with_a_spam_verb_still_hides_it() {
-      fakeService.canReportSpam = true
-      var summary = archivedMessage()
-      summary.inSpam = true
-      show(summary)
-      compare(menu.archived, false)
-      compare(unarchiveRow().visible, false)
-    }
-
-    function test_mixed_mailboxes_use_the_messages_own_spam_capability_data() {
-      return [
-        { tag: "gmail", id: "gmail:owner:spam", capability: true, offered: false },
-        { tag: "imap", id: "imap:owner:Junk:42", capability: false, offered: true }
-      ]
-    }
-
-    function test_mixed_mailboxes_use_the_messages_own_spam_capability(row) {
-      fakeService.canReportSpam = false
-      var hosts = ({})
-      hosts[row.id] = { canReportSpam: row.capability }
-      fakeService.hosts = hosts
-      var summary = archivedMessage()
-      summary.id = row.id
-      summary.inSpam = true
-      show(summary)
-      compare(menu.archived, row.offered)
-      compare(unarchiveRow().visible, row.offered)
-      if (row.offered) {
-        unarchiveRow().activated()
-        compare(actionSpy.signalArguments[0][0], "unarchive")
-        compare(actionSpy.signalArguments[0][1], row.id)
-      }
-    }
-
-    function test_missing_owner_does_not_offer_a_spam_recovery_action() {
-      fakeService.canReportSpam = false
-      fakeService.hosts = ({})
       var summary = archivedMessage()
       summary.inSpam = true
       show(summary)
@@ -231,10 +179,9 @@ Item {
       compare(unarchiveRow().text, "Move to Inbox")
     }
 
-    // Invariant: a folder name is not a removable Gmail label id.
-    function test_a_folder_provider_promises_no_label_removal() {
+    function test_a_combined_view_promises_no_account_label_removal() {
       show(archivedMessage())
-      fakeService.rawLabelId = "Archive"
+      fakeService.rawLabelId = "Label_17"
       fakeService.hasLabels = false
       compare(menu.inLabelView, false)
       compare(unarchiveRow().text, "Move to Inbox")

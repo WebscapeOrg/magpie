@@ -167,7 +167,8 @@ class Diagnostics(unittest.TestCase):
                 codes.update(pattern.findall(source))
         # These are synthetic fixture errors, not production backend errors.
         codes -= {'unexpected_method', 'test_directories_override_active'}
-        self.assertGreater(len(codes), 350)
+        self.assertTrue({'gmail_http_failed', 'accounts_provider_unsupported',
+                         'calendar_provider_unsupported'} <= codes)
         self.assertEqual(sorted(codes - module.MESSAGES), [])
 
     def test_mail_errors_survive_recording_and_report_regeneration(self):
@@ -202,7 +203,8 @@ class Diagnostics(unittest.TestCase):
         self.assertEqual([entry['message'] for entry in entries],
                          [code for _, code in cases])
         self.assertEqual([entry['method'] for entry in entries],
-                         [method for method, _ in cases])
+                         [('backend.request' if method.startswith(('imap.', 'jmap.')) else method)
+                          for method, _ in cases])
         self.assertNotIn('unknown_error', report)
 
     def test_error_shaped_private_values_never_reach_disk_report_or_launcher(self):

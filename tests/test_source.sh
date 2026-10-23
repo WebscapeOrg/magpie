@@ -204,8 +204,8 @@ if awk '
   in_button && /^[[:space:]]*hoverColor:/ { print NR ":" $0; found = 1 }
   in_button && /^[[:space:]]*\}/ { in_button = 0 }
   END { exit !found }
-' components/ImapSetupPage.qml; then
-  fail "ImapSetupPage assigns the non-existent IconTextButton.hoverColor property"
+' components/SetupPage.qml; then
+  fail "SetupPage assigns the non-existent IconTextButton.hoverColor property"
 fi
 for file in components/MessageList.qml components/ReaderBlankSlate.qml; do
   if grep -n 'resultSummary' "$file"; then
@@ -524,18 +524,10 @@ if grep -q 'Shortcut { sequence: "Escape"' components/CalendarEventComposer.qml;
 fi
 grep -q 'objectName: "event-repeat-selector"' components/CalendarEventComposer.qml \
   || fail "event creation needs an optional recurrence section"
-grep -q 'text: "Connect a CalDAV calendar\.\.\."' components/CalendarSettings.qml \
-  || fail "settings must let a user add a calendar"
-grep -q 'placeholderText: "Calendar name"' components/CalendarSettings.qml \
-  || fail "calendar setup needs a name field"
-grep -q 'placeholderText: "CalDAV URL"' components/CalendarSettings.qml \
-  || fail "calendar setup needs a CalDAV URL field"
-grep -q 'placeholderText: "Username"' components/CalendarSettings.qml \
-  || fail "calendar setup needs a username field"
-grep -q 'placeholderText: "Password or app password"' components/CalendarSettings.qml \
-  || fail "calendar setup needs its own password field"
-grep -q 'text: "Set password"' components/CalendarSettings.qml \
-  || fail "existing CalDAV calendars need a password action"
+grep -q 'text: "Choose calendars to show"' components/CalendarSettings.qml \
+  || fail "calendar setup must let users choose discovered Google calendars"
+grep -q 'root.controller.confirmDiscovery()' components/CalendarSettings.qml \
+  || fail "calendar discovery must save only after users confirm their selection"
 grep -q 'credentials.json|accounts.json|window.json|calendars.json|compose.json' ../scripts/config-store.sh \
   || fail "the config writer must accept calendar source records"
 if grep -q 'Five Nextcloud calendars\|imported from Thunderbird\|Nextcloud password' components/CalendarSettings.qml; then
@@ -578,10 +570,10 @@ if grep -Eq 'Provider\.(query|labelQuery|addressQuery|webMessageUrl|webBoxUrl)\(
   fail "provider query and message URL construction must use the native domain"
 fi
 if grep -Eq '^function (query|searchQuery|labelQuery|addressQuery|webMessageUrl|webBoxUrl|cachedSummaryInSearch)\(' \
-    providers/Registry.js providers/Gmail.js providers/Outlook.js providers/Hey.js providers/Jmap.js providers/Imap.js; then
+    providers/Registry.js providers/Gmail.js; then
   fail "legacy provider domain functions belong only in test oracles"
 fi
-grep -q 'capabilities: capabilities(facts.capabilities)' providers/Registry.js \
+grep -q 'capabilities: facts.capabilities' providers/Registry.js \
   || fail "UI capability ceilings must come from the generated native snapshot"
 
 # Performance: A first-time search paints what every cached mailbox page already knows, then accepts
@@ -589,7 +581,7 @@ grep -q 'capabilities: capabilities(facts.capabilities)' providers/Registry.js \
 # the shared client interface, not a Gmail branch in MailAccount.
 grep -q 'cacheStore.getPreview(effectiveQuery, maxMessages,' account/MailAccount.qml \
   || fail "typed searches must inspect eligible cached message summaries first"
-grep -q 'eligible(provider, source_query(key), row)' ../src/cache/query.rs \
+grep -q 'eligible(source_query(key), row)' ../src/cache/query.rs \
   || fail "cached search previews must stay inside the provider's live scope"
 grep -q 'function loadSearchMessages' account/MailAccount.qml \
   || fail "typed searches need a progressive list pipeline"
@@ -607,7 +599,7 @@ grep -q 'text: "Searching server"' components/SearchBar.qml \
   || fail "the search field must name what is still running"
 grep -q 'RotationAnimator on rotation' components/SearchBar.qml \
   || fail "the server-search state must remain visible when its label no longer fits"
-for client in providers/GmailApiClient.qml providers/HeyClient.qml providers/ImapClient.qml; do
+for client in providers/GmailApiClient.qml; do
   grep -q 'function listMessages(query, maxResults, pageToken, callback, progress)' "$client" \
     || fail "$client must expose the shared progressive search interface"
   grep -q 'function getMessages(ids, full, callback, existingHandle, progress)' "$client" \
@@ -615,30 +607,10 @@ for client in providers/GmailApiClient.qml providers/HeyClient.qml providers/Ima
 done
 # Invariant: Every provider answers the conversation-member callback, returning an empty list when
 # conversation expansion is unsupported.
-for client in providers/GmailApiClient.qml providers/HeyClient.qml \
-    providers/ImapClient.qml providers/JmapClient.qml; do
+for client in providers/GmailApiClient.qml; do
   grep -q 'function getSummaries(ids, callback)' "$client" \
     || fail "$client must expose the shared conversation-member interface"
 done
-# Invariant: A conversation member uses its own unread state; a thread aggregate cannot stand in for
-# that message.
-awk '
-  /function getSummaries\(/ { in_members = 1 }
-  in_members && /^  function getMessages\(/ { exit }
-  in_members && /withThreadBlock/ { invalid = 1 }
-  END { exit invalid }
-' providers/JmapClient.qml \
-  || fail "a conversation member must not be given the row's thread block"
-grep -q 'if (ids.length > 0) progress({' providers/ImapClient.qml \
-  || fail "IMAP search windows must report ids before the final page"
-grep -q 'UID FETCH {set} (UID INTERNALDATE)' ../src/providers/imap/read.rs \
-  || fail "native IMAP paging must read arrival dates in bounded UID batches"
-grep -q 'sparse_search_orders_by_date_before_paging_even_when_progressive' ../src/providers/imap/read/tests.rs \
-  || fail "native sparse search needs tested date-ordered pagination"
-grep -q 'multi_window_dates_settle_before_paging_and_ignore_unsolicited_flags' ../src/providers/imap/read/tests.rs \
-  || fail "native IMAP ordering needs a bounded multi-window network regression"
-grep -q 'continuation' ../src/providers/imap/read.rs \
-  || fail "native streamed IMAP reads must continue through opaque bounded batches"
 grep -q 'fetchQueue\.push(wanted)' account/MailAccount.qml \
   || fail "streamed metadata reads need one shared queue"
 # Invariant: Native intent preparation owns row/member updates, scoped rollback and conversation
@@ -696,12 +668,8 @@ awk '
   END { exit !(checks_ids && clears_page) }
 ' account/MailAccount.qml \
   || fail "ordinary metadata reads must detect holes and close paging"
-grep -Fq 'let (mut matches, dates) = scan?;' ../src/providers/imap/read.rs \
-  || fail "an IMAP failure before SEARCH answers must keep the cached preview"
 grep -Fq 'callback(ordered, firstError, firstDetail)' providers/GmailApiClient.qml \
   || fail "Gmail must report partial metadata failures"
-grep -q 'Some messages could not be loaded' providers/ImapClient.qml \
-  || fail "native IMAP partial metadata failures must reach the UI"
 grep -q 'progressTimerComponent' providers/GmailApiClient.qml \
   || fail "parallel Gmail metadata replies must be coalesced before repainting"
 grep -q 'MAX_SUMMARIES_PER_QUERY' cache/Cache.js \
@@ -725,13 +693,9 @@ grep -q 'signal editRequested(int index)' components/SettingsPage.qml \
 if grep -qE 'signal (signIn|signOut|remove)Requested' components/SettingsPage.qml; then
   fail "sign-in, sign-out and removal belong on the account edit page"
 fi
-grep -q 'signal removeRequested()' components/ImapSetupPage.qml \
-  || fail "the IMAP edit page needs to own account removal"
+grep -q 'signal removeRequested()' components/SetupPage.qml \
+  || fail "the account edit page needs to own account removal"
 
-# Invariant: The tested protocol helper owns the setup decision; the form must not grow a second,
-# untested copy that can drop Proton Bridge's local transport again.
-grep -q 'return Imap\.setupSettings({' components/ImapSetupPage.qml \
-  || fail "the IMAP setup form must use the tested settings builder"
 grep -q 'service\.discardCurrentDraft()' App.qml \
   || fail "leaving Add account must discard its unnamed draft"
 if awk '
@@ -743,16 +707,9 @@ if awk '
   fail "Add account must not persist its blank draft"
 fi
 
-# Invariant: An IMAP address is account identity; its login username may legitimately be different
-# and must never replace it while editing or loading the profile.
-grep -q 'addressField\.text = service ? service\.accountAddress' components/ImapSetupPage.qml \
-  || fail "IMAP Edit must read the saved account address separately from username"
-grep -q 'email: root\.configuredEmail' account/MailAccount.qml \
-  || fail "the IMAP profile must preserve the configured account address"
-
 # Invariant: Destructive account actions consume the semantic danger role passed from the app.
 # Calling it dim or urgent at the button loses the action's meaning.
-for page in components/SetupPage.qml components/ImapSetupPage.qml; do
+for page in components/SetupPage.qml; do
   grep -q 'required property color dangerColor' "$page" \
     || fail "$page must receive the semantic danger colour"
   awk '
@@ -793,7 +750,7 @@ grep -q 'accountId = Accounts.accountId(accountEmail, providerId)' account/MailA
 # Invariant: Native desktop controls retain the arrow cursor. A pointing hand is reserved for actual
 # links such as URLs inside the message reader.
 for file in components/IconButton.qml components/IconTextButton.qml components/AppMenu.qml \
-  components/MessageMenu.qml components/AccountSwitcher.qml components/ProviderPicker.qml \
+  components/MessageMenu.qml components/AccountSwitcher.qml \
   components/MailboxSidebar.qml; do
   if grep -n 'PointingHandCursor' "$file"; then
     fail "$file uses a web-link cursor for a native control"
@@ -812,7 +769,7 @@ fi
 grep -q 'text: "Add a mailbox\.\.\."' components/SettingsPage.qml \
   || fail "Add a mailbox opens a workflow and needs an ellipsis"
 grep -q 'tooltipText: "Add another mail account"' components/SettingsPage.qml \
-  || fail "the add-account tooltip must be provider-neutral"
+  || fail "the add-account tooltip must explain the account workflow"
 python3 - <<'PY'
 from pathlib import Path
 
@@ -874,8 +831,8 @@ MENUROWS
 # Invariant: Feature views receive semantic colours from App. Reading theme roles locally makes the
 # same concept drift between pages and prevents App from naming it.
 for file in components/AppMenu.qml components/MessageMenu.qml components/AccountSwitcher.qml \
-  components/ProviderPicker.qml components/MailboxTabs.qml components/SetupPage.qml \
-  components/ImapSetupPage.qml components/ImagePopover.qml \
+  components/MailboxTabs.qml components/SetupPage.qml \
+  components/SetupPage.qml components/ImagePopover.qml \
   components/ComposeView.qml; do
   if grep -nE '(^|[^A-Za-z])Color\.' "$file"; then
     fail "$file reads theme colours instead of receiving semantic roles"
@@ -939,14 +896,14 @@ awk '
   saw_sign_out && /text: "Remove account"/ { saw_remove_after = 1 }
   saw_remove_after && /bordered: false/ { ghost = 1 }
   END { exit !(saw_sign_out && saw_remove_after && ghost) }
-' components/ImapSetupPage.qml \
-  || fail "IMAP Remove account must be the trailing danger ghost beside Sign out"
+' components/SetupPage.qml \
+  || fail "Remove account must be the trailing danger ghost beside Sign out"
 awk '
   /^  Widgets\.Button \{/ { top_button = 1; next }
   top_button && /text: "Remove account"/ { exit 1 }
   top_button && /^  \}/ { top_button = 0 }
-' components/ImapSetupPage.qml \
-  || fail "IMAP Remove account must not be detached from the account action row"
+' components/SetupPage.qml \
+  || fail "Remove account must not be detached from the account action row"
 
 # Invariant: The mailbox selected expression includes its search continuation; an intervening
 # binding silently attaches that guard to another property.
@@ -1034,8 +991,6 @@ grep -q 'exec "$installer"' ../scripts/link-plugin.sh \
   || fail "Magpie's install helper must use Enterprise's guarded copy installer"
 grep -q 'registerMailtoHandler' Service.qml \
   || fail "the service must register the mailto handler when the plugin loads"
-grep -q '("bcc", "Bcc")' ../src/providers/hey_actions.rs \
-  || fail "HEY must pass a mailto Bcc through to hey compose"
 grep -q 'signal mailtoRequested(string url)' components/MessageReader.qml \
   || fail "a mailto in a message body must compose here, not leave through xdg-open"
 if awk '
@@ -1089,7 +1044,7 @@ grep -q 'from: from' account/MailAccount.qml \
   || fail "MailAccount must pass the selected From address to Message.js"
 grep -q 'fromHeader(values.from, values.fromName)' message/Message.js \
   || fail "Message.js must write the selected From header, display name and all"
-for client in providers/GmailApiClient.qml providers/ImapClient.qml; do
+for client in providers/GmailApiClient.qml; do
   grep -q 'function getSendAs' "$client" \
     || fail "$client must implement the provider-neutral sender-list operation"
 done
@@ -1113,73 +1068,6 @@ if "FileDialog" in block or "execDetached" in block:
         "test_source.sh: Attach must not open an in-process dialog or a detached file manager"
     )
 PY
-
-# Invariant: JMAP transport owns credential construction and scheme validation; QML must not create
-# a second Authorization policy.
-python3 - <<'PY1'
-from pathlib import Path
-import re
-
-for name in ("providers/JmapClient.qml", "providers/JmapAuth.qml",
-             "components/JmapSetupPage.qml"):
-    code = re.sub(r"//[^\n]*", "", Path(name).read_text())
-    for literal in re.findall(r'"(?:[^"\\]|\\.)*"', code):
-        if re.search(r"Authorization|Basic |Bearer ", literal):
-            raise SystemExit(
-                "test_source.sh: the JMAP transport builds the credential; "
-                + name + " must never assemble an Authorization value: " + literal
-            )
-PY1
-
-# Invariant: Credentials stay in the keyring; persisted JMAP settings are not an authentication
-# store.
-python3 - <<'PY2'
-from pathlib import Path
-import re
-
-source = Path("account/Accounts.js").read_text()
-start = source.index("function makeJmapSettings(raw)")
-end = source.index("\nfunction ", start + 1)
-block = source[start:end]
-for word in ("secret", "password", "token"):
-    if re.search(word, block, re.I):
-        raise SystemExit(
-            "test_source.sh: a JMAP account's settings must not carry a credential: " + word
-        )
-PY2
-
-python3 - <<'UNIFIEDCAPS'
-import re
-from pathlib import Path
-
-source = Path("Service.qml").read_text()
-
-# Invariant: Unified capabilities intersect live mailbox answers, including server refusals;
-# provider-wide ceilings alone can expose unsupported actions.
-block = re.search(r"readonly property var unifiedAbilities: \{(.*?)\n  \}", source, re.S)
-if not block:
-    raise SystemExit("test_source.sh: the merged capabilities must be read off the hosts "
-                     "(`unifiedAbilities`), not derived from provider ids")
-for verb in ("canArchive", "canReportSpam", "canStar", "hasLabels",
-             "canOpenOnWeb", "canMove", "showsConversations", "mailboxes"):
-    if "host." + verb not in block.group(1):
-        raise SystemExit("test_source.sh: `unifiedAbilities` must read host.%s, "
-                         "or a mailbox's own refusal is dropped in a merged list" % verb)
-
-if 'abilities: unifiedAbilities' not in source or '"model.unified"' not in source:
-    raise SystemExit("test_source.sh: native unified capability requests must carry host abilities")
-
-for name in ("canArchive", "canReportSpam", "canStar", "hasLabels", "canOpenOnWeb"):
-    offered = re.search(r"readonly property bool " + name + r": unified\s*\n\s*\?([^\n]*)",
-                        source)
-    if not offered or "unifiedSnapshot.capabilities" not in offered.group(1):
-        raise SystemExit("test_source.sh: %s in a merged list must intersect "
-                         "the native unified capability snapshot" % name)
-
-if re.search(r"Unified\.(sharedCapability|sharedMailboxes|hasSharedMailbox)\b", source):
-    raise SystemExit("test_source.sh: the provider-only intersection is gone; "
-                     "use `Unified.everyMailboxCan` / `sharedMailboxRows`")
-UNIFIEDCAPS
 
 python3 - <<'PLUGINDIR'
 from pathlib import Path

@@ -18,7 +18,7 @@ Item {
     name: "CacheStoreBackend"
     when: windowShown
     function snapshot(account, generation) {
-      return {generation:generation,store:{version:2,account:account,labels:[],profile:null,session:null}}
+      return {generation:generation,store:{version:2,account:account,labels:[],profile:null}}
     }
     function init() {
       backend.ready = false
@@ -60,10 +60,10 @@ Item {
     function test_native_preview_result_and_date_boundary() {
       backend.reads[0].done(snapshot("a@example.org",5),null)
       var seen=null
-      cache.getPreview("folder:INBOX",25,"needle","imap",1000,function(result,error) {seen=result})
+      cache.getPreview("in:inbox",25,"needle","gmail",1000,function(result,error) {seen=result})
       compare(backend.requests[0].method,"cache.queryGet")
-      compare(backend.requests[0].params.query,"folder:INBOX")
-      backend.requests[0].done({key:"folder:INBOX|25",summaries:[{id:"one",dateMs:10}]},null)
+      compare(backend.requests[0].params.query,"in:inbox")
+      backend.requests[0].done({key:"in:inbox|25",summaries:[{id:"one",dateMs:10}]},null)
       compare(seen.summaries[0].id,"one")
       cache.putQuery(seen.key,{summaries:[{id:"one",date:new Date(1000)}],estimate:1,nextPageToken:""})
       compare(backend.requests[1].params.page.summaries[0].dateMs,1000)

@@ -35,6 +35,8 @@ Item {
 
   anchors.fill: parent
   z: 50
+  onWidthChanged: place()
+  onHeightChanged: place()
 
   property real anchorX: 0
   property real anchorY: 0
@@ -62,12 +64,13 @@ Item {
 
   QQC.Popup {
     id: menu
-    width: MailStyle.space(220)
+    width: Math.max(0, Math.min(MailStyle.space(220), root.width))
     implicitHeight: rows.implicitHeight + MailStyle.space(8)
     padding: MailStyle.space(4)
     modal: false
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
+    onWidthChanged: root.place()
     onHeightChanged: root.place()
     onOpened: {
       root.cursorIndex = Menu.firstSelectable(root.menuRows)

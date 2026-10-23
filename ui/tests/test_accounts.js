@@ -13,13 +13,9 @@ function serializedSnapshot(list) {
 
 
 deepEqual(accounts.emptyList(), { version: accounts.VERSION, accounts: [], activeId: "" })
-assert.strictEqual(accounts.calendarProvider({ provider: "outlook" }), "microsoft")
-assert.strictEqual(accounts.calendarProvider({ provider: "imap", email: "person@icloud.com" }), "icloud")
-assert.strictEqual(accounts.calendarProvider({ provider: "imap", email: "person@example.com",
-  imap: { imapHost: "imap.mail.me.com" } }), "icloud",
-  "an iCloud custom-domain mailbox is identified by its saved server")
-assert.strictEqual(accounts.calendarProvider({ provider: "imap", email: "person@example.com",
-  imap: { imapHost: "imap.example.com" } }), "")
+assert.strictEqual(accounts.calendarProvider({ email: "person@work.example" }), "google")
+assert.strictEqual(accounts.calendarProvider({ provider: "gmail" }), "google")
+assert.strictEqual(accounts.calendarProvider({ provider: "imap" }), "")
 assert.strictEqual(accounts.VERSION, 1)
 assert.strictEqual(accounts.count(accounts.emptyList()), 0)
 
@@ -55,8 +51,7 @@ assert.strictEqual(accounts.accountId("  Ada@Example.COM "), "ada@example.com")
 assert.strictEqual(accounts.accountId("nobody"), "")
 assert.strictEqual(accounts.accountId(""), "")
 assert.strictEqual(accounts.accountId(null), "")
-assert.strictEqual(accounts.accountId("Ada@Hotmail.com", "outlook"),
-  "outlook:ada@hotmail.com")
+assert.throws(() => accounts.accountId("Ada@Hotmail.com", "outlook"), /accounts_provider_unsupported/)
 
 
 assert.strictEqual(accounts.label({ email: "ada@example.com", label: "Work" }), "Work")
@@ -237,43 +232,20 @@ const multiline = accounts.serialize(accounts.add(accounts.emptyList(), account(
 assert.strictEqual(multiline.indexOf("\n"), -1)
 assert.strictEqual(accounts.load(multiline).accounts[0].label, "a\nb")
 
-// Invariant: Legacy IMAP setup could corrupt the address while retaining it in username; load repairs it without changing active editing fields.
 const damaged = JSON.stringify({ version: accounts.VERSION, accounts: [{
-  email: "ada", provider: "imap", imap: {
-    imapHost: "imap.example.org", smtpHost: "smtp.example.org",
-    username: "ada@example.org" } }], activeId: "" })
-const mended = accounts.load(damaged)
-assert.strictEqual(mended.accounts[0].email, "ada@example.org",
-  "the address comes back from the username it was folded into")
-assert.strictEqual(mended.accounts[0].id, "imap:ada@example.org")
-assert.strictEqual(mended.activeId, "imap:ada@example.org", "and the row is selectable again")
-assert.strictEqual(mended.accounts[0].imap.imapHost, "imap.example.org",
-  "everything else about the row is untouched")
-
-const unfixable = accounts.load(JSON.stringify({ version: accounts.VERSION, accounts: [{
-  email: "ada", provider: "imap", imap: { imapHost: "imap.example.org", username: "ada" } }],
-  activeId: "" }))
+  email: "ada", clientId: "saved-client", clientSecret: "saved-secret"
+}], activeId: "" })
+const unfixable = accounts.load(damaged)
 assert.strictEqual(unfixable.accounts[0].email, "ada")
 assert.strictEqual(unfixable.accounts[0].id, "")
-
-const gmailRow = accounts.load(JSON.stringify({ version: accounts.VERSION, accounts: [{
-  email: "ada", provider: "gmail", imap: { username: "ada@example.org" } }], activeId: "" }))
-assert.strictEqual(gmailRow.accounts[0].email, "ada")
-
-const typing = accounts.add(accounts.emptyList(),
-  { email: "", provider: "imap", imap: { username: "ada@example.org" }, pending: true })
-assert.strictEqual(typing.accounts[0].email, "", "a row being typed into invents nothing")
-
-const configured = accounts.add(accounts.emptyList(),
-  { email: "ada@example.org", provider: "imap", pending: true })
+const typing = accounts.add(accounts.emptyList(), { email: "", pending: true })
+assert.strictEqual(typing.accounts[0].email, "")
+const configured = accounts.add(accounts.emptyList(), { email: "ada@example.org", pending: true })
 assert.strictEqual(configured.accounts[0].pending, false)
-
-// Invariant: Adding a valid mailbox must not make a corrupted existing mailbox disappear at persistence.
-let recovered = accounts.load(damaged)
-recovered = accounts.add(recovered, account("bob@example.com"))
+let recovered = accounts.add(accounts.load(damaged), account("bob@example.com"))
 const payload = accounts.savedOnly(recovered)
-assert.strictEqual(accounts.count(payload), 2, "adding one mailbox must not delete another")
-deepEqual(payload.accounts.map(currentAccount => currentAccount.email), ["ada@example.org", "bob@example.com"])
+assert.strictEqual(accounts.count(payload), 2, "adding a mailbox must preserve a damaged saved row")
+deepEqual(payload.accounts.map(currentAccount => currentAccount.email), ["ada", "bob@example.com"])
 assert.strictEqual(accounts.dropsNamedMailbox(recovered, payload), false)
 
 const withDraft = accounts.savedOnly(saved)
@@ -286,8 +258,7 @@ assert.strictEqual(accounts.draftCount(saved), 1)
 // Invariant: Missing id alone cannot classify a configured saved mailbox as a discardable draft.
 let broken = accounts.emptyList()
 broken = accounts.add(broken, account("ada@example.com"))
-broken = accounts.add(broken, account("ada", { provider: "imap",
-  imap: { imapHost: "imap.example.org", username: "ada" } }))
+broken = accounts.add(broken, account("ada", { clientId: "saved-client" }))
 assert.strictEqual(accounts.count(accounts.savedOnly(broken)), 2,
   "a mailbox with an unusable address is kept, not quietly deleted")
 assert.strictEqual(accounts.draftCount(broken), 0)
@@ -296,8 +267,8 @@ let hollow = accounts.emptyList()
 hollow = accounts.add(hollow, account("ada@example.com"))
 hollow = accounts.add(hollow, { email: "" })
 assert.strictEqual(accounts.count(accounts.savedOnly(hollow)), 1)
-assert.strictEqual(accounts.carriesData({ email: "", imap: {} }), false)
-assert.ok(accounts.carriesData({ id: "", imap: { username: "ada@example.org" } }))
+assert.strictEqual(accounts.carriesData({ email: "" }), false)
+assert.ok(accounts.carriesData({ id: "", clientId: "saved-client" }))
 
 // Invariant: Retaining one new mailbox does not authorize dropping any previously persisted identity.
 assert.ok(accounts.dropsNamedMailbox(broken, accounts.emptyList()))
@@ -315,8 +286,7 @@ assert.strictEqual(accounts.count(accounts.savedOnly(
 assert.strictEqual(accounts.serialize(accounts.savedOnly(saved)).indexOf("\n"), -1)
 
 const damagedDraftLookalike = accounts.add(accounts.emptyList(), {
-  email: "ada", provider: "imap",
-  imap: { imapHost: "imap.example.org", username: "ada" }
+  email: "ada", clientId: "saved-client"
 })
 assert.strictEqual(accounts.count(accounts.discardDraftAt(damagedDraftLookalike, 0)), 1,
   "only a row marked pending may be discarded as a draft")
@@ -346,194 +316,20 @@ assert.strictEqual(accounts.count(accounts.discardDraftAt(pendingList, 0)), 3)
 
 
 {
-  assert.strictEqual(accounts.makeAccount({ email: "jane@gmail.com" }).provider, "gmail")
-  assert.strictEqual(accounts.makeAccount({ email: "j@x.com", provider: "" }).provider, "gmail")
-  assert.strictEqual(accounts.makeAccount({ email: "j@x.com", provider: "pigeon" }).provider, "gmail")
-  assert.strictEqual(accounts.makeAccount({ email: "j@x.com", provider: "IMAP" }).provider, "imap")
-  assert.strictEqual(accounts.makeAccount({ email: "j@x.com", provider: " hey " }).provider, "hey")
-
-  assert.strictEqual(accounts.makeAccount({ email: "Jane@Gmail.com" }).id, "jane@gmail.com")
-  assert.strictEqual(
-    accounts.makeAccount({ email: "jane@fastmail.com", provider: "imap" }).id,
-    "imap:jane@fastmail.com")
-
-  let list = accounts.emptyList()
-  list = accounts.add(list, { email: "jane@gmail.com", provider: "gmail" })
-  list = accounts.add(list, { email: "jane@gmail.com", provider: "imap" })
-  assert.strictEqual(accounts.count(list), 2,
-    "one address over two providers is two accounts")
-  assert.strictEqual(accounts.find(list, "jane@gmail.com").provider, "gmail")
-  assert.strictEqual(accounts.find(list, "imap:jane@gmail.com").provider, "imap")
-
-  list = accounts.add(list, { email: "jane@gmail.com", provider: "imap", label: "Work" })
-  assert.strictEqual(accounts.count(list), 2)
-  assert.strictEqual(accounts.find(list, "imap:jane@gmail.com").label, "Work")
-
-  // Invariant: A colliding identity during re-authentication must preserve both mailbox rows.
-  let icloud = {
-    email: "ada@icloud.com", provider: "imap", label: "iCloud",
-    imap: { imapHost: "imap.mail.me.com", username: "ada" }
-  }
-  let proton = {
-    email: "ada@proton.me", provider: "imap", label: "Proton",
-    imap: { imapHost: "127.0.0.1", imapPort: 1143, smtpPort: 1025, insecure: true }
-  }
-  let mailboxes = accounts.emptyList()
-  mailboxes = accounts.add(mailboxes, icloud)
-  mailboxes = accounts.add(mailboxes, proton)
-  mailboxes = accounts.add(mailboxes, { email: "ada@gmail.com", provider: "imap", label: "Gmail" })
-  assert.strictEqual(accounts.collidingId(mailboxes, 0, proton), "imap:ada@proton.me")
-  const refused = accounts.replaceAt(mailboxes, 0, proton)
-  assert.strictEqual(accounts.count(refused), 3, "a colliding save must not drop a row")
-  assert.strictEqual(accounts.find(refused, "imap:ada@icloud.com").label, "iCloud")
-  assert.strictEqual(accounts.find(refused, "imap:ada@proton.me").label, "Proton")
-
-  let adding = accounts.emptyList()
-  adding = accounts.add(adding, icloud)
-  adding = accounts.add(adding, { email: "ada@gmail.com", provider: "imap", label: "Gmail" })
-  adding = accounts.add(adding, { email: "", provider: "imap", pending: true })
-  assert.strictEqual(accounts.collidingId(adding, 2, proton), "")
-  const filled = accounts.replaceAt(adding, 2, proton)
-  assert.strictEqual(accounts.count(filled), 3)
-  assert.strictEqual(accounts.find(filled, "imap:ada@icloud.com").label, "iCloud")
-  assert.strictEqual(filled.accounts[2].id, "imap:ada@proton.me")
-
-  const persisted = accounts.namedIds(mailboxes)
-  const withoutIcloud = accounts.savedOnly(accounts.remove(mailboxes, "imap:ada@icloud.com"))
-  assert.ok(accounts.dropsAnyId(persisted, withoutIcloud),
-    "a payload missing a persisted id is a drop")
-  assert.strictEqual(accounts.dropsAnyId(persisted, accounts.savedOnly(mailboxes)), false)
-  assert.strictEqual(accounts.withoutId(["a", "b", "c"], "b").join(","), "a,c",
-    "a corrected address releases the old id on purpose")
-  assert.strictEqual(accounts.withoutId(null, "b").length, 0)
-
-  list = accounts.remove(list, "imap:jane@gmail.com")
-  assert.strictEqual(accounts.count(list), 1)
-  assert.strictEqual(accounts.find(list, "jane@gmail.com").provider, "gmail")
-}
-
-
-{
-  const saved = accounts.serialize(accounts.add(accounts.emptyList(), {
-    email: "jane@fastmail.com",
-    provider: "imap",
-    imap: {
-      imapHost: "imap.fastmail.com", imapPort: 993,
-      smtpHost: "smtp.fastmail.com", smtpPort: 465,
-      username: "jane@fastmail.com",
-      aliases: "alias@fastmail.com (default), work@domain.com"
-    }
-  }))
-  const reloaded = accounts.find(accounts.load(saved), "imap:jane@fastmail.com")
-  assert.strictEqual(reloaded.provider, "imap")
-  assert.strictEqual(reloaded.imap.imapHost, "imap.fastmail.com")
-  assert.strictEqual(reloaded.imap.smtpPort, 465)
-  assert.strictEqual(reloaded.imap.username, "jane@fastmail.com")
-  assert.strictEqual(reloaded.imap.aliases.length, 2)
-  assert.strictEqual(reloaded.imap.aliases[0].email, "alias@fastmail.com")
-  assert.strictEqual(reloaded.imap.aliases[0].isDefault, true)
-  assert.strictEqual(reloaded.imap.aliases[1].isDefault, false)
-  assert.strictEqual(reloaded.imap.insecure, false)
-
-  const clamped = accounts.makeAccount({
-    email: "j@x.com", provider: "imap",
-    imap: { imapPort: 0, smtpPort: 999999 }
-  })
-  assert.strictEqual(clamped.imap.imapPort, 993)
-  assert.strictEqual(clamped.imap.smtpPort, 465)
-
-  const gmail = accounts.makeAccount({ email: "j@gmail.com", clientId: "abc" })
-  assert.strictEqual(gmail.imap.imapHost, "")
-  assert.strictEqual(gmail.clientId, "abc")
-
-  const legacy = accounts.load(JSON.stringify({
-    version: 1,
-    accounts: [{ id: "jane@gmail.com", email: "jane@gmail.com", clientId: "abc" }],
-    activeId: "jane@gmail.com"
-  }))
-  assert.strictEqual(accounts.count(legacy), 1)
-  assert.strictEqual(legacy.activeId, "jane@gmail.com",
-    "the active account is still the one the user was looking at")
+  const legacy = accounts.load(JSON.stringify({version:1, accounts:[{
+    email:"Jane@workspace.example", clientId:"saved-client", clientSecret:"saved-secret"
+  }], activeId:"jane@workspace.example"}))
   assert.strictEqual(accounts.active(legacy).provider, "gmail")
-  assert.strictEqual(accounts.active(legacy).clientId, "abc")
+  assert.strictEqual(accounts.active(legacy).id, "jane@workspace.example")
+  assert.strictEqual(accounts.active(legacy).clientId, "saved-client")
+  assert.strictEqual(accounts.active(legacy).clientSecret, "saved-secret")
+  assert.strictEqual(accounts.makeAccount({email:"person@work.example",provider:" GMAIL "}).provider, "gmail")
+  const persisted = accounts.namedIds(legacy)
+  assert.ok(accounts.dropsAnyId(persisted, accounts.emptyList()))
+  assert.strictEqual(accounts.dropsAnyId(persisted, accounts.savedOnly(legacy)), false)
+  assert.strictEqual(accounts.withoutId(["a", "b", "c"], "b").join(","), "a,c")
+  assert.strictEqual(accounts.withoutId(null, "b").length, 0)
 }
-
-
-{
-  const saved = accounts.serialize(accounts.add(accounts.emptyList(), {
-    email: "ada@example.org",
-    provider: "jmap",
-    password: "synthetic-top-level-password",
-    secret: "synthetic-top-level-secret",
-    jmap: {
-      password: "synthetic-jmap-password",
-      secret: "synthetic-jmap-secret",
-      sessionUrl: "https://mail.example.org/jmap/session",
-      username: "ada",
-      authScheme: "basic",
-      accountId: "t"
-    }
-  }))
-  const reloaded = accounts.find(accounts.load(saved), "jmap:ada@example.org")
-  assert.strictEqual(reloaded.provider, "jmap")
-  assert.strictEqual(reloaded.id, "jmap:ada@example.org",
-    "one address can be an IMAP mailbox and a JMAP one at the same time")
-  assert.strictEqual(reloaded.jmap.sessionUrl, "https://mail.example.org/jmap/session")
-  assert.strictEqual(reloaded.jmap.username, "ada")
-  assert.strictEqual(reloaded.jmap.authScheme, "basic")
-  assert.strictEqual(reloaded.jmap.accountId, "t")
-
-  // Invariant: Synthetic secrets supplied at both account and JMAP levels must never reach serialized account settings.
-  assert.ok(saved.indexOf("secret") < 0)
-  assert.ok(saved.indexOf("password") < 0)
-
-  assert.strictEqual(accounts.makeAccount({
-    email: "ada@fastmail.com", provider: "jmap", jmap: { authScheme: " Bearer " }
-  }).jmap.authScheme, "bearer")
-
-  assert.strictEqual(accounts.makeAccount({ email: "ada@x.com", provider: "jmap" })
-    .jmap.authScheme, "basic")
-  assert.strictEqual(accounts.makeAccount({
-    email: "ada@x.com", provider: "jmap", jmap: { authScheme: "none" }
-  }).jmap.authScheme, "basic")
-  assert.strictEqual(accounts.makeAccount({
-    email: "ada@x.com", provider: "jmap", jmap: { authScheme: "digest" }
-  }).jmap.authScheme, "basic")
-
-  const gmail = accounts.makeAccount({ email: "j@gmail.com", clientId: "abc" })
-  assert.strictEqual(gmail.jmap.sessionUrl, "")
-  assert.strictEqual(gmail.jmap.accountId, "")
-
-  assert.strictEqual(accounts.makeAccount({ email: "j@x.com", provider: "JMAP" }).provider, "jmap")
-  assert.strictEqual(accounts.makeAccount({ email: "j@x.com", provider: " jmap " }).provider, "jmap")
-
-  let list = accounts.emptyList()
-  list = accounts.add(list, { email: "ada@example.org", provider: "imap" })
-  list = accounts.add(list, { email: "ada@example.org", provider: "jmap" })
-  assert.strictEqual(accounts.count(list), 2)
-  assert.strictEqual(accounts.find(list, "jmap:ada@example.org").provider, "jmap")
-  assert.strictEqual(accounts.find(list, "imap:ada@example.org").provider, "imap")
-}
-
-{
-  const typed = { sessionUrl: "mail.example.org", username: "jane", authScheme: "", accountId: "" }
-  const learned = accounts.jmapSettingsAfterSignIn(typed, {
-    sessionUrl: "https://mx.example.org/jmap/session", authScheme: "bearer",
-    accountId: "a1", canSend: true, mailboxCount: 5
-  })
-  deepEqual(learned, {
-    sessionUrl: "https://mx.example.org/jmap/session", username: "jane",
-    authScheme: "bearer", accountId: "a1"
-  }, "the three learned fields land and the typed username stays")
-  deepEqual(accounts.jmapSettingsAfterSignIn(learned, { sessionUrl: "", accountId: "" }),
-    learned, "a result short a field keeps the value already there")
-  deepEqual(accounts.jmapSettingsAfterSignIn(null, null),
-    { sessionUrl: "", username: "", authScheme: "basic", accountId: "" },
-    "nothing learned over nothing saved is the empty, Basic default")
-  deepEqual(accounts.jmapSettingsAfterSignIn(typed, { authScheme: "digest" }).authScheme,
-    "basic", "an unknown scheme is normalised the way the file's own is")
-}
-
 
 {
   assert.strictEqual(accounts.makeAccount({ email: "j@gmail.com" }).signature, "")
@@ -597,51 +393,51 @@ assert.strictEqual(
 // Invariant: Rebuilding an edited row must preserve the active selection instead of applying Add's first-account behavior.
 const trio = accounts.add(accounts.add(accounts.add(accounts.emptyList(),
   account("ada@example.com")),
-  account("bob@example.com", { provider: "imap" })),
-  account("cid@example.com", { provider: "jmap" }))
-const bobActive = accounts.setActive(trio, "imap:bob@example.com")
-const cidActive = accounts.setActive(trio, "jmap:cid@example.com")
+  account("bob@example.com")),
+  account("cid@example.com"))
+const bobActive = accounts.setActive(trio, "bob@example.com")
+const cidActive = accounts.setActive(trio, "cid@example.com")
 const beforeReplace = serializedSnapshot(cidActive)
 
 const cidEdited = accounts.replaceAt(cidActive, 2,
-  Object.assign({}, cidActive.accounts[2], { jmap: { sessionUrl: "https://mail.example.com/jmap/session" } }))
+  Object.assign({}, cidActive.accounts[2], { clientId: "changed-client" }))
 assert.strictEqual(serializedSnapshot(cidActive), beforeReplace, "replaceAt leaves its input alone")
 assert.strictEqual(accounts.count(cidEdited), 3)
-assert.strictEqual(cidEdited.activeId, "jmap:cid@example.com",
+assert.strictEqual(cidEdited.activeId, "cid@example.com",
   "editing the active row keeps it active")
-assert.strictEqual(cidEdited.accounts[2].jmap.sessionUrl, "https://mail.example.com/jmap/session")
-assert.strictEqual(cidEdited.accounts[2].provider, "jmap", "and keeps the rest of the row")
+assert.strictEqual(cidEdited.accounts[2].clientId, "changed-client")
+assert.strictEqual(cidEdited.accounts[2].provider, "gmail", "and keeps the rest of the row")
 
 const adaEditedUnderCid = accounts.replaceAt(cidActive, 0,
   Object.assign({}, cidActive.accounts[0], { label: "Work" }))
-assert.strictEqual(adaEditedUnderCid.activeId, "jmap:cid@example.com",
+assert.strictEqual(adaEditedUnderCid.activeId, "cid@example.com",
   "editing another row does not move the selection to it")
 assert.strictEqual(adaEditedUnderCid.accounts[0].label, "Work")
 
 const bobEditedUnderCid = accounts.replaceAt(cidActive, 1,
   Object.assign({}, cidActive.accounts[1], { label: "Home" }))
-assert.strictEqual(bobEditedUnderCid.activeId, "jmap:cid@example.com",
+assert.strictEqual(bobEditedUnderCid.activeId, "cid@example.com",
   "nor to the first row, whichever row was edited")
 
 const bobRenamed = accounts.replaceAt(bobActive, 1,
   Object.assign({}, bobActive.accounts[1], { email: "robert@example.com" }))
-assert.strictEqual(bobRenamed.accounts[1].id, "imap:robert@example.com")
-assert.strictEqual(bobRenamed.activeId, "imap:robert@example.com")
+assert.strictEqual(bobRenamed.accounts[1].id, "robert@example.com")
+assert.strictEqual(bobRenamed.activeId, "robert@example.com")
 
 const collision = Object.assign({}, cidActive.accounts[1], { email: "ada@example.com", provider: "gmail" })
 assert.strictEqual(accounts.collidingId(cidActive, 1, collision), "ada@example.com")
 const refusedEdit = accounts.replaceAt(cidActive, 1, collision)
 assert.strictEqual(accounts.count(refusedEdit), 3)
 assert.strictEqual(refusedEdit.accounts[0].id, "ada@example.com")
-assert.strictEqual(refusedEdit.accounts[1].id, "imap:bob@example.com")
-assert.strictEqual(refusedEdit.activeId, "jmap:cid@example.com")
+assert.strictEqual(refusedEdit.accounts[1].id, "bob@example.com")
+assert.strictEqual(refusedEdit.activeId, "cid@example.com")
 
 const draftBeside = accounts.add(bobActive, { email: "", pending: true })
-assert.strictEqual(draftBeside.activeId, "imap:bob@example.com")
+assert.strictEqual(draftBeside.activeId, "bob@example.com")
 const draftNamed = accounts.replaceAt(draftBeside, 3,
-  Object.assign({}, draftBeside.accounts[3], { email: "dee@example.com", provider: "imap" }))
-assert.strictEqual(draftNamed.accounts[3].id, "imap:dee@example.com")
-assert.strictEqual(draftNamed.activeId, "imap:bob@example.com")
+  Object.assign({}, draftBeside.accounts[3], { email: "dee@example.com" }))
+assert.strictEqual(draftNamed.accounts[3].id, "dee@example.com")
+assert.strictEqual(draftNamed.activeId, "bob@example.com")
 
 const nothingActive = accounts.replaceAt(
   { version: accounts.VERSION, accounts: [{ id: "", email: "", provider: "gmail", pending: true }], activeId: "" },
@@ -675,15 +471,15 @@ assert.strictEqual(serializedSnapshot(accounts.replaceAt(cidActive, -1, account(
 }
 
 {
-  const imap = accounts.add(accounts.emptyList(),
-    { email: "me@example.org", provider: "imap", imap: { username: "me@example.org" } })
-  const id = imap.accounts[0].id
-  assert.strictEqual(imap.accounts[0].senderName, "", "no name until one is given")
+  const gmail = accounts.add(accounts.emptyList(),
+    { email: "me@example.org", provider: "gmail" })
+  const id = gmail.accounts[0].id
+  assert.strictEqual(gmail.accounts[0].senderName, "", "no name until one is given")
 
-  const named = accounts.setSenderName(imap, id, "  Jane   Example ")
+  const named = accounts.setSenderName(gmail, id, "  Jane   Example ")
   assert.strictEqual(named.accounts[0].senderName, "Jane Example")
-  assert.strictEqual(serializedSnapshot(imap), serializedSnapshot(accounts.add(accounts.emptyList(),
-    { email: "me@example.org", provider: "imap", imap: { username: "me@example.org" } })),
+  assert.strictEqual(serializedSnapshot(gmail), serializedSnapshot(accounts.add(accounts.emptyList(),
+    { email: "me@example.org", provider: "gmail" })),
     "the input list is left alone")
   assert.strictEqual(accounts.load(accounts.serialize(named)).accounts[0].senderName, "Jane Example",
     "a saved name comes back from the file")
@@ -695,33 +491,32 @@ assert.strictEqual(serializedSnapshot(accounts.replaceAt(cidActive, -1, account(
   assert.strictEqual(accounts.senderNameText("Jane\r\nExample\t\u0007"), "Jane Example")
 }
 
-assert.strictEqual(accounts.namesSender("imap"), true)
-assert.strictEqual(accounts.namesSender("outlook"), true)
-assert.strictEqual(accounts.namesSender("gmail"), false)
-assert.strictEqual(accounts.namesSender("jmap"), false)
-assert.strictEqual(accounts.namesSender("hey"), false)
-assert.strictEqual(accounts.namesSender(undefined), false)
-
-for (const settings of [
-  { sessionUrl: "https://mail.example.test/jmap/session" },
-  { username: "saved-user" },
-  { accountId: "saved-mailbox" }
-]) {
-  const damagedJmap = accounts.load(JSON.stringify({version: 1, activeId: "", accounts: [
-    {provider: "jmap", email: "damaged-address", jmap: settings}
-  ]}))
-  const withNewMailbox = accounts.add(damagedJmap, {provider: "gmail", email: "new@example.test"})
-  const persisted = accounts.savedOnly(withNewMailbox)
-  assert.strictEqual(persisted.accounts.length, 2,
-    "saving another mailbox must preserve a damaged JMAP account's server settings")
-  deepEqual(persisted.accounts[0].jmap, damagedJmap.accounts[0].jmap)
-  assert.strictEqual(damagedJmap.accounts.length, 1)
-  assert.strictEqual(accounts.savedOnly(accounts.add(accounts.emptyList(), {
-    provider: "jmap", email: "", pending: true, jmap: settings
-  })).accounts.length, 0, "explicit setup drafts must still remain in memory only")
+for (const provider of ["outlook", "imap", "jmap", "hey", "pigeon", " IMAP ", 42, {}, []]) {
+  const original = {version:1, activeId:"owner@example.org", accounts:[
+    {email:"owner@example.org", provider:"gmail"},
+    {email:"other@example.org", provider, imap:{username:"other@example.org"}}
+  ]}
+  const serialized = JSON.stringify(original)
+  assert.strictEqual(accounts.supportsGmailAccounts(serialized), false)
+  assert.strictEqual(accounts.isSerializedList(serialized), false)
+  assert.throws(() => accounts.load(serialized), /accounts_provider_unsupported/)
+  assert.throws(() => accounts.makeAccount(original.accounts[1]), /accounts_provider_unsupported/)
+  assert.throws(() => accounts.add(original, account("third@example.org")), /accounts_provider_unsupported/)
+  assert.throws(() => accounts.serialize(original), /accounts_provider_unsupported/)
+  assert.strictEqual(JSON.stringify(original), serialized, "an unsupported list is never changed")
 }
-assert.strictEqual(accounts.savedOnly(accounts.load(JSON.stringify({version: 1, accounts: [
-  {provider: "jmap", email: "", jmap: {authScheme: "basic"}}
-]}))).accounts.length, 0, "a default authentication scheme alone is an empty setup row")
+assert.strictEqual(accounts.supportsGmailAccounts("broken"), true, "read failures retain their separate handling")
+for (const invalid of ["imap:owner@example.org", "ow\u0000ner@example.org", "ow\u007fner@example.org"]) {
+  assert.strictEqual(accounts.accountId(invalid), "")
+}
+
+const restricted = accounts.add(accounts.emptyList(), {
+  email:"restricted@workspace.example", refusals:{send:"Read only", archive:false}
+})
+const renamedRestricted = accounts.setLabel(restricted, "restricted@workspace.example", "Work")
+deepEqual(renamedRestricted.accounts[0].refusals, {send:"Read only", archive:false})
+deepEqual(accounts.load(accounts.serialize(renamedRestricted)).accounts[0].refusals, restricted.accounts[0].refusals)
+renamedRestricted.accounts[0].refusals.send = "Changed"
+assert.strictEqual(restricted.accounts[0].refusals.send, "Read only", "withdrawals are copied rather than shared")
 
 console.log("test_accounts.js ok")

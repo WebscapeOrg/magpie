@@ -137,6 +137,59 @@ Item {
         {accountId: "synthetic@example.test", clientId: "123-example.apps.googleusercontent.com"},
         {accountId: "synthetic@example.test", clientId: "123-example.apps.googleusercontent.com"}])
     }
+    function test_unsupported_client_source_cannot_read_write_or_sign_in() {
+      failOnWarning(/.?/)
+      var auth=owner.item
+      auth.cancelLogin()
+      var before=requests().length
+      auth.applyCredentials(JSON.stringify({version:2,accounts:[
+        {id:"synthetic@example.test",installed:{client_id:"123-example.apps.googleusercontent.com"}},
+        {id:"other@example.test",provider:"imap",installed:{client_id:"123-example.apps.googleusercontent.com"}}
+      ]}))
+      verify(auth.credentialsSourceError !== "")
+      compare(auth.credentialsPresent,false)
+      compare(auth.loggedIn,false)
+      auth.beginLogin()
+      auth.startSecretLookup()
+      auth.storeRefreshToken("forbidden")
+      auth.withAccessToken(function(token,error) { compare(token,"");verify(error !== "") })
+      compare(auth.saveCredentials("123-example.apps.googleusercontent.com"),false)
+      auth.applyCredentials("")
+      auth.applyCredentials("{}")
+      compare(auth.saveCredentials("123-example.apps.googleusercontent.com"),false)
+      wait(10)
+      compare(requests().length,before)
+      compare(shellPlatform.saved,null)
+      compare(shellPlatform.fetched,null)
+      compare(shellPlatform.stored,null)
+      compare(shellPlatform.deletes,[])
+      compare(shellPlatform.opened,[])
+    }
+    function test_failed_client_write_blocks_until_current_source_is_reloaded() {
+      failOnWarning(/.?/)
+      var auth = owner.item
+      verify(auth.saveCredentials("123-example.apps.googleusercontent.com"))
+      verify(shellPlatform.saved)
+      var before = requests().length
+      shellPlatform.saved(false, "The saved client settings have changed")
+      verify(auth.credentialsSourceError !== "")
+      compare(auth.credentialsPresent, false)
+      auth.applyCredentials("")
+      auth.applyCredentials("{}")
+      auth.beginLogin()
+      auth.startSecretLookup()
+      auth.storeRefreshToken("forbidden")
+      auth.withAccessToken(function(token, error) { compare(token, ""); verify(error !== "") })
+      compare(auth.saveCredentials("123-example.apps.googleusercontent.com"), false)
+      compare(requests().length, before)
+      compare(shellPlatform.fetched, null)
+      compare(shellPlatform.stored, null)
+      compare(shellPlatform.deletes, [])
+      compare(shellPlatform.opened, [])
+      auth.applyCredentials(JSON.stringify({installed:{client_id:"123-example.apps.googleusercontent.com"}}))
+      compare(auth.credentialsSourceError, "")
+      compare(auth.credentialsPresent, true)
+    }
     function test_live_begin_opens_the_browser() {
       owner.item.beginLogin()
       answer(requests().slice(-1)[0], {id: "live-flow", url: "https://accounts.example.test/synthetic"})

@@ -45,13 +45,11 @@ Item {
 
     readonly property string ada: "ada@example.com"
     readonly property string bob: "bob@example.com"
-    readonly property string adaId: "imap:ada@example.com"
-    readonly property string bobId: "imap:bob@example.com"
+    readonly property string adaId: "ada@example.com"
+    readonly property string bobId: "bob@example.com"
 
     function entry(email) {
-      return { email: email, provider: "imap", clientId: "", clientSecret: "",
-        imap: { imapHost: "imap.example.com", imapPort: 993, smtpHost: "smtp.example.com",
-                smtpPort: 465, username: email, aliases: [], insecure: false },
+      return { email: email, provider: "gmail", clientId: "", clientSecret: "",
         label: "", signature: "" }
     }
 
@@ -101,7 +99,7 @@ Item {
 
     function test_remove_on_a_new_mailbox_page_spares_the_mailbox_behind_it() {
       seed([ada], adaId)
-      app.chooseProvider("imap")
+      app.addMailbox()
       compare(mailService.accountCount, 2)
       compare(mailService.editingIndex(), 1, "the page is editing the new row")
 
@@ -118,7 +116,7 @@ Item {
     // draft happened to be open rather than the mailbox that was clicked.
     function test_edit_opens_the_mailbox_that_was_clicked_not_an_open_draft() {
       seed([ada, bob], adaId)
-      app.chooseProvider("imap")
+      app.addMailbox()
       compare(mailService.editingIndex(), 2)
 
       app.editAccount(0)
@@ -160,46 +158,7 @@ Item {
       verify(app.showSetup, "the editor stays open so its address can be corrected")
     }
 
-    // Invariant: An address that is not an address derives no account id, which leaves a
-    // row that reads as saved and behaves like a draft: unselectable,
-    // uneditable and unremovable. `validateSettings` cannot catch it —
-    // `setupSettings` folds the address into `username` and passes no address
-    // on — so the form refuses it.
-    function test_the_imap_form_refuses_an_address_that_is_not_one() {
-      seed([ada], adaId)
-      app.chooseProvider("imap")
-      var page = named(app, "setup-page")
-      verify(page !== null && page.item !== null, "the IMAP setup page is up")
-
-      var field = named(page.item, "imap-address-field")
-      var error = named(page.item, "imap-error")
-      verify(field !== null && error !== null)
-
-      // Invariant: The message has to be the address's own. Without the check the server
-      // fields — which a junk address cannot fill in either — reject the form
-      // one field later, so "something was refused" would pass either way and
-      // test nothing.
-      field.text = "ada"
-      page.item.save()
-      compare(mailService.accountSummaries[1].email, "", "nothing was saved")
-      compare(error.text, "That is not a full email address")
-
-      field.text = ""
-      page.item.save()
-      compare(mailService.accountSummaries[1].email, "")
-      compare(error.text, "Add the email address for this mailbox")
-
-      field.text = "carol@example.com"
-      page.item.save()
-      compare(mailService.accountSummaries[1].email, "carol@example.com",
-        "a real address goes through")
-      compare(mailService.accountSummaries[1].id, "imap:carol@example.com")
-    }
-
-    // Invariant: The form is not the only way an address reaches the list: an account
-    // reports its own on its first profile read. A provider that answers with
-    // something that is not an address — an IMAP username, say — must not be
-    // able to rename a working mailbox into one that addresses nothing.
+    // Invariant: A Google profile cannot replace a saved identity with a malformed address.
     function test_a_profile_cannot_rename_a_mailbox_to_a_non_address() {
       seed([ada], adaId)
       mailService.nameAccount(0, "ada")
@@ -207,7 +166,7 @@ Item {
       compare(mailService.accountSummaries[0].id, adaId, "and so is the id")
 
       mailService.nameAccount(0, "carol@example.com")
-      compare(mailService.accountSummaries[0].id, "imap:carol@example.com")
+      compare(mailService.accountSummaries[0].id, "carol@example.com")
     }
 
     // Invariant: `accountAddress` is a binding that now reaches `activeIndex` through a
@@ -230,7 +189,7 @@ Item {
     // select and nothing could remove.
     function test_a_draft_is_never_part_of_what_is_written() {
       seed([ada], adaId)
-      app.chooseProvider("imap")
+      app.addMailbox()
       compare(mailService.accountCount, 2)
 
       mailService.accountsWritePayload = ""

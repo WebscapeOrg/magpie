@@ -5,6 +5,9 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -24,6 +27,9 @@ private slots:
     void invalidJsonIsPreserved();
     void rejectsCredentialAndUnknownFields();
     void fileStoreReadsWritesAndWatches();
+    void credentialsRejectUnsupportedWritesWithoutCreatingFiles();
+    void credentialsPreserveUnsupportedDiskSourceAfterStaleRead();
+    void credentialsKeepLegacyGoogleClientFormats();
     void sharedWatchSurvivesOneSubscriberLeaving();
     void fileStoreWriteOutlastsABriefShareLock();
     void watchReportsExternalCreation();
@@ -37,6 +43,82 @@ private slots:
 void SettingsTest::initTestCase()
 {
     QStandardPaths::setTestModeEnabled(true);
+}
+
+void SettingsTest::credentialsRejectUnsupportedWritesWithoutCreatingFiles()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("missing/credentials.json"));
+    FileStore store;
+    QSignalSpy changed(&store, &FileStore::changed);
+    for (const QJsonValue &provider : QJsonArray{QStringLiteral("imap"), QStringLiteral("outlook"),
+             QStringLiteral("jmap"), QStringLiteral("hey"), QStringLiteral("unknown"), 7, false,
+             QJsonArray{}, QJsonObject{}}) {
+        for (bool nested : {false, true}) {
+            const QJsonObject record{{QStringLiteral("provider"), provider},
+                                     {QStringLiteral("clientId"), QStringLiteral("123-client.apps.googleusercontent.com")}};
+            const QJsonObject payload = nested
+                ? QJsonObject{{QStringLiteral("accounts"), QJsonArray{QJsonObject{}, record}}}
+                : record;
+            const auto reply = store.write(path, QString::fromUtf8(QJsonDocument(payload).toJson()));
+            QVERIFY(!reply.value(QStringLiteral("ok")).toBool());
+            QVERIFY(reply.value(QStringLiteral("error")).toString().contains(QStringLiteral("Only Gmail")));
+            QVERIFY(!QFileInfo::exists(QFileInfo(path).absolutePath()));
+        }
+    }
+    QVERIFY(changed.isEmpty());
+}
+
+void SettingsTest::credentialsPreserveUnsupportedDiskSourceAfterStaleRead()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("credentials.json"));
+    const QByteArray compatible = R"({"installed":{"client_id":"123-client.apps.googleusercontent.com"}})";
+    FileStore store;
+    QVERIFY(store.write(path, QString::fromUtf8(compatible)).value(QStringLiteral("ok")).toBool());
+    const QString stale = store.read(path).value(QStringLiteral("text")).toString();
+    QSignalSpy changed(&store, &FileStore::changed);
+    const QList<QByteArray> unsupported{
+        R"({"provider":"outlook","clientSecret":"synthetic-private"})",
+        R"({"accounts":[{"provider":"gmail"},{"provider":"jmap","clientSecret":"synthetic-private"}]})",
+        R"({"accounts":[{"provider":false}]})",
+        R"({"installed":{"provider":"imap"}})",
+        R"({"accounts":[{"web":{"provider":"outlook"}}]})", "damaged-json", ""};
+    for (const QByteArray &original : unsupported) {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QCOMPARE(file.write(original), original.size());
+        file.close();
+        const auto permissions = QFileInfo(path).permissions();
+        const QStringList files = QDir(directory.path()).entryList(QDir::Files | QDir::Hidden);
+        for (bool atomic : {false, true}) {
+            QVERIFY(!store.write(path, stale, atomic).value(QStringLiteral("ok")).toBool());
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            QCOMPARE(file.readAll(), original);
+            file.close();
+            QCOMPARE(QFileInfo(path).permissions(), permissions);
+            QCOMPARE(QDir(directory.path()).entryList(QDir::Files | QDir::Hidden), files);
+        }
+    }
+    QVERIFY(changed.isEmpty());
+}
+
+void SettingsTest::credentialsKeepLegacyGoogleClientFormats()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("credentials.json"));
+    FileStore store;
+    const QStringList compatible{
+        QStringLiteral(R"({"installed":{"client_id":"123-client.apps.googleusercontent.com"}})"),
+        QStringLiteral(R"({"clientId":"123-client.apps.googleusercontent.com"})"),
+        QStringLiteral(R"({"provider":null,"accounts":[{"provider":" GMAIL ","id":"owner@workspace.example"},{"provider":"","id":"other@example.org"}]})")};
+    for (const QString &payload : compatible) {
+        QVERIFY(store.write(path, payload).value(QStringLiteral("ok")).toBool());
+        QCOMPARE(store.read(path).value(QStringLiteral("text")).toString(), payload);
+    }
 }
 
 void SettingsTest::atomicSettingsRoundTrip()

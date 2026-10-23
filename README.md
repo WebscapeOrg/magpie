@@ -1,4 +1,4 @@
-> **This is 🐦 Magpie, Dave’s fork of Omamail.** See [Magpie’s controls and installation](MAGPIE.md). The upstream documentation below describes the shared backend and providers.
+> **This is 🐦 Magpie, Dave’s fork of Omamail.** See [Magpie’s controls and installation](MAGPIE.md). Magpie supports Gmail and Google Workspace mailboxes, with Google Calendar. Upstream release installers below install Omamail; they do not install this development fork.
 
 # Omamail
 
@@ -54,8 +54,8 @@ make app-run
 
 ## Features
 
-- **Multiple mailboxes:** Gmail, Outlook, HEY, JMAP and IMAP/SMTP, including Fastmail, iCloud and self-hosted servers.
-- **Mail and calendar:** read, search, compose, manage attachments and respond to meeting invitations. Available actions depend on your provider.
+- **Multiple Gmail mailboxes:** Gmail and Google Workspace, including custom domains, with separate identities and a unified inbox.
+- **Mail and calendar:** read, search, compose, manage attachments and respond to meeting invitations through Gmail and Google Calendar.
 - **Keyboard navigation:** `j`/`k` to move, `r` to reply, `c` to compose, `/` to search and `?` for all shortcuts.
 - **AI assistance in Omarchy:** ask about selected messages and review suggested drafts with Claude, OpenCode V2 or Codex. Follow your Omarchy default, or select an agent and optional model in Settings. An unsupported system default disables the AI action with a setup explanation. Conversations retain follow-ups and draft proposals; `/clear`, `/history` and `/diagnose` manage the chat.
 - **Desktop integration:** native notifications and a compact layout for smaller windows; the Omarchy plugin also provides the bar widget and `mailto:` integration.
@@ -65,9 +65,9 @@ make app-run
 
 ## Add your mailbox
 
-Choose a provider in Settings. Gmail needs a Google OAuth client; Outlook needs a Microsoft app registration. HEY uses the official [HEY CLI](https://github.com/basecamp/hey-cli). JMAP and IMAP usually use an app password or API token.
+Choose **Add mailbox...** in Settings to open Google setup directly. Create a Google OAuth client once, then reuse it for your Gmail and Google Workspace accounts.
 
-See [mailbox setup](docs/MAILBOXES.md) for provider instructions and limitations, including Microsoft 365 and Proton Mail Bridge.
+See [mailbox setup](docs/MAILBOXES.md) for Google sign-in, calendar selection and offline behavior.
 
 ## Make Omamail the default mail client
 

@@ -52,12 +52,11 @@ Item {
     property bool credentialsPresent: true
     property bool credentialsWriteBusy: false
     property var missingTools: []
-    property string lastError: root.payload("imap-error")
+    property string lastError: root.payload("gmail-error")
     property string clientId: "client"
     property string clientDescription: root.payload("oauth-client")
     property string credentialsPath: root.payload("oauth-path")
     property var credentials: null
-    property var settings: ({username: "", aliases: [], imapHost: "", imapPort: 993, smtpHost: "", smtpPort: 465})
   }
   QtObject {
     id: service
@@ -65,8 +64,6 @@ Item {
     property string accountAddress: ""
     property string accountEmail: ""
     property string accountName: ""
-    property string accountSenderName: ""
-    property bool backendCanNameSender: false
     property string signInProgress: root.payload("oauth-progress")
     property string providerId: "gmail"
     property string mailboxKey: "inbox"
@@ -80,10 +77,6 @@ Item {
   Views.BackendSetup {
     width: 700; runtime: runtime
     textColor: "white"; dimColor: "gray"; accentColor: "orange"; panelFontFamily: "monospace"
-  }
-  Views.ImapSetupPage {
-    width: 700; service: service
-    textColor: "white"; dimColor: "gray"; dangerColor: "red"; accentColor: "orange"; panelFontFamily: "monospace"
   }
   Views.SetupPage {
     id: gmail
@@ -112,7 +105,7 @@ Item {
     }
     function test_labels_make_no_requests() {
       auth.lastError = ""
-      auth.lastError = root.payload("imap-error")
+      auth.lastError = root.payload("gmail-error")
       gmail.detailVisible = true
       wait(500)
     }

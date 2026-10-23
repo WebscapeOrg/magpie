@@ -159,7 +159,12 @@ fn recover(entries: &[Value]) -> Result<Vec<Value>, &'static str> {
             entry.as_object_mut().unwrap().remove("payload");
         }
         match entry["state"].as_str() {
-            Some("waiting") if entry["resumeUnsent"] == true => (),
+            Some("waiting") if entry["resumeUnsent"] == true => {
+                if entry["provider"] != "gmail" {
+                    entry["state"] = json!("failed");
+                    entry["error"] = json!("outbox_invalid_provider");
+                }
+            }
             Some("queued") => {
                 entry["state"] = json!("cancelled");
                 entry["error"] = json!("outbox_recovered_unsent");
@@ -355,6 +360,9 @@ impl Inner {
         if fields.keys().any(|key| !allowed.contains(&key.as_str())) {
             return Err("outbox_invalid_params");
         }
+        if method == "outbox.enqueue" && text(params, "provider")? != "gmail" {
+            return Err("outbox_invalid_provider");
+        }
         let mut state = self.state.lock().await;
         load(self, &mut state).await?;
         if method == "outbox.snapshot" {
@@ -397,7 +405,7 @@ impl Inner {
                     return Err("outbox_invalid_params");
                 }
                 let provider = text(params, "provider")?;
-                if !["gmail", "outlook", "imap", "jmap", "hey"].contains(&provider) {
+                if provider != "gmail" {
                     return Err("outbox_invalid_provider");
                 }
                 let payload = params
@@ -701,8 +709,6 @@ fn definitely_refused(error: &str) -> bool {
             | "gmail_auth_required"
             | "gmail_invalid_params"
             | "gmail_send_rejected"
-            | "jmap_send_rejected"
-            | "smtp_recipient_refused"
     )
 }
 

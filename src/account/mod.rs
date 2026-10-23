@@ -50,7 +50,7 @@ fn text(value: &Value) -> &str {
     value.as_str().unwrap_or("").trim()
 }
 
-fn valid_email(value: &str) -> bool {
+pub(crate) fn valid_email(value: &str) -> bool {
     let Some((local, domain)) = value.split_once('@') else {
         return false;
     };
@@ -71,6 +71,18 @@ fn valid_email(value: &str) -> bool {
             .is_some_and(|part| part.len() >= 2 && part.bytes().all(|b| b.is_ascii_alphabetic()))
 }
 
+pub(crate) fn provider(entry: &Value) -> Result<&'static str, &'static str> {
+    match entry.get("provider") {
+        None | Some(Value::Null) => Ok("gmail"),
+        Some(Value::String(value))
+            if value.trim().is_empty() || value.trim().eq_ignore_ascii_case("gmail") =>
+        {
+            Ok("gmail")
+        }
+        _ => Err("accounts_provider_unsupported"),
+    }
+}
+
 pub fn summarize(bytes: &[u8]) -> Result<Value, &'static str> {
     let raw: Value = serde_json::from_slice(bytes).map_err(|_| "accounts_invalid")?;
     if raw["version"] != 1 {
@@ -79,25 +91,12 @@ pub fn summarize(bytes: &[u8]) -> Result<Value, &'static str> {
     let entries = raw["accounts"].as_array().ok_or("accounts_invalid")?;
     let mut accounts = Vec::new();
     for entry in entries.iter().filter(|entry| entry.is_object()) {
-        let declared = text(&entry["provider"]).to_lowercase();
-        let provider = match declared.as_str() {
-            "" | "gmail" => "gmail",
-            "outlook" | "hey" | "jmap" | "imap" => declared.as_str(),
-            _ => continue,
-        };
-        let mut email = text(&entry["email"]);
-        if !valid_email(email) && matches!(provider, "imap" | "outlook") {
-            let username = text(&entry["imap"]["username"]);
-            if valid_email(username) {
-                email = username;
-            }
-        }
-        let id = if !valid_email(email) {
-            String::new()
-        } else if provider == "gmail" {
+        let provider = provider(entry)?;
+        let email = text(&entry["email"]);
+        let id = if valid_email(email) && !email.contains(':') {
             email.to_lowercase()
         } else {
-            format!("{provider}:{}", email.to_lowercase())
+            String::new()
         };
         if !id.is_empty() && accounts.iter().any(|a: &Value| a["id"] == id) {
             continue;

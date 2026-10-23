@@ -351,3 +351,86 @@ async fn credentials_failure_prevents_refresh_and_mail_network_requests() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn unsupported_client_provider_never_reads_keyring_or_contacts_google() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    struct RefusedStore(Arc<std::sync::atomic::AtomicUsize>);
+    impl crate::credentials::CredentialStore for RefusedStore {
+        fn get(
+            &self,
+            _: &crate::credentials::CredentialKey,
+        ) -> Result<crate::credentials::Secret, crate::credentials::Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(crate::credentials::Error::Unavailable)
+        }
+        fn put(
+            &self,
+            _: &crate::credentials::CredentialKey,
+            _: &[u8],
+        ) -> Result<(), crate::credentials::Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(crate::credentials::Error::Unavailable)
+        }
+        fn delete(
+            &self,
+            _: &crate::credentials::CredentialKey,
+        ) -> Result<(), crate::credentials::Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(crate::credentials::Error::Unavailable)
+        }
+    }
+    let account = "synthetic@example.org";
+    let fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[{
+        "provider":"gmail","email":account
+    }]}));
+    let directory =
+        crate::platform::private_fs::directories_readonly(&fixture.config, &["omamail"])
+            .unwrap()
+            .unwrap();
+    let credential_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let _credentials =
+        crate::credentials::tests::isolated_store(RefusedStore(credential_calls.clone()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let transport = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(transport, origin, async {
+        for provider in ["imap", "outlook", "hey", "jmap", "caldav", "unknown"] {
+            let own = json!({"provider":"gmail","id":account,
+                "clientId":"123-own.apps.googleusercontent.com","clientSecret":"synthetic"});
+            let unsupported = json!({"provider":provider,"id":"other@example.org",
+                "clientId":"456-shared.apps.googleusercontent.com","clientSecret":"synthetic"});
+            for clients in [
+                json!({"accounts":[unsupported]}),
+                json!({"accounts":[own,unsupported]}),
+                json!({"provider":provider,"installed":{"client_id":"789-client.apps.googleusercontent.com"}}),
+                json!({"installed":{"provider":provider,"client_id":"789-client.apps.googleusercontent.com"}}),
+                json!({"web":{"provider":provider,"client_id":"789-client.apps.googleusercontent.com"}}),
+                json!({"accounts":[own,{"id":"other@example.org","installed":{"provider":provider,"client_id":"789-client.apps.googleusercontent.com"}}]}),
+                json!({"accounts":[own,{"id":"other@example.org","web":{"provider":provider,"client_id":"789-client.apps.googleusercontent.com"}}]}),
+            ] {
+                crate::platform::private_fs::atomic_replace(&directory, "credentials.json", clients.to_string().as_bytes()).unwrap();
+                let before = crate::mail::tests::fixture_tree(&fixture.root);
+                let session = Session::default();
+                let results = [
+                    session.call("gmail.profile", &json!({"accountId":account})).await,
+                    session.access_token(account).await.map(Value::String),
+                    session.call("gmail.send", &json!({"accountId":account,"raw":"eA"})).await,
+                    session.call_settled("gmail.trash", &json!({"accountId":account,"id":"message"})).await,
+                    session.replica_call(account, "labels", &json!({})).await,
+                    session.thread_resources(account, "thread").await.map(Value::Array),
+                ];
+                assert_eq!(credential_calls.load(Ordering::SeqCst), 0, "unsupported client accessed credential store");
+                for result in results {
+                    assert_eq!(result, Err("accounts_provider_unsupported"));
+                }
+                assert_eq!(crate::mail::tests::fixture_tree(&fixture.root), before);
+                session.shutdown();
+            }
+        }
+        assert!(tokio::time::timeout(Duration::from_millis(30), listener.accept()).await.is_err(),
+            "unsupported client opened a token or Gmail connection");
+    }).await;
+}

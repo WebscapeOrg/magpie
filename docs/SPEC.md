@@ -1,6 +1,6 @@
 # Omamail — Spec
 
-A native mail client for Omarchy, built as a Quickshell plugin over the official Gmail API, Microsoft OAuth plus IMAP/SMTP, the HEY CLI, and standard IMAP/SMTP. Same technology as Omarchy-Spotify: QML views over plain-JS logic, running inside the existing `omarchy-shell` process.
+A native mail client for Omarchy, built as a Quickshell plugin over the official Gmail and Google Calendar APIs. Same technology as Omarchy-Spotify: QML views over plain-JS logic, running inside the existing `omarchy-shell` process.
 
 ## Product shape
 
@@ -19,8 +19,8 @@ Three plugin entry points (`manifest.kinds`):
 
 | Question | Decision |
 |---|---|
-| JMAP | **A fourth provider, after Gmail and HEY and ahead of IMAP.** "Any server that speaks JMAP": a protocol rather than a service, so there is no brand to draw and a mailbox here takes the themed envelope IMAP does, and no web front door either to link to or to open a message in. Signing in is an address and an app password or an API token — the auth scheme detected rather than asked, the server discovered from the address's domain unless one is typed — and the account id is `jmap:<address>`. It goes in front of IMAP because a server that speaks both is better read over JMAP: the server's own thread ids, a listing that collapses to conversations, a junk verb where the session proves the server learns from one, whole-account search, and one round trip for a batch. **A provider's capability list is a ceiling, not a promise.** An account may refuse one of them from what its own session and mailbox roles say, and `Registry.can` weighs those refusals beside the ceiling: a server with no Archive mailbox loses the Archive rail row, the archive button and the `e` hint, and says why rather than failing after the row has already moved. The transport is `scripts/jmap-transport.sh`, one curl script beside the IMAP one, and every signed-in account holds an event stream open whether or not the window is — a change on the server reaches the panel within about a second, with the two-minute poll left as a backstop. |
-| List granularity | **One row per conversation where the provider declares `conversations`, one row per message everywhere else.** Having a server-side thread id is not the same question as whether the listing collapses, which is why `conversations` is a capability of its own beside `threads`. Gmail has thread ids and still lists messages (`messages.list`): aggregating them costs an extra `threads.get` round trip per page and doubles the UI states. That objection does not apply to JMAP, where the query, the ids and the members arrive in one chained POST and a collapsed listing therefore costs no extra round trip at all; HEY's rows have always been conversations, since `hey threads` answers one entry per topic. A row above the seam stands for a conversation on those two and for a message on Gmail and IMAP, and the reader draws a rail of the members when there is more than one. |
+| Accounts | Gmail and Google Workspace only, including custom domains. Add mailbox opens Google setup directly. Multiple accounts retain separate identities, credentials and caches. |
+| List granularity | One row per Gmail message. The reader shows other members of its thread when present. Thread identity does not change list grouping. |
 | Body rendering | **Three readings of one message, and reading mode is the default.** Reading mode discards the sender's presentation and rebuilds the message out of what it says — paragraphs, headings, lists, quotes, links, small data tables — in this window's type at a bounded measure; nothing but text, a checked `href`, a checked image source, and bounded numeric image dimensions crosses from the sender's document, so no sender markup reaches Qt at all. Original is the sender's own layout through Qt RichText, sanitised, kept for the receipts and tables whose layout is carrying something. Plain is the text. All three are built from one parse when the body arrives, so choosing between them costs neither a fetch nor a reparse. Remote images are blocked in every one of them until the reader asks; approved visible images are then fetched without redirects and with byte/time limits, and Qt receives only completed `data:` URIs, never pending remote sources or loading placeholders. The fetch still reports the read to the image host. A source aimed at loopback, a private address or a local file is never fetched at all. No browser engine: `QtWebEngineQuick::initialize()` must run before the host process's `QGuiApplication` is constructed, which a plugin loaded later cannot do. |
 | Sending | **Included.** Reply, reply-all, forward, and compose, plain-text body with quoted original. Requires the `gmail.send` scope. |
 | Bar click | **Opens the app window directly.** Middle click refreshes, right click opens a small menu. |
@@ -28,10 +28,10 @@ Three plugin entry points (`manifest.kinds`):
 | Mailto handler | **This window's compose form.** Install writes a `.desktop` file claiming `x-scheme-handler/mailto` and summons the panel with the URL. Toggle would close a mailbox that is already open. |
 | List triage | **Right-click context menu** on any row: reply / reply all / forward, archive / trash / spam, mark read-unread, star, open in browser. |
 | Reader actions | **Icons with tooltips**, not labelled buttons — six actions fit where six labels would not, with the destructive one set apart by a rule and the urgent colour. Icons are Nerd Font glyphs from the Material Design Icons range the Omarchy shell uses, named in `ui/components/Icons.js`; only the two-colour brand mark is drawn. |
-| Invitations | **Read from the message's own `text/calendar` part, answered as an RFC 5546 reply.** No calendar API and no second OAuth scope: an RSVP is a mail to the organiser carrying `METHOD:REPLY` and this account's `ATTENDEE` line, which is what every calendar server already listens for — so it works identically on IMAP. Gmail withholds the octets of any part the sender named and Google Calendar names both of the two it sends, so the file itself is one more request, made only for a message that has an invitation in it. Times are resolved through the `VTIMEZONE` the sender ships rather than a timezone database; a zone that arrives without one keeps the organiser's wall clock and names it, instead of showing a conversion nothing backs. |
+| Invitations | **Read from the message's own `text/calendar` part, answered as an RFC 5546 reply.** No calendar API and no second OAuth scope: an RSVP is a mail to the organiser carrying `METHOD:REPLY` and this account's `ATTENDEE` line, which is what every calendar server already listens for. Gmail withholds the octets of any part the sender named and Google Calendar names both of the two it sends, so the file itself is one more request, made only for a message that has an invitation in it. Times are resolved through the `VTIMEZONE` the sender ships rather than a timezone database; a zone that arrives without one keeps the organiser's wall clock and names it, instead of showing a conversion nothing backs. |
 | Unsubscribing | **One click where RFC 8058 promises it will work, and only there.** A `List-Unsubscribe-Post` header plus an `https` URL on a public host is a POST that finishes in the window; an address is a message; anything else opens the sender's page, and the label says so. Whether a URL may be fetched is the same judgement that decides whether a message may load a picture. |
 | Sidebar | **An open but narrow icon rail** (148px; 44px collapsed), named by tooltips either way. Collapsing is one click. |
-| Loading | **Cache first, then stream.** Every query, the label list, the profile and opened bodies are kept under `$XDG_CACHE_HOME/omamail`, keyed by query and bound to the mailbox address. Query summaries share one atomically written file and are capped per query; opened bodies live one file each. Switching mailboxes paints immediately and revalidates behind it. A first-time search filters only cached summaries inside the provider's server-search scope, then treats the server ids as authoritative so a stale preview cannot survive or be persisted. Interactive IMAP search reads only the highest UID first and reports one bounded newest range before taking a UID snapshot for any remaining message-bounded searches on a reused connection. Its settled prefix is final, and one queued metadata read feeds small header batches to the list before the rest of the page. A rotating `Searching server` state inside the query field says that this visible answer is still growing, and disappears only after the listing and its outstanding metadata reads have finished. |
+| Loading | Saved mail appears first. API 8 maintains an account-owned local replica; Gmail history sync refreshes it with bounded requests. Search shows saved previews before Gmail determines authoritative membership. Typing or selecting suggestions does not contact Gmail. Inbox overviews reuse downloaded text, fetching only missing content. |
 | Setup | **Two steps, one at a time.** Finished steps collapse to a line with a check; the walkthrough hides behind a disclosure. The Publish-app warning stays beside the sign-in button, because it decides whether the session lasts seven days or indefinitely. |
 
 ## Authentication
@@ -41,33 +41,26 @@ access per Cloud project — so each user creates their own OAuth client once,
 guided by an in-app four-step walkthrough.
 
 - Authorization Code + PKCE, loopback redirect `http://127.0.0.1:9481/oauth2callback`
-- Listener is a single-shot `socat`; the browser does the rest
+- Rust owns the bounded, single-use loopback callback; the browser handles Google sign-in
 - Scopes: `gmail.modify` (read, label, archive, trash — cannot permanently
   delete), `gmail.send` and `calendar.events` (read calendars, write events)
-- Refresh token → GNOME Keyring via `secret-tool`, keyed by client and account
+- Refresh token → system credential store through the typed native boundary, keyed by client and account
 - Client id/secret → `~/.config/omamail/credentials.json`, mode 0600.
   Not plugin settings: `shell.json` is world-readable.
 - Access token → process memory only
-
-Outlook.com and Hotmail use Microsoft's OAuth device-code flow for delegated IMAP and SMTP access. The user supplies a public-client Application ID until the project has a maintainer-owned registration to ship.
-
-- Tenant: `consumers`; scopes: `offline_access`, `https://outlook.office.com/IMAP.AccessAsUser.All`, `https://outlook.office.com/SMTP.Send`
-- Refresh token → GNOME Keyring, keyed by provider, client and account
-- Application ID → the account entry; it is public configuration and there is no client secret
-- Access token → process memory, handed to curl over stdin and used through its OAuth bearer option
 
 ## Features
 
 **Ship in v1**
 
-- Four kinds of mailbox, in the order the chooser offers them: Gmail, HEY, JMAP, and IMAP for every server the first three do not name
+- Gmail and Google Workspace accounts, connected directly through Google setup
 - Mailboxes: Inbox, Unread, Starred, Sent, All mail, Trash, plus user labels
-- Message list: sender, subject, snippet, time, unread dot, star; paging. One row per conversation on HEY and JMAP, one per message on Gmail and IMAP
+- Message list: sender, subject, snippet, time, unread dot, star; paging. One row per Gmail message
 - Reader: headers, the message read three ways, attachment list, open in browser
 - Actions: read/unread, star, archive, trash, untrash, report spam, mark all read
 - Compose, reply, reply-all, forward
 - Calendar invitations: full meeting detail, RSVP, and one-click Meet join
-- Calendar: month and week views over Google Calendar, Microsoft calendars (Outlook.com and Microsoft 365, through Graph with the mailbox's sign-in) and CalDAV, with event create, edit and delete. Google calendars follow the current mailbox by default. A setting can combine every connected account in one view.
+- Calendar: month and week views over Google Calendar, including discovered shared calendars, read-only permissions, event creation/editing/deletion, recurrence and reminders. Calendars follow the current account by default; a setting combines connected accounts.
 - One-click unsubscribe from mailing lists that support it
 - Search using Gmail's own operator syntax
 - Unread dot in the bar, deliberately without a count; merged desktop notification for new mail
@@ -79,8 +72,6 @@ Outlook.com and Hotmail use Microsoft's OAuth device-code flow for delegated IMA
 **Explicitly out of scope**
 
 - Embedded browser engine (see above)
-- Attachment download (v1.1)
-- Offline cache
 
 ## Keyboard
 

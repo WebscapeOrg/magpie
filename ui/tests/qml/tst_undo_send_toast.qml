@@ -11,7 +11,6 @@ Item {
     id: toast
     anchors.right: parent.right
     anchors.bottom: parent.bottom
-    secondsRemaining: 7
     textColor: Qt.rgba(1, 1, 1, 1)
     dimColor: Qt.rgba(0.67, 0.67, 0.67, 1)
     accentColor: Qt.rgba(1, 0.5, 0, 1)
@@ -34,24 +33,21 @@ Item {
       scene.width = 500
       toast.awaitingConnection = false
       toast.queuedCount = 1
-      toast.secondsRemaining = 7
       undoSpy.clear()
     }
 
-    function test_countdown_is_visible_and_updates() {
+    function test_queued_message_is_acknowledged_without_a_countdown() {
       var message = findChild(toast, "undo-send-message")
       verify(message)
-      compare(message.text, "Sending in 7s")
-      toast.secondsRemaining = 3
-      compare(message.text, "Sending in 3s")
+      compare(message.text, "Message queued")
     }
 
     function test_more_than_one_parked_send_is_said_and_undo_names_the_last() {
       toast.queuedCount = 3
-      compare(findChild(toast, "undo-send-message").text, "3 queued \u00b7 newest in 7s")
+      compare(findChild(toast, "undo-send-message").text, "3 messages queued")
       compare(findChild(toast, "undo-send-button").text, "Undo last  alt+z")
       toast.queuedCount = 1
-      compare(findChild(toast, "undo-send-message").text, "Sending in 7s")
+      compare(findChild(toast, "undo-send-message").text, "Message queued")
     }
 
     function test_button_requests_undo() {

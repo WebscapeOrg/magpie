@@ -2167,7 +2167,6 @@ Item {
         anchors.bottomMargin: MailStyle.space(12)
         z: 80
         visible: !!root.service && root.service.sendPending && compose.parkedForSend
-        secondsRemaining: root.service ? root.service.sendSecondsRemaining : 0
         awaitingConnection: !!root.service && root.service.sendAwaitingConnection === true
         queuedCount: root.service && root.service.sendPendingCount !== undefined
           ? root.service.sendPendingCount : 1

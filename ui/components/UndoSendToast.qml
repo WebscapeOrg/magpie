@@ -18,15 +18,21 @@ Rectangle {
 
   signal undoRequested()
 
-  implicitWidth: message.implicitWidth + undoButton.implicitWidth + content.spacing + MailStyle.space(16)
+  implicitWidth: Math.ceil(messageMetrics.advanceWidth) + undoButton.implicitWidth + content.spacing + MailStyle.space(16)
   implicitHeight: Math.max(content.implicitHeight + MailStyle.space(12), MailStyle.space(42))
   width: Math.min(implicitWidth, parent ? parent.width - MailStyle.space(32) : implicitWidth)
-  readonly property bool stacked: width < implicitWidth
+  readonly property bool stacked: parent && parent.width - MailStyle.space(32) < implicitWidth
   radius: Style.cornerRadius
   color: Qt.rgba(popupBackgroundColor.r, popupBackgroundColor.g,
     popupBackgroundColor.b, 1)
   border.width: Style.normalBorderWidth
   border.color: popupBorderColor
+
+  TextMetrics {
+    id: messageMetrics
+    text: message.text
+    font: message.font
+  }
 
   Grid {
     id: content

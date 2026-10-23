@@ -15,7 +15,7 @@ Item {
   required property color popupBackgroundColor
   required property color popupBorderColor
   required property string panelFontFamily
-  property bool serverSearching: false
+  property bool searching: false
   property bool assistanceAvailable: false
   property var operators: []
   property var labels: []
@@ -29,10 +29,10 @@ Item {
   readonly property bool inputMethodComposing: field.inputMethodComposing
   readonly property var suggestions: assistanceAvailable && !field.inputMethodComposing
     ? Completion.suggestions(field.text,field.cursorPosition,field.selectionStart,field.selectionEnd,operators,labels) : []
-  readonly property bool suggestionsOpen: assistanceAvailable && field.activeFocus && !help.opened
+  readonly property bool suggestionsOpen: assistanceAvailable && !searching && field.activeFocus && !help.opened
     && field.text !== dismissedText && suggestions.length > 0
   readonly property bool helpOpened: help.opened
-  readonly property bool controlsFocused: helpButton.activeFocus || clearButton.activeFocus
+  readonly property bool controlsFocused: clearButton.activeFocus
   readonly property string editingContext: JSON.stringify([field.text,field.cursorPosition,field.selectionStart,field.selectionEnd])
   onEditingContextChanged: { suggestionIndex = -1; selectedSuggestionKey = "" }
   onSuggestionsChanged: retainSuggestion()
@@ -40,8 +40,8 @@ Item {
   onWidthChanged: Qt.callLater(placeAssistance)
   onHeightChanged: Qt.callLater(placeAssistance)
   onVisibleChanged: if (!visible) dismissAssistance()
-
-  readonly property bool showServerLabel: width >= MailStyle.space(260)
+  onSearchingChanged: applySearching()
+  Component.onCompleted: applySearching()
 
   signal submitted(string query)
   signal cleared()
@@ -60,6 +60,14 @@ Item {
   }
 
   function takeFocus() { if (visible) field.forceActiveFocus() }
+
+  function applySearching() {
+    var start = field.selectionStart
+    var end = field.selectionEnd
+    var caret = field.cursorPosition
+    field.readOnly = searching
+    field.select(caret === start ? end : start, caret === start ? start : end)
+  }
 
   function dismissAssistance() {
     if (help.opened) { help.close(); return true }
@@ -91,6 +99,7 @@ Item {
   }
 
   function replaceRange(edit) {
+    if (searching) return
     replacing = true
     field.cursorPosition = edit.start !== field.cursorPosition ? edit.start
       : edit.end !== edit.start ? edit.end : Math.max(0,edit.start - 1)
@@ -113,7 +122,7 @@ Item {
   }
 
   function accept() {
-    if (field.inputMethodComposing) return false
+    if (searching || field.inputMethodComposing) return false
     if (suggestionsOpen && suggestionIndex >= 0) return completeSuggestion(suggestionIndex)
     dismissedText = field.text
     root.submitted(field.text.trim())
@@ -163,16 +172,19 @@ Item {
     anchors.fill: parent
     foreground: root.textColor
     accent: root.accentColor
-    placeholderText: "Search mail..."
+    placeholderText: root.searching ? "" : "Search..."
+    color: root.searching ? "transparent" : root.textColor
+    selectedTextColor: color
+    selectionColor: root.searching ? "transparent" : selectionTint
+    cursorVisible: activeFocus && !root.searching
     Accessible.name: "Search mail"
-    Accessible.description: root.suggestionsOpen && root.suggestionIndex >= 0
+    Accessible.description: root.searching ? "Searching... Clear search or press Escape to cancel."
+      : root.suggestionsOpen && root.suggestionIndex >= 0
       ? root.suggestions[root.suggestionIndex].label + ". Suggestion " + (root.suggestionIndex + 1) + " of " + root.suggestions.length + ". Tab or Enter completes."
       : root.assistanceAvailable ? "Gmail filters available. Tab completes a suggestion. Enter searches." : "Press Enter to search."
     font.family: root.panelFontFamily
     font.pixelSize: MailStyle.bodySmall
     rightPadding: horizontalPadding + MailStyle.space(22)
-      + (root.assistanceAvailable ? helpButton.width + MailStyle.space(3) : 0)
-      + (root.serverSearching ? serverState.width + MailStyle.space(7) : 0)
     onAccepted: root.accept()
     onTextChanged: if (!root.replacing) root.dismissedText = "\u0000"
     Keys.onPressed: function(event) {
@@ -185,75 +197,51 @@ Item {
         ? Style.hoverFillFor(root.textColor, root.accentColor)
         : Style.normalFillFor(root.textColor, root.accentColor)
       border.width: 1
-      border.color: field.activeFocus
+      border.color: root.searching ? root.accentColor : field.activeFocus
         ? Style.hoverBorderFor(root.textColor, root.accentColor)
         : Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.12)
-    }
-  }
 
-  Item {
-    id: serverState
-    anchors.right: helpButton.visible ? helpButton.left : clearButton.left
-    anchors.rightMargin: MailStyle.space(3)
-    anchors.verticalCenter: parent.verticalCenter
-    visible: root.serverSearching
-    width: visible ? serverStateRow.implicitWidth : 0
-    height: MailStyle.space(22)
+      Item {
+        objectName: "search-busy-glow"
+        anchors.fill: parent
+        visible: root.searching
 
-    Row {
-      id: serverStateRow
-      anchors.centerIn: parent
-      spacing: root.showServerLabel ? MailStyle.space(5) : 0
-
-      ActionIcon {
-        anchors.verticalCenter: parent.verticalCenter
-        name: "refresh"
-        iconSize: Style.font.iconSmall
-        color: root.accentColor
-
-        RotationAnimator on rotation {
-          from: 0
-          to: 360
-          duration: 900
-          loops: Animation.Infinite
-          running: root.serverSearching
+        Repeater {
+          model: 3
+          Rectangle {
+            required property int index
+            anchors.fill: parent
+            anchors.margins: -MailStyle.space((index + 1) * 2)
+            radius: Style.cornerRadius + MailStyle.space((index + 1) * 2)
+            color: "transparent"
+            border.width: MailStyle.space(2)
+            border.color: Qt.rgba(root.accentColor.r, root.accentColor.g,
+              root.accentColor.b, 0.12 - index * 0.035)
+          }
         }
       }
-
-      Text {
-        anchors.verticalCenter: parent.verticalCenter
-        visible: root.showServerLabel
-        text: "Searching server"
-        textFormat: Text.PlainText
-        color: root.textColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.caption
-      }
     }
   }
 
-  Widgets.Button {
-    id: helpButton
-    objectName: "search-help-button"
+  Text {
+    objectName: "search-busy-label"
+    anchors.left: field.left
+    anchors.leftMargin: field.leftPadding
     anchors.right: clearButton.left
+    anchors.rightMargin: MailStyle.space(6)
     anchors.verticalCenter: parent.verticalCenter
-    visible: root.assistanceAvailable
-    text: "?"
-    tooltipText: "Search help..."
-    Accessible.name: "Search help..."
-    selected: help.opened
-    focusable: true
-    foreground: root.textColor
-    accent: root.accentColor
-    fontFamily: root.panelFontFamily
-    fontSize: MailStyle.bodySmall
-    horizontalPadding: MailStyle.space(6)
-    verticalPadding: MailStyle.space(2)
-    onClicked: help.opened ? help.close() : root.openHelp()
+    visible: root.searching
+    text: "Searching..."
+    textFormat: Text.PlainText
+    color: root.textColor
+    font: field.font
+    elide: Text.ElideRight
+    Accessible.ignored: true
   }
 
   Widgets.PanelActionButton {
     id: clearButton
+    objectName: "search-clear-button"
     anchors.right: parent.right
     anchors.rightMargin: MailStyle.space(4)
     anchors.verticalCenter: parent.verticalCenter
@@ -295,6 +283,7 @@ Item {
     id: help
     parent: root.overlayParent
     operators: root.operators
+    insertionEnabled: !root.searching
     textColor: root.textColor
     dimColor: root.dimColor
     accentColor: root.accentColor
@@ -303,6 +292,7 @@ Item {
     panelFontFamily: root.panelFontFamily
     onHeightChanged: if (opened) Qt.callLater(root.placeAssistance)
     onExampleChosen: function(example) {
+      if (root.searching) return
       var edit = Completion.exampleInsertion(field.text,root.helpSelectionStart,root.helpSelectionEnd,example)
       close()
       root.replaceRange(edit)

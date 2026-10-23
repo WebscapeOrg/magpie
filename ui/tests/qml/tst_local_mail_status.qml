@@ -39,6 +39,7 @@ Item {
       return null
     }
     function init() {
+      notice.searchActive=false
       mailbox.error=""
       mailbox.status=({complete:false,textComplete:501,estimatedTotal:1200})
       mailbox.account=({listLoading:false})
@@ -83,6 +84,30 @@ Item {
       mailbox.error="This search needs Gmail. Choose Search online to continue."
       verify(notice.visible)
       verify(findText(notice,mailbox.error))
+    }
+    function test_search_hides_routine_sync_details_but_keeps_recovery() {
+      notice.searchActive = true
+      verify(!notice.visible)
+      var routine = ["gmail_request_deferred", "gmail_rate_limited", "gmail_server_rate_limited"]
+      for (var index = 0; index < routine.length; index++) {
+        mailbox.status = {complete:false,error:routine[index]}
+        verify(!notice.visible)
+      }
+      mailbox.status = {complete:false,paused:true}
+      verify(!notice.visible)
+      mailbox.status = {complete:true,error:"gmail_unauthorized"}
+      verify(notice.visible)
+      mailbox.status = {complete:true,editConflicts:1}
+      verify(notice.visible)
+      mailbox.status = {complete:true,pendingEdits:1}
+      mailbox.edits = [{ticket:"queued-search-edit",state:"queued"}]
+      verify(notice.visible)
+      var undo = findText(notice,"Undo latest change")
+      verify(undo.visible)
+      undo.forceActiveFocus()
+      keyClick(Qt.Key_Return)
+      compare(mailbox.undone,"queued-search-edit")
+      verify(!findText(notice,"Search online").visible)
     }
     function test_local_pacing_and_legacy_limits_do_not_blame_gmail() {
       mailbox.status=({complete:false,error:"gmail_request_deferred"})

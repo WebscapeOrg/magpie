@@ -593,12 +593,10 @@ grep -q '}, idsArrived)' account/MailAccount.qml \
   || fail "server ids must be consumed before the final list callback"
 grep -q 'readonly property bool serverSearchLoading:' account/MailAccount.qml \
   || fail "typed searches must expose that the server answer is still loading"
-grep -q 'serverSearching: !!root\.service && root\.service\.serverSearchLoading' App.qml \
-  || fail "the search field must receive the live server-search state"
-grep -q 'text: "Searching server"' components/SearchBar.qml \
+grep -q 'searching: !!root\.service && SearchPresentation.busy' App.qml \
+  || fail "the search field must receive the live search state"
+grep -q 'text: "Searching\.\.\."' components/SearchBar.qml \
   || fail "the search field must name what is still running"
-grep -q 'RotationAnimator on rotation' components/SearchBar.qml \
-  || fail "the server-search state must remain visible when its label no longer fits"
 for client in providers/GmailApiClient.qml; do
   grep -q 'function listMessages(query, maxResults, pageToken, callback, progress)' "$client" \
     || fail "$client must expose the shared progressive search interface"
@@ -817,7 +815,7 @@ from pathlib import Path
 
 for name in ("components/AppMenu.qml", "components/MessageMenu.qml"):
     source = Path(name).read_text()
-    listed = re.search(r"property var menuRows: \[(.*?)\]", source, re.S)
+    listed = re.search(r"property var menuRows:\s*(?:\w+\s*\?\s*)?(\[[^\]]*\](?:\s*:\s*\[[^\]]*\])?)", source, re.S)
     if not listed:
         raise SystemExit("test_source.sh: %s must list its rows in menuRows" % name)
     known = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", listed.group(1)))

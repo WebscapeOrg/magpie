@@ -38,6 +38,7 @@ Item {
     signalName: "actionRequested"
   }
   SignalSpy { id: composeSpy; target: menu; signalName: "composeRequested" }
+  SignalSpy { id: searchHelpSpy; target: applicationMenu; signalName: "searchHelpRequested" }
 
   Omamail.AppMenu {
     id: applicationMenu
@@ -100,6 +101,35 @@ Item {
         compare(target.menuRows[target.cursorIndex], rows[rowIndex],
           "Down should select the next displayed row: " + rows[rowIndex].text)
       }
+    }
+
+    function test_help_page_keyboard_navigation_and_search_activation() {
+      searchHelpSpy.clear()
+      applicationMenu.openAt(10,10)
+      tryCompare(applicationMenu,"opened",true)
+      var steps = 0
+      while (steps < applicationMenu.menuRows.length
+          && (applicationMenu.cursorIndex < 0
+            || applicationMenu.menuRows[applicationMenu.cursorIndex].objectName !== "app-menu-help")) {
+        keyClick(Qt.Key_Down)
+        steps++
+      }
+      compare(applicationMenu.menuRows[applicationMenu.cursorIndex].objectName,"app-menu-help")
+      keyClick(Qt.Key_Right)
+      compare(applicationMenu.helpPage,true)
+      compare(applicationMenu.menuRows[applicationMenu.cursorIndex].objectName,"app-menu-search-help")
+      keyClick(Qt.Key_Escape)
+      compare(applicationMenu.helpPage,false)
+      verify(applicationMenu.opened)
+      compare(applicationMenu.menuRows[applicationMenu.cursorIndex].objectName,"app-menu-help")
+      keyClick(Qt.Key_Return)
+      compare(applicationMenu.helpPage,true)
+      keyClick(Qt.Key_Down)
+      compare(applicationMenu.menuRows[applicationMenu.cursorIndex].objectName,"app-menu-keyboard-help")
+      keyClick(Qt.Key_Up)
+      keyClick(Qt.Key_Return)
+      compare(searchHelpSpy.count,1)
+      tryCompare(applicationMenu,"opened",false)
     }
 
     function archivedMessage() {

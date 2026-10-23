@@ -4,15 +4,35 @@ function active(status) {
   return !!status && String(status.phase || "") !== ""
 }
 
+function busy(status, query, loading, serverLoading) {
+  var phase = String((status || {}).phase || "")
+  if (phase) return phase === "preparing" || phase === "local" || phase === "checking"
+  return String(query || "") !== "" && (loading === true || serverLoading === true)
+}
+
+function issue(status) {
+  var phase = String((status || {}).phase || "")
+  return phase === "invalid" || phase === "failed" || phase === "partial" || phase === "stopped"
+}
+
+function issueText(status) {
+  var state = status || {}
+  var error = String(state.error || "")
+  if (state.phase === "invalid") return error || "Check the search query and try again."
+  if (state.phase === "stopped") return "Search stopped. Results may be incomplete."
+  if (state.phase === "failed" || state.phase === "partial")
+    return error ? "Results may be incomplete. " + error : "Search could not finish. Retry to check for more messages."
+  return ""
+}
+
 function emptyText(status, loading, loaded, searching) {
   var phase = String((status || {}).phase || "")
-  if (phase === "preparing" || phase === "local") return "Searching saved mail..."
-  if (phase === "checking") return "Searching Gmail..."
+  if (phase === "preparing" || phase === "local" || phase === "checking") return ""
   if (phase === "stopped") return "Search stopped before all results were checked. Retry to finish."
   if (phase === "failed" || phase === "partial") return "Search could not finish. Retry to check for more messages."
   if (phase === "invalid") return "Edit the search to try again."
   if (phase === "complete") return "No messages match. Try fewer filters or different words."
-  if (loading) return searching ? "Searching mail..." : "Fetching the mailbox"
+  if (loading) return searching ? "" : "Fetching the mailbox"
   if (!loaded) return ""
   return searching ? "No messages match. Try fewer filters or different words." : "Nothing here"
 }

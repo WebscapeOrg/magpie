@@ -35,8 +35,10 @@ Item {
   property real anchorX: 0
   property real anchorY: 0
   property int cursorIndex: -1
-  readonly property var menuRows: [snoozedRow, layoutRow, refreshRow, aiToolsRow, refreshImagesRow, pauseOverviewRow, overviewRow, inboxRow, calendarRow, markRow, webRow,
-    switchRow, settingsRow, shortcutsRow, projectRow, authorRow, quitRow]
+  property bool helpPage: false
+  readonly property var menuRows: helpPage ? [helpBackRow, searchHelpRow, shortcutsRow]
+    : [snoozedRow, layoutRow, refreshRow, aiToolsRow, refreshImagesRow, pauseOverviewRow, overviewRow, inboxRow, calendarRow, markRow, webRow,
+      switchRow, settingsRow, helpRow, projectRow, authorRow, quitRow]
 
   function openAt(sceneX, sceneY) {
     var local = root.mapFromGlobal(sceneX, sceneY)
@@ -57,18 +59,35 @@ Item {
 
   function moveCursor(step) {
     cursorIndex = Menu.nextSelectable(menuRows, cursorIndex, step)
+    revealCursor()
+  }
+  function revealCursor() {
     if (cursorIndex < 0) return
     var row = menuRows[cursorIndex]
-    if (row.y < menuScroll.contentY) menuScroll.contentY = row.y
-    else if (row.y + row.height > menuScroll.contentY + menuScroll.height) menuScroll.contentY = row.y + row.height - menuScroll.height
+    var top = row.mapToItem(menuItems, 0, 0).y
+    if (top < menuScroll.contentY) menuScroll.contentY = top
+    else if (top + row.height > menuScroll.contentY + menuScroll.height) menuScroll.contentY = top + row.height - menuScroll.height
   }
   function runCursor() { if (cursorIndex >= 0) menuRows[cursorIndex].activated() }
 
   function close() { menu.close() }
+  function showHelp() {
+    helpPage = true
+    cursorIndex = 1
+    menuScroll.contentY = 0
+    menuItems.forceActiveFocus()
+  }
+  function showMain() {
+    helpPage = false
+    cursorIndex = menuRows.indexOf(helpRow)
+    menuItems.forceActiveFocus()
+    Qt.callLater(revealCursor)
+  }
 
   signal markAllReadRequested()
   signal openWebRequested()
   signal shortcutsRequested()
+  signal searchHelpRequested()
   signal inboxRequested()
   signal calendarRequested()
   signal setupRequested()
@@ -106,10 +125,11 @@ Item {
     padding: MailStyle.space(4)
     modal: false
     focus: true
-    closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
+    closePolicy: QQC.Popup.CloseOnPressOutside | (root.helpPage ? 0 : QQC.Popup.CloseOnEscape)
     onHeightChanged: root.place()
     onOpened: {
       // Invariant: opening the menu must not imply that Inbox is the current view.
+      root.helpPage = false
       root.cursorIndex = -1
       root.place()
     }
@@ -144,7 +164,7 @@ Item {
         }
         Text {
           anchors.verticalCenter: parent.verticalCenter
-          text: "Magpie"
+          text: root.helpPage ? "Help" : "Magpie"
           textFormat: Text.PlainText
           color: root.textColor
           font.family: root.panelFontFamily
@@ -154,17 +174,35 @@ Item {
       MenuSeparatorLine { width: parent.width; lineColor: root.textColor }
 
       focus: true
+      Keys.onShortcutOverride: function(event) {
+        if (event.modifiers !== Qt.NoModifier) return
+        if ([Qt.Key_J, Qt.Key_Down, Qt.Key_K, Qt.Key_Up, Qt.Key_Return,
+            Qt.Key_Enter, Qt.Key_Space, Qt.Key_O].indexOf(event.key) >= 0
+            || (root.helpPage && (event.key === Qt.Key_Left || event.key === Qt.Key_Escape))
+            || (!root.helpPage && event.key === Qt.Key_Right
+              && root.menuRows[root.cursorIndex] === helpRow)) event.accepted = true
+      }
       Keys.onPressed: function(event) {
+        if (event.modifiers !== Qt.NoModifier) return
         if (event.key === Qt.Key_J || event.key === Qt.Key_Down) {
           root.moveCursor(1); event.accepted = true
         } else if (event.key === Qt.Key_K || event.key === Qt.Key_Up) {
           root.moveCursor(-1); event.accepted = true
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
-            || event.key === Qt.Key_O) {
+            || event.key === Qt.Key_Space || event.key === Qt.Key_O) {
           root.runCursor(); event.accepted = true
+        } else if (root.helpPage && (event.key === Qt.Key_Left || event.key === Qt.Key_Escape)) {
+          root.showMain(); event.accepted = true
+        } else if (!root.helpPage && event.key === Qt.Key_Right
+            && root.menuRows[root.cursorIndex] === helpRow) {
+          root.showHelp(); event.accepted = true
         }
       }
 
+      Column {
+      visible: !root.helpPage
+      width: parent.width
+      spacing: MailStyle.space(2)
       MenuRow {
         id: snoozedRow
         text: "Snoozed mail..."
@@ -255,9 +293,10 @@ Item {
       }
 
       MenuRow {
-        id: shortcutsRow
-        text: "Keyboard..."
-        onActivated: { menu.close(); root.shortcutsRequested() }
+        id: helpRow
+        objectName: "app-menu-help"
+        text: "Help..."
+        onActivated: root.showHelp()
       }
       MenuRow {
         id: projectRow
@@ -282,14 +321,45 @@ Item {
         onActivated: { menu.close(); root.quitRequested() }
       }
       }
+      Column {
+        visible: root.helpPage
+        width: parent.width
+        spacing: MailStyle.space(2)
+        MenuRow {
+          id: helpBackRow
+          objectName: "app-menu-help-back"
+          text: "Back"
+          onActivated: root.showMain()
+        }
+        MenuSeparatorLine { width: parent.width; lineColor: root.textColor }
+        MenuRow {
+          id: searchHelpRow
+          objectName: "app-menu-search-help"
+          text: "Search..."
+          onActivated: { menu.close(); root.searchHelpRequested() }
+        }
+        MenuRow {
+          id: shortcutsRow
+          objectName: "app-menu-keyboard-help"
+          text: "Keyboard..."
+          onActivated: { menu.close(); root.shortcutsRequested() }
+        }
+      }
+      }
     }
   }
 
   component MenuRow: MenuActionRow {
+    id: actionRow
     width: menu.width - menu.leftPadding - menu.rightPadding
     textColor: root.textColor
     panelFontFamily: root.panelFontFamily
     collection: root.menuRows
     cursorIndex: root.cursorIndex
+    Keys.onShortcutOverride: function(event) {
+      if (event.modifiers === Qt.NoModifier && (event.key === Qt.Key_Return
+          || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) event.accepted = true
+    }
+    Keys.onEnterPressed: if (enabled) actionRow.activated()
   }
 }

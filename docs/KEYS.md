@@ -55,6 +55,8 @@ When a button has keyboard focus, unmodified Return, keypad Enter and Space acti
 
 Search suggestions leave focus in the native search field. Enter submits the typed query until an arrow key selects a suggestion; Enter then completes that suggestion without searching. Tab completes the selected or first suggestion. Escape dismisses suggestions before the existing search exit behavior. Context changes restore field focus without selecting the query; only the `/` shortcut selects all. Input-method composition retains its native keys.
 
+During a submitted search, the field shows `Searching...` with a steady glow and preserves the query, selection, and text undo history. The field waits for completion before accepting edits or another submission; Clear or Escape clears the search through the normal exit path. The query returns when the search finishes. Menu → Help → Search opens syntax help; examples can be inserted when the search is idle. In the Help submenu, Enter opens the selected item, and Back, Left, or Escape returns to the main menu.
+
 While an AI request is running, Escape interrupts it and keeps the dock open; otherwise Escape closes the dock. An open command suggestion or history view is left first.
 
 The AI input uses `assistant`: Return/Enter sends and Shift+Return/Enter inserts a newline. Ctrl+Return/Enter also sends for compatibility. Typing `/` offers `/clear` (new chat), `/history` (conversation history), and `/diagnose` (diagnostics). Up/Down selects a suggestion; Return/Enter completes a partial command or executes an exact command immediately; choosing `/history` always opens the history at once. Commands stay local. Outside suggestions, Up/Down retain normal text navigation.

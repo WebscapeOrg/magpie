@@ -26,6 +26,7 @@ import "compose"
 import "calendar"
 import "backend" as Backend
 import "search" as Search
+import "search/Presentation.js" as SearchPresentation
 
 Item {
   id: root
@@ -1313,7 +1314,7 @@ Item {
         return false
       }
       function applyContextFocus() {
-        if (composeExitDialog.opened || searchBar.helpOpened || searchBar.controlsFocused) return
+        if (composeExitDialog.opened || appMenu.opened || searchBar.helpOpened || searchBar.controlsFocused) return
         if ((keyContext === "list" || keyContext === "reader")
             && statusViewport.visible && focusWithin(statusViewport)) return
         if (keyContext === "assistant" || keyContext === "assistantCommands") {
@@ -1439,7 +1440,11 @@ Item {
           assistanceAvailable: !!root.service && root.service.searchAssistanceAvailable === true
           operators: root.service && root.service.searchOperators ? root.service.searchOperators : []
           labels: root.service && root.service.searchLabels ? root.service.searchLabels : []
-          serverSearching: !!root.service && root.service.serverSearchLoading === true && !assistanceAvailable
+          searching: !!root.service && SearchPresentation.busy(root.service.searchStatus,
+            root.service.searchQuery, root.service.listLoading, root.service.serverSearchLoading)
+          onHelpOpenedChanged: {
+            if (!helpOpened && !visible) Qt.callLater(focusScope.applyContextFocus)
+          }
           onKeyPressed: function(event) { keyRouter.routeKeyEvent(event) }
           // Invariant: Search replaces the list and invalidates its open reader history.
           onSubmitted: function(query) {
@@ -1732,7 +1737,8 @@ Item {
                 id: localStatus
                 width: parent.width
                 mailbox: root.service.localMailbox || null
-                searchActive: searchStatus.visible
+                searchActive: !!root.service && (String(root.service.searchQuery || "") !== ""
+                  || SearchPresentation.active(root.service.searchStatus))
                 textColor: root.foreground
                 dimColor: root.dim
                 panelFontFamily: MailStyle.listFamily
@@ -2268,6 +2274,7 @@ Item {
         onMarkAllReadRequested: if (root.service) root.service.markAllRead()
         onOpenWebRequested: if (root.service) root.service.openWebInbox()
         onShortcutsRequested: root.openHelp()
+        onSearchHelpRequested: searchBar.openHelp()
         onInboxRequested: {
           root.backToList()
           if (root.service) root.service.selectMailbox("inbox")

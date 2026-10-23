@@ -10,7 +10,11 @@ Column {
   required property string panelFontFamily
   property bool searchActive: false
   readonly property var status: mailbox ? mailbox.status : ({})
+  readonly property bool searchNeedsAttention: !!mailbox && (mailbox.error !== ""
+    || (!!status.error && ["gmail_request_deferred", "gmail_rate_limited", "gmail_server_rate_limited"].indexOf(status.error) < 0)
+    || Number(status.pendingEdits || 0) > 0 || Number(status.editConflicts || 0) > 0)
   visible: !!mailbox && mailbox.available
+    && (!searchActive || searchNeedsAttention)
     && (mailbox.error !== "" || !!status.error || status.paused === true || !status.complete || Number(status.pendingEdits || 0) > 0
       || Number(status.editConflicts || 0) > 0)
   height: visible ? implicitHeight : 0

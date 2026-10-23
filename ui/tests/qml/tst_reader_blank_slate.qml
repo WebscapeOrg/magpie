@@ -109,7 +109,12 @@ Item {
       mailService.messages = []
       var label = findChild(slate(), "reader-empty-status")
       verify(label)
-      var phases = ["preparing", "local", "checking", "failed", "partial", "stopped", "invalid"]
+      var working = ["preparing", "local", "checking"]
+      for (var phase = 0; phase < working.length; phase++) {
+        mailService.searchStatus = {phase:working[phase]}
+        compare(label.text, "", "The search field owns progress")
+      }
+      var phases = ["failed", "partial", "stopped", "invalid"]
       for (var index = 0; index < phases.length; index++) {
         mailService.searchStatus = {phase:phases[index]}
         verify(label.text !== "")

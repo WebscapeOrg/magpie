@@ -14,6 +14,7 @@ QQC.Popup {
   required property color borderColor
   required property string panelFontFamily
   property var operators: []
+  property bool insertionEnabled: true
   property real maximumHeight: MailStyle.space(600)
   signal exampleChosen(string example)
   signal dismissed()
@@ -75,7 +76,9 @@ QQC.Popup {
       }
       Text {
         width: parent.width
-        text: "Type words or combine filters, then press Enter. Choose an example below to insert it without searching."
+        text: root.insertionEnabled
+          ? "Type words or combine filters, then press Enter. Choose an example below to insert it without searching."
+          : "Type words or combine filters, then press Enter. You can insert examples when the search finishes."
         textFormat: Text.PlainText
         color: root.dimColor
         font.family: root.panelFontFamily
@@ -106,6 +109,7 @@ QQC.Popup {
             width: parent.width
             padding: MailStyle.space(6)
             focusPolicy: Qt.StrongFocus
+            enabled: root.insertionEnabled
             Accessible.name: "Insert " + operatorRow.modelData.example
             onActiveFocusChanged: if (activeFocus) root.reveal(exampleButton)
             onClicked: root.exampleChosen(String(operatorRow.modelData.example || ""))
@@ -122,7 +126,7 @@ QQC.Popup {
                 width: parent.width
                 text: operatorRow.modelData.example
                 textFormat: Text.PlainText
-                color: root.textColor
+                color: exampleButton.enabled ? root.textColor : root.dimColor
                 font.family: root.panelFontFamily
                 font.pixelSize: MailStyle.bodySmall
                 wrapMode: Text.Wrap

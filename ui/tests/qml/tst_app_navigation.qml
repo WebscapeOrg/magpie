@@ -85,6 +85,8 @@ Item {
     property string mailboxKey: "inbox"
     property string searchQuery: ""
     property bool searchAssistanceAvailable: false
+    property bool listLoading: false
+    property bool serverSearchLoading: false
     property var searchOperators: [{operator:"from",values:["me"],example:"from:alex@example.com",description:"Sender"}]
     property var searchLabels: []
     property var searchStatus: ({})
@@ -262,6 +264,8 @@ Item {
       mailService.searchQuery = ""
       mailService.searchAssistanceAvailable = false
       mailService.searchStatus = ({})
+      mailService.listLoading = false
+      mailService.serverSearchLoading = false
       mailService.mailboxKey = "inbox"
       mailService.selectedId = ""
       mailService.selectedMessage = null
@@ -386,6 +390,86 @@ Item {
       compare(mailService.mailboxKey, "drafts", "the mailbox was left alone")
       app.back()
       mailService.mailboxKey = "inbox"
+    }
+
+    function test_help_menu_opens_search_help_and_preserves_the_query_data() {
+      return [{tag:"return",key:Qt.Key_Return}, {tag:"enter",key:Qt.Key_Enter},
+        {tag:"space",key:Qt.Key_Space}]
+    }
+    function test_help_menu_opens_search_help_and_preserves_the_query(data) {
+      mailService.searchAssistanceAvailable = true
+      var search = findChild(app,"search-bar")
+      search.setQuery("from:sender@example.test")
+      var menu = findChild(app,"app-menu")
+      var trigger = findChild(app,"app-menu-button")
+      trigger.forceActiveFocus()
+      keyClick(Qt.Key_Space)
+      tryCompare(menu,"opened",true)
+      var help = findChild(menu,"app-menu-help")
+      verify(help.visible)
+      for (var step = 0; step < menu.menuRows.length && menu.menuRows[menu.cursorIndex] !== help; step++)
+        keyClick(Qt.Key_Down)
+      compare(menu.menuRows[menu.cursorIndex],help)
+      keyClick(Qt.Key_Right)
+      compare(menu.helpPage,true)
+      var searchHelp = findChild(menu,"app-menu-search-help")
+      verify(searchHelp.visible)
+      compare(menu.menuRows[menu.cursorIndex],searchHelp)
+      keyClick(data.key)
+      tryCompare(menu,"opened",false)
+      tryCompare(search,"helpOpened",true)
+      compare(search.queryText,"from:sender@example.test")
+      keyClick(Qt.Key_Escape)
+      tryCompare(search,"helpOpened",false)
+      compare(search.queryText,"from:sender@example.test")
+      tryCompare(findChild(app,"search-query-field"),"activeFocus",true)
+    }
+    function test_help_menu_keeps_keyboard_help_and_can_go_back() {
+      var menu = findChild(app,"app-menu")
+      menu.openAt(40,40)
+      tryCompare(menu,"opened",true)
+      findChild(menu,"app-menu-help").activated()
+      keyClick(Qt.Key_Left)
+      compare(menu.helpPage,false)
+      compare(menu.menuRows[menu.cursorIndex].objectName,"app-menu-help")
+      keyClick(Qt.Key_Right)
+      compare(menu.helpPage,true)
+      keyClick(Qt.Key_Escape)
+      compare(menu.helpPage,false)
+      verify(menu.opened)
+      findChild(menu,"app-menu-help").activated()
+      findChild(menu,"app-menu-keyboard-help").activated()
+      tryCompare(menu,"opened",false)
+      compare(app.shortcutHelpVisible,true)
+      app.back()
+    }
+    function test_search_help_outside_mail_keeps_the_current_screen_data() {
+      return [{tag:"calendar",page:"calendar"}, {tag:"settings",page:"settings"},
+        {tag:"compose",page:"compose"}]
+    }
+    function test_search_help_outside_mail_keeps_the_current_screen(data) {
+      if (data.page === "calendar") app.showCalendar()
+      else if (data.page === "settings") app.openSettings()
+      else app.startCompose("new")
+      wait(20)
+      var before = kinds()
+      var search = findChild(app,"search-bar")
+      verify(!search.visible)
+      var menu = findChild(app,"app-menu")
+      menu.openAt(40,40)
+      tryCompare(menu,"opened",true)
+      findChild(menu,"app-menu-help").activated()
+      findChild(menu,"app-menu-search-help").activated()
+      tryCompare(search,"helpOpened",true)
+      keyClick(Qt.Key_Escape)
+      tryCompare(search,"helpOpened",false)
+      wait(20)
+      compare(kinds(),before)
+      compare(findChild(app,"search-query-field").activeFocus,false)
+      if (data.page === "compose") {
+        verify(app.composing)
+        app.back()
+      } else if (data.page === "settings") app.back()
     }
 
     function test_plugin_menu_does_not_offer_quit() {
@@ -703,24 +787,39 @@ Item {
       compare(field.text,"new")
       compare(field.selectedText,"")
     }
-    function test_search_status_appears_after_initially_empty_viewport() {
+    function test_search_progress_is_inside_the_field_and_success_leaves_no_banner() {
       var viewport = findChild(app,"mail-status-viewport")
+      var search = findChild(app,"search-bar")
       verify(viewport)
       tryCompare(viewport,"height",0)
-      mailService.searchStatus = {phase:"checking",text:"Searching Gmail...",scope:"Gmail accounts",canStop:true}
-      tryVerify(function() { return viewport.height > 0 })
-      var stop = findChild(app,"search-stop")
-      verify(stop.visible)
-      verify(stop.height > 0)
-      mailService.searchStatus = ({})
-      tryCompare(viewport,"height",0)
+      var phases = ["preparing", "local", "checking"]
+      for (var index = 0; index < phases.length; index++) {
+        mailService.searchStatus = {phase:phases[index],text:"Searching Gmail...",scope:"Gmail accounts",canStop:true}
+        compare(search.searching,true)
+        compare(viewport.height,0)
+      }
+      mailService.searchStatus = {phase:"complete",text:"Search complete.",scope:"All accounts",pendingCount:2}
+      compare(search.searching,false)
+      compare(viewport.height,0)
       mailService.searchStatus = {phase:"failed",text:"Saved results",error:"Connect and retry.",canRetry:true}
+      compare(search.searching,false)
       tryVerify(function() { return viewport.height > 0 })
       verify(findChild(app,"search-retry").visible)
     }
+    function test_old_backend_search_progress_does_not_include_ordinary_mailbox_loads() {
+      var search = findChild(app,"search-bar")
+      mailService.listLoading = true
+      mailService.serverSearchLoading = true
+      compare(search.searching,false)
+      mailService.searchQuery = "invoice"
+      compare(search.searching,true)
+      mailService.listLoading = false
+      compare(search.searching,true)
+      mailService.serverSearchLoading = false
+      compare(search.searching,false)
+    }
     function test_search_status_actions_keep_focus_after_leaving_query_data() {
       return [
-        {tag:"stop",status:{phase:"checking",text:"Searching Gmail...",canStop:true},button:"search-stop",action:"stop-search"},
         {tag:"retry",status:{phase:"failed",text:"Saved results",error:"Connect and retry.",canRetry:true},button:"search-retry",action:"retry-search"}
       ]
     }

@@ -162,39 +162,48 @@ Item {
       verify(list.atYBeginning, JSON.stringify({y:list.contentY,origin:list.originY,anchor:list.viewportAnchor}))
       compare(list.viewportAnchor.id, "account-a:0")
     }
-    function test_status_and_scope_render_markup_as_literal_text() {
-      mail.searchStatus = {phase:"failed",text:'<img src="https://invalid.example/x">',scope:"<b>Account</b>",
+    function test_only_exception_states_show_a_notice() {
+      var phases = ["", "preparing", "local", "checking", "complete"]
+      for (var index = 0; index < phases.length; index++) {
+        mail.searchStatus = {phase:phases[index],text:"Routine progress",scope:"All accounts",canStop:true}
+        compare(status.visible,false)
+        compare(status.height,0)
+      }
+      phases = ["invalid", "failed", "partial", "stopped"]
+      for (var issue = 0; issue < phases.length; issue++) {
+        mail.searchStatus = {phase:phases[issue],error:"Connect and retry.",canRetry:true}
+        compare(status.visible,true)
+        verify(findChild(status,"search-status-text").text !== "")
+      }
+    }
+    function test_search_errors_render_markup_as_literal_text() {
+      mail.searchStatus = {phase:"failed",text:"Ignored progress",scope:"<b>Account</b>",
         error:'<img src="https://invalid.example/error">',canRetry:true}
       var text = findChild(status,"search-status-text")
-      var scope = findChild(status,"search-status-scope")
-      var error = findChild(status,"search-status-error")
       compare(text.textFormat, Text.PlainText)
-      compare(scope.textFormat, Text.PlainText)
-      compare(error.textFormat, Text.PlainText)
-      compare(text.text,mail.searchStatus.text)
-      compare(scope.text,mail.searchStatus.scope)
-      compare(error.text,mail.searchStatus.error)
-      verify(error.visible)
-      compare(findChild(status,"search-retry").text,"Retry Gmail search")
+      verify(text.text.indexOf(mail.searchStatus.error) >= 0)
+      compare(findChild(status,"search-status-scope"),null)
+      compare(findChild(status,"search-stop"),null)
+      compare(findChild(status,"search-retry").text,"Retry search")
     }
-    function test_stop_and_retry_work_with_keyboard() {
-      var stop = findChild(status,"search-stop")
-      stop.forceActiveFocus()
-      keyClick(Qt.Key_Space)
-      compare(mail.stops,1)
-      compare(stop.Accessible.name,"Stop search")
+    function test_retry_works_with_keyboard() {
       mail.searchStatus = {phase:"failed",text:"Gmail search could not finish.",canRetry:true}
       var retry = findChild(status,"search-retry")
       retry.forceActiveFocus()
       keyClick(Qt.Key_Return)
       compare(mail.retries,1)
-      compare(retry.Accessible.name,"Retry Gmail search")
+      compare(retry.Accessible.name,"Retry search")
     }
     function test_incomplete_search_never_claims_no_matches() {
       mail.messages = []
       var empty = findChild(list,"message-list-empty")
       verify(empty)
-      var phases = ["preparing","local","checking","stopped","failed","partial","invalid"]
+      var working = ["preparing","local","checking"]
+      for (var phase = 0; phase < working.length; phase++) {
+        mail.searchStatus = {phase:working[phase]}
+        compare(empty.text, "", "The field owns search progress")
+      }
+      var phases = ["stopped","failed","partial","invalid"]
       for (var index = 0; index < phases.length; index++) {
         mail.searchStatus = {phase:phases[index],text:"Status"}
         verify(empty.text !== "")
@@ -206,16 +215,14 @@ Item {
     function test_narrow_enlarged_status_wraps_and_controls_fit() {
       MailStyle.preferences = Display.normalize({interfaceSize:24,listSize:12})
       status.width = 220
+      mail.searchStatus = {phase:"partial",error:"Connect to Gmail again and retry the search.",canRetry:true}
       wait(25)
       var text = findChild(status,"search-status-text")
-      var scope = findChild(status,"search-status-scope")
-      var stop = findChild(status,"search-stop")
+      var retry = findChild(status,"search-retry")
       verify(text.lineCount > 1)
-      verify(scope.lineCount > 1)
-      verify(stop.width <= status.width)
-      verify(scope.y >= text.y + text.height)
-      verify(stop.parent.y >= scope.y + scope.height)
-      verify(status.height >= stop.parent.y + stop.height)
+      verify(retry.width <= status.width)
+      verify(retry.parent.y >= text.y + text.height)
+      verify(status.height >= retry.parent.y + retry.height)
     }
   }
 }

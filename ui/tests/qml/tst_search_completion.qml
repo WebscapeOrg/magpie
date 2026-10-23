@@ -63,6 +63,7 @@ Rectangle {
     function init() {
       MailStyle.preferences = Display.normalize({interfaceSize:12})
       host.height = 700
+      bar.searching = false
       bar.dismissAssistance()
       bar.assistanceAvailable = true
       bar.setQuery("")
@@ -161,9 +162,89 @@ Rectangle {
       bar.assistanceAvailable = false
       enter("from:alex")
       verify(!bar.suggestionsOpen)
-      verify(!findChild(bar,"search-help-button").visible)
+      compare(findChild(bar,"search-help-button"),null)
       keyClick(Qt.Key_Return)
       compare(host.submitted,["from:alex"])
+    }
+    function test_busy_field_preserves_query_selection_and_recovers() {
+      enter("from:alex")
+      field().select(5,9)
+      var cursor = field().cursorPosition
+      bar.searching = true
+      verify(findChild(bar,"search-busy-label").visible)
+      verify(findChild(bar,"search-busy-glow").visible)
+      compare(findChild(bar,"search-busy-label").text,"Searching...")
+      compare(field().color.a,0)
+      compare(field().selectionColor.a,0)
+      compare(field().placeholderText,"")
+      compare(bar.queryText,"from:alex")
+      compare(field().selectionStart,5)
+      compare(field().selectionEnd,9)
+      compare(field().cursorPosition,cursor)
+      verify(!bar.suggestionsOpen)
+      verify(field().readOnly)
+      verify(!field().cursorVisible)
+      bar.searching = false
+      verify(!findChild(bar,"search-busy-label").visible)
+      verify(!findChild(bar,"search-busy-glow").visible)
+      compare(field().color,bar.textColor)
+      verify(!field().readOnly)
+      compare(bar.queryText,"from:alex")
+      keyClick("b")
+      compare(bar.queryText,"from:b")
+    }
+    function test_busy_field_ignores_edits_and_duplicate_submission() {
+      enter("invoice")
+      bar.searching = true
+      keyClick("x")
+      keyClick(Qt.Key_Return)
+      verify(!bar.accept())
+      compare(bar.queryText,"invoice")
+      compare(host.submitted,[])
+      var clear = findChild(bar,"search-clear-button")
+      verify(clear.visible)
+      mouseClick(clear)
+      compare(bar.queryText,"")
+      compare(host.clearCount,1)
+    }
+    function test_escape_clears_busy_search_without_an_extra_suggestion_step() {
+      enter("fr")
+      verify(bar.suggestionsOpen)
+      bar.searching = true
+      keyClick(Qt.Key_Escape)
+      compare(bar.queryText,"")
+      compare(host.clearCount,1)
+    }
+    function test_busy_presentation_preserves_native_undo() {
+      enter("invoice")
+      verify(field().canUndo)
+      bar.searching = true
+      bar.searching = false
+      verify(field().canUndo)
+      keyClick(Qt.Key_Z,Qt.ControlModifier)
+      compare(bar.queryText,"")
+    }
+    function test_busy_help_is_readable_without_changing_running_query() {
+      enter("invoice")
+      bar.searching = true
+      bar.openHelp()
+      tryCompare(bar,"helpOpened",true)
+      var help = findChild(host,"search-help")
+      var example = findChild(help.contentItem,"search-help-from")
+      verify(!example.enabled)
+      help.exampleChosen("from:alex@example.com")
+      bar.replaceRange({start:0,end:7,value:"replacement"})
+      compare(bar.queryText,"invoice")
+      verify(bar.helpOpened)
+      keyClick(Qt.Key_Escape)
+      tryCompare(bar,"helpOpened",false)
+      compare(bar.queryText,"invoice")
+    }
+    function test_placeholder_is_short_and_help_is_not_a_field_control() {
+      compare(field().placeholderText,"Search...")
+      compare(findChild(bar,"search-help-button"),null)
+      bar.assistanceAvailable = false
+      compare(field().placeholderText,"Search...")
     }
     function test_help_keyboard_scrolls_focused_examples_at_large_text() {
       MailStyle.preferences = Display.normalize({interfaceSize:26})

@@ -31,14 +31,6 @@ Rectangle {
     onActivated: host.applicationActivations++
   }
 
-  Components.ProviderPicker {
-    id: providers
-    x: 32; y: 32; width: 520
-    visible: host.mode === "providers"
-    textColor: Color.foreground; dimColor: Color.foreground
-    accentColor: Color.accent; panelFontFamily: "sans-serif"
-    onChosen: function(providerId) { host.selected = [providerId] }
-  }
   Components.AccountRemovalDialog {
     id: removal
     visible: host.mode === "removal"
@@ -114,15 +106,6 @@ Rectangle {
     }
 
     function focused() { return host.Window.window.activeFocusItem }
-
-    function test_provider_choice_uses_tab_and_space() {
-      activate("providers")
-      keyClick(Qt.Key_Tab)
-      compare(focused().Accessible.name, "Gmail")
-      keyClick(Qt.Key_Space)
-      compare(host.selected, ["gmail"])
-      compare(host.applicationActivations, 0)
-    }
 
     function test_removal_starts_on_cancel_and_cycles_without_removing() {
       activate("removal")

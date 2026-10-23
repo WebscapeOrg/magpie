@@ -87,11 +87,11 @@ Item {
     property int inboxUnread: 1
     property real bodyZoom: 1
     property string bodyMode: "reader"
-    property string providerId: "jmap"
+    property string providerId: "gmail"
     property string pluginDir: ""
     property string accountEmail: "me@example.com"
     property string accountAddress: "me@example.com"
-    property string activeAccountId: "jmap:me@example.com"
+    property string activeAccountId: "me@example.com"
     property string mailboxKey: "inbox"
     property string searchQuery: ""
     property string rawQuery: ""
@@ -101,7 +101,7 @@ Item {
     property string syncedLabel: ""
     property string recipientContactStatus: ""
     property var auth: fakeAuth
-    property var accountSummaries: [{ provider: "jmap", email: "me@example.com" }]
+    property var accountSummaries: [{ provider: "gmail", email: "me@example.com" }]
     property var mailboxes: [
       { key: "inbox", label: "Inbox", icon: "inbox" },
       { key: "sent", label: "Sent", icon: "sent" },

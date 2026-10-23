@@ -301,6 +301,68 @@ class ReleaseTests(unittest.TestCase):
         result = self.check_api('--published', self.published)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def deletion_fixture(self):
+        contract = self.api_fixture()
+        contract['methods'].append('obsolete.send')
+        contract['contractCases'].append({
+            'name': 'obsolete send', 'method': 'obsolete.send', 'params': {},
+            'errorCode': -32602})
+        self.published.write_text(json.dumps(contract))
+        snapshot = {key: contract[key] for key in ('apiVersion', 'protocolVersion', 'methods', 'contractCases')}
+        return dict(contract, apiVersion=2, methods=['system.info'],
+                    contractCases=[contract['contractCases'][0]], releasedContract=snapshot)
+
+    def test_released_snapshot_preserves_deleted_methods_and_cases(self):
+        contract = self.deletion_fixture()
+        self.api.write_text(json.dumps(contract))
+        for mode in ('--published', '--baseline'):
+            result = self.check_api(mode, self.published)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        contract['releasedContract']['contractCases'][1]['errorCode'] = -32000
+        self.api.write_text(json.dumps(contract))
+        for mode in ('--published', '--baseline'):
+            self.assertNotEqual(self.check_api(mode, self.published).returncode, 0,
+                                'a snapshot cannot silently rewrite published behavior')
+
+    def test_released_snapshot_requires_an_exact_valid_historical_view(self):
+        original = self.deletion_fixture()
+        for mutation in ('wrong-revision', 'wrong-protocol', 'nested-snapshot', 'unknown-field',
+                         'duplicate-method', 'missing-method', 'missing-cases', 'folded'):
+            with self.subTest(mutation=mutation):
+                contract = json.loads(json.dumps(original))
+                snapshot = contract['releasedContract']
+                if mutation == 'wrong-revision': snapshot['apiVersion'] = 2
+                if mutation == 'wrong-protocol': snapshot['protocolVersion'] = 2
+                if mutation == 'nested-snapshot': snapshot['releasedContract'] = {}
+                if mutation == 'unknown-field': snapshot['unexpected'] = True
+                if mutation == 'duplicate-method': snapshot['methods'].append('system.info')
+                if mutation == 'missing-method': snapshot['methods'] = ['system.info']
+                if mutation == 'missing-cases': snapshot['contractCases'] = []
+                if mutation == 'folded': contract['releasedApiVersion'] = 2
+                self.api.write_text(json.dumps(contract))
+                self.assertNotEqual(self.check_api().returncode, 0)
+
+    def test_snapshot_requires_new_and_changed_cases_to_be_unreleased(self):
+        contract = self.deletion_fixture()
+        contract['contractCases'] = [{
+            'name': 'handshake', 'method': 'system.info', 'params': {},
+            'types': {'version': 'string'}}]
+        self.api.write_text(json.dumps(contract))
+        self.assertNotEqual(self.check_api().returncode, 0)
+        contract['unreleased']['cases'] = ['handshake']
+        self.api.write_text(json.dumps(contract))
+        result = self.check_api('--published', self.published)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        contract['methods'].append('message.new')
+        (self.root / 'src/backend/methods.rs').write_text(
+            'pub const ALL: &[&str] = &["system.info", "message.new"];')
+        self.api.write_text(json.dumps(contract))
+        self.assertNotEqual(self.check_api().returncode, 0)
+        contract['unreleased']['methods'] = ['message.new']
+        self.api.write_text(json.dumps(contract))
+        result = self.check_api('--published', self.published)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_api_revisions_and_pin_require_canonical_values(self):
         contract = self.api_fixture()
         for value in (True, 0, -1, '1', 1.5, 2147483648):
@@ -623,6 +685,9 @@ class ReleaseTests(unittest.TestCase):
                     'methods': ['system.info', 'message.new'],
                     'contractCases': [{'name': 'handshake', 'method': 'system.info', 'params': {}, 'types': {'name': 'string'}}],
                     'unreleased': {'methods': ['message.new'], 'cases': []}}
+        contract['releasedContract'] = {
+            'apiVersion': 1, 'protocolVersion': 1, 'methods': ['system.info', 'obsolete.send'],
+            'contractCases': contract['contractCases']}
         (self.root / 'backend-api.json').write_text(json.dumps(contract, indent=2) + '\n')
         git('checkout', '-b', 'release/0.8.2')
         git('add', '.')
@@ -644,6 +709,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(folded['releasedApiVersion'], 2)
         self.assertEqual(folded['unreleased'], {'methods': [], 'cases': []})
         self.assertEqual(folded['methods'], contract['methods'])
+        self.assertNotIn('releasedContract', folded)
         # Restore the old checkout without touching the remote's newer revision.
         git('checkout', '--detach', prepared)
         result = self.run_helper('pin', '--root', self.root, '--branch', 'release/0.8.2', '--expected', prepared)

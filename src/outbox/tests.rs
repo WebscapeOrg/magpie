@@ -1,4 +1,22 @@
 use super::*;
+
+#[test]
+fn retired_provider_recovery_preserves_payloads_without_resuming_delivery() {
+    let rows = ["waiting", "queued", "sending"].map(|state| {
+        json!({"id":state,"accountId":"imap:old@example.org","provider":"imap",
+            "state":state,"resumeUnsent":true,"payload":{"raw":"saved-unsent-mime"}})
+    });
+    let recovered = recover(&rows).unwrap();
+    assert_eq!(recovered[0]["state"], "failed");
+    assert_eq!(recovered[0]["error"], "outbox_invalid_provider");
+    assert_eq!(recovered[1]["state"], "cancelled");
+    assert_eq!(recovered[2]["state"], "unknown");
+    for (before, after) in rows.iter().zip(&recovered) {
+        assert_eq!(before["payload"], after["payload"]);
+        assert_eq!(before["accountId"], after["accountId"]);
+        assert!(!waiting(after));
+    }
+}
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[tokio::test]

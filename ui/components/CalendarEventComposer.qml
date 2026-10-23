@@ -462,7 +462,7 @@ Rectangle {
       reminderMinutes: reminderField.text,
       changeRecurrence: changeRecurrence,
       recurrence: {
-        enabled: recurring && !!chosenSource && chosenSource.kind !== "microsoft",
+        enabled: recurring && !!chosenSource,
         frequency: recurrenceFrequency,
         interval: intervalField.text,
         count: countField.text
@@ -929,7 +929,7 @@ Rectangle {
       Column {
         width: parent.width
         spacing: MailStyle.space(6)
-        visible: (!root.editing && !!root.chosenSource && root.chosenSource.kind !== "microsoft")
+        visible: (!root.editing && !!root.chosenSource)
           || (root.editing && !root.editingEvent.recurringEventId && root.googleWrites)
         FieldLabel { text: "Repeat" }
         EventOption {
@@ -950,7 +950,7 @@ Rectangle {
 
       Column {
         width: parent.width
-        visible: root.recurring && !!root.chosenSource && root.chosenSource.kind !== "microsoft" && (!root.editing || root.changeRecurrence)
+        visible: root.recurring && !!root.chosenSource && (!root.editing || root.changeRecurrence)
         spacing: MailStyle.space(8)
 
         Row {

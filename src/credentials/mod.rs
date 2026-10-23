@@ -24,16 +24,12 @@ use windows as platform;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CredentialKind {
     GoogleRefreshToken { client_id: String },
-    OutlookRefreshToken { client_id: String },
-    ImapPassword,
-    JmapSecret,
-    CalendarPassword,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CredentialKey {
     pub provider: String,
-    /// Stable mailbox id, or the stable CalDAV source id for CalendarPassword.
+    /// Stable Gmail account id.
     pub account_id: String,
     pub kind: CredentialKind,
 }
@@ -148,43 +144,22 @@ impl CredentialKey {
             Ok(())
         }
         metadata(&self.account_id)?;
-        let (provider, kind) = match self.kind {
-            CredentialKind::GoogleRefreshToken { .. } => ("gmail", "refresh-token"),
-            CredentialKind::OutlookRefreshToken { .. } => ("outlook", "outlook-refresh-token"),
-            CredentialKind::ImapPassword => ("imap", "imap-password"),
-            CredentialKind::JmapSecret => ("jmap", "jmap-secret"),
-            CredentialKind::CalendarPassword => ("caldav", "calendar-password"),
-        };
-        if self.provider != provider {
+        if self.provider != "gmail"
+            || self.account_id.chars().any(char::is_whitespace)
+            || (self.account_id != "default"
+                && (!self.account_id.contains('@') || self.account_id.contains(':')))
+        {
             return Err(Error::InvalidKey);
         }
-        let mut attributes = BTreeMap::from([
+        let CredentialKind::GoogleRefreshToken { client_id } = &self.kind;
+        metadata(client_id)?;
+        let attributes = BTreeMap::from([
             ("service".into(), "omamail".into()),
-            ("kind".into(), kind.into()),
+            ("kind".into(), "refresh-token".into()),
+            ("account".into(), self.account_id.to_lowercase()),
+            ("client-id".into(), client_id.clone()),
+            ("grant".into(), "calendar-events-v1".into()),
         ]);
-        if provider == "caldav" {
-            attributes.insert("source".into(), self.account_id.clone());
-        } else {
-            if self.account_id.chars().any(char::is_whitespace)
-                || (provider != "gmail" && !self.account_id.starts_with(&format!("{provider}:")))
-                || (provider != "gmail" && !self.account_id.contains('@'))
-                || (provider == "gmail"
-                    && self.account_id != "default"
-                    && (!self.account_id.contains('@') || self.account_id.contains(':')))
-            {
-                return Err(Error::InvalidKey);
-            }
-            attributes.insert("account".into(), self.account_id.to_lowercase());
-        }
-        if let CredentialKind::GoogleRefreshToken { client_id }
-        | CredentialKind::OutlookRefreshToken { client_id } = &self.kind
-        {
-            metadata(client_id)?;
-            attributes.insert("client-id".into(), client_id.clone());
-        }
-        if matches!(self.kind, CredentialKind::GoogleRefreshToken { .. }) {
-            attributes.insert("grant".into(), "calendar-events-v1".into());
-        }
         Ok(attributes)
     }
 

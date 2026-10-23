@@ -15,8 +15,6 @@ Column {
   required property color accentColor
   required property color urgentColor
   required property string panelFontFamily
-  property bool adding: false
-  property string passwordEditingId: ""
   property string colorEditingId: ""
   property string setupAccountId: ""
   property string setupError: ""
@@ -48,15 +46,11 @@ Column {
       ? root.service.accountSummaries : []
     return accounts.filter(function(account) {
       return account
-        && (account.calendarProvider === "microsoft" || account.calendarProvider === "icloud"
-          || (account.calendarProvider === "google" && root.service.backendCanGoogleCalendars === true))
+        && account.calendarProvider === "google" && root.service.backendCanGoogleCalendars === true
     })
   }
 
-  function providerName(account) {
-    return account && account.calendarProvider === "icloud" ? "iCloud"
-      : account && account.calendarProvider === "google" ? "Google" : "Microsoft"
-  }
+  function providerName(account) { return "Google" }
 
   function accountLabel(source) {
     var wanted = String(source && source.accountId || "")
@@ -74,11 +68,10 @@ Column {
       root.service && Array.isArray(root.service.accountSummaries) ? root.service.accountSummaries : [])
   }
 
-  // Invariant: discovery owns account calendars while their account exists; only manual and
-  // orphaned sources can be removed here.
+  // Invariant: discovery owns calendars while their account exists.
   function removable(source) {
     var value = source || {}
-    return (value.kind === "caldav" && value.discovered !== true) || root.orphaned(value)
+    return root.orphaned(value)
   }
 
   function nestedDetail(source) {
@@ -123,9 +116,7 @@ Column {
 
   function sourceDetail(source) {
     var value = source || {}
-    if (value.kind === "caldav") return String(value.url || "CalDAV")
-    var provider = value.kind === "google" ? "Google"
-      : value.kind === "microsoft" ? "Microsoft" : "iCloud"
+    var provider = "Google"
     var account = root.accountLabel(value)
     var detail = root.orphaned(value) ? provider + " · Mailbox removed"
       : account === "" ? provider + " calendar" : provider + " · " + account
@@ -149,23 +140,37 @@ Column {
     property string title: ""
     property string detail: ""
     default property alias controls: rowControls.data
+    readonly property real controlsWidth: {
+      var total = 0
+      var count = 0
+      for (var index = 0; index < rowControls.children.length; index++) {
+        var control = rowControls.children[index]
+        if (!control.visible) continue
+        total += control.width
+        count++
+      }
+      return total + Math.max(0, count - 1) * rowControls.spacing
+    }
+    readonly property bool stacked: width < controlsWidth + MailStyle.space(180)
     width: parent ? parent.width : 0
-    implicitHeight: Math.max(settingText.implicitHeight, rowControls.implicitHeight) + MailStyle.space(16)
+    implicitHeight: (stacked ? settingText.implicitHeight + rowControls.implicitHeight + MailStyle.space(8)
+      : Math.max(settingText.implicitHeight, rowControls.implicitHeight)) + MailStyle.space(16)
     radius: Style.cornerRadius
     color: Style.normalFillFor(root.textColor, root.accentColor)
     Column {
       id: settingText
-      anchors.left: parent.left
-      anchors.leftMargin: MailStyle.space(12)
-      anchors.right: rowControls.left
-      anchors.rightMargin: MailStyle.space(10)
-      anchors.verticalCenter: parent.verticalCenter
+      objectName: "calendar-setting-text"
+      x: MailStyle.space(12)
+      y: settingRow.stacked ? MailStyle.space(8) : (settingRow.height - height) / 2
+      width: Math.max(0, settingRow.width - x - MailStyle.space(10)
+        - (settingRow.stacked ? 0 : settingRow.controlsWidth + MailStyle.space(10)))
       spacing: MailStyle.space(2)
       Text {
         width: parent.width
         text: settingRow.title
         textFormat: Text.PlainText
-        elide: Text.ElideMiddle
+        elide: settingRow.stacked ? Text.ElideNone : Text.ElideMiddle
+        wrapMode: settingRow.stacked ? Text.WrapAnywhere : Text.NoWrap
         color: root.textColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.bodySmall
@@ -181,11 +186,12 @@ Column {
         font.pixelSize: MailStyle.caption
       }
     }
-    Row {
+    Flow {
       id: rowControls
-      anchors.right: parent.right
-      anchors.rightMargin: MailStyle.space(10)
-      anchors.verticalCenter: parent.verticalCenter
+      x: settingRow.stacked ? MailStyle.space(12) : settingRow.width - width - MailStyle.space(10)
+      y: settingRow.stacked ? settingText.y + settingText.height + MailStyle.space(8)
+        : (settingRow.height - height) / 2
+      width: Math.min(settingRow.controlsWidth, Math.max(0, settingRow.width - MailStyle.space(22)))
       spacing: MailStyle.space(6)
     }
   }
@@ -230,7 +236,6 @@ Column {
         enabled: !!root.controller && !root.controller.savingSource
           && !root.controller.discoveringCalendars
         onClicked: {
-          root.passwordEditingId = ""
           root.colorEditingId = root.colorEditingId === String(calendarRow.source.id)
             ? "" : String(calendarRow.source.id)
         }
@@ -280,20 +285,6 @@ Column {
         anchors.rightMargin: MailStyle.space(10)
         anchors.verticalCenter: parent.verticalCenter
         spacing: MailStyle.space(6)
-        IconTextButton {
-          anchors.verticalCenter: parent.verticalCenter
-          visible: calendarRow.source.kind === "caldav" && calendarRow.source.discovered !== true
-          text: "Set password"
-          bordered: false
-          foreground: root.textColor
-          fontFamily: root.panelFontFamily
-          enabled: !!root.controller && !root.controller.savingSource
-            && !root.controller.discoveringCalendars
-          onClicked: {
-            root.colorEditingId = ""
-            root.passwordEditingId = String(calendarRow.source.id)
-          }
-        }
         IconTextButton {
           objectName: "calendar-source-remove"
           anchors.verticalCenter: parent.verticalCenter
@@ -380,43 +371,6 @@ Column {
       }
     }
 
-    Row {
-      id: passwordRow
-      x: MailStyle.space(12)
-      width: parent.width - x
-      visible: calendarRow.source.kind === "caldav" && calendarRow.source.discovered !== true
-        && root.passwordEditingId === String(calendarRow.source.id)
-      height: visible ? implicitHeight : 0
-      spacing: MailStyle.space(6)
-      Widgets.TextField {
-        id: existingPassword
-        width: Math.max(80, parent.width - saveExisting.implicitWidth
-          - cancelExisting.implicitWidth - parent.spacing * 2)
-        password: true
-        foreground: root.textColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.bodySmall
-        placeholderText: "Password or app password"
-        onAccepted: saveExisting.clicked()
-      }
-      IconTextButton {
-        id: saveExisting
-        text: "Save"
-        foreground: root.textColor
-        fontFamily: root.panelFontFamily
-        enabled: !!root.controller && existingPassword.text !== ""
-          && !root.controller.savingSource && !root.controller.discoveringCalendars
-        onClicked: root.controller.updateCalendarPassword(calendarRow.source, existingPassword.text)
-      }
-      IconTextButton {
-        id: cancelExisting
-        text: "Cancel"
-        bordered: false
-        foreground: root.dimColor
-        fontFamily: root.panelFontFamily
-        onClicked: root.passwordEditingId = ""
-      }
-    }
   }
 
 
@@ -440,7 +394,7 @@ Column {
     visible: root.discoverableAccounts().length === 0
     text: root.service && root.service.backendCanDiscoverCalendars !== true
       ? "Update the mail backend to connect account calendars."
-      : "Add a Google, Microsoft or iCloud mailbox to connect its calendars."
+      : "Add a Google account to connect its calendars."
     textFormat: Text.PlainText
     wrapMode: Text.WordWrap
     color: root.dimColor
@@ -488,12 +442,10 @@ Column {
             && root.controller.discoveringAccountId === String(accountBlock.modelData.id || "")
             ? "Finding..."
             : (accountBlock.calendars.length > 0
-               ? "Refresh calendars" : accountBlock.modelData.calendarProvider === "google" ? "Enable Google Calendar" : "Find calendars")
-            + (accountBlock.modelData.calendarProvider === "google" ? "..." : "")
+               ? "Refresh calendars..." : "Enable Google Calendar...")
           onClicked: {
             resultText.text = ""
             root.colorEditingId = ""
-            root.passwordEditingId = ""
             root.setupAccountId = String(accountBlock.modelData.id || "")
             root.setupError = ""
             root.setupComplete = false
@@ -648,82 +600,6 @@ Column {
     }
   }
 
-  IconTextButton {
-    visible: !root.adding
-    iconName: "plus"
-    text: "Connect a CalDAV calendar..."
-    foreground: root.textColor
-    fontFamily: root.panelFontFamily
-    enabled: !!root.controller && !root.controller.savingSource
-      && !root.controller.discoveringCalendars
-    onClicked: {
-      root.colorEditingId = ""
-      root.passwordEditingId = ""
-      root.adding = true
-    }
-  }
-
-  Column {
-    width: parent.width
-    visible: root.adding
-    spacing: MailStyle.space(6)
-
-    Widgets.TextField {
-      id: calendarName
-      width: parent.width
-      foreground: root.textColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.bodySmall
-      placeholderText: "Calendar name"
-    }
-    Widgets.TextField {
-      id: calendarUrl
-      width: parent.width
-      foreground: root.textColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.bodySmall
-      placeholderText: "CalDAV URL"
-    }
-    Widgets.TextField {
-      id: calendarUsername
-      width: parent.width
-      foreground: root.textColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.bodySmall
-      placeholderText: "Username"
-    }
-    Widgets.TextField {
-      id: calendarPassword
-      width: parent.width
-      password: true
-      foreground: root.textColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.bodySmall
-      placeholderText: "Password or app password"
-      onAccepted: root.saveCalendar()
-    }
-
-    Row {
-      spacing: MailStyle.space(6)
-      IconTextButton {
-        text: root.controller && root.controller.savingSource ? "Adding" : "Add calendar"
-        foreground: root.textColor
-        accent: root.accentColor
-        fontFamily: root.panelFontFamily
-        enabled: root.controller && !root.controller.savingSource
-          && !root.controller.discoveringCalendars
-        onClicked: root.saveCalendar()
-      }
-      IconTextButton {
-        text: "Cancel"
-        bordered: false
-        foreground: root.dimColor
-        fontFamily: root.panelFontFamily
-        onClicked: root.adding = false
-      }
-    }
-  }
-
   Text {
     id: resultText
     // Invariant: success is explicit state, never inferred from server-controlled error wording.
@@ -806,7 +682,7 @@ Column {
     SectionHeading { text: "REMINDERS"; bottomPadding: MailStyle.space(2) }
     SettingRow {
       title: "Desktop reminders"
-      detail: "Shown while Magpie is running, even with its window closed. Google calendars only."
+      detail: "Shown while Magpie is running, even with its window closed."
       ToggleSwitch {
         objectName: "calendar-reminders-enabled"
         Accessible.name: "Desktop reminders"
@@ -843,7 +719,6 @@ Column {
         detail: root.accountLabel(modelData) + (modelData.enabled === false ? " · Hidden, still reminds" : "")
         Widgets.NumberField {
           objectName: "calendar-reminder-minutes"
-          anchors.verticalCenter: parent.verticalCenter
           visible: root.reminderMode(reminderRow.modelData) === "custom"
           label: "Minutes before"
           from: 0
@@ -859,7 +734,6 @@ Column {
         }
         Widgets.Dropdown {
           objectName: "calendar-reminder-mode"
-          anchors.verticalCenter: parent.verticalCenter
           width: MailStyle.space(200)
           showLabel: false
           value: root.reminderMode(reminderRow.modelData)
@@ -898,14 +772,6 @@ Column {
     onClicked: root.clientSetupRequested()
   }
 
-  function saveCalendar() {
-    resultText.text = ""
-    root.controller.addCalDavCalendar({
-      name: calendarName.text,
-      url: calendarUrl.text,
-      username: calendarUsername.text
-    }, calendarPassword.text)
-  }
 
   Connections {
     target: root.controller
@@ -913,12 +779,6 @@ Column {
       resultText.ok = ok
       if (!ok) { resultText.text = error; return }
       resultText.text = "Calendar saved"
-      calendarName.text = ""
-      calendarUrl.text = ""
-      calendarUsername.text = ""
-      calendarPassword.text = ""
-      root.adding = false
-      root.passwordEditingId = ""
       root.colorEditingId = ""
     }
     function onDiscoveryFinished(ok, error, count) {

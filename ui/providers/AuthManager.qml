@@ -27,9 +27,10 @@ Item {
     ? platform.configPath("credentials.json") : Credentials.path(home)
 
   property var credentials: Credentials.effective("")
+  property string credentialsSourceError: ""
   property bool credentialsChecked: false
   property bool usingBuiltinClient: Credentials.hasBuiltin()
-  readonly property bool credentialsPresent: Credentials.isConfigured(credentials)
+  readonly property bool credentialsPresent: credentialsSourceError === "" && Credentials.isConfigured(credentials)
   readonly property string clientId: credentials ? String(credentials.clientId || "") : ""
   readonly property string clientDescription: Credentials.describe(credentials)
 
@@ -123,6 +124,7 @@ Item {
 
   function withAccessToken(callback) {
     if (typeof callback !== "function") return
+    if (credentialsSourceError) { callback("", credentialsSourceError); return }
     if (tokenIsFresh()) {
       callback(accessToken, "")
       return
@@ -156,6 +158,10 @@ Item {
 
 
   function saveCredentials(text) {
+    if (credentialsSourceError || !Credentials.supportsGoogleClients(credentialsFile.text())) {
+      rejectClientSource()
+      return false
+    }
     var result = Credentials.parse(text)
     if (!result.ok) {
       lastError = result.error
@@ -177,7 +183,8 @@ Item {
       root.credentialsWritePayload = ""
       root.credentialsWriteBusy = false
       if (!ok) {
-        root.lastError = "Could not save the OAuth client to " + root.credentialsPath
+        root.rejectClientSource(String(error || "Could not save the OAuth client to " + root.credentialsPath))
+        credentialsFile.reload()
         return
       }
       credentialsFile.reload()
@@ -186,7 +193,27 @@ Item {
     return true
   }
 
+  function rejectClientSource(message) {
+    credentialsSourceError = message || Credentials.UNSUPPORTED_CLIENT_MESSAGE
+    cancelLogin()
+    resetMemorySession()
+    credentials = Credentials.empty()
+    usingBuiltinClient = false
+    credentialsChecked = true
+    savedSessionPresent = false
+    unnamedRefreshToken = ""
+    refreshRetry.stop()
+    sessionChecked = true
+    lastError = credentialsSourceError
+    finishWaiters("", credentialsSourceError)
+  }
+
   function applyCredentials(raw) {
+    if (!Credentials.supportsGoogleClients(raw)) { rejectClientSource(); return }
+    var source = Credentials.parseJson(raw, null)
+    if (credentialsSourceError && (!source
+        || (!Array.isArray(source.accounts) && !Credentials.fromObject(source).ok))) return
+    credentialsSourceError = ""
     var loaded = Credentials.effective(raw, accountId)
     usingBuiltinClient = Credentials.usingBuiltin(raw, accountId)
     var changed = String(loaded.clientId) !== String(credentials.clientId)
@@ -208,6 +235,7 @@ Item {
   property bool mayAdoptLegacyToken: true
 
   function startSecretLookup() {
+    if (credentialsSourceError) { finishWaiters("", credentialsSourceError); return }
     // Invariant: Backend session restore returns only the access token to QML; the refresh grant stays inside native storage and OAuth.
     if (accountId !== "" && backend) {
       savedSessionPresent = true
@@ -272,6 +300,7 @@ Item {
   }
 
   function storeRefreshToken(refreshToken) {
+    if (credentialsSourceError) return
     if (!refreshToken) return
     if (accountId === "") {
       unnamedRefreshToken = String(refreshToken)
@@ -308,6 +337,7 @@ Item {
   }
 
   function postTokenRequest(previousRefreshToken, callback) {
+    if (credentialsSourceError) { callback(OAuth.parseTokenResponse(0, "", "")); return }
     var serial = ++tokenRequestSerial
     var request = { abort: function() { root.tokenRequestSerial++ } }
     tokenRequest = request
@@ -368,6 +398,7 @@ Item {
 
 
   function beginLogin() {
+    if (credentialsSourceError) { lastError = credentialsSourceError; return }
     if (loginBusy || refreshBusy) return
     if (!credentialsPresent) {
       lastError = "Connect a Google Cloud OAuth client first"

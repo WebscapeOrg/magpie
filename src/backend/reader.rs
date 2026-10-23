@@ -173,7 +173,10 @@ pub(super) async fn registered(account: &str) -> Result<String, &'static str> {
         .map_err(|_| "worker_failed")??;
     list["accounts"]
         .as_array()
-        .and_then(|rows| rows.iter().find(|v| v["id"] == account))
+        .and_then(|rows| {
+            rows.iter()
+                .find(|v| v["id"] == account && v["provider"] == "gmail")
+        })
         .and_then(|v| v["provider"].as_str())
         .map(str::to_owned)
         .ok_or("reader_account_unknown")
@@ -186,39 +189,8 @@ impl Session {
         id: &str,
     ) -> Result<Value, &'static str> {
         cache::validate_params(&json!({"accountId":account,"id":id}), true)?;
-        let provider = registered(account).await?;
-        let value = match provider.as_str() {
-            "gmail" => self.local_mail.read(account, id, &self.gmail).await?,
-            "jmap" => self
-                .jmap
-                .call(
-                    "jmap.read",
-                    &json!({"accountId":account,"id":id,"full":true}),
-                )
-                .await?["data"]
-                .clone(),
-            "hey" => {
-                let program = crate::providers::hey_access::program()?;
-                let params = crate::providers::hey_access::checked_params(
-                    &json!({"accountId":account,"id":id,"program":program}),
-                )
-                .await?;
-                crate::providers::hey::call("hey.read", &params).await?
-            }
-            "imap" | "outlook" => {
-                let response = crate::providers::imap::call(
-                    "imap.messages",
-                    &json!({"accountId":account,"ids":[id],"full":true,"progressive":false,"readOnly":true}),
-                )
-                .await?;
-                response["messages"]
-                    .as_array()
-                    .and_then(|v| v.iter().find(|v| v["id"] == id))
-                    .cloned()
-                    .ok_or("reader_message_missing")?
-            }
-            _ => return Err("reader_provider_unknown"),
-        };
+        registered(account).await?;
+        let value = self.local_mail.read(account, id, &self.gmail).await?;
         if value["id"] != id || !value["payload"].is_object() {
             return Err("reader_message_mismatch");
         }
@@ -345,13 +317,9 @@ impl Session {
             live: job.live.clone(),
         };
         let operation = async {
-            let provider = registered(&account).await?;
+            registered(&account).await?;
             job.current()?;
-            let revision = if provider == "gmail" {
-                self.local_mail.revision(&account, &id).await?
-            } else {
-                None
-            };
+            let revision = self.local_mail.revision(&account, &id).await?;
             if let Some(revision) = revision.as_deref() {
                 let prepared = self
                     .reader
@@ -380,15 +348,11 @@ impl Session {
                 }
             }
             let resource = if cache_only {
-                if provider == "gmail" {
-                    match self.local_mail.resource(&account, &id).await? {
-                        Some(resource) => Some(resource),
-                        None => cache::resource::read(&account, &id)
-                            .await?
-                            .filter(crate::local_mail::text_complete),
-                    }
-                } else {
-                    cache::resource::read(&account, &id).await?
+                match self.local_mail.resource(&account, &id).await? {
+                    Some(resource) => Some(resource),
+                    None => cache::resource::read(&account, &id)
+                        .await?
+                        .filter(crate::local_mail::text_complete),
                 }
             } else {
                 Some(self.fetch_resource(&account, &id).await?)
@@ -397,12 +361,6 @@ impl Session {
             let Some(resource) = resource else {
                 return Ok(Value::Null);
             };
-            if !cache_only && provider != "gmail" {
-                // Invariant: Persistence failure does not discard a valid live read. Guarded writes
-                // cannot land after an explicit reader cancellation.
-                let _ =
-                    cache::resource::put_guarded(&account, &id, &resource, job.live.clone()).await;
-            }
             let renders = self.renders.clone();
             let store = self.reader.clone();
             let resource = Arc::new(resource);

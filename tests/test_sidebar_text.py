@@ -39,9 +39,6 @@ import QtQuick
 import QtTest
 import @COMPONENTS@ as Mail
 import @GMAIL@ as Gmail
-import @JMAP@ as Jmap
-import @IMAP@ as Imap
-import @HEY@ as Hey
 
 Item {
   id: host
@@ -97,12 +94,8 @@ Item {
       ]
       var rows = []
       for (var i = 0; i < names.length; i++) {
-        var providers = ["raw", "gmail", "jmap", "imap", "hey"]
-        for (var j = 0; j < providers.length; j++)
-          rows.push({tag: providers[j] + "-" + i, provider: providers[j], name: names[i], delimiter: undefined})
-        // An IMAP server with no hierarchy: LIST answered NIL, the provider
-        // passes "" on, and the name is one row however many slashes it has.
-        rows.push({tag: "imap-nil-" + i, provider: "imap", name: names[i], delimiter: ""})
+        rows.push({tag: "raw-" + i, source: "raw", name: names[i]})
+        rows.push({tag: "gmail-" + i, source: "gmail", name: names[i]})
       }
       return rows
     }
@@ -111,24 +104,18 @@ Item {
       // whereas real providers return JavaScript arrays to Model.railLabels.
       var name = data.name
       var labels = [{id: "probe", name: name, rawName: name, system: false, unread: 0}]
-      if (data.provider === "gmail")
+      if (data.source === "gmail")
         labels = Gmail.parseLabels({labels: [{id: "probe", name: name, type: "user"}]})
-      else if (data.provider === "jmap")
-        labels = Jmap.mailboxLabels([{id: "probe", name: name}], {})
-      else if (data.provider === "imap") labels[0].name = Imap.decodeMailbox(name)
-      else if (data.provider === "hey") labels = Hey.parseLabels([{id: "probe", name: name}])
-      if (data.delimiter !== undefined) labels[0].delimiter = data.delimiter
       var service = {labels: labels, mailboxes: [], rawQuery: "", collapsedFolders: [],
-        mailboxKey: "inbox", searchQuery: "", providerId: "imap"}
+        mailboxKey: "inbox", searchQuery: "", providerId: "gmail"}
       var sidebar = createTemporaryObject(sidebarFactory, host)
       verify(sidebar !== null)
       sidebar.service = service
       wait(50)
       var expected = labels[0].name
       var tree = sidebar.userLabels
-      var nested = data.delimiter === undefined && expected.indexOf("/") >= 0
-      if (data.delimiter === "") compare(tree.length, 1, "no hierarchy: the whole name is one row")
-      else verify(tree.length >= 1)
+      var nested = expected.indexOf("/") >= 0
+      verify(tree.length >= 1)
       if (nested) verify(tree.length > 1, "a delimiter in the name nests")
       var leaf = tree[tree.length - 1]
       compare(leaf.selectable, true, "the last row is the label itself")
@@ -163,8 +150,6 @@ def main():
             source = QML
             for key, path in {
                 "COMPONENTS": "components", "GMAIL": "providers/GmailApi.js",
-                "JMAP": "providers/JmapProtocol.js", "IMAP": "providers/ImapProtocol.js",
-                "HEY": "providers/HeyCli.js",
             }.items():
                 source = source.replace("@" + key + "@", json.dumps((ROOT / "ui" / path).as_uri()))
             source = source.replace("@ENDPOINT@", json.dumps(f"http://127.0.0.1:{server.server_port}"))

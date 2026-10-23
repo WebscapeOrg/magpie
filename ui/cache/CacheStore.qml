@@ -9,7 +9,7 @@ Item {
   property string accountId: ""
   property int epoch: 0
   property var generation: 0
-  property var store: ({ version: 2, account: "", profile: null, labels: [], session: null })
+  property var store: ({ version: 2, account: "", profile: null, labels: [] })
   property bool loaded: false
   signal restored()
 
@@ -17,8 +17,8 @@ Item {
     if (!value) return
     if (value.store) { store = value.store; return }
     var next = { version: 2, account: store.account, profile: store.profile,
-      labels: store.labels, session: store.session }
-    var fields = ["account", "profile", "labels", "session"]
+      labels: store.labels }
+    var fields = ["account", "profile", "labels"]
     for (var fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
       var field = fields[fieldIndex]
       if (value[field] !== undefined) next[field] = value[field]
@@ -78,10 +78,6 @@ Item {
   }
   function putLabels(labels) { request("cache.queryLabels", { labels: labels }) }
   function putProfile(profile) { request("cache.queryProfile", { profile: profile }) }
-  function putSession(url, state, session) {
-    request("cache.querySession", { url: url, state: state, session: session })
-  }
-  function getSession(url, callback) { request("cache.querySessionGet", { url: url }, callback) }
   function bindAccount(email) { request("cache.queryBind", { email: email }) }
   function clear() { request("cache.queryClear", {}) }
   function invalidate(ids, callback) { request("cache.queryInvalidate", { ids: ids }, callback) }
@@ -90,7 +86,7 @@ Item {
     var mine = ++epoch
     loaded = false
     generation = 0
-    store = ({ version: 2, account: "", profile: null, labels: [], session: null })
+    store = ({ version: 2, account: "", profile: null, labels: [] })
     if (!backend || !backend.ready || !accountId) return
     backend.call("cache.queryRestore", { accountId: accountId }, function(value, error) {
       if (!root || mine !== root.epoch) return

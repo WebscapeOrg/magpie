@@ -138,31 +138,14 @@ assert.strictEqual(model.setupHeadline("ready"), "")
 assert.strictEqual(model.setupHeadline("reconnecting"), "Reconnecting to Gmail…")
 assert.ok(model.setupDetail("reconnecting").indexOf("retry automatically") > 0)
 assert.strictEqual(model.setupActionLabel("reconnecting"), "")
-assert.strictEqual(model.setupHeadline("signed_out"), "Sign in to Gmail",
-  "an account with no provider recorded is a Gmail account")
-assert.strictEqual(model.setupHeadline("signed_out", "IMAP"), "Sign in to IMAP")
-assert.strictEqual(model.setupHeadline("no_credentials", "IMAP", "password"),
-  "Add this mailbox", "only one of the two sends anyone to a Cloud console")
-assert.strictEqual(model.setupHeadline("no_credentials", "Gmail", "oauth"),
-  "Connect a Google Cloud project")
-assert.strictEqual(model.setupHeadline("no_credentials", "Outlook", "oauth"),
-  "Add this Outlook mailbox")
-assert.strictEqual(model.setupHeadline("signing_in", "Outlook", "oauth"),
-  "Waiting for Microsoft…")
-assert.ok(model.setupDetail("no_credentials", [], "", "Outlook", "oauth")
-  .indexOf("Microsoft") >= 0)
-
-assert.strictEqual(model.setupDetail("unavailable", [], "no API yet", "HEY"), "no API yet")
-assert.strictEqual(model.setupActionLabel("unavailable", "HEY"), "",
-  "there is no button that would help")
+assert.strictEqual(model.setupHeadline("signed_out"), "Sign in to Gmail")
+assert.strictEqual(model.setupHeadline("no_credentials"), "Connect a Google Cloud project")
+assert.strictEqual(model.setupHeadline("signing_in"), "Waiting for Google…")
+assert.strictEqual(model.setupHeadline("tools_missing"), "Missing system tools")
 assert.strictEqual(model.setupActionLabel("ready"), "")
-// Invariant: Actions that open another workflow retain the trailing ellipsis.
 assert.ok(model.setupActionLabel("no_credentials").endsWith("..."))
 assert.strictEqual(model.setupActionLabel("signing_in"), "Cancel")
-assert.ok(model.setupActionLabel("no_credentials", "IMAP", "password").endsWith("..."))
-
-assert.ok(model.setupDetail("signing_in", [], "", "IMAP", "password").indexOf("browser") < 0)
-assert.ok(model.setupDetail("signing_in", [], "", "Gmail", "oauth").indexOf("browser") > 0)
+assert.ok(model.setupDetail("signing_in").indexOf("browser") > 0)
 
 assert.strictEqual(model.survivesAction("inbox", "archive"), false)
 assert.strictEqual(model.survivesAction("all", "archive"), true, "All mail still contains an archived message")
@@ -196,7 +179,7 @@ assert.strictEqual(model.labelChangesFor("label:"), null, "a move with no destin
 
 // Invariant: The move capability governs user-chosen destinations; labels governs multiple labels per message.
 assert.strictEqual(model.actionCapability("label:Label_7"), "move")
-assert.strictEqual(model.actionUnavailable("label:Label_7", "HEY"), "HEY has no destination you can name")
+assert.strictEqual(model.actionUnavailable("label:Label_7"), "This account cannot move mail right now")
 
 const labelSet = [
   { id: "L2", name: "zebra" },
@@ -210,7 +193,7 @@ deepEqual(model.movableLabels(labelSet, "an").map(label => label.id), ["L3", "L1
 deepEqual(model.movableLabels(labelSet, "  ZEB  ").map(label => label.id), ["L2"], "a typed query is trimmed")
 deepEqual(model.movableLabels(labelSet, "inbox").map(label => label.id), [], "a system label is not a destination")
 deepEqual(model.movableLabels(labelSet, "", "L3").map(label => label.id), ["L1", "L2"],
-  "the current Gmail label or IMAP folder is not a move destination")
+  "the current Gmail label is not a move destination")
 deepEqual(model.movableLabels(null, ""), [])
 
 const row = { id: "a", labelIds: ["INBOX", "UNREAD"], unread: true, starred: false, inInbox: true }
@@ -406,9 +389,7 @@ assert.strictEqual(model.barTooltip("ready", "me@example.com", 1), "me@example.c
 assert.strictEqual(model.barTooltip("ready", "me@example.com", 4), "me@example.com · 4 unread messages")
 assert.strictEqual(model.barTooltip("ready", "", 2), "Gmail · 2 unread messages")
 assert.strictEqual(model.barTooltip("signed_out", "me@example.com", 9), "Gmail · Sign in to Gmail")
-assert.strictEqual(model.barTooltip("signed_out", "me@example.com", 9, "IMAP"),
-  "IMAP · Sign in to IMAP")
-assert.strictEqual(model.barTooltip("ready", "", 2, "IMAP"), "IMAP · 2 unread messages")
+
 
 // Invariant: New-mail notifications begin only after the first inbox load primes the seen set.
 
@@ -677,11 +658,11 @@ assert.strictEqual(model.actionCapability("spam"), "spam")
 assert.strictEqual(model.actionCapability("trash"), "", "every provider can trash")
 assert.strictEqual(model.actionCapability("markRead"), "")
 
-assert.strictEqual(model.actionUnavailable("archive", "HEY"), "HEY has no archive")
-assert.strictEqual(model.actionUnavailable("star", "HEY"), "HEY has no star")
-assert.strictEqual(model.actionUnavailable("spam", "IMAP"),
-  "IMAP has no junk verb to report to")
-assert.strictEqual(model.actionUnavailable("trash", "HEY"), "")
+assert.strictEqual(model.actionUnavailable("archive"), "This account cannot archive mail right now")
+assert.strictEqual(model.actionUnavailable("star"), "This account cannot star mail right now")
+assert.strictEqual(model.actionUnavailable("spam"),
+  "This account cannot report spam right now")
+assert.strictEqual(model.actionUnavailable("trash"), "")
 
 deepEqual(model.unavailableActions({ archive: true, star: true, spam: true, move: true }), [])
 deepEqual(model.unavailableActions({ archive: false, star: false, move: false }),
@@ -729,7 +710,7 @@ assert.strictEqual(model.paneWidth(0), 0)
 deepEqual(model.windowPrefs('{"collapsedFolders":["Archive","",3,"Archive"]}').collapsedFolders, ["Archive", "3"])
 assert.strictEqual(model.windowPrefs('{"windowOpen":"yes"}').windowOpen, false)
 
-// Invariant: A detail response is authoritative only for fields it carries; HEY bodies may omit listing metadata.
+// Invariant: A detail response is authoritative only for fields it carries.
 
 const listed = {
   id: "1:2",
@@ -841,19 +822,6 @@ assert.strictEqual(model.detailSummary(grouped, {
   assert.strictEqual(model.cachedDetailSummary({ id: "other", labelIds: [] }, fromDisk), fromDisk)
   assert.strictEqual(model.cachedDetailSummary(inHand, null), null)
 }
-
-assert.strictEqual(model.setupHeadline("tools_missing", "HEY", "cli"),
-  "Install the HEY CLI")
-assert.strictEqual(model.setupHeadline("tools_missing", "Gmail", "oauth"),
-  "Missing system tools")
-assert.strictEqual(model.setupHeadline("no_credentials", "HEY", "cli"), "Sign in to HEY")
-assert.strictEqual(model.setupHeadline("signing_in", "HEY", "cli"), "Waiting for HEY…")
-
-assert.ok(model.setupDetail("tools_missing", ["hey"], "", "HEY", "cli").indexOf("HEY CLI") >= 0)
-assert.ok(model.setupDetail("signed_out", [], "", "HEY", "cli").indexOf("The HEY CLI") === 0)
-assert.ok(model.setupDetail("no_credentials", [], "", "HEY", "cli").indexOf("never sees") >= 0)
-assert.strictEqual(model.setupActionLabel("tools_missing", "HEY", "cli"), "Check again")
-assert.strictEqual(model.setupActionLabel("no_credentials", "HEY", "cli"), "Sign in to HEY...")
 
 // Invariant: Switching accounts preserves a mailbox only if the destination provider offers it.
 assert.strictEqual(model.mailboxAfterAccountSwitch("unread", [
@@ -1147,7 +1115,7 @@ assert.strictEqual(model.previewReadable(dwelt, ""), false)
   const dotted = model.labelTree([
     { id: "a.b", name: "a.b", delimiter: "." }, { id: "a", name: "a", delimiter: "." },
     { id: "x/y", name: "x/y" }], [])
-  deepEqual(dotted.map(function (row) { return [row.path, row.depth] }), [["a", 0], ["a.b", 1], ["x", 0], ["x/y", 1]])
+  deepEqual(dotted.map(function (row) { return [row.path, row.depth] }), [["a", 0], ["a.b", 0], ["x", 0], ["x/y", 1]])
 
   deepEqual(model.visibleLabels(labels, ["Archive"]).map(function (label) { return label.id }),
     ["Archive", "Receipts", "Label_3"], "the digits follow what is on screen")
@@ -1162,24 +1130,9 @@ assert.strictEqual(model.previewReadable(dwelt, ""), false)
     { id: "toString", name: "toString" }], [])
   deepEqual(odd.map(function (row) { return row.path }), ["__proto__", "constructor", "constructor/2026", "toString"])
 
-  // Invariant: Absent hierarchy delimiter defaults to slash; an explicitly empty delimiter means a flat namespace.
-  assert.strictEqual(model.labelDelimiter({ delimiter: "." }), ".")
-  assert.strictEqual(model.labelDelimiter({ delimiter: "/" }), "/")
-  assert.strictEqual(model.labelDelimiter({ name: "todo" }), "/")
-  assert.strictEqual(model.labelDelimiter(null), "/")
-  assert.strictEqual(model.labelDelimiter({ delimiter: "" }), "")
-  const flat = model.labelTree([
-    { id: "a/b", name: "a/b", rawName: "a/b", delimiter: "" },
-    { id: "a", name: "a", rawName: "a", delimiter: "" },
-    { id: "x.y", name: "x.y", rawName: "x.y", delimiter: "" }], [])
-  deepEqual(flat.map(function (row) { return [row.path, row.depth, row.hasChildren, row.selectable] }),
-    [["a", 0, false, true], ["a/b", 0, false, true], ["x.y", 0, false, true]],
-    "a NIL delimiter makes a flat list, slashes and all")
-  deepEqual(model.visibleLabels([{ id: "a/b", name: "a/b", delimiter: "" }, { id: "a", name: "a", delimiter: "" }], ["a"])
-    .map(function (label) { return label.id }), ["a", "a/b"], "and nothing folds under anything")
-  const slashed = model.labelTree([{ id: "a.b", name: "a.b", delimiter: "/" }, { id: "a", name: "a", delimiter: "/" }], [])
+  const slashed = model.labelTree([{ id: "a.b", name: "a.b" }, { id: "a", name: "a" }], [])
   deepEqual(slashed.map(function (row) { return [row.path, row.depth] }), [["a", 0], ["a.b", 0]],
-    "a slash server does not nest on a dot")
+    "Gmail label names nest on slash, not dot")
 }
 
 // Invariant: Hydration rebuilds summary objects, so cache-first repaint decisions compare values rather than references.
@@ -1267,7 +1220,7 @@ assert.strictEqual(model.reloadLimit(25, 25), 25)
 assert.strictEqual(model.reloadLimit(25, 50), 50, "two pages in, two pages back")
 assert.strictEqual(model.reloadLimit(25, 63), 63,
   "rows trashed since do not round the depth down to a page")
-assert.strictEqual(model.reloadLimit(50, 150), 100, "bounded by the IMAP window")
+assert.strictEqual(model.reloadLimit(50, 150), 100, "bounded by the reload window")
 assert.strictEqual(model.reloadLimit(100, 300), 100)
 assert.strictEqual(model.reloadLimit(25, -5), 25)
 assert.strictEqual(model.reloadLimit(25, "nonsense"), 25)
@@ -1325,30 +1278,27 @@ assert.strictEqual(model.activityStatus({ running: 1, waiting: 4 }), "1 action r
 assert.strictEqual(model.activityStatus({ sending: "x", waiting: -2 }), "", "nonsense counts are zero")
 
 {
-  assert.strictEqual(model.labelLeaf("Archive/2026/Q1", "/"), "Q1")
-  assert.strictEqual(model.labelLeaf("Receipts", "/"), "Receipts")
-  assert.strictEqual(model.labelParent("Archive/2026/Q1", "/"), "Archive/2026")
-  assert.strictEqual(model.labelParent("Receipts", "/"), "")
-  assert.strictEqual(model.labelPathJoin("Archive", " 2026 ", "/"), "Archive/2026")
-  assert.strictEqual(model.labelPathJoin("", "Receipts", "/"), "Receipts")
-  assert.strictEqual(model.labelPathJoin("a", "b", "."), "a.b")
-  assert.strictEqual(model.labelDelimiter({ delimiter: "." }), ".")
-  assert.strictEqual(model.labelDelimiter({}), "/")
-  assert.strictEqual(model.labelNameProblem("  ", "/"), "A label needs a name")
-  assert.strictEqual(model.labelNameProblem("a/b", "/").indexOf("cannot contain /") > 0, true)
-  assert.strictEqual(model.labelNameProblem("Receipts", "/"), "")
+  assert.strictEqual(model.labelLeaf("Archive/2026/Q1"), "Q1")
+  assert.strictEqual(model.labelLeaf("Receipts"), "Receipts")
+  assert.strictEqual(model.labelParent("Archive/2026/Q1"), "Archive/2026")
+  assert.strictEqual(model.labelParent("Receipts"), "")
+  assert.strictEqual(model.labelPathJoin("Archive", " 2026 "), "Archive/2026")
+  assert.strictEqual(model.labelPathJoin("", "Receipts"), "Receipts")
+  assert.strictEqual(model.labelNameProblem("  "), "A label needs a name")
+  assert.strictEqual(model.labelNameProblem("a/b").indexOf("cannot contain /") > 0, true)
+  assert.strictEqual(model.labelNameProblem("Receipts"), "")
 
   const labels = [
     { id: "INBOX", name: "INBOX", system: true },
-    { id: "Archive", rawName: "Archive" },
-    { id: "Archive/2026", rawName: "Archive/2026" },
-    { id: "Archive/2026/Q1", rawName: "Archive/2026/Q1" },
-    { id: "Receipts", rawName: "Receipts" }]
-  deepEqual(model.labelMoveTargets(labels, "Archive/2026", "/").map(function (target) { return target.path }),
+    { id: "Archive", name: "Archive" },
+    { id: "Archive/2026", name: "Archive/2026" },
+    { id: "Archive/2026/Q1", name: "Archive/2026/Q1" },
+    { id: "Receipts", name: "Receipts" }]
+  deepEqual(model.labelMoveTargets(labels, "Archive/2026").map(function (target) { return target.path }),
     ["", "Receipts"], "not itself, not its children, not its current parent, never a system label")
-  deepEqual(model.labelMoveTargets(labels, "Receipts", "/").map(function (target) { return target.path }),
+  deepEqual(model.labelMoveTargets(labels, "Receipts").map(function (target) { return target.path }),
     ["", "Archive", "Archive/2026", "Archive/2026/Q1"])
-  assert.strictEqual(model.labelMoveTargets(labels, "Receipts", "/")[0].name, "Top level")
+  assert.strictEqual(model.labelMoveTargets(labels, "Receipts")[0].name, "Top level")
 }
 
 assert.strictEqual(model.monitoredNote([{ name: "Receipts", delta: 3 }]), "3 new in Receipts")
@@ -1357,67 +1307,20 @@ assert.strictEqual(model.monitoredNote([{ name: "A", delta: 1 }, { name: "B", de
 assert.strictEqual(model.monitoredNote([]), "")
 
 {
-  // Invariant: An explicitly empty hierarchy delimiter makes slashes and dots ordinary name characters.
-  assert.strictEqual(model.labelLeaf("a/b", ""), "a/b")
-  assert.strictEqual(model.labelParent("a/b", ""), "")
-  assert.strictEqual(model.labelPathJoin("", "a/b", ""), "a/b")
-  assert.strictEqual(model.labelNameProblem("a/b", ""), "", "a slash is only a slash")
-  assert.ok(model.labelNameProblem("a/b", "/").indexOf("cannot contain /") >= 0)
-  assert.strictEqual(model.labelNestProblem("", ""), "")
-  assert.strictEqual(model.labelNestProblem("Work", "/"), "")
-  assert.ok(model.labelNestProblem("Work", "").indexOf("flat list") >= 0)
-  deepEqual(model.labelMoveTargets([{ id: "a", name: "a" }, { id: "b", name: "b" }], "a", ""),
-    [{ id: "", name: "Top level", path: "" }], "nowhere to move to but where it is")
-  assert.strictEqual(model.labelLeaf("a.b", "."), "b")
-  assert.strictEqual(model.labelParent("a.b", "."), "a")
-  assert.strictEqual(model.labelLeaf("a.b", undefined), "a.b", "no word from the provider means a slash")
-  assert.strictEqual(model.labelPathJoin("a", "b", undefined), "a/b")
-}
-
-{
-  // Invariant: IMAP folder renames change descendant wire IDs; watches follow the fresh listing at the renamed path.
-  const before = [
-    { id: "Work", name: "Work", delimiter: "/" }, { id: "Work/2026", name: "Work/2026", delimiter: "/" },
-    { id: "Work/2026/Q1", name: "Work/2026/Q1", delimiter: "/" }, { id: "Receipts", name: "Receipts", delimiter: "/" }]
-  const after = [
-    { id: "Jobs", name: "Jobs", delimiter: "/" }, { id: "Jobs/2026", name: "Jobs/2026", delimiter: "/" },
-    { id: "Jobs/2026/Q1", name: "Jobs/2026/Q1", delimiter: "/" }, { id: "Receipts", name: "Receipts", delimiter: "/" }]
-  deepEqual(model.migrateMonitoredIds(["Work", "Receipts", "Work/2026/Q1"], before, after, "Work", "Jobs", "/"),
-    ["Jobs", "Receipts", "Jobs/2026/Q1"])
-  deepEqual(model.migrateMonitoredIds(["Work/2026"], before, after, "Work", "Jobs", "/"), ["Jobs/2026"])
-
-  const moved = [
-    { id: "Archive", name: "Archive", delimiter: "/" }, { id: "Archive/Work", name: "Archive/Work", delimiter: "/" },
-    { id: "Archive/Work/2026", name: "Archive/Work/2026", delimiter: "/" }, { id: "Receipts", name: "Receipts", delimiter: "/" }]
-  deepEqual(model.migrateMonitoredIds(["Work/2026", "Receipts"], before, moved, "Work", "Archive/Work", "/"),
-    ["Archive/Work/2026", "Receipts"])
-
-  const gone = [{ id: "Receipts", name: "Receipts", delimiter: "/" }]
-  deepEqual(model.migrateMonitoredIds(["Work", "Work/2026", "Receipts"], before, gone, "Work", "", "/"), ["Receipts"])
-  // Invariant: Gmail label IDs survive renames; unaffected watch lists preserve their original array identity.
-  const same = ["Receipts"]
-  assert.strictEqual(model.migrateMonitoredIds(same, before, after, "Work", "Jobs", "/"), same)
-  const gmail = [{ id: "Label_1", name: "Work" }, { id: "Label_2", name: "Work/2026" }]
-  const gmailAfter = [{ id: "Label_1", name: "Jobs" }, { id: "Label_2", name: "Jobs/2026" }]
-  const kept = ["Label_2"]
-  assert.strictEqual(model.migrateMonitoredIds(kept, gmail, gmailAfter, "Work", "Jobs", "/"), kept)
-
-  const flatBefore = [{ id: "Work", name: "Work", delimiter: "" }, { id: "Work/2026", name: "Work/2026", delimiter: "" }]
-  const flatAfter = [{ id: "Jobs", name: "Jobs", delimiter: "" }, { id: "Work/2026", name: "Work/2026", delimiter: "" }]
-  deepEqual(model.migrateMonitoredIds(["Work", "Work/2026"], flatBefore, flatAfter, "Work", "Jobs", ""), ["Jobs", "Work/2026"])
-  deepEqual(model.migrateMonitoredIds(null, before, after, "Work", "Jobs", "/"), [])
-}
-
-// Invariant: A queued rename chain resolves watched IDs against the final listing only.
-{
-  const old = [{id: "Work", name: "Work"}, {id: "Receipts", name: "Receipts"}]
-  const moves = [
-    {before: old, oldPath: "Work", newPath: "Jobs", delimiter: "/"},
-    {before: old, oldPath: "Receipts", newPath: "Bills", delimiter: "/"},
-    {before: [{id: "Jobs", name: "Jobs"}], oldPath: "Jobs", newPath: "Tasks", delimiter: "/"}
-  ]
-  deepEqual(model.migrateMonitoredChanges(["Work", "Receipts"], moves,
-    [{id: "Tasks", name: "Tasks"}, {id: "Bills", name: "Bills"}]), ["Tasks", "Bills"])
+  assert.strictEqual(model.labelLeaf("a.b"), "a.b")
+  assert.strictEqual(model.labelParent("a.b"), "")
+  assert.strictEqual(model.labelPathJoin("a", "b"), "a/b")
+  const watched = ["Label_1", "Label_2"]
+  const renamed = [{ id: "Label_1", name: "Jobs" }, { id: "Label_2", name: "Jobs/2026" }]
+  assert.strictEqual(model.retainedMonitoredIds(watched, renamed), watched,
+    "Gmail label identities survive rename without a write or path migration")
+  deepEqual(model.retainedMonitoredIds(watched, [renamed[1]]), ["Label_2"],
+    "a surviving child stays watched after its parent is deleted")
+  deepEqual(model.retainedMonitoredIds(watched, [{ id: "Label_3", name: "Jobs" }]), [],
+    "a different label with the same name does not inherit monitoring")
+  deepEqual(model.retainedMonitoredIds(null, renamed), [])
+  deepEqual(model.retainedMonitoredIds(["__proto__", "constructor"],
+    [{ id: "__proto__", name: "One" }, { id: "constructor", name: "Two" }]), ["__proto__", "constructor"])
 }
 
 {

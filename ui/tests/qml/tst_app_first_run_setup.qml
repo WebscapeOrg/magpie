@@ -3,12 +3,6 @@ import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
 
-// Invariant: First run has no mailbox to fall back to, so a setup form is the whole
-// window. The one place behind it is the question it answered — which kind of
-// mailbox — and that has to stay reachable: a sole account that was saved but
-// never signed in (a Gmail address on the IMAP form, say) used to trap the
-// user on its page with no Back and no Remove, across reinstalls, because the
-// saved row outlives the plugin.
 Item {
   width: 900
   height: 600
@@ -28,18 +22,16 @@ Item {
     property string clientDescription: ""
     property string credentialsPath: ""
     property var credentials: null
-    property var settings: ({
-      imapHost: "imap.gmail.com", imapPort: 993,
-      smtpHost: "smtp.gmail.com", smtpPort: 465,
-      username: "", aliases: [], insecure: false
-    })
 
     function recheck() {}
     function saveCredentials() {}
   }
 
+  QtObject { id: fakeBackend; property bool ready: false }
+
   QtObject {
     id: mailService
+    property var backend: fakeBackend
 
     property var displayPreferences: Display.normalize({layout: "Split view"})
     property bool ready: false
@@ -66,17 +58,18 @@ Item {
     property bool canMarkRead: false
     property bool canMarkUnread: false
     property bool accountDraftOpen: false
-    property bool signInProgress: false
+    property string signInProgress: ""
     property int sendSecondsRemaining: 10
     property int accountCount: 1
     property int inboxUnread: 0
     property real bodyZoom: 1
     property string bodyMode: "reader"
-    property string providerId: "imap"
+    property string providerId: "gmail"
     property string pluginDir: ""
+    property string accountName: ""
     property string accountEmail: "someone@gmail.com"
     property string accountAddress: "someone@gmail.com"
-    property string activeAccountId: "imap:someone@gmail.com"
+    property string activeAccountId: "someone@gmail.com"
     property string mailboxKey: "inbox"
     property string searchQuery: ""
     property string rawQuery: ""
@@ -85,7 +78,7 @@ Item {
     property string actionStatus: ""
     property string syncedLabel: ""
     property string recipientContactStatus: ""
-    property var accountSummaries: [{ provider: "imap", email: "someone@gmail.com", active: true }]
+    property var accountSummaries: [{ provider: "gmail", email: "someone@gmail.com", active: true }]
     property var mailboxes: []
     property var labels: []
     property var messages: []
@@ -113,10 +106,10 @@ Item {
       log = next
     }
     function editingIndex() { return accountSummaries.length - 1 }
-    function addAccount(provider) {
-      lastAddedProvider = String(provider || "")
+    function addAccount() {
+      lastAddedProvider = "gmail"
       record("add:" + lastAddedProvider)
-      accountSummaries = accountSummaries.concat([{provider: lastAddedProvider, email: "", active: false}])
+      accountSummaries = accountSummaries.concat([{provider: lastAddedProvider, email: "", active: false, pending: true}])
       accountCount += 1
       accountAdded()
     }
@@ -180,172 +173,89 @@ Item {
       return loader.item
     }
 
-    function isPicker(item) {
-      return !!item && typeof item.chosen === "function"
-    }
-
-    function isImapForm(item) {
-      return !!item && typeof item.currentSettings === "function"
-    }
-
-    function isJmapForm(item) {
-      return !!item && typeof item.plannedServer === "function"
-    }
-
     function init() {
       app.opened = true
       mailService.log = []
       mailService.lastAddedProvider = ""
       mailService.lastConfigured = null
-      mailService.accountSummaries = [{provider: "imap", email: "someone@gmail.com", active: true}]
+      mailService.accountSummaries = [{provider: "gmail", email: "someone@gmail.com", active: true}]
       mailService.accountCount = 1
-      mailService.providerId = "imap"
       mailService.hasSavedAccounts = true
+      mailService.anyAccountReady = false
+      mailService.ready = false
       fakeAuth.credentialsPresent = true
       app.resetNavigation()
       waitForRendering(app)
     }
 
-    function test_saved_but_unsigned_sole_account_can_go_back_to_the_chooser() {
-
-      verify(isImapForm(page()), "the IMAP form opens for the saved row")
-
-      var back = named(app, "page-back")
-      verify(back, "the window has a Back control for its pages")
-      verify(back.visible, "Back is shown even though no mailbox is ready")
-
-      back.activated()
-      waitForRendering(app)
-      verify(isPicker(page()), "Back leads to the provider chooser")
-      verify(page().visible, "and it is drawn, not hidden behind the form's page")
-
-      page().chosen("gmail")
-      waitForRendering(app)
-      compare(mailService.lastAddedProvider, "gmail",
-        "the saved row is kept and a Gmail row is added beside it")
-      var loader = named(app, "setup-page")
-      compare(loader.kind, "gmail")
-      verify(!isPicker(page()) && !isImapForm(page()), "the Gmail walkthrough opens")
-    }
-
-    function test_escape_on_a_first_run_form_returns_to_the_chooser() {
-      verify(isImapForm(page()))
-      app.goBack()
-      waitForRendering(app)
-      verify(isPicker(page()), "Escape is the same way out as Back")
-    }
-
-    function test_back_from_an_added_draft_discards_it_and_asks_again() {
-      named(app, "page-back").activated()
-      page().chosen("gmail")
-      waitForRendering(app)
-      compare(mailService.accountCount, 2)
-
-      named(app, "page-back").activated()
-      waitForRendering(app)
-      compare(mailService.log[mailService.log.length - 1], "discard",
-        "an abandoned draft row is not left behind")
-      verify(isPicker(page()), "and the question is asked again, not the IMAP form")
-    }
-
-    // Invariant: The address that got the user here in the first place. Google refuses
-    // the account password over IMAP, so the form has to say so as soon as a
-    // Gmail address is typed, and hand over the page that explains what to
-    // make instead.
-    function test_gmail_address_on_the_imap_form_points_at_the_app_password_guide() {
-      verify(isImapForm(page()))
-      var guide = named(app, "imap-password-guide")
-      verify(guide, "the form carries a guide link")
-      var address = named(app, "imap-address-field")
-      verify(address, "and an address field")
-
-      address.text = "jane@example.org"
-      waitForRendering(app)
-      verify(!guide.visible, "an unknown server has no guide to point at")
-
-      address.text = "jane@gmail.com"
-      waitForRendering(app)
-      verify(guide.visible, "a Gmail address shows the way to an app password")
-      verify(/app password/i.test(guide.text), "and says so")
-      verify(/^https:\/\/support\.google\.com\//.test(guide.tooltipText), "opening Google's own page")
-    }
-
-    function test_jmap_kind_opens_its_own_page_and_keeps_back_and_remove() {
+    function test_first_run_opens_gmail_setup_directly() {
       mailService.hasSavedAccounts = false
       fakeAuth.credentialsPresent = false
-      mailService.providerId = "gmail"
+      app.resetNavigation()
       waitForRendering(app)
-      verify(isPicker(page()), "first run opens on the chooser")
-
-      page().chosen("jmap")
-      waitForRendering(app)
-      compare(mailService.lastConfigured.provider, "jmap",
-        "the first-run row takes the kind rather than a second row appearing")
-      var loader = named(app, "setup-page")
-      compare(loader.kind, "jmap")
-      verify(isJmapForm(page()), "the JMAP form opens, not the IMAP one")
-      verify(!isImapForm(page()))
-
-      verify(named(app, "jmap-address-field"), "the page asks for an address")
-      verify(named(app, "jmap-secret-field"), "and for one secret")
-      var server = named(app, "jmap-server-field")
-      verify(server, "the server field exists")
-      verify(!server.visible, "but stays behind the disclosure on a fresh page")
-
-      var back = named(app, "page-back")
-      verify(back && back.visible, "Back is shown even though no mailbox is ready")
-      back.activated()
-      waitForRendering(app)
-      verify(isPicker(page()), "Back leads to the provider chooser")
-    }
-
-    function test_jmap_page_offers_remove_beside_another_mailbox() {
-      named(app, "page-back").activated()
-      page().chosen("jmap")
-      waitForRendering(app)
-      verify(isJmapForm(page()))
-      compare(mailService.lastAddedProvider, "jmap",
-        "a saved list keeps its rows and gains a JMAP one")
-      compare(mailService.accountCount, 2)
-      compare(page().accountCount, 2, "so the page draws its Remove button")
-
-      compare(mailService.editingIndex(), 1, "the page edits the newly added draft")
-      var removeButton = removeAccountButton(page())
-      verify(removeButton, "the form has a Remove account button")
-      verify(removeButton.visible, "the Remove account button is visible")
-      mouseClick(removeButton)
-      compare(mailService.accountCount, 1, "the selected draft must actually be removed")
-      compare(mailService.accountSummaries, [{provider: "imap", email: "someone@gmail.com", active: true}],
-        "the existing mailbox is retained")
-      compare(mailService.log[mailService.log.length - 1], "discard")
-    }
-
-    function test_first_run_draft_switches_kind_in_place() {
-
-      mailService.hasSavedAccounts = false
-      fakeAuth.credentialsPresent = false
-      mailService.providerId = "gmail"
-      waitForRendering(app)
-      verify(isPicker(page()), "first run opens on the chooser")
-      // Invariant: `visible` reads effective visibility, so this fails if the page
-      // holding the chooser is hidden — a chooser that exists but is not
-      // drawn is a blank window.
-      verify(page().visible, "and the chooser is actually drawn")
-
-      page().chosen("imap")
-      waitForRendering(app)
-      compare(mailService.lastConfigured.provider, "imap")
-      verify(isImapForm(page()))
-
-      named(app, "page-back").activated()
-      waitForRendering(app)
-      verify(isPicker(page()))
-
-      page().chosen("gmail")
-      waitForRendering(app)
-      compare(mailService.lastConfigured.provider, "gmail",
-        "the same row changes kind rather than a second row appearing")
+      compare(app.navKinds, ["setup"])
+      verify(page() && page().visible, "the Gmail setup page is drawn")
+      verify(typeof page().signInNamed === "function")
+      compare(mailService.accountCount, 1)
       compare(mailService.lastAddedProvider, "")
+      verify(!app.accountDraftOpen, "the initial row is retained across setup visits")
+    }
+
+    function test_escape_closes_unsigned_setup_without_discarding_saved_account() {
+      compare(app.navKinds, ["setup"])
+      app.goBack()
+      compare(app.opened, false)
+      compare(mailService.accountCount, 1)
+      compare(mailService.log.indexOf("discard"), -1)
+    }
+
+    function test_add_on_first_run_reuses_the_initial_row() {
+      mailService.hasSavedAccounts = false
+      app.addMailbox()
+      compare(app.page, "setup")
+      compare(mailService.accountCount, 1)
+      compare(mailService.lastAddedProvider, "")
+      verify(!app.accountDraftOpen)
+      app.back()
+      compare(app.navKinds, ["setup"])
+      compare(mailService.log.indexOf("discard"), -1)
+    }
+
+    function test_back_from_added_mailbox_discards_draft_and_returns_to_settings() {
+      mailService.anyAccountReady = true
+      mailService.ready = true
+      app.resetNavigation()
+      app.openSettings()
+      app.addMailbox()
+      waitForRendering(app)
+      compare(app.navKinds, ["list", "settings", "setup"])
+      compare(mailService.accountCount, 2)
+      compare(mailService.lastAddedProvider, "gmail")
+      verify(app.accountDraftOpen)
+      verify(page().visible)
+
+      var back = named(app, "page-back")
+      verify(back && back.visible)
+      back.activated()
+      compare(app.navKinds, ["list", "settings"])
+      compare(mailService.accountCount, 1)
+      compare(mailService.log[mailService.log.length - 1], "discard")
+      compare(mailService.accountSummaries, [{provider: "gmail", email: "someone@gmail.com", active: true}])
+    }
+
+    function test_remove_added_draft_keeps_the_saved_gmail_mailbox() {
+      mailService.anyAccountReady = true
+      mailService.ready = true
+      app.resetNavigation()
+      app.openSettings()
+      app.addMailbox()
+      waitForRendering(app)
+      var removeButton = removeAccountButton(page())
+      verify(removeButton && removeButton.visible)
+      removeButton.clicked()
+      compare(mailService.accountCount, 1)
+      compare(app.navKinds, ["list", "settings"])
+      compare(mailService.accountSummaries, [{provider: "gmail", email: "someone@gmail.com", active: true}])
     }
   }
 }

@@ -41,14 +41,12 @@ Item {
     name: "AgentOwnership"
     when: windowShown
 
-    readonly property string ada: "imap:ada@example.com"
-    readonly property string bob: "imap:bob@example.com"
+    readonly property string ada: "ada@example.com"
+    readonly property string bob: "bob@example.com"
 
     function entry(email) {
       return {
-        email: email, provider: "imap", clientId: "", clientSecret: "",
-        imap: { imapHost: "imap.example.com", imapPort: 993, smtpHost: "smtp.example.com", smtpPort: 465,
-          username: email, aliases: [], insecure: false },
+        email: email, provider: "gmail",
         label: "", signature: ""
       }
     }
@@ -100,8 +98,8 @@ Item {
       var agent = runner()
       verify(agent !== null)
       setJobs([
-        { id: "synthetic-A-job", messageId: "42:INBOX", accountId: ada, state: "running", created: 5 },
-        { id: "synthetic-A-question", messageId: "7:INBOX", accountId: ada, state: "done", question: "File it?", created: 6 }
+        { id: "synthetic-A-job", messageId: "message-42", accountId: ada, state: "running", created: 5 },
+        { id: "synthetic-A-question", messageId: "message-7", accountId: ada, state: "done", question: "File it?", created: 6 }
       ])
       return agent
     }
@@ -149,9 +147,9 @@ Item {
     function test_bobs_row_neither_shows_nor_cancels_adas_job() {
       seed(bob)
       compare(mailService.activeAccountId, bob)
-      verify(mailService.agentJobs["42:INBOX"] === undefined, "Bob's 42:INBOX has no job")
-      verify(mailService.agentAttentionByMessage["7:INBOX"] !== true, "and nothing of Bob's glows")
-      compare(mailService.cancelAgent("42:INBOX"), false, "a cancel from Bob's row finds no job")
+      verify(mailService.agentJobs["message-42"] === undefined, "Bob's message-42 has no job")
+      verify(mailService.agentAttentionByMessage["message-7"] !== true, "and nothing of Bob's glows")
+      compare(mailService.cancelAgent("message-42"), false, "a cancel from Bob's row finds no job")
       compare(startedCancels().length, 0, "and starts no runner")
       compare(mailService.agentBusy, true, "the pane still counts Ada's running job")
     }
@@ -160,34 +158,34 @@ Item {
       var agent = seed(ada)
       tryCompare(mailService, "hasAgent", true)
       var adas = mailService.accountAt(0)
-      adas.messages = [{ id: "42:INBOX", threadId: "", subject: "Invoice", snippet: "", time: "", date: "",
+      adas.messages = [{ id: "message-42", threadId: "", subject: "Invoice", snippet: "", time: "", date: "",
         from: { email: "x@example.com", display: "X" }, unread: false, starred: false, inInbox: true, labelIds: ["INBOX"] }]
       setJobs(agent.jobs.concat([{ id: "synthetic-A-draft", kind: "draft", accountId: ada, draftKey: "draft-A", state: "done", created: 7, requestPreview: "Shorter" }]))
       compare(mailService.agentJobsForDraft({accountId: ada, draftKey: "draft-A"}).length, 1, "Ada's composer sees her draft answer")
       mailService.accountList = Accounts.setActive(mailService.accountList, bob)
       tryCompare(mailService, "activeAccountId", bob)
       compare(mailService.agentJobsForDraft({accountId: bob, draftKey: "draft-A"}).length, 0, "Bob's composer is offered none of it")
-      compare(mailService.cancelAgent("42:INBOX", ada), true, "Ada's job is cancelled from her popup")
+      compare(mailService.cancelAgent("message-42", ada), true, "Ada's job is cancelled from her popup")
       var cancels = startedCancels()
       compare(cancels.length, 1)
       compare(cancels[0].params.id, "synthetic-A-job")
-      compare(mailService.askAgent("42:INBOX", "File it", "imap:gone@example.com"), false, "a removed owner gets nothing")
+      compare(mailService.askAgent("message-42", "File it", "gone@example.com"), false, "a removed owner gets nothing")
     }
 
     function test_adas_row_shows_and_cancels_her_own() {
       seed(ada)
-      compare(mailService.agentJobs["42:INBOX"].id, "synthetic-A-job")
-      compare(mailService.agentAttentionByMessage["7:INBOX"], true)
+      compare(mailService.agentJobs["message-42"].id, "synthetic-A-job")
+      compare(mailService.agentAttentionByMessage["message-7"], true)
       // Invariant: ownership follows service selection even when no window-navigation handler runs.
       mailService.accountList = Accounts.setActive(mailService.accountList, bob)
       tryCompare(mailService, "activeAccountId", bob)
-      verify(mailService.agentJobs["42:INBOX"] === undefined)
-      compare(mailService.cancelAgent("42:INBOX"), false)
+      verify(mailService.agentJobs["message-42"] === undefined)
+      compare(mailService.cancelAgent("message-42"), false)
       compare(startedCancels().length, 0)
       mailService.accountList = Accounts.setActive(mailService.accountList, ada)
       tryCompare(mailService, "activeAccountId", ada)
       settled()
-      compare(mailService.cancelAgent("42:INBOX"), true, "Ada's own row cancels")
+      compare(mailService.cancelAgent("message-42"), true, "Ada's own row cancels")
       var cancels = startedCancels()
       compare(cancels.length, 1)
       compare(cancels[0].params.id, "synthetic-A-job")

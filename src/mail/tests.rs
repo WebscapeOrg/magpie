@@ -53,7 +53,6 @@ pub(crate) struct AccountFixture {
     pub(crate) config: PathBuf,
     pub(crate) cache: PathBuf,
     pub(crate) state: PathBuf,
-    pub(crate) home: PathBuf,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -230,7 +229,6 @@ pub(crate) fn account_fixture(registry: Value) -> AccountFixture {
         config: dirs.config,
         cache: dirs.cache,
         state: dirs.state,
-        home,
     }
 }
 
@@ -313,13 +311,13 @@ fn omitted_account_uses_active_and_explicit_account_never_falls_back() {
     }
     let _env = account_fixture(json!({
         "version": 1,
-        "activeId": "imap:active@example.org",
+        "activeId": "active@example.org",
         "accounts": [
             {"provider":"gmail","email":"other@example.org"},
-            {"provider":"imap","email":"active@example.org","imap":{"username":"active@example.org"}}
+            {"provider":"gmail","email":"active@example.org"}
         ]
     }));
-    assert_eq!(resolve_account("").unwrap().id, "imap:active@example.org");
+    assert_eq!(resolve_account("").unwrap().id, "active@example.org");
     assert_eq!(
         resolve_account("OTHER@EXAMPLE.ORG").unwrap().id,
         "other@example.org"
@@ -361,7 +359,7 @@ fn empty_or_pending_only_registries_never_resolve_an_empty_account_id() {
         json!({
             "version": 1,
             "activeId": "",
-            "accounts": [{"provider":"hey", "email":"", "pending":true}]
+            "accounts": [{"provider":"gmail", "email":"", "pending":true}]
         }),
     ] {
         let _fixture = account_fixture(registry);
@@ -387,7 +385,7 @@ fn unknown_registry_provider_cannot_resolve_as_a_gmail_action_account() {
         request_error(ActRequest::try_from(
             &json!({"operation":"archive","ids":["one"]})
         )),
-        "mail_account_unknown"
+        "accounts_provider_unsupported"
     );
 }
 
@@ -408,7 +406,10 @@ fn public_vocabulary_is_closed() {
 
 #[test]
 fn provider_vocabulary_is_closed() {
-    assert_eq!(Provider::try_from("jmap").unwrap().id(), "jmap");
+    assert_eq!(Provider::try_from("gmail").unwrap().id(), "gmail");
+    for provider in ["outlook", "imap", "jmap", "hey", "unknown"] {
+        assert_eq!(Provider::try_from(provider), Err("mail_provider_unknown"));
+    }
     assert_eq!(Provider::try_from("JMAP"), Err("mail_provider_unknown"));
 }
 

@@ -4,15 +4,9 @@
 
 // Invariant: The independent JS oracle models Service wiring; native parity tests separately verify Rust behavior.
 function unified(parameters) {
-  var capabilities = {}
-  var names = ["archive", "spam", "star", "labels", "web", "move", "conversations"]
-  for (var capabilityIndex = 0; capabilityIndex < names.length; capabilityIndex++)
-    capabilities[names[capabilityIndex]] = Unified.everyMailboxCan(parameters.abilities, names[capabilityIndex])
   return {
     messages: Unified.mergeMessages(parameters.sources),
     totalUnread: Unified.totalUnread(parameters.summaries),
-    mailboxes: Unified.sharedMailboxRows(parameters.abilities),
-    capabilities: capabilities,
     loading: Unified.anyLoading(parameters.states),
     loaded: Unified.allLoaded(parameters.states),
     hasMore: Unified.anyHasMore(parameters.states),

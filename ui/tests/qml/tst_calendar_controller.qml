@@ -13,7 +13,7 @@ Item {
     property var nextResult: ({ body: "{}", status: 200 })
     property var nextError: null
     property bool backendCanDiscoverCalendars: true
-    property bool backendCanGoogleCalendars: false
+    property bool backendCanGoogleCalendars: true
     property var discoveryCallback: null
     property var credentialWrites: []
     property var configWrites: []
@@ -28,8 +28,8 @@ Item {
     } })
     property bool unifiedCalendarView: false
     property var accountSummaries: [
-      { id: "imap:work@example.com", email: "work@example.com",
-        provider: "imap", signedIn: true },
+      { id: "work@example.com", email: "work@example.com",
+        provider: "gmail", calendarProvider: "google", signedIn: true },
       { id: "one@gmail.com", email: "one@gmail.com",
         provider: "gmail", signedIn: true },
       { id: "two@gmail.com", email: "two@gmail.com",
@@ -54,12 +54,12 @@ Item {
     id: controller
     service: mailService
     pluginDir: "/tmp/omamail-test"
-    accountId: "imap:work@example.com"
+    accountId: "work@example.com"
     sourceList: ({
       version: 1,
       sources: [{
-        id: "caldav:team", kind: "caldav", name: "Team",
-        url: "https://calendar.example/team/", username: "work@example.com",
+        id: "google:team", kind: "google", name: "Team",
+        accountId: "work@example.com", calendarId: "team", discovered: true,
         enabled: true, readOnly: false, colorKey: "accent"
       }]
     })
@@ -71,32 +71,29 @@ Item {
 
     property var originalSummaries: JSON.parse(JSON.stringify(mailService.accountSummaries))
 
-    function test_caldav_text_cannot_inject_event_properties_data() {
+    function test_google_text_cannot_inject_event_properties_data() {
       return [{ tag: "create", update: false }, { tag: "update", update: true }]
     }
 
-    function test_caldav_text_cannot_inject_event_properties(data) {
+    function test_google_text_cannot_inject_event_properties(data) {
       var fields = {
         title: "Plan\rATTENDEE:mailto:uninvited@example.test",
         location: "Room 1\r\nBEGIN:VEVENT",
         description: "Notes\nEND:VEVENT\rORGANIZER:mailto:other@example.test",
         startMs: Date.UTC(2026, 9, 22, 10), endMs: Date.UTC(2026, 9, 22, 11)
       }
-      var event = { uid: "original", href: "/team/original.ics", sourceId: "caldav:team" }
+      var event = { uid: "original", googleId: "original", etag: "original-etag", sourceId: "google:team", organizer: {self: true} }
       var accepted = data.update
-        ? controller.updateEvent("caldav:team", event, fields)
-        : controller.createEvent("caldav:team", fields)
+        ? controller.updateEvent("google:team", event, fields)
+        : controller.createEvent("google:team", fields)
       verify(accepted)
       compare(mailService.requests.length, 1)
-      var body = mailService.requests[0].params.body
-      var lines = body.replace(/\r\n?/g, "\n").split("\n")
-      compare(lines.filter(function(line) { return /^ATTENDEE[:;]/.test(line) }).length, 0)
-      compare(lines.filter(function(line) { return /^ORGANIZER[:;]/.test(line) }).length, 0)
-      compare(lines.filter(function(line) { return line === "BEGIN:VEVENT" }).length, 1)
-      compare(lines.filter(function(line) { return line === "END:VEVENT" }).length, 1)
-      verify(body.indexOf("SUMMARY:Plan\\nATTENDEE:mailto:uninvited@example.test") >= 0)
-      verify(body.indexOf("LOCATION:Room 1\\nBEGIN:VEVENT") >= 0)
-      verify(body.indexOf("DESCRIPTION:Notes\\nEND:VEVENT\\nORGANIZER:mailto:other@example.test") >= 0)
+      var body = JSON.parse(mailService.requests[0].params.body)
+      verify(body.summary.indexOf("ATTENDEE:mailto:uninvited@example.test") >= 0)
+      verify(body.location.indexOf("BEGIN:VEVENT") >= 0)
+      verify(body.description.indexOf("ORGANIZER:mailto:other@example.test") >= 0)
+      compare(body.attendees, undefined)
+      compare(body.organizer, undefined)
     }
 
     function test_settings_can_target_another_accounts_calendar() {
@@ -124,12 +121,15 @@ Item {
       for (var kindIndex = 0; kindIndex < kinds.length; kindIndex++) {
         var source = {id:"legacy",kind:kinds[kindIndex],enabled:true,remindersEnabled:true,reminderMinutes:10}
         controller.reminderMode = false
-        compare(controller.sourceIncluded(source), true)
+        compare(controller.sourceIncluded(source), false)
         controller.reminderMode = true
         compare(controller.sourceIncluded(source), false)
         controller.sourceList = {version:1,sources:[source]}
         var writes = mailService.configWrites.length
         controller.setReminderPolicy("legacy", true, 5)
+        controller.setSourceEnabled("legacy", true)
+        controller.setDefaultCalendar("legacy")
+        controller.setSourceColor("legacy", "blue")
         compare(mailService.configWrites.length, writes)
       }
       compare(controller.sourceIncluded({kind:"google",enabled:false,remindersEnabled:true}), true)
@@ -179,6 +179,7 @@ Item {
     }
 
     function test_old_backend_refuses_google_options_instead_of_dropping_them() {
+      mailService.backendCanGoogleCalendars = false
       controller.accountId = "one@gmail.com"
       controller.sourceList = {version:1,sources:[
         {id:"google:one@gmail.com",kind:"google",accountId:"one@gmail.com",calendarId:"primary",enabled:true,canCreateMeet:true}]}
@@ -231,12 +232,12 @@ Item {
       mailService.nextResult = ({ body: "{}", status: 200 })
       mailService.nextError = null
       mailService.backendCanDiscoverCalendars = true
-      mailService.backendCanGoogleCalendars = false
+      mailService.backendCanGoogleCalendars = true
       mailService.discoveryCallback = null
       mailService.backend.ready = false
       mailService.accountSummaries = [
-        { id: "imap:work@example.com", email: "work@example.com",
-          provider: "imap", signedIn: true },
+        { id: "work@example.com", email: "work@example.com",
+          provider: "gmail", calendarProvider: "google", signedIn: true },
         { id: "one@gmail.com", email: "one@gmail.com",
           provider: "gmail", signedIn: true },
         { id: "two@gmail.com", email: "two@gmail.com",
@@ -247,15 +248,16 @@ Item {
       mailService.configCallback = null
       discoverySpy.clear()
       mailService.unifiedCalendarView = false
-      controller.accountId = "imap:work@example.com"
+      controller.accountId = "work@example.com"
       controller.refreshScope = ""
       controller.refreshAccountId = ""
       controller.loading = false
       controller.rangeStart = 0
       controller.rangeEnd = 0
       controller.savingSource = false
-      controller.sourceBeingSaved = null
-      controller.sourceSecret = ""
+      controller.discoveryChoices = null
+      controller.creatingEvent = false
+      controller.eventWriting = false
       controller.discoveringCalendars = false
       controller.discoveringAccountId = ""
       controller.discoverySaving = false
@@ -263,8 +265,8 @@ Item {
       controller.discoveryError = ""
       controller.refreshAfterSourceWrite = false
       controller.sourceList = ({version:1, sources:[{
-        id:"caldav:team", kind:"caldav", name:"Team",
-        url:"https://calendar.example/team/", username:"work@example.com",
+        id:"google:team", kind:"google", name:"Team",
+        accountId:"work@example.com", calendarId:"team", discovered:true,
         enabled:true, readOnly:false, colorKey:"accent"
       }]})
     }
@@ -275,20 +277,23 @@ Item {
 
     function test_discovery_persists_through_platform_settings(data) {
       var before = JSON.stringify(controller.sourceList)
-      mailService.accountSummaries = [{id:"outlook:work@example.com",
-        calendarProvider:"microsoft", signedIn:true}]
+      mailService.accountSummaries = [{id:"work@example.com",
+        calendarProvider:"google", signedIn:true}]
       mailService.backend.ready = true
-      verify(controller.discoverAccountCalendars("outlook:work@example.com"))
-      mailService.discoveryCallback({provider:"microsoft", accountId:"outlook:work@example.com",
-        calendars:[{sourceId:"microsoft:work", calendarId:"work", name:"Work", readOnly:false}]}, null)
+      verify(controller.discoverAccountCalendars("work@example.com"))
+      mailService.discoveryCallback({provider:"google", accountId:"work@example.com",
+        calendars:[{sourceId:"google:work", calendarId:"work", name:"Work", readOnly:false}]}, null)
+      compare(mailService.configWrites.length, 0)
+      verify(controller.discoveryChoices !== null)
+      controller.confirmDiscovery()
       compare(mailService.configWrites.length, 1)
       compare(mailService.configWrites[0].name, "calendars.json")
-      compare(JSON.parse(mailService.configWrites[0].payload).sources.length, 2)
+      compare(JSON.parse(mailService.configWrites[0].payload).sources.length, 1)
       compare(JSON.stringify(controller.sourceList), before, "no optimistic replacement before persistence")
       compare(controller.savingSource, true)
       compare(controller.discoverySaving, true)
       compare(discoverySpy.count, 0)
-      controller.setSourceEnabled("caldav:team", false)
+      controller.setSourceEnabled("google:team", false)
       compare(mailService.configWrites.length, 1, "no concurrent writer while saving discovery")
       mailService.configCallback(data.ok, data.ok ? "" : "synthetic write refusal")
       compare(controller.savingSource, false)
@@ -299,7 +304,7 @@ Item {
       compare(Array.prototype.slice.call(discoverySpy.signalArguments[0]), data.ok ? [true, "", 1]
         : [false, "The discovered calendars could not be saved", 0])
       compare(mailService.credentialWrites.length, 0, "discovery never writes a credential")
-      if (data.ok) compare(controller.sourceList.sources.length, 2)
+      if (data.ok) compare(controller.sourceList.sources.length, 1)
       else compare(JSON.stringify(controller.sourceList), before)
     }
 
@@ -325,40 +330,26 @@ Item {
       verify(mailService.requests[0].params.token === undefined)
     }
 
-    function test_z_icloud_requests_and_discovery_never_carry_credentials() {
-      var source = {kind: "icloud", accountId: "imap:person@icloud.com",
-        id: "icloud:one", url: "https://p37-caldav.icloud.com/123/calendars/one/"}
-      controller.nativeRequest(source, "list", {start: "a", end: "b", body: "report"},
-        function(_result, error) { compare(error, "") })
-      compare(mailService.requests.length, 1)
-      compare(mailService.requests[0].method, "calendar.request")
-      compare(mailService.requests[0].params.source.accountId, "imap:person@icloud.com")
-      verify(mailService.requests[0].params.password === undefined)
-      verify(mailService.requests[0].params.credentials === undefined)
-
-      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
-        email: "person@icloud.com", provider: "imap", calendarProvider: "icloud",
-        signedIn: true }]
+    function test_google_discovery_never_carries_credentials_or_accepts_a_removed_account() {
+      mailService.accountSummaries = [{ id: "person@example.org", email: "person@example.org",
+        provider: "gmail", calendarProvider: "google", signedIn: true }]
       mailService.backend.ready = true
-      verify(controller.discoverAccountCalendars("imap:person@icloud.com"))
-      compare(mailService.requests.length, 2)
-      compare(mailService.requests[1].method, "calendar.discover")
-      compare(JSON.stringify(mailService.requests[1].params),
-        JSON.stringify({accountId: "imap:person@icloud.com"}))
-      verify(mailService.discoveryCallback !== null)
-      controller.setSourceEnabled("caldav:team", false)
-      compare(controller.savingSource, false,
-        "calendar settings cannot race the discovery result writer")
+      verify(controller.discoverAccountCalendars("person@example.org"))
+      compare(mailService.requests.length, 1)
+      compare(mailService.requests[0].method, "calendar.discover")
+      compare(JSON.stringify(mailService.requests[0].params), JSON.stringify({accountId: "person@example.org"}))
+      controller.setSourceEnabled("google:team", false)
+      compare(mailService.configWrites.length, 0)
       mailService.discoveryCallback(null, {code: -32000, message: "calendar_auth_refused"})
       compare(controller.discoveringCalendars, false)
       compare(controller.discoveryError, "Sign in to this mailbox again")
-
-      verify(controller.discoverAccountCalendars("imap:person@icloud.com"))
+      verify(controller.discoverAccountCalendars("person@example.org"))
       mailService.accountSummaries = []
-      mailService.discoveryCallback({ provider: "icloud",
-        accountId: "imap:person@icloud.com", calendars: [] }, null)
+      mailService.discoveryCallback({ provider: "google", accountId: "person@example.org", calendars: [] }, null)
       compare(controller.savingSource, false)
       compare(controller.discoveryError, "Calendars could not be discovered")
+      compare(mailService.configWrites.length, 0)
+      compare(mailService.credentialWrites.length, 0)
     }
 
     function test_discovery_failure_uses_only_known_rpc_messages() {
@@ -376,69 +367,46 @@ Item {
     }
 
     function test_discovery_on_an_old_backend_makes_no_request_or_settings_write() {
-      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
-        calendarProvider: "icloud", signedIn: true }]
+      mailService.accountSummaries = [{ id: "person@example.org",
+        calendarProvider: "google", signedIn: true }]
       mailService.backend.ready = true
       mailService.backendCanDiscoverCalendars = false
-      compare(controller.discoverAccountCalendars("imap:person@icloud.com"), false)
+      compare(controller.discoverAccountCalendars("person@example.org"), false)
       compare(mailService.requests.length, 0)
       compare(mailService.configWrites.length, 0)
       compare(mailService.credentialWrites.length, 0)
       compare(controller.savingSource, false)
       compare(controller.discoveringCalendars, false)
     }
-    function test_old_backend_never_reads_or_writes_a_discovered_calendar_as_default() {
-      mailService.backendCanDiscoverCalendars = false
-      var sources = [{kind: "microsoft", calendarId: "other-calendar"}, {kind: "icloud"}]
+    function test_unsupported_saved_sources_are_preserved_without_requests_or_writes() {
+      var sources = [{kind: "microsoft", calendarId: "other-calendar"}, {kind: "icloud"}, {kind: "caldav"}]
       var operations = ["list", "create", "update", "delete"]
       var replies = 0
+      controller.sourceList = {version: 1, sources: sources}
+      var before = JSON.stringify(controller.sourceList)
       for (var sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
         for (var operationIndex = 0; operationIndex < operations.length; operationIndex++) {
           controller.nativeRequest(sources[sourceIndex], operations[operationIndex], {}, function(result, error) {
             compare(result, null)
-            compare(error, "Update the backend to access this calendar")
+            compare(error, "Only Google calendars are supported")
             replies++
           })
         }
       }
-      compare(replies, 8)
+      compare(replies, 12)
       compare(mailService.requests.length, 0)
-      controller.nativeRequest({kind: "microsoft", calendarId: ""}, "list", {}, function() {})
-      compare(mailService.requests.length, 1, "the established default calendar still works")
+      compare(mailService.configWrites.length, 0)
+      compare(mailService.credentialWrites.length, 0)
+      compare(JSON.stringify(controller.sourceList), before)
     }
 
-    // Invariant: historical Graph access still reaches a discovered default calendar without its newer explicit-ID parameter.
-    function test_old_backend_reaches_the_discovered_default_calendar_without_its_identity() {
-      mailService.backendCanDiscoverCalendars = false
-      var defaultCalendar = {id: "microsoft:outlook:me@contoso.com", kind: "microsoft",
-        accountId: "outlook:me@contoso.com", calendarId: "default-id", discovered: true}
-      var replies = 0
-      controller.nativeRequest(defaultCalendar, "list", {}, function(result, error) {
-        compare(error, "")
-        replies++
-      })
-      compare(replies, 1)
-      compare(mailService.requests.length, 1)
-      compare(mailService.requests[0].params.source.calendarId, "")
-      compare(mailService.requests[0].params.source.id, "microsoft:outlook:me@contoso.com")
-      compare(defaultCalendar.calendarId, "default-id", "the saved source keeps its identity")
-      var secondary = {id: "microsoft:outlook:me@contoso.com:hash", kind: "microsoft",
-        accountId: "outlook:me@contoso.com", calendarId: "holiday-id", discovered: true}
-      controller.nativeRequest(secondary, "list", {}, function(result, error) {
-        compare(error, "Update the backend to access this calendar")
-        replies++
-      })
-      compare(replies, 2)
-      compare(mailService.requests.length, 1, "a secondary calendar has no request an old backend can make")
-    }
-
-    function test_native_request_explains_icloud_recovery() {
+    function test_native_request_explains_google_recovery() {
       mailService.nextResult = null
       mailService.nextError = ({ code: -32000, message: "calendar_auth_refused" })
       var called = false
-      controller.nativeRequest({ kind: "icloud" }, "list", {}, function(result, error) {
+      controller.nativeRequest({ kind: "google" }, "list", {}, function(result, error) {
         compare(result, null)
-        compare(error, "iCloud calendar request failed. Check the mailbox's app-specific password in Settings")
+        compare(error, "Google could not complete this calendar request. Refresh the event and try again")
         called = true
       })
       verify(called)
@@ -446,44 +414,27 @@ Item {
 
     function test_a_calendar_error_names_a_discovered_calendar_with_its_mailbox() {
       mailService.accountSummaries = [
-        { id: "outlook:me@contoso.com", email: "me@contoso.com", provider: "outlook", signedIn: true },
-        { id: "outlook:other@contoso.com", email: "other@contoso.com", provider: "outlook", signedIn: true }
+        { id: "me@contoso.com", email: "me@contoso.com", provider: "gmail", signedIn: true },
+        { id: "other@contoso.com", email: "other@contoso.com", provider: "gmail", signedIn: true }
       ]
       controller.refreshScope = controller.calendarScope
-      var microsoft = { id: "microsoft:outlook:other@contoso.com", kind: "microsoft",
-        name: "Calendar", accountId: "outlook:other@contoso.com", calendarId: "default-id",
-        discovered: true }
+      var source = { id: "google:other@contoso.com", kind: "google",
+        name: "Calendar", accountId: "other@contoso.com", calendarId: "default-id", discovered: true }
       mailService.nextResult = null
       mailService.nextError = {code: -32000, message: "calendar_auth_refused"}
       controller.activeReads = 1
-      controller.startNativeList(microsoft, controller.refreshSerial, 1000, 2000)
-      compare(controller.lastError, "Calendar · other@contoso.com: Microsoft calendar request failed. Check Graph permissions in Settings, then sign in again")
-      controller.refreshScope = controller.calendarScope
-      controller.activeReads = 1
-      controller.startNativeList({ id: "caldav:team", kind: "caldav", name: "Team" }, controller.refreshSerial, 1000, 2000)
-      compare(controller.lastError, "Team: CalDAV calendar request failed. Check its server address and password in Settings")
-      compare(mailService.requests.length, 2)
+      controller.startNativeList(source, controller.refreshSerial, 1000, 2000)
+      compare(controller.lastError, "Calendar · other@contoso.com: Google could not complete this calendar request. Refresh the event and try again")
+      compare(mailService.requests.length, 1)
       compare(controller.activeReads, 0)
-    }
-
-    function test_native_request_explains_microsoft_recovery() {
-      mailService.nextResult = null
-      mailService.nextError = ({ code: -32000, message: "calendar_auth_refused" })
-      var called = false
-      controller.nativeRequest({ kind: "microsoft" }, "list", {}, function(result, error) {
-        compare(result, null)
-        compare(error, "Microsoft calendar request failed. Check Graph permissions in Settings, then sign in again")
-        called = true
-      })
-      verify(called)
     }
 
     function test_native_request_does_not_display_backend_diagnostics() {
       mailService.nextResult = null
       mailService.nextError = ({ code: -32000, message: "private backend diagnostic" })
       var called = false
-      controller.nativeRequest({ kind: "microsoft" }, "list", {}, function(_result, error) {
-        compare(error, "Microsoft calendar request failed. Check Graph permissions in Settings, then sign in again")
+      controller.nativeRequest({ kind: "google" }, "list", {}, function(_result, error) {
+        compare(error, "Google could not complete this calendar request. Refresh the event and try again")
         called = true
       })
       verify(called)
@@ -494,7 +445,7 @@ Item {
     }
 
     function test_calendar_follows_the_active_mailbox_by_default() {
-      var expected = ["caldav:team"]
+      var expected = ["google:team"]
       compare(JSON.stringify(sourceIds(controller.contextSources)),
         JSON.stringify(expected))
       compare(JSON.stringify(sourceIds(controller.sourcesForAccount(controller.accountId))),
@@ -503,7 +454,7 @@ Item {
 
     function test_unified_calendar_combines_every_signed_in_account() {
       mailService.unifiedCalendarView = true
-      var expected = ["caldav:team", "google:one@gmail.com", "google:two@gmail.com"]
+      var expected = ["google:team", "google:one@gmail.com", "google:two@gmail.com"]
       compare(JSON.stringify(sourceIds(controller.contextSources)),
         JSON.stringify(expected))
       compare(JSON.stringify(sourceIds(controller.sourcesForAccount(controller.accountId))),
@@ -512,7 +463,7 @@ Item {
 
     // Performance: unified views share one calendar cache scope; account-scoped copies previously refetched on every mailbox switch.
     function test_the_scope_is_the_mailbox_only_when_the_view_follows_it() {
-      compare(controller.calendarScope, "imap:work@example.com")
+      compare(controller.calendarScope, "work@example.com")
       mailService.unifiedCalendarView = true
       compare(controller.calendarScope, "__unified__")
       controller.accountId = "one@gmail.com"
@@ -559,70 +510,6 @@ Item {
       compare(controller.loading, false, "the obsolete request does not keep the visible range loading")
     }
 
-    function test_updating_a_caldav_password_refreshes_the_visible_range() {
-      controller.rangeStart = 1000
-      controller.rangeEnd = 2000
-      controller.loading = true
-      controller.updateCalendarPassword(controller.sourceList.sources[0], "new-secret")
-      compare(mailService.credentialWrites, [{kind:"calendar-password",
-        accountId:"caldav:team",clientId:"",secret:"new-secret"}])
-      compare(controller.rangeStart, 1000)
-      compare(controller.rangeEnd, 2000)
-      compare(controller.loading, false, "the obsolete request does not keep the visible range loading")
-    }
-
-    function test_caldav_calendars_keep_distinct_credentials_data() {
-      return [
-        {tag: "punctuation", firstUrl: "https://calendar.example/a_b/", secondUrl: "https://calendar.example/a-b/", firstUser: "ada", secondUser: "ada"},
-        {tag: "path-case", firstUrl: "https://calendar.example/Team/", secondUrl: "https://calendar.example/team/", firstUser: "ada", secondUser: "ada"},
-        {tag: "username", firstUrl: "https://calendar.example/team/", secondUrl: "https://calendar.example/team/", firstUser: "ada", secondUser: "bob"}
-      ]
-    }
-
-    function test_caldav_calendars_keep_distinct_credentials(data) {
-      controller.sourceList = {version: 1, sources: []}
-      controller.addCalDavCalendar({name: "First", url: data.firstUrl, username: data.firstUser}, "first-secret")
-      compare(mailService.configWrites.length, 1)
-      mailService.configCallback(true, "")
-      var first = JSON.stringify(controller.sourceList.sources[0])
-      var firstKey = mailService.credentialWrites[0].accountId
-
-      controller.addCalDavCalendar({name: "Second", url: data.secondUrl, username: data.secondUser}, "second-secret")
-      compare(mailService.configWrites.length, 2)
-      var saved = JSON.parse(mailService.configWrites[1].payload)
-      compare(saved.sources.length, 2, "adding a distinct calendar must not replace the first")
-      compare(JSON.stringify(saved.sources[0]), first, "the first calendar retains its identity and settings")
-      mailService.configCallback(true, "")
-      compare(mailService.credentialWrites.length, 2)
-      verify(mailService.credentialWrites[1].accountId !== firstKey, "the second password must not overwrite the first credential")
-      compare(mailService.credentialWrites[1].accountId, saved.sources[1].id)
-      compare(mailService.credentialWrites[0].secret, "first-secret")
-      compare(mailService.credentialWrites[1].secret, "second-secret")
-    }
-
-    function test_readding_a_caldav_calendar_preserves_its_legacy_credential_key() {
-      controller.addCalDavCalendar({name: "Renamed", url: "https://CALENDAR.EXAMPLE/team", username: "work@example.com"}, "replacement-secret")
-      compare(mailService.configWrites.length, 1)
-      var saved = JSON.parse(mailService.configWrites[0].payload)
-      compare(saved.sources.length, 1)
-      compare(saved.sources[0].id, "caldav:team")
-      mailService.configCallback(true, "")
-      compare(mailService.credentialWrites[0].accountId, "caldav:team")
-    }
-
-    function test_oversized_caldav_identity_performs_no_settings_or_credential_write_data() {
-      return [{tag: "ascii", suffix: new Array(1100).join("a")},
-        {tag: "unicode", suffix: new Array(700).join("é")}]
-    }
-
-    function test_oversized_caldav_identity_performs_no_settings_or_credential_write(data) {
-      var before = JSON.stringify(controller.sourceList)
-      controller.addCalDavCalendar({name: "Long", url: "https://calendar.example/" + data.suffix, username: "ada"}, "synthetic-secret")
-      compare(mailService.configWrites.length, 0)
-      compare(mailService.credentialWrites.length, 0)
-      compare(JSON.stringify(controller.sourceList), before)
-      compare(controller.savingSource, false)
-    }
 
     function test_a_calendar_arriving_with_a_sign_in_reloads_the_range() {
       var summaries = JSON.parse(JSON.stringify(mailService.accountSummaries))

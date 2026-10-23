@@ -28,15 +28,10 @@ Item {
   readonly property var menuRows: [continueRow, replyRow, replyAllRow, forwardRow, archiveRow,
     unarchiveRow, moveRow,
     trashRow, spamRow, readRow, starRow, aiRow, browserRow]
-  // Invariant: spam has its own inverse only where the provider supports it; IMAP Junk otherwise
-  // remains eligible for Move to Inbox.
-  readonly property var messageHost: !root.service ? null
-    : typeof root.service.hostForId === "function"
-      ? root.service.hostForId(root.messageId) : root.service
   readonly property bool archived: !!root.summary
     && root.summary.inInbox === false
     && root.summary.inTrash !== true
-    && (root.summary.inSpam !== true || (root.messageHost && root.messageHost.canReportSpam === false))
+    && root.summary.inSpam !== true
     && root.summary.isSent !== true
     && root.summary.isDraft !== true
 
@@ -172,8 +167,7 @@ Item {
         text: "Archive"
         onActivated: root.run("archive")
       }
-      // Invariant: adding INBOX does not remove SPAM or TRASH and can relocate IMAP drafts; this
-      // action applies only to archived mail.
+      // Invariant: Adding INBOX does not remove SPAM or TRASH; this action applies only to archived mail.
       MenuRow {
         id: unarchiveRow
         visible: (!root.service || root.service.canArchive) && root.archived

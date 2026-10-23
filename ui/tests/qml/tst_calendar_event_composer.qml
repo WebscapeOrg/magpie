@@ -39,8 +39,8 @@ Item {
       id: "google:me@example.com", providerLabel: "Google", accountLabel: "me@example.com",
       calendars: [{ id: "google:me@example.com", name: "me@example.com", colorKey: "accent" }]
     }, {
-      id: "account:imap:bob@example.com", providerLabel: "CalDAV", accountLabel: "bob@example.com",
-      calendars: [{ id: "caldav:bob-home", name: "Home", colorKey: "accent" }]
+      id: "account:bob@example.com", providerLabel: "Google", accountLabel: "bob@example.com",
+      calendars: [{ id: "google:bob-home", name: "Home", colorKey: "accent" }]
     }]
 
     signal eventCreated(bool ok, string error)
@@ -104,19 +104,6 @@ Item {
       contacts.refreshCalls = 0
     }
 
-    function test_microsoft_creation_keeps_basic_fields_without_repetition() {
-      var groups = JSON.parse(JSON.stringify(initialGroups))
-      groups[0].calendars[0].kind = "microsoft"
-      eventController.writableSourceGroups = groups
-      composer.begin()
-      findChild(composer, "event-title-field").text = "Basic Outlook event"
-      compare(findChild(composer, "event-repeat-selector").visible, false)
-      // Invariant: a hidden repeat choice from the previous calendar must not affect this save.
-      composer.recurring = true
-      composer.submit("all")
-      compare(eventController.createCalls, 1)
-      compare(eventController.createdFields.recurrence.enabled, false)
-    }
 
     function test_guest_suggestions_reuse_mail_contacts_without_submitting() {
       var groups = JSON.parse(JSON.stringify(initialGroups))
@@ -256,7 +243,7 @@ Item {
       tryVerify(function() { return selector.popup.contentItem.itemAtIndex(1) !== null })
       var option=selector.popup.contentItem.itemAtIndex(1)
       mouseClick(option,option.width/2,option.height-8)
-      compare(composer.selectedSourceId,"caldav:bob-home")
+      compare(composer.selectedSourceId,"google:bob-home")
       compare(eventController.createCalls,0)
     }
     function test_transfer_preserves_unsaved_fields_and_failure_restores_selection() {
@@ -352,10 +339,10 @@ Item {
       compare(composer.pristine, true)
       compare(eventController.composerHeld, false)
       compare(composer.beginWith({ title: "Dinner", startMs: new Date(2026, 8, 12, 19, 0).getTime(),
-        endMs: new Date(2026, 8, 12, 20, 0).getTime(), accountId: "imap:bob@example.com" }), true,
+        endMs: new Date(2026, 8, 12, 20, 0).getTime(), accountId: "bob@example.com" }), true,
         "an empty form gives way")
       compare(composer.titleText(), "Dinner")
-      compare(composer.selectedSourceId, "caldav:bob-home", "on the mailbox's own calendar")
+      compare(composer.selectedSourceId, "google:bob-home", "on the mailbox's own calendar")
       compare(eventController.composerHeld, true, "and now the form is in use")
       compare(composer.beginWith({ title: "Other", startMs: new Date(2026, 8, 13, 19, 0).getTime(),
         endMs: new Date(2026, 8, 13, 20, 0).getTime() }), false, "a second suggestion does not replace it")
@@ -402,7 +389,7 @@ Item {
       compare(composer.selectedSourceId, "google:one@gmail.com")
       composer.close()
 
-      eventController.accountId = "imap:work@example.com"
+      eventController.accountId = "unlisted@gmail.com"
       composer.beginAt(new Date(2026, 0, 5, 10, 0), false)
       compare(composer.selectedSourceId, "google:one@gmail.com")
       composer.close()

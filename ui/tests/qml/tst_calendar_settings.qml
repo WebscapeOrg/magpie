@@ -53,9 +53,7 @@ Item {
     signal calendarSaved(bool ok, string error)
     signal discoveryFinished(bool ok, string error, int count)
 
-    function addCalDavCalendar(_source, _password) {}
     function removeCalendar(sourceId) { removeCalls++; removedId = sourceId }
-    function updateCalendarPassword(_source, _password) {}
     function discoveredCount(_accountId) { return 0 }
     function discoverAccountCalendars(_accountId) { discoverCalls++; return true }
     function setSourceEnabled(sourceId, _enabled) { toggleCalls++; toggledId = sourceId }
@@ -107,8 +105,27 @@ Item {
       wait(1)
     }
 
+    function test_narrow_calendar_row_keeps_account_above_actions() {
+      mailService.accountSummaries = [{id:"person@example.org", email:"person@example.org",
+        provider:"gmail", calendarProvider:"google", signedIn:true}]
+      calendarController.sourceList = {version:1,sources:[{id:"google:person@example.org",kind:"google",
+        accountId:"person@example.org",name:"Personal",enabled:true,discovered:true}]}
+      wait(0)
+      var button = findChild(settings, "calendar-discover-google")
+      verify(button !== null)
+      var controls = button.parent
+      var row = controls.parent
+      row.width = 260
+      wait(0)
+      verify(row.stacked)
+      var label = findChild(row, "calendar-setting-text")
+      verify(label.width > 0)
+      verify(controls.y >= label.y + label.height)
+      verify(row.height >= controls.y + controls.height)
+    }
+
     function test_switches_expose_the_setting_or_calendar_name() {
-      calendarController.sourceList = {version: 1, sources: [{id: "calendar-a", kind: "caldav",
+      calendarController.sourceList = {version: 1, sources: [{id: "calendar-a", kind: "google",
         name: "Personal", enabled: true, colorKey: "accent"}]}
       calendarController.discoveryChoiceAccount = "owner"
       calendarController.discoveryChoices = {sources: [{id: "calendar-b", accountId: "owner",
@@ -136,19 +153,19 @@ Item {
       compare(toggle.checked, false)
     }
 
-    function test_existing_icloud_account_is_discovered_and_selected_in_calendars() {
-      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
-        email: "person@icloud.com", provider: "imap", calendarProvider: "icloud",
+    function test_existing_google_account_is_discovered_and_selected_in_calendars() {
+      mailService.accountSummaries = [{ id: "person@example.org",
+        email: "person@example.org", provider: "gmail", calendarProvider: "google",
         signedIn: true }]
       calendarController.sourceList = ({ version: 1, sources: [{
-        id: "icloud:one", kind: "icloud", name: "Personal",
-        accountId: "imap:person@icloud.com", enabled: true, discovered: true,
+        id: "google:one", kind: "google", name: "Personal",
+        accountId: "person@example.org", enabled: true, discovered: true,
         colorKey: "accent"
       }] })
       wait(1)
-      var discover = findChild(settings, "calendar-discover-icloud")
+      var discover = findChild(settings, "calendar-discover-google")
       verify(discover !== null)
-      compare(discover.text, "Refresh calendars")
+      compare(discover.text, "Refresh calendars...")
       verify(discover.activeFocusOnTab, "discovery must be reachable with Tab")
       discover.forceActiveFocus()
       keyClick(Qt.Key_Return)
@@ -159,7 +176,7 @@ Item {
       compare(toggle.checked, true)
       toggle.toggled()
       compare(calendarController.toggleCalls, 1)
-      compare(calendarController.toggledId, "icloud:one")
+      compare(calendarController.toggledId, "google:one")
 
       var colorButton = findChild(settings, "calendar-source-color")
       verify(colorButton !== null)
@@ -176,22 +193,22 @@ Item {
       blue.forceActiveFocus()
       keyClick(Qt.Key_Space)
       compare(calendarController.colorCalls, 1)
-      compare(calendarController.coloredId, "icloud:one")
+      compare(calendarController.coloredId, "google:one")
       compare(calendarController.selectedColor, "blue")
       compare(picker.visible, false)
     }
     // Invariant: removing a mailbox leaves its persisted calendar without sign-in credentials.
     function test_a_calendar_whose_mailbox_is_gone_can_be_removed() {
-      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
-        email: "person@icloud.com", provider: "imap", calendarProvider: "icloud",
+      mailService.accountSummaries = [{ id: "person@example.org",
+        email: "person@example.org", provider: "gmail", calendarProvider: "google",
         signedIn: true }]
       calendarController.sourceList = ({ version: 1, sources: [{
-        id: "icloud:kept", kind: "icloud", name: "Personal",
-        accountId: "imap:person@icloud.com", enabled: true, discovered: true,
+        id: "google:kept", kind: "google", name: "Personal",
+        accountId: "person@example.org", enabled: true, discovered: true,
         colorKey: "accent"
       }, {
-        id: "icloud:orphan", kind: "icloud", name: "Old",
-        accountId: "imap:gone@icloud.com", enabled: true, discovered: true,
+        id: "google:orphan", kind: "google", name: "Old",
+        accountId: "gone@example.org", enabled: true, discovered: true,
         colorKey: "accent"
       }] })
       wait(1)
@@ -209,18 +226,18 @@ Item {
       compare(removes[1].visible, true, "a calendar without its mailbox is")
       compare(details.length, 2)
       compare(details[0].text, "")
-      compare(details[1].text, "iCloud · Mailbox removed")
+      compare(details[1].text, "Google · Mailbox removed")
       removes[1].clicked()
       compare(calendarController.removeCalls, 1)
-      compare(calendarController.removedId, "icloud:orphan")
+      compare(calendarController.removedId, "google:orphan")
     }
 
     function test_old_backend_does_not_offer_discovery() {
-      mailService.accountSummaries = [{ id: "imap:person@icloud.com",
-        email: "person@icloud.com", calendarProvider: "icloud", signedIn: true }]
+      mailService.accountSummaries = [{ id: "person@example.org",
+        email: "person@example.org", calendarProvider: "google", signedIn: true }]
       mailService.backendCanDiscoverCalendars = false
       wait(1)
-      compare(findChild(settings, "calendar-discover-icloud"), null)
+      compare(findChild(settings, "calendar-discover-google"), null)
       compare(calendarController.discoverCalls, 0)
     }
 

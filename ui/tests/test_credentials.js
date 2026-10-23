@@ -178,16 +178,6 @@ deepEqual(credentials.legacyKeyringAttributes(sharedClient), [
 ])
 assert.strictEqual(credentials.legacyKeyringAttributes(sharedClient).indexOf("account"), -1)
 
-deepEqual(credentials.outlookKeyringAttributes(
-  "12345678-1234-4abc-9def-1234567890ab", "outlook:one@hotmail.com"), [
-  "service", "omamail",
-  "kind", "outlook-refresh-token",
-  "client-id", "12345678-1234-4abc-9def-1234567890ab",
-  "account", "outlook:one@hotmail.com"
-])
-deepEqual(credentials.outlookKeyringAttributes("", "outlook:one@hotmail.com"), [])
-deepEqual(credentials.outlookKeyringAttributes(sharedClient, ""), [])
-
 deepEqual(credentials.renamedKeyringAttributes(sharedClient, "one@gmail.com"), [
   "service", "omarchy-gmail",
   "kind", "refresh-token",
@@ -213,39 +203,6 @@ deepEqual(credentials.refreshTokenAttributes(sharedClient, "me@example.com", 3),
   credentials.renamedKeyringAttributes(sharedClient, "me@example.com"))
 deepEqual(credentials.refreshTokenAttributes(sharedClient, "me@example.com", 4),
   credentials.renamedLegacyKeyringAttributes(sharedClient))
-
-// Invariant: A JMAP account has no OAuth client either. Its secret — an app password or
-// an API token, whichever scheme turned out to work — is keyed on the account
-// alone, under a kind of its own so the same address reached three ways is
-// three entries rather than one overwriting the other two.
-
-deepEqual(credentials.jmapKeyringAttributes("jmap:ada@example.org"), [
-  "service", "omamail",
-  "kind", "jmap-secret",
-  "account", "jmap:ada@example.org"
-])
-deepEqual(credentials.jmapKeyringAttributes("  JMAP:Ada@Example.org  "),
-  credentials.jmapKeyringAttributes("jmap:ada@example.org"),
-  "an id is matched however it was cased or spaced when it was typed")
-
-// Invariant: The kinds are what keep three mailboxes on one address apart.
-assert.notDeepStrictEqual(
-  JSON.stringify(credentials.jmapKeyringAttributes("ada@example.org")),
-  JSON.stringify(credentials.imapKeyringAttributes("ada@example.org")))
-
-// Invariant: An account with no name yet gets the literal placeholder: an empty
-// attribute value is a wildcard to secret-tool, and this lookup would hand
-// back some other mailbox's secret.
-deepEqual(credentials.jmapKeyringAttributes(""), [
-  "service", "omamail",
-  "kind", "jmap-secret",
-  "account", "default"
-])
-deepEqual(credentials.jmapKeyringAttributes(null), credentials.jmapKeyringAttributes(""))
-for (const value of credentials.jmapKeyringAttributes(undefined)) {
-  assert.strictEqual(typeof value, "string")
-  assert.ok(value.length > 0, "an empty attribute value is a secret-tool wildcard")
-}
 
 // Invariant: Why the legacy read counts before it asks is in Credentials.js. What it has
 // to get right is here: two mailboxes on one Cloud client, where the wildcard
@@ -449,3 +406,18 @@ assert.deepStrictEqual(Array.from(vm.runInContext(
   credentials, { timeout: 200 })), [])
 
 console.log("test_credentials.js ok")
+
+for (const provider of ["imap", "outlook", "jmap", "hey", "unknown", 0, {}, []]) {
+  const raw = {provider, installed:{client_id:sharedClient,client_secret:"synthetic"}}
+  const mixed = {version:2,accounts:[{id:"one@example.org",installed:{client_id:sharedClient}},raw]}
+  assert.strictEqual(credentials.supportsGoogleClients(JSON.stringify(raw)),false)
+  assert.strictEqual(credentials.fromObject(raw).ok,false)
+  assert.throws(() => credentials.loadStore(JSON.stringify(mixed)), /credentials_provider_unsupported/)
+  assert.throws(() => credentials.effective(JSON.stringify(mixed),"one@example.org"), /credentials_provider_unsupported/)
+  assert.throws(() => credentials.serialize(mixed), /credentials_provider_unsupported/)
+}
+for (const provider of [undefined,null,"","gmail"," GMAIL "]) {
+  const raw = {provider,installed:{client_id:sharedClient}}
+  assert.strictEqual(credentials.supportsGoogleClients(JSON.stringify(raw)),true)
+  assert.strictEqual(credentials.fromObject(raw).ok,true)
+}

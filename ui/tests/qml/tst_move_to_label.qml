@@ -74,9 +74,7 @@ Item {
 
     function entry(email) {
       return {
-        email: email, provider: "imap", clientId: "", clientSecret: "",
-        imap: { imapHost: "imap.example.com", imapPort: 993, smtpHost: "smtp.example.com", smtpPort: 465,
-          username: email, aliases: [], insecure: false },
+        email: email, provider: "gmail", clientId: "123-test.apps.googleusercontent.com", clientSecret: "synthetic",
         label: "", signature: ""
       }
     }
@@ -88,7 +86,7 @@ Item {
     function seed() {
       var list = Accounts.emptyList()
       list = Accounts.add(list, entry("ada@example.com"))
-      list = Accounts.setActive(list, "imap:ada@example.com")
+      list = Accounts.setActive(list, "ada@example.com")
       mailService.activeIndex = -1
       mailService.accountList = list
       mailService.accountsLoaded = true
@@ -98,8 +96,9 @@ Item {
       account.clientOverride = controlledClient
       account.auth.toolsChecked = true
       account.auth.missingTools = []
-      account.auth.passwordChecked = true
-      account.auth.password = "test-password"
+      account.auth.credentials = ({ clientId: "123-test.apps.googleusercontent.com", clientSecret: "synthetic", projectId: "test" })
+      account.auth.loggedIn = true
+      account.auth.refreshBusy = true
       tryCompare(account, "ready", true)
       account.listLoaded = true
       account.labels = [folder("Work/2026"), folder("Receipts"), folder("Work")]

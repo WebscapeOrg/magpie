@@ -1,6 +1,6 @@
 //! Merge account snapshots once per update, with an account-qualified stable order.
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 pub(super) fn rows(v: &Value) -> &[Value] {
     v.as_array().map(Vec::as_slice).unwrap_or(&[])
@@ -157,7 +157,6 @@ pub fn apply(p: &Value) -> Result<Value, &'static str> {
             budget = budget.checked_sub(bytes).ok_or("model_output_too_large")?;
         }
     }
-    let abilities = rows(&p["abilities"]);
     let states = rows(&p["states"]);
     if rows(&p["sources"])
         .iter()
@@ -167,33 +166,6 @@ pub fn apply(p: &Value) -> Result<Value, &'static str> {
     {
         return Err("model_too_many_rows");
     }
-    let mut capabilities = HashMap::new();
-    for row in abilities {
-        if let Some(fields) = row.as_object() {
-            for (key, value) in fields {
-                if value.is_boolean() {
-                    capabilities.insert(key.clone(), abilities.iter().all(|a| a[key] == true));
-                }
-            }
-        }
-    }
-    let mailboxes: Vec<_> = abilities
-        .first()
-        .map(|first| {
-            rows(&first["mailboxes"])
-                .iter()
-                .filter(|m| {
-                    !text(&m["key"]).is_empty()
-                        && abilities.iter().all(|a| {
-                            rows(&a["mailboxes"])
-                                .iter()
-                                .any(|other| other["key"] == m["key"])
-                        })
-                })
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default();
     let total: u64 = rows(&p["summaries"])
         .iter()
         .map(|s| {
@@ -222,6 +194,6 @@ pub fn apply(p: &Value) -> Result<Value, &'static str> {
         })
         .unwrap_or_default();
     Ok(
-        json!({"messages":merge(&p["sources"]),"totalUnread":total,"mailboxes":mailboxes,"capabilities":capabilities,"loading":states.iter().any(|s| s["loading"] == true),"serverSearchLoading":states.iter().any(|s| s["serverSearchLoading"] == true),"hasMore":states.iter().any(|s| s["hasMore"] == true),"loaded":!states.is_empty() && states.iter().all(|s| s["loaded"] == true || (s["loading"] != true && !s["error"].as_str().unwrap_or("").trim().is_empty())),"error":error}),
+        json!({"messages":merge(&p["sources"]),"totalUnread":total,"loading":states.iter().any(|s| s["loading"] == true),"serverSearchLoading":states.iter().any(|s| s["serverSearchLoading"] == true),"hasMore":states.iter().any(|s| s["hasMore"] == true),"loaded":!states.is_empty() && states.iter().all(|s| s["loaded"] == true || (s["loading"] != true && !s["error"].as_str().unwrap_or("").trim().is_empty())),"error":error}),
     )
 }

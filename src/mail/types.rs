@@ -8,21 +8,11 @@ const MAX_QUERY: usize = 32 * 1024;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Provider {
     Gmail,
-    Outlook,
-    Hey,
-    Jmap,
-    Imap,
 }
 
 impl Provider {
     pub fn id(self) -> &'static str {
-        match self {
-            Self::Gmail => "gmail",
-            Self::Outlook => "outlook",
-            Self::Hey => "hey",
-            Self::Jmap => "jmap",
-            Self::Imap => "imap",
-        }
+        "gmail"
     }
 }
 
@@ -32,10 +22,6 @@ impl TryFrom<&str> for Provider {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "gmail" => Ok(Self::Gmail),
-            "outlook" => Ok(Self::Outlook),
-            "hey" => Ok(Self::Hey),
-            "jmap" => Ok(Self::Jmap),
-            "imap" => Ok(Self::Imap),
             _ => Err("mail_provider_unknown"),
         }
     }

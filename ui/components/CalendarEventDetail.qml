@@ -41,16 +41,9 @@ Rectangle {
     }
     return null
   }
-  // Invariant: CalDAV recurring occurrences share a series href that this panel cannot safely
-  // rewrite; refuse recurring deletes and cross-origin hrefs before credentials are read.
-  readonly property bool canDelete: !!root.source && !!event
-    && root.source.readOnly !== true
-    && (root.source.kind === "google" ? String(event.googleId || "") !== ""
-      : root.source.kind === "microsoft" ? String(event.graphId || "") !== ""
-      : String(event.href || "") !== "" && String(event.recurrenceRule || "") === ""
-        && Number(event.recurrenceIdMs || 0) <= 0
-        && String(event.source && event.source.recurrenceId || "") === ""
-        && Calendar.caldavEventUrl(root.source.url, event) !== "")
+  readonly property bool canDelete: !!root.source && root.source.kind === "google" && root.source.readOnly !== true
+    && !!event && String(event.googleId || "") !== ""
+
   readonly property bool canWrite: canDelete && Calendar.writeRefusal(source, event) === ""
   readonly property color eventColor: calendarPalette.colorFor(
     source ? source.colorKey : "accent")

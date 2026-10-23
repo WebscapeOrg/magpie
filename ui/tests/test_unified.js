@@ -24,16 +24,16 @@ deepEqual(unified.splitUnifiedId(""), { accountId: "", id: "" })
 deepEqual(unified.splitUnifiedId(unified.unifiedId("", "42")),
   { accountId: "", id: "" }, "an empty account is not an account")
 
-// Invariant: A bare IMAP ID containing a folder space must not be mistaken for a composed account ID.
+// Invariant: A malformed bare ID containing a space must not be mistaken for a composed account ID.
 deepEqual(unified.splitUnifiedId("42:Sent Items"), { accountId: "", id: "" },
-  "a bare IMAP id is not a composed one")
+  "a malformed bare id is not a composed one")
 assert.strictEqual(unified.accountOf("42:Sent Items"), "")
 assert.strictEqual(unified.sourceIdOf("42:Sent Items"), "")
 deepEqual(unified.splitUnifiedId("1a0682969660774e"), { accountId: "", id: "" },
   "nor is a bare Gmail id")
 
-deepEqual(unified.splitUnifiedId(unified.unifiedId("me@fastmail.com", "42:Sent Items")),
-  { accountId: "me@fastmail.com", id: "42:Sent Items" })
+deepEqual(unified.splitUnifiedId(unified.unifiedId("me@example.com", "42:Sent Items")),
+  { accountId: "me@example.com", id: "42:Sent Items" })
 
 assert.strictEqual(unified.accountOf("me@example.org" + ID_SEPARATOR + "42"), "me@example.org")
 assert.strictEqual(unified.sourceIdOf("me@example.org" + ID_SEPARATOR + "42"), "42")
@@ -161,34 +161,6 @@ deepEqual(unified.rowOf(merged, unified.unifiedId("b@example.net", "1")).subject
 assert.strictEqual(unified.rowOf(merged, "nothing"), null)
 assert.strictEqual(unified.rowOf(merged, ""), null)
 
-// Invariant: Unified capabilities intersect each account's actual capabilities, including server-specific refusals.
-const gmailish = { archive: true, spam: true, star: true, web: true,
-  mailboxes: [{ key: "inbox" }, { key: "spam" }, { key: "sent" }] }
-const noArchive = { archive: false, spam: true, star: true, web: false,
-  mailboxes: [{ key: "inbox" }, { key: "spam" }] }
-
-assert.strictEqual(unified.everyMailboxCan([gmailish], "archive"), true)
-assert.strictEqual(unified.everyMailboxCan([gmailish, noArchive], "archive"), false,
-  "one mailbox that cannot archive is a merged list that does not offer it")
-assert.strictEqual(unified.everyMailboxCan([gmailish, noArchive], "spam"), true)
-assert.strictEqual(unified.everyMailboxCan([gmailish, noArchive], "web"), false)
-
-assert.strictEqual(unified.everyMailboxCan([gmailish], "labels"), false)
-assert.strictEqual(unified.everyMailboxCan([], "archive"), false,
-  "no mailboxes cannot do anything")
-assert.strictEqual(unified.everyMailboxCan([gmailish, null], "archive"), false,
-  "a mailbox that has not answered yet is not a yes")
-
-deepEqual(unified.sharedMailboxRows([gmailish]).map(function(row) { return row.key }),
-  ["inbox", "spam", "sent"])
-deepEqual(unified.sharedMailboxRows([gmailish, noArchive]).map(function(row) { return row.key }),
-  ["inbox", "spam"], "a row one server does not have is a row that cannot be opened")
-deepEqual(unified.sharedMailboxRows([]), [])
-deepEqual(unified.sharedMailboxRows([{ mailboxes: [] }, gmailish]), [])
-
-deepEqual(unified.sharedMailboxRows([{ mailboxes: [{ key: "" }, { key: "inbox" }] },
-  gmailish]).map(function(row) { return row.key }), ["inbox"])
-
 assert.strictEqual(unified.totalUnread([{ unread: 3 }, { unread: 0 }, { unread: 7 }]), 10)
 assert.strictEqual(unified.totalUnread([{ unread: -1 }, { unread: "4" }]), 4)
 assert.strictEqual(unified.totalUnread(null), 0)
@@ -230,8 +202,8 @@ assert.strictEqual(unified.anyHasMore([{ hasMore: false }]), false)
 // Invariant: Unified errors include the owning mailbox label when available.
 assert.strictEqual(unified.firstError([
   { label: "Personal", error: "" },
-  { label: "Fastmail", error: "the server refused that command" }
-]), "Fastmail: the server refused that command")
+  { label: "Work", error: "the server refused that command" }
+]), "Work: the server refused that command")
 assert.strictEqual(unified.firstError([{ error: "no label to give" }]), "no label to give")
 assert.strictEqual(unified.firstError([{ error: "" }]), "")
 assert.strictEqual(unified.firstError([]), "")

@@ -1,4 +1,6 @@
 mod avatars;
+#[cfg(all(test, feature = "agent", unix))]
+mod overview_tests;
 mod snooze;
 mod store;
 use serde_json::{Value, json};
@@ -27,11 +29,7 @@ fn account(params: &Value) -> Result<String, &'static str> {
         .as_str()
         .filter(|s| !s.is_empty())
         .ok_or("invalid_params")?;
-    let account = crate::mail::resolve_account(value)?;
-    if account.provider != crate::mail::Provider::Gmail {
-        return Err("inbox_gmail_required");
-    }
-    Ok(account.id)
+    Ok(crate::mail::resolve_account(value)?.id)
 }
 fn ids(params: &Value) -> Result<Vec<String>, &'static str> {
     let values = params["ids"]
@@ -64,6 +62,7 @@ impl Inbox {
         method: &str,
         params: &Value,
         gmail: Arc<crate::providers::gmail::Session>,
+        local_mail: Arc<crate::local_mail::LocalMail>,
     ) -> Result<Value, &'static str> {
         match method {
             "inbox.snapshot" => {
@@ -91,7 +90,7 @@ impl Inbox {
                     }
                     tokio::spawn(async move {
                         let _permit = permit;
-                        let result = overview_batch(&account, &chosen, &gmail).await;
+                        let result = overview_batch(&account, &chosen, &gmail, &local_mail).await;
                         let _ =
                             store::update(&name, |saved| finish_overviews(saved, &chosen, &result));
                     });
@@ -99,7 +98,7 @@ impl Inbox {
                 }
                 #[cfg(not(all(feature = "agent", unix)))]
                 {
-                    let _ = (account, ids);
+                    let _ = (account, ids, local_mail);
                     Err("overview_ai_unavailable")
                 }
             }
@@ -217,36 +216,57 @@ async fn overview_batch(
     account: &str,
     ids: &[String],
     gmail: &crate::providers::gmail::Session,
+    local_mail: &crate::local_mail::LocalMail,
 ) -> Result<Value, &'static str> {
+    overview_batch_with(account, ids, gmail, local_mail, |messages| async move {
+        crate::agent::overview::generate(&messages).await
+    })
+    .await
+}
+
+#[cfg(all(feature = "agent", unix))]
+async fn overview_batch_with<F, Fut>(
+    account: &str,
+    ids: &[String],
+    gmail: &crate::providers::gmail::Session,
+    local_mail: &crate::local_mail::LocalMail,
+    generate: F,
+) -> Result<Value, &'static str>
+where
+    F: FnOnce(Value) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, &'static str>>,
+{
     let mut messages = Vec::new();
     for id in ids {
-        let raw = gmail
-            .call(
-                "gmail.read",
-                &json!({"accountId":account,"id":id,"full":true}),
-            )
-            .await?;
-        let prepared = crate::message::content::prepare(&raw, now())?;
-        let summary = &prepared["summary"];
-        let body = prepared["body"]["text"].as_str().unwrap_or("");
-        // Algorithm: Preserve the opening request and the end (often where the real ask lives).
-        let body = if body.chars().count() > 48000 {
-            let start: String = body.chars().take(36000).collect();
-            let end: String = body
-                .chars()
-                .rev()
-                .take(12000)
-                .collect::<String>()
-                .chars()
-                .rev()
-                .collect();
-            format!("{start}\n[Middle omitted]\n{end}")
-        } else {
-            body.to_owned()
-        };
-        messages.push(json!({"id":id,"from":summary["from"],"subject":summary["subject"],"date":summary["fullTime"],"body":body,"attachments":prepared["attachments"]}));
+        let raw = local_mail.read(account, id, gmail).await?;
+        messages.push(overview_message(id, &raw)?);
     }
-    crate::agent::overview::generate(&json!(messages)).await
+    generate(json!(messages)).await
+}
+
+#[cfg(all(feature = "agent", unix))]
+fn overview_message(id: &str, raw: &Value) -> Result<Value, &'static str> {
+    let prepared = crate::message::content::prepare(raw, now())?;
+    let summary = &prepared["summary"];
+    let body = prepared["body"]["text"].as_str().unwrap_or("");
+    // Algorithm: Preserve the opening request and the end (often where the real ask lives).
+    let body = if body.chars().count() > 48000 {
+        let start: String = body.chars().take(36000).collect();
+        let end: String = body
+            .chars()
+            .rev()
+            .take(12000)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
+        format!("{start}\n[Middle omitted]\n{end}")
+    } else {
+        body.to_owned()
+    };
+    Ok(
+        json!({"id":id,"from":summary["from"],"subject":summary["subject"],"date":summary["fullTime"],"body":body,"attachments":prepared["attachments"]}),
+    )
 }
 
 fn overview_failure(error: Option<&str>) -> &'static str {

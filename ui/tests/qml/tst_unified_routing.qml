@@ -3,17 +3,19 @@ import QtTest 1.3
 import "../.." as Omamail
 import "../../account/Unified.js" as Unified
 import "ModelFixture.js" as NativeModel
+import "BackendFixture.js" as BackendFixture
+import "NativeIntentFixture.js" as NativeIntentFixture
 
 // Invariant: The service routing a merged list, against a real `Service` with real
 // account hosts.
 //
 // This is the gap the review named: `select`, `hostForId`, `sourceIdFor` on
-// real messages, `chooseUnified`, the capability intersection and the
+// real messages, `chooseUnified`, the Gmail mailbox controls and the
 // per-mailbox properties had no test at all, and every defect found landed in
 // exactly those gaps.
 //
-// The hosts are real `MailAccount`s with no credentials, so nothing is fetched
-// and nothing is sent; what is asserted is which of them the service asked.
+// The hosts use either no credentials or controlled clients with synthetic
+// credentials; no live mail is fetched or sent.
 Item {
   id: fixtureRoot
   width: 1200
@@ -41,14 +43,48 @@ Item {
     Omamail.App {}
   }
 
+  QtObject {
+    id: actionRecord
+    property var writes: []
+  }
+
+  Component {
+    id: controlledClient
+    QtObject {
+      property var auth: null
+      property string email: ""
+      property var refusals: ({})
+      function handle() { return ({aborted:false}) }
+      function later(callback) { Qt.callLater(callback); return handle() }
+      function listMessages() { return handle() }
+      function getMessages() { return handle() }
+      function getMessage() { return handle() }
+      function getLabels(callback) { return later(function() { callback([], "") }) }
+      function getLabelCounts(id, callback) { return later(function() { callback({id:id, unread:0, total:0}, "") }) }
+      function getProfile(callback) { return later(function() { callback({email:email}, "") }) }
+      function getSendAs(callback) { return later(function() { callback([], "") }) }
+      function batchModify(ids, add, remove, callback) {
+        actionRecord.writes = actionRecord.writes.concat([{accountId:email, ids:ids}])
+        return later(function() { callback(null, "") })
+      }
+      function modifyMessage(id, add, remove, callback) { return batchModify([id], add, remove, callback) }
+      function abortRequest(request) { if (request) request.aborted = true }
+    }
+  }
+
   TestCase {
     name: "UnifiedRouting"
     when: windowShown
 
     readonly property string adaId: "ada@example.org"
     readonly property string bobId: "bob@example.net"
+    property var backendFixture: null
 
-    function initTestCase() { NativeModel.install(service) }
+    function initTestCase() {
+      NativeModel.install(service)
+      backendFixture = BackendFixture.install(service)
+      NativeIntentFixture.install(service)
+    }
 
     function seed() {
       service.applySettings({ unifiedMailboxes: true })
@@ -66,6 +102,19 @@ Item {
     function ada() { return service.findAccount(adaId) }
     function bob() { return service.findAccount(bobId) }
 
+    function makeReady(account) {
+      account.clientOverride = controlledClient
+      account.auth.toolsChecked = true
+      account.auth.missingTools = []
+      account.auth.credentials = ({clientId:"123-test.apps.googleusercontent.com", clientSecret:"synthetic"})
+      account.auth.refreshBusy = true
+      account.auth.loggedIn = true
+      account.api.email = account.accountId
+      tryCompare(account, "ready", true)
+      account.listLoaded = true
+      wait(0)
+    }
+
     function row(id, date, subject) {
       return { id: id, subject: subject, unread: true, starred: false,
         inInbox: true, inTrash: false, isDraft: false, labelIds: ["INBOX"],
@@ -74,11 +123,22 @@ Item {
     }
 
     function init() {
+      actionRecord.writes = []
       seed()
       ada().messages = [row("1", 3000, "ada newest"), row("2", 1000, "ada oldest")]
       bob().messages = [row("1", 2000, "bob middle")]
       service.bumpListEpoch()
       wait(20)
+    }
+
+    function cleanup() {
+      for (var index = 0; index < service.accountCount; index++) {
+        var account = service.accountAt(index)
+        account.auth.loggedIn = false
+        account.auth.credentials = null
+        account.auth.refreshBusy = false
+        account.clientOverride = null
+      }
     }
 
     function test_two_mailboxes_become_one_list() {
@@ -121,7 +181,7 @@ Item {
     function test_an_id_for_a_mailbox_that_is_not_here_reaches_nothing() {
       compare(service.hostForId(Unified.unifiedId("gone@example.com", "1")), null)
       compare(service.hostForId("42:Sent Items"), null,
-        "a bare IMAP id is not a composed one")
+        "a bare message id is not a composed one")
       compare(service.act("42:Sent Items", "archive"), false)
     }
 
@@ -226,12 +286,7 @@ Item {
       compare(bob().mailboxKey, "sent")
     }
 
-    // Invariant: Saving reached whichever mailbox was active, so the file that came down
-    // was A's part id under B's filename — and on an IMAP pair, where a part
-    // id is a number in a tree rather than anything unique, the two collide
-    // routinely. Neither host can actually fetch here, so what is asserted is
-    // which of them was asked: the refusal lands on the mailbox that owns the
-    // message and nowhere else.
+    // Invariant: Attachment IDs are account-local; a refusal must reach only the message's owner.
     function test_saving_an_attachment_asks_the_mailbox_that_owns_it() {
       ada().lastError = ""
       bob().lastError = ""
@@ -341,36 +396,69 @@ Item {
       compare(service.draftOwner({ draftId: Unified.unifiedId(bobId, "d1") }), bobId)
     }
 
-    // Invariant: What the intersection is taken over: one row per mailbox, each row that
-    // mailbox's own answer.
-    //
-    // A host narrows its provider by the refusals its server reported and the
-    // mailboxes it turned out not to have, so a merged list that asks the
-    // provider ids puts back an Archive the account's own view hides. The
-    // narrowing itself arrives through `api`, which is a read-only loader
-    // item and cannot be injected here — so what is asserted is that every
-    // row is the host's answer and not a provider's. `everyMailboxCan` and
-    // `sharedMailboxRows` are held to the divergent case in
-    // tests/test_unified.js, and test_source.sh guards the call sites.
-    function test_the_intersection_is_taken_over_the_mailboxes_themselves() {
-      var rows = service.unifiedAbilities
-      compare(rows.length, 2, "one row per mailbox in the merge")
+    function test_combined_gmail_controls_keep_account_scoped_labels() {
+      compare(service.canArchive, true)
+      compare(service.canReportSpam, true)
+      compare(service.canStar, true)
+      compare(service.canOpenOnWeb, true)
+      compare(service.canMoveToLabel, false)
+      compare(service.mailboxes.map(function(mailbox) { return mailbox.key }),
+        ada().mailboxes.map(function(mailbox) { return mailbox.key }))
+    }
 
-      var hosts = [ada(), bob()]
-      for (var hostIndex = 0; hostIndex < hosts.length; hostIndex++) {
-        compare(rows[hostIndex].archive, hosts[hostIndex].canArchive)
-        compare(rows[hostIndex].spam, hosts[hostIndex].canReportSpam)
-        compare(rows[hostIndex].star, hosts[hostIndex].canStar)
-        compare(rows[hostIndex].labels, hosts[hostIndex].hasLabels)
-        compare(rows[hostIndex].web, hosts[hostIndex].canOpenOnWeb)
-        compare(rows[hostIndex].move, hosts[hostIndex].canMove)
-        compare(rows[hostIndex].conversations, hosts[hostIndex].showsConversations)
-        compare(rows[hostIndex].mailboxes.length, hosts[hostIndex].mailboxes.length)
-      }
+    function test_single_action_respects_owning_account_refusal() {
+      makeReady(ada())
+      makeReady(bob())
+      bob().api.refusals = ({archive:"Archive is unavailable for Bob"})
+      compare(service.canArchive, true)
+      compare(bob().canArchive, false)
+      compare(service.act(Unified.unifiedId(bobId, "1"), "archive"), false)
+      compare(actionRecord.writes.length, 0)
+      compare(bob().messages.length, 1)
+      compare(bob().actionStatus, "Archive is unavailable for Bob")
 
-      compare(service.canArchive,
-        Unified.everyMailboxCan(rows, "archive"),
-        "and the offered verb is that intersection, nothing else")
+      compare(service.act(Unified.unifiedId(adaId, "1"), "archive"), true)
+      tryCompare(actionRecord, "writes", [{accountId:adaId, ids:["1"]}])
+      compare(bob().messages.length, 1)
+    }
+
+    function test_bulk_action_writes_only_to_accounts_that_allow_it() {
+      makeReady(ada())
+      makeReady(bob())
+      bob().api.refusals = ({archive:"Archive is unavailable for Bob"})
+      var refusedId = Unified.unifiedId(bobId, "1")
+      var ids = [Unified.unifiedId(adaId, "1"), refusedId, Unified.unifiedId(adaId, "2")]
+      var result = null
+      compare(service.canArchive, true)
+      compare(service.actMany(ids, "archive", function(value) { result = value }), true)
+      tryVerify(function() { return result !== null })
+      compare(result.failedIds, [refusedId])
+      compare(actionRecord.writes, [{accountId:adaId, ids:["1", "2"]}])
+      compare(bob().messages.length, 1)
+      compare(bob().messages[0].id, "1")
+    }
+
+    function test_unready_selected_sender_never_uses_another_ready_account() {
+      makeReady(ada())
+      tryVerify(function() {
+        return service.sendIdentities.length === 1 && service.sendIdentities[0].accountId === adaId
+      })
+      service.select(Unified.unifiedId(bobId, "1"))
+      compare(service.composeAccountId, bobId)
+      compare(bob().ready, false)
+      compare(service.sendHostFor({accountId:bobId, from:bobId}), bob())
+      var before = backendFixture.requests.length
+      service.send({accountId:bobId, from:bobId, to:"recipient@example.org", subject:"Synthetic", body:"Test"})
+      wait(20)
+      var writes = backendFixture.requests.slice(before).filter(function(request) {
+        return request.method === "message.compose" || request.method.indexOf("outbox.") === 0
+          || request.method === "gmail.send" || request.method === "mail.send"
+      })
+      compare(writes.length, 0)
+      compare(actionRecord.writes.length, 0)
+      compare(ada().lastError, "")
+      compare(bob().lastError, "The mailbox is not ready to send")
+      compare(service.composeAccountId, bobId)
     }
 
     // Invariant: The rail steps from one member to the next and hands the id back to
@@ -401,65 +489,22 @@ Item {
       bob().memberSummaries = ({})
     }
 
-    // Invariant: The rail is drawn from `conversationProjection`, and while a new
-    // projection is in flight the one in hand stays up when it is about the
-    // same rail — `Model.projectionKey` decides what "the same" means. A
-    // thread's id is left as its provider gave it, so two accounts can each
-    // hold a `t1` in their Inbox; the reader moving from one to the other must
-    // not keep the first account's stops up while the second's are fetched.
-    //
-    // The reading host is moved directly. `select` clears the other host on
-    // its way, and that clear happens to empty the projection too; the key
-    // must not lean on that choreography, so the switch here has nothing else
-    // in it. Both mailboxes speak JMAP, whose rows are conversations.
-    function test_a_thread_with_the_same_id_in_another_account_is_another_rail() {
-      failOnWarning(/Connections: Detected function/)
-
-      var adaJmap = "jmap:" + adaId
-      var bobJmap = "jmap:" + bobId
-      service.applyAccounts(JSON.stringify({
-        version: 1, activeId: adaJmap,
-        accounts: [
-          { id: adaJmap, email: adaId, provider: "jmap" },
-          { id: bobJmap, email: bobId, provider: "jmap" }
-        ]
-      }))
-      wait(50)
-      compare(service.unified, true)
-      var ada = service.findAccount(adaJmap)
-      var bob = service.findAccount(bobJmap)
-      verify(!!ada && !!bob, "the service builds a host for each row")
-      compare(ada.showsConversations, true)
-      service.selectMailbox("inbox")
-
-      function holdThread(host, newest, oldest) {
-        host.messages = [row("1", newest, "Re: the engine"), row("2", oldest, "The engine")]
-        host.selectedId = "1"
-        host.memberSummaries = ({ "1": row("1", newest, "Re: the engine"), "2": row("2", oldest, "The engine") })
-        host.selectedThread = { id: "t1", count: 2, unread: true, flagged: false,
-          memberIds: ["1", "2"] }
-      }
-      holdThread(ada, 3000, 1000)
-      holdThread(bob, 2000, 500)
-
+    function test_gmail_threads_do_not_collapse_the_message_list() {
+      compare(ada().showsConversations, false)
+      compare(bob().showsConversations, false)
+      ada().selectedId = "1"
+      ada().selectedThread = { id: "shared-thread", count: 2, memberIds: ["1", "2"] }
+      bob().selectedId = "1"
+      bob().selectedThread = { id: "shared-thread", count: 2, memberIds: ["1", "2"] }
       try {
-        service.selectionHost = ada
-        tryVerify(function() { return service.conversationProjection.showsRail === true })
-        compare(service.conversationProjection.stops.length, 2)
-        compare(Unified.accountOf(service.conversationProjection.stops[0].id), adaJmap,
-          "Ada's rail is drawn")
-
-        service.selectionHost = bob
-        compare(service.conversationProjection.showsRail, false,
-          "Bob's t1 is not Ada's: nothing of Ada's rail stays up while Bob's is fetched")
-        compare(service.conversationProjection.stops.length, 0)
-        compare(service.conversationProjection.caption, "")
-        tryVerify(function() { return service.conversationProjection.showsRail === true })
-        compare(service.conversationProjection.stops.length, 2)
-        compare(Unified.accountOf(service.conversationProjection.stops[0].id), bobJmap,
-          "and what lands is Bob's")
+        service.selectionHost = ada()
+        compare(service.selectedThread.memberIds[0], Unified.unifiedId(adaId, "1"))
+        compare(service.conversationProjection.showsRail, false)
+        service.selectionHost = bob()
+        compare(service.selectedThread.memberIds[0], Unified.unifiedId(bobId, "1"))
+        compare(service.conversationProjection.showsRail, false)
+        compare(service.messages.length, 3)
       } finally {
-        // Invariant: The next test seeds other hosts; nothing here may point at these.
         service.clearSelection()
       }
     }

@@ -24,13 +24,12 @@ Item {
     property var accountSummaries: []
     property var accountSignatures: [
       { id: "a@example.org", email: "a@example.org", label: "", signature: "",
-        provider: "imap", senderName: "" },
+        provider: "gmail" },
       { id: "b@example.net", email: "b@example.net", label: "Work", signature: "",
-        provider: "gmail", senderName: "" },
+        provider: "gmail" },
       { id: "c@example.com", email: "c@example.com", label: "", signature: "",
-        provider: "outlook", senderName: "Jane Example" }
+        provider: "gmail" }
     ]
-    property bool backendCanNameSender: true
     property int undoSendSeconds: 10
     property bool unifiedCalendarView: false
     property bool notifyNewMail: true
@@ -49,16 +48,6 @@ Item {
       namedId = String(id || "")
       namedText = String(text || "")
       nameWrites += 1
-    }
-
-    property string senderNamedId: ""
-    property string senderNamedText: ""
-    property int senderNameWrites: 0
-
-    function setAccountSenderName(id, text) {
-      senderNamedId = String(id || "")
-      senderNamedText = String(text || "")
-      senderNameWrites += 1
     }
 
     function setAccountSignature(_id, _text) {}
@@ -89,24 +78,13 @@ Item {
       return findChild(page, "settings-name-editor")
     }
 
-    // Invariant: account switching changes field visibility; wait for column polish before pointer input.
-    function senderField() {
-      var field = findChild(page, "settings-sender-name-editor")
-      if (field && field.visible) waitForPolish(field.parent)
-      return field
-    }
-
     function init() {
-      fakeService.backendCanNameSender = true
       page.selectNameAccount("a@example.org")
       // Invariant: the fake does not persist writes; restore stored fields so typing cannot leak between tests.
       page.showNameAccount(page.signatureAccount("a@example.org"))
       fakeService.namedId = ""
       fakeService.namedText = ""
       fakeService.nameWrites = 0
-      fakeService.senderNamedId = ""
-      fakeService.senderNamedText = ""
-      fakeService.senderNameWrites = 0
     }
 
     function test_switches_expose_the_setting_name_data() {
@@ -202,47 +180,10 @@ Item {
     }
 
 
-    function test_an_imap_mailbox_takes_a_sender_name() {
-      var field = senderField()
-      verify(field, "the sender name field has to exist")
-      verify(field.visible, "an IMAP mailbox's From name is set here")
-      compare(field.text, "")
-      mouseClick(field, field.width / 2, field.height / 2)
-      verify(field.activeFocus, "a click must put the cursor in the field")
-      keyClick(Qt.Key_J)
-      keyClick(Qt.Key_O)
-      compare(fakeService.senderNameWrites, 0, "nothing is written per keystroke")
-      keyClick(Qt.Key_Return)
-      compare(fakeService.senderNameWrites, 1)
-      compare(fakeService.senderNamedId, "a@example.org")
-      compare(fakeService.senderNamedText, "jo")
-    }
-
-    function test_moving_away_saves_the_sender_name_where_it_was_typed() {
-      var field = senderField()
-      mouseClick(field, field.width / 2, field.height / 2)
-      keyClick(Qt.Key_Z)
-      page.selectNameAccount("c@example.com")
-      compare(fakeService.senderNamedId, "a@example.org")
-      compare(fakeService.senderNamedText, "z")
-      compare(field.text, "Jane Example", "an Outlook mailbox shows its own stored name")
-      verify(field.visible)
-    }
-
-    function test_a_server_named_mailbox_has_no_sender_name_field() {
+    function test_gmail_sender_names_are_not_reconfigured_in_mailbox_settings() {
+      compare(findChild(page, "settings-sender-name-editor"), null)
       page.selectNameAccount("b@example.net")
-      verify(!senderField().visible, "Gmail names the sender itself")
-      compare(page.senderNameEditable, false)
-      page.saveSenderName()
-      compare(fakeService.senderNameWrites, 0, "nothing is written for it either")
-    }
-
-    // Invariant: backends before API 7 send only the address, so they must not expose this sender-name field.
-    function test_an_older_backend_hides_the_sender_name_field() {
-      fakeService.backendCanNameSender = false
-      verify(!senderField().visible)
-      fakeService.backendCanNameSender = true
-      verify(senderField().visible)
+      compare(findChild(page, "settings-sender-name-editor"), null)
     }
   }
 }

@@ -195,9 +195,9 @@ fn rollback_replays_later_intent_and_restores_settled_order() {
     compare(json!([{"operation":"listAfterRestore","args":[[],r,true,true,[r],0]}]));
 }
 #[test]
-fn unified_large_list_account_collision_watermark_and_capabilities() {
+fn unified_large_list_account_collision_watermark_and_status() {
     let messages:Vec<_>=(0..4000).map(|i|json!({"id":format!("{i}:Sent Items"),"date":chrono::DateTime::from_timestamp_millis(1_000_000+i).unwrap().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"thread":{"memberIds":["a","b"],"count":2}})).collect();
-    let sources = json!([{"id":"imap:a@example.org","messages":messages},{"id":"imap:b@example.org","messages":messages}]);
+    let sources = json!([{"id":"a@example.org","messages":messages},{"id":"b@example.org","messages":messages}]);
     let merged = super::super::unified::merge(&sources);
     assert_eq!(
         json!(merged),
@@ -208,9 +208,9 @@ fn unified_large_list_account_collision_watermark_and_capabilities() {
     );
     assert_eq!(merged.len(), 8000);
     assert_ne!(merged[0]["id"], merged[1]["id"]);
-    let snapshot=super::super::unified::apply(&json!({"sources":[],"abilities":[{"archive":true,"mailboxes":[{"key":"inbox"},{"key":"archive"}]},{"archive":false,"mailboxes":[{"key":"inbox"}]}],"states":[{"loaded":true},{"error":"offline","loading":false}],"summaries":[{"unread":3},{"unread":4}]})).unwrap();
-    assert_eq!(snapshot["capabilities"]["archive"], false);
-    assert_eq!(snapshot["mailboxes"], json!([{"key":"inbox"}]));
+    let snapshot=super::super::unified::apply(&json!({"sources":[],"states":[{"loaded":true},{"error":"offline","loading":false}],"summaries":[{"unread":3},{"unread":4}]})).unwrap();
+    assert!(snapshot.get("capabilities").is_none());
+    assert!(snapshot.get("mailboxes").is_none());
     assert_eq!(snapshot["loaded"], true);
     assert_eq!(snapshot["totalUnread"], 7);
 }

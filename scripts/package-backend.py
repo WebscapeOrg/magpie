@@ -100,7 +100,7 @@ def read_api(path):
 
 def validate_contract(contract):
     if (not isinstance(contract, dict)
-            or set(contract) != {'apiVersion', 'releasedApiVersion', 'protocolVersion', 'methods',
+            or set(contract) - {'releasedContract'} != {'apiVersion', 'releasedApiVersion', 'protocolVersion', 'methods',
                                  'contractCases', 'unreleased'}):
         raise ValueError('invalid backend API contract fields')
     for key in ('apiVersion', 'releasedApiVersion', 'protocolVersion'):
@@ -153,11 +153,30 @@ def validate_contract(contract):
     for case in cases:
         if case['method'] in unreleased_methods and case['name'] not in unreleased['cases']:
             raise ValueError('a case on an unreleased method is itself unreleased: ' + case['name'])
+    if 'releasedContract' in contract:
+        snapshot = contract['releasedContract']
+        if (not isinstance(snapshot, dict)
+                or set(snapshot) != {'apiVersion', 'protocolVersion', 'methods', 'contractCases'}):
+            raise ValueError('invalid releasedContract fields')
+        validate_contract(dict(snapshot, releasedApiVersion=snapshot['apiVersion'],
+                               unreleased={'methods': [], 'cases': []}))
+        if (contract['apiVersion'] != contract['releasedApiVersion'] + 1
+                or snapshot['apiVersion'] != contract['releasedApiVersion']
+                or snapshot['protocolVersion'] != contract['protocolVersion']):
+            raise ValueError('releasedContract must describe the pinned revision before the unreleased step')
+        if set(methods) - set(snapshot['methods']) - unreleased_methods:
+            raise ValueError('new API methods must be named unreleased')
+        released_cases = {case['name']: case for case in snapshot['contractCases']}
+        for case in cases:
+            if case != released_cases.get(case['name']) and case['name'] not in unreleased['cases']:
+                raise ValueError('new or changed API cases must be named unreleased: ' + case['name'])
     return contract
 
 
 def released_view(contract):
-    """What the pinned, published binary speaks: the contract less its unreleased step."""
+    """What the pinned binary speaks, including operations removed in the next API."""
+    if 'releasedContract' in contract:
+        return contract['releasedContract']
     unreleased = contract.get('unreleased', {'methods': [], 'cases': []})
     methods = [m for m in contract['methods'] if m not in set(unreleased['methods'])]
     cases = [c for c in contract['contractCases'] if c['name'] not in set(unreleased['cases'])]
@@ -488,6 +507,7 @@ def pin(root, branch, expected):
     contract = read_api(root / 'backend-api.json')
     contract['releasedApiVersion'] = contract['apiVersion']
     contract['unreleased'] = {'methods': [], 'cases': []}
+    contract.pop('releasedContract', None)
     (root / 'backend-version').write_text(version + '\n')
     (root / 'backend-api.json').write_text(json.dumps(contract, indent=2) + '\n')
     if not git('diff', '--', 'backend-version', 'backend-api.json'):

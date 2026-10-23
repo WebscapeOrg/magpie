@@ -7,7 +7,6 @@ import qs.Ui
 import "../message/Direction.js" as Direction
 import "../settings/Appearance.js" as Appearance
 import "../message/Html.js" as Html
-import "../account/Accounts.js" as Accounts
 
 Column {
   id: root
@@ -73,32 +72,15 @@ Column {
       service.setAccountLabel(selectedNameAccountId, nameEdit.text)
   }
 
-  // Invariant: sender-name controls require both provider support and the backend revision that
-  // writes them.
-  readonly property bool senderNameEditable: !!senderNameAccount()
-  function senderNameAccount() {
-    var entry = signatureAccount(selectedNameAccountId)
-    return service && service.backendCanNameSender && entry
-      && Accounts.namesSender(entry.provider) ? entry : null
-  }
-
-  function saveSenderName() {
-    var entry = senderNameAccount()
-    if (entry && String(entry.senderName || "") !== senderNameEdit.text)
-      service.setAccountSenderName(entry.id, senderNameEdit.text)
-  }
-
   function showNameAccount(next) {
     selectedNameAccountId = next ? String(next.id || "") : ""
     nameEdit.text = next ? String(next.label || "") : ""
-    senderNameEdit.text = next ? String(next.senderName || "") : ""
   }
 
   function selectNameAccount(id) {
     var next = signatureAccount(id)
     if (!next || String(next.id || "") === selectedNameAccountId) return
     saveName()
-    saveSenderName()
     showNameAccount(next)
   }
 
@@ -225,7 +207,6 @@ Column {
 
   function flushEdits() {
     saveName()
-    saveSenderName()
     saveSignature()
   }
 
@@ -1212,47 +1193,6 @@ Column {
       text: "What this mailbox is called in Magpie — in the switcher, in this "
         + "list, and beside every message in a combined view. Leave it empty "
         + "to use the address. It is not sent to anyone."
-      color: root.dimColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.caption
-      wrapMode: Text.WordWrap
-    }
-
-    Item {
-      width: parent.width
-      implicitHeight: MailStyle.space(4)
-      visible: root.senderNameEditable
-    }
-
-    Text {
-      width: parent.width
-      visible: root.senderNameEditable
-      text: "Your name"
-      color: root.textColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.bodySmall
-    }
-
-    Widgets.TextField {
-      id: senderNameEdit
-      objectName: "settings-sender-name-editor"
-      visible: root.senderNameEditable
-      width: parent.width
-      foreground: root.textColor
-      accent: root.accentColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.bodySmall
-
-      onActiveFocusChanged: if (!activeFocus) root.saveSenderName()
-      onAccepted: root.saveSenderName()
-    }
-
-    Text {
-      width: parent.width
-      visible: root.senderNameEditable
-      textFormat: Text.PlainText
-      text: "Who your mail is from, as recipients see it beside this mailbox's "
-        + "address. Leave it empty to send the address alone."
       color: root.dimColor
       font.family: root.panelFontFamily
       font.pixelSize: MailStyle.caption

@@ -214,7 +214,7 @@ impl LocalMail {
         id: &str,
         gmail: &crate::providers::gmail::Session,
     ) -> Result<Value, &'static str> {
-        let store = match self.open_store(account, false).await {
+        let store = match self.store(account).await {
             Err("private_fs_busy") => {
                 if let Some(value) = self.resource(account, id).await? {
                     return Ok(value);
@@ -226,23 +226,7 @@ impl LocalMail {
                     )
                     .await;
             }
-            Ok(None) => {
-                let mut resource = match crate::cache::resource::read(account, id).await? {
-                    Some(resource) => resource,
-                    None => {
-                        gmail
-                            .call(
-                                "gmail.read",
-                                &json!({"accountId":account,"id":id,"full":true}),
-                            )
-                            .await?
-                    }
-                };
-                sync::hydrate_text(gmail, account, id, &mut resource, true).await?;
-                let store = self.store(account).await?;
-                return Self::save_read(&store, resource).await;
-            }
-            answer => answer?.ok_or("local_storage_unavailable")?,
+            answer => answer?,
         };
         let gate = store.fetch_gate(id)?;
         let _guard = gate.lock().await;

@@ -16,7 +16,7 @@ Omamail is one stateful mail and calendar application with two desktop hosts: an
 4. Interaction and layout primitives implement reusable UI behavior.
 5. Feature views compose those primitives and render data they are given.
 
-Dependencies point down this list. A view may ask the application to perform an action, but it does not acquire provider knowledge or mutate storage on its own. A provider may normalize mail into the shared message resource, but it does not know which row, popup, or page is visible.
+Dependencies point down this list. A view may ask the application to perform an action, but it does not acquire provider knowledge or mutate storage on its own. The Gmail adapter supplies message resources without knowing which row, popup, or page is visible.
 
 The visual system is separate from all five layers. In the plugin, colors come from the active Omarchy theme; in the standalone app, the compatibility imports derive the same semantic roles from Qt's active system palette. `App.qml` passes those semantic values to components in either host. GPUI Component supplies the architectural and interaction baseline, not the visual language.
 
@@ -54,7 +54,7 @@ Both hosts keep one persistent `omamail serve` process and communicate with newl
 
 The Cargo `agent` feature is on by default for the Omarchy build. The standalone Make and release builds use `--no-default-features --features standalone`, which also enables `agent`. Agent worker commands and RPC methods require a Unix target, so Linux and macOS include them and Windows omits them at compilation as well as in its UI capabilities.
 
-Credentials cross the UI/backend boundary through typed `credentials.get`, `credentials.put`, and `credentials.delete` RPC methods. Rust validates the provider-specific key and secret bytes before calling Keychain, Secret Service, or Credential Manager. Secrets travel in the RPC body or subprocess stdin and must never be placed in argv, logs, settings, or notification routes.
+Credentials cross the UI/backend boundary through typed `credentials.get`, `credentials.put`, and `credentials.delete` RPC methods. Rust validates the Google credential key and secret bytes before calling Keychain, Secret Service, or Credential Manager. Secrets travel in the RPC body or subprocess stdin and must never be placed in argv, logs, settings, or notification routes.
 
 Cross-platform storage is owned by `src/platform/`: `dirs` selects platform application directories, `private_fs` supplies handle-anchored private files, and `ipc` supplies Unix sockets or Windows named pipes for the outbox. Platform implementations must preserve the same refusal and deadline semantics even though their operating-system primitives differ.
 
@@ -93,7 +93,7 @@ The existing keyboard architecture is the clearest GPUI-derived part of Omamail 
 
 An action describes intent, not an input device. `archive` is the same operation whether it came from `e`, an icon, or a menu row. Components emit intent; the application decides what the intent means in the current state. This prevents parallel mouse and keyboard implementations from drifting.
 
-The context is the guard. Do not add a second collection of `enabled` tests in the key handler for conditions already expressed by the context. Capability is different: it comes from the active provider and decides whether an operation exists at all. A provider capability should remove an unavailable action from the view rather than offer an action that fails after activation.
+The context is the guard. Do not add a second collection of `enabled` tests in the key handler for conditions already expressed by the context. Gmail operations are fixed. Account authorization, backend readiness and write permissions remain separate guards and must refuse unavailable actions before optimistic updates.
 
 Qt Quick Controls popups intercept keys before window shortcuts. That is a platform fact, not an exception to the architecture. Popup-local navigation therefore lives on the popup content item, and the popup owns its own Escape dismissal. An application action may open a popup, but `goBack()` does not duplicate the popup's close policy. The tests in `ui/tests/qml/tst_popup_keys.qml` preserve this boundary.
 
@@ -101,7 +101,7 @@ Qt Quick Controls popups intercept keys before window shortcuts. That is a platf
 
 Rust lives under `src/`, shared Qt/QML and its JavaScript under `ui/`, and the standalone host under `app/`. Within each layer, modules are grouped by responsibility. `src/cli/` handles headless commands, `src/backend/` handles persistent stdio JSON-RPC communication, and shared business modules such as `src/account/` and `src/message/` serve both hosts. The migration is incomplete; `BACKEND.md` records the current boundary. The existing UI modules are:
 
-- `ui/providers/` owns service descriptions, authentication, protocol behavior, capabilities, and normalization into the shared Gmail-shaped resource.
+- `ui/providers/` owns Google authentication, Gmail transport presentation and Gmail domain facts. No provider picker or multi-protocol registry remains.
 - `ui/account/` owns accounts, a mailbox, and list behavior after actions.
 - `ui/cache/` owns stored query results and message bodies.
 - `ui/calendar/` owns event sources, the range cache, and event reads and writes.
@@ -122,7 +122,7 @@ QML components own Qt lifecycle and input mechanics. Feature views supply
 Omamail composition; semantic properties supplied from `App.qml` carry the
 Omarchy presentation.
 
-Provider differences end at the provider boundary. Code above that boundary asks about capabilities and consumes the common message resource. It does not branch on provider IDs.
+All mail accounts use Gmail. Retained provider fields at persistence and RPC boundaries validate compatibility; they do not choose a transport. Unknown providers are refused before side effects. Google Calendar still checks each calendar’s access permissions.
 
 ## Vocabulary is an interface contract
 
@@ -162,7 +162,7 @@ Required semantic properties are preferable to hidden dependencies on `App.qml`.
 
 Menus, the account switcher, the image popover, and shortcut help all draw above the mail panes, but they do not share one implementation or input model.
 
-`App.qml` keeps one navigation history for the non-popup surfaces it composes: a stack of entries, ruled by `ui/account/Navigation.js`, with the pages (list, calendar, reader, event detail, settings, provider chooser, setup form) and the plain overlays (compose, event composer, shortcut help) as its entries. Every `visible:` is read off the top of that stack, and `back()` is the one way out: it pops an entry, or asks the view that owns an overlay's open state to close so that the view's own change pops it. Each Qt popup owns its close policy, placement, and popup-local keys and stays outside the stack; each plain overlay participates in the application key context and the stack. Feature views supply content and translate activation back into domain actions. There is no common overlay manager between them.
+`App.qml` keeps one navigation history for the non-popup surfaces it composes: a stack of entries, ruled by `ui/account/Navigation.js`, with the pages (list, calendar, reader, event detail, settings, Google setup form) and the plain overlays (compose, event composer, shortcut help) as its entries. Every `visible:` is read off the top of that stack, and `back()` is the one way out: it pops an entry, or asks the view that owns an overlay's open state to close so that the view's own change pops it. Each Qt popup owns its close policy, placement, and popup-local keys and stays outside the stack; each plain overlay participates in the application key context and the stack. Feature views supply content and translate activation back into domain actions. There is no common overlay manager between them.
 
 An overlay contract includes:
 

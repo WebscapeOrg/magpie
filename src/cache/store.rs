@@ -10,15 +10,21 @@ pub(super) fn normalize_store(value: &Value) -> Value {
         return empty();
     }
     let mut out = empty();
+    out.as_object_mut()
+        .unwrap()
+        .extend(value.as_object().unwrap().clone());
     out["account"] = json!(js_string(&value["account"]));
-    for key in ["profile", "session"] {
-        if value[key].is_object() {
-            out[key] = value[key].clone();
-        }
-    }
-    if value["labels"].is_array() {
-        out["labels"] = value["labels"].clone();
-    }
+    out["profile"] = value["profile"]
+        .as_object()
+        .cloned()
+        .map(Value::Object)
+        .unwrap_or(Value::Null);
+    out["labels"] = value["labels"]
+        .as_array()
+        .cloned()
+        .map(Value::Array)
+        .unwrap_or(json!([]));
+    out["queries"] = json!({});
     if let Some(queries) = value["queries"].as_object() {
         let mut entries: Vec<_> = queries.iter().collect();
         entries.sort_by(|a, b| {

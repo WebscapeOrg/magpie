@@ -21,88 +21,37 @@ function setupState(status) {
   return "ready"
 }
 
-// Invariant: Accounts saved before provider selection default to Gmail.
-function providerName(provider) {
-  var name = String(provider === undefined || provider === null ? "" : provider).trim()
-  return name === "" ? "Gmail" : name
-}
-
-function setupHeadline(state, provider, authKind) {
-  var name = providerName(provider)
-  if (state === "unavailable") return name + " integration is coming later"
-
-  if (state === "tools_missing")
-    return authKind === "cli" ? "Install the HEY CLI" : "Missing system tools"
-
-  if (state === "no_credentials") {
-    if (authKind === "password") return "Add this mailbox"
-    if (authKind === "cli") return "Sign in to " + name
-    if (name === "Outlook") return "Add this Outlook mailbox"
-    return "Connect a Google Cloud project"
-  }
-  if (state === "signing_in") {
-    if (authKind === "password") return "Checking the mailbox…"
-    if (authKind === "cli") return "Waiting for " + name + "…"
-    if (name === "Outlook") return "Waiting for Microsoft…"
-    return "Waiting for Google…"
-  }
-  if (state === "reconnecting") return "Reconnecting to " + name + "…"
-  if (state === "signed_out") return "Sign in to " + name
+function setupHeadline(state) {
+  if (state === "tools_missing") return "Missing system tools"
+  if (state === "no_credentials") return "Connect a Google Cloud project"
+  if (state === "signing_in") return "Waiting for Google…"
+  if (state === "reconnecting") return "Reconnecting to Gmail…"
+  if (state === "signed_out") return "Sign in to Gmail"
   return ""
 }
 
-function setupDetail(state, missingTools, reason, provider, authKind) {
-  var name = providerName(provider)
-  if (state === "unavailable") return String(reason || "")
+function setupDetail(state, missingTools) {
   if (state === "tools_missing") {
     var tools = Array.isArray(missingTools) ? missingTools.join(", ") : ""
-    if (authKind === "cli")
-      return "HEY does not speak IMAP or POP, so Omamail reads it through the "
-        + "HEY CLI, the client 37signals publish for exactly this. Install it, "
-        + "then come back — nothing else here needs setting up."
     return "Omamail needs " + (tools || "a few base tools")
       + " on PATH before it can sign in."
   }
-  if (state === "no_credentials") {
-    if (authKind === "password")
-      return "Enter the server and the password for this mailbox. Most providers want an app password rather than the one you sign in to the website with."
-    if (authKind === "cli")
-      return "The HEY CLI is installed. Signing in opens HEY in your browser; the token it comes back with is the CLI's own, and Omamail never sees it."
-    if (name === "Outlook")
-      return "Add the mailbox and a Microsoft public-client ID. Sign-in happens on Microsoft's page; Omamail never sees the account password."
+  if (state === "no_credentials")
     return "Gmail has no shared app to sign in through, so this plugin uses an OAuth client you own. It takes about two minutes to create."
-  }
-  if (state === "signing_in") {
-    if (authKind === "password") return "Trying the server with those details."
+  if (state === "signing_in")
     return "Finish the sign-in in your browser. This window updates by itself."
-  }
-  if (state === "signed_out") {
-    if (authKind === "password")
-      return "This mailbox is set up. Enter its password to let it read your mail."
-    if (authKind === "cli")
-      return "The HEY CLI is installed but signed out. Sign in to let it read this mailbox."
+  if (state === "signed_out")
     return "Your OAuth client is ready. Sign in to let it read this mailbox."
-  }
   if (state === "reconnecting")
     return "The saved session is intact. Omamail will retry automatically when the network is available."
   return ""
 }
 
-function setupActionLabel(state, provider, authKind) {
-
-  if (state === "unavailable") return ""
-  // Invariant: CLI setup may check installation but must not run a downloaded installer.
-  if (state === "tools_missing")
-    return authKind === "cli" ? "Check again" : "See what is missing..."
-  if (state === "no_credentials") {
-    if (authKind === "password") return "Add the mailbox..."
-    // Invariant: The HEY CLI owns the complete credential; no OAuth configuration is required here.
-    if (authKind === "cli") return "Sign in to " + providerName(provider) + "..."
-    return "Set up the OAuth client..."
-  }
+function setupActionLabel(state) {
+  if (state === "tools_missing") return "See what is missing..."
+  if (state === "no_credentials") return "Set up the OAuth client..."
   if (state === "signing_in") return "Cancel"
-  if (state === "reconnecting") return ""
-  if (state === "signed_out") return "Sign in to " + providerName(provider) + "..."
+  if (state === "signed_out") return "Sign in to Gmail..."
   return ""
 }
 
@@ -362,13 +311,12 @@ function actionCapability(action) {
   return ""
 }
 
-function actionUnavailable(action, provider) {
-  var name = providerName(provider)
+function actionUnavailable(action) {
   var needs = actionCapability(action)
-  if (needs === "archive") return name + " has no archive"
-  if (needs === "star") return name + " has no star"
-  if (needs === "spam") return name + " has no junk verb to report to"
-  if (needs === "move") return name + " has no destination you can name"
+  if (needs === "archive") return "This account cannot archive mail right now"
+  if (needs === "star") return "This account cannot star mail right now"
+  if (needs === "spam") return "This account cannot report spam right now"
+  if (needs === "move") return "This account cannot move mail right now"
   return ""
 }
 
@@ -760,7 +708,7 @@ function missingSearchSummaryIds(summaries, ids) {
   return missing
 }
 
-// Invariant: Detail responses may omit listing metadata, notably HEY subjects; preserve the known value when the detail carries no replacement.
+// Invariant: Detail responses may omit listing metadata; preserve the known value when the detail carries no replacement.
 function detailSummary(previous, summary) {
   if (!summary) return previous
   if (!previous) return summary
@@ -926,15 +874,14 @@ function badgeText(count, cap) {
   return value > limit ? limit + "+" : String(value)
 }
 
-function barTooltip(state, email, unread, provider, authKind) {
-  var name = providerName(provider)
+function barTooltip(state, email, unread) {
   if (state !== "ready")
-    return name + " · " + (setupHeadline(state, name, authKind) || "Not connected")
+    return "Gmail · " + (setupHeadline(state) || "Not connected")
   var address = String(email || "").trim()
   var count = Math.max(0, Math.floor(Number(unread) || 0))
   var suffix = count === 0 ? "No unread mail"
     : (count === 1 ? "1 unread message" : count + " unread messages")
-  return address ? address + " · " + suffix : name + " · " + suffix
+  return (address || "Gmail") + " · " + suffix
 }
 
 // Invariant: Notification priming uses the mailbox's timestamp domain rather than the local machine clock.
@@ -1354,16 +1301,15 @@ function labelTree(labels, collapsedPaths) {
   for (var labelIndex = 0; labelIndex < all.length; labelIndex++) {
     var label = all[labelIndex]
     if (!label || label.system) continue
-    var delimiter = labelDelimiter(label)
-    var full = String(label.name || label.rawName || "")
+    var full = String(label.name || "")
     if (full === "") continue
-    var parts = delimiter === "" ? [full] : full.split(delimiter)
+    var parts = full.split("/")
     var node = root
     var path = ""
     for (var partIndex = 0; partIndex < parts.length; partIndex++) {
       var part = parts[partIndex]
       if (part === "" && partIndex > 0) continue
-      path = path === "" ? part : path + delimiter + part
+      path = path === "" ? part : path + "/" + part
       if (!node.children[part]) {
         node.children[part] = { name: part, path: path, label: null,
           unread: 0, children: Object.create(null), order: [] }
@@ -1393,7 +1339,7 @@ function labelTree(labels, collapsedPaths) {
       var expanded = !hasChildren || folded.indexOf(child.path) < 0
       result.push({
         id: child.label ? String(child.label.id || "") : "",
-        rawName: child.label ? String(child.label.rawName || child.label.name || "") : "",
+        rawName: child.label ? String(child.label.name || "") : "",
         name: child.name,
         path: child.path,
         depth: depth,
@@ -1427,12 +1373,6 @@ function visibleLabels(labels, collapsedPaths) {
   return result
 }
 
-// Invariant: An absent delimiter defaults to slash; an explicitly empty IMAP delimiter means no hierarchy.
-function labelDelimiter(label) {
-  if (!label || label.delimiter === undefined || label.delimiter === null) return "/"
-  return String(label.delimiter)
-}
-
 function togglePath(paths, path) {
   return toggleId(paths, path)
 }
@@ -1452,115 +1392,59 @@ function activityStatus(counts) {
   return parts.join(" \u00b7 ")
 }
 
-// Invariant: Empty delimiters keep each path as one leaf; no parent or nested destination can be inferred.
-function labelLeaf(path, delimiter) {
+function labelLeaf(path) {
   var text = String(path || "")
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
-  if (sep === "") return text
-  var at = text.lastIndexOf(sep)
-  return at < 0 ? text : text.slice(at + sep.length)
+  var at = text.lastIndexOf("/")
+  return at < 0 ? text : text.slice(at + 1)
 }
 
-function labelParent(path, delimiter) {
+function labelParent(path) {
   var text = String(path || "")
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
-  if (sep === "") return ""
-  var at = text.lastIndexOf(sep)
+  var at = text.lastIndexOf("/")
   return at < 0 ? "" : text.slice(0, at)
 }
 
-function labelPathJoin(parent, leaf, delimiter) {
+function labelPathJoin(parent, leaf) {
   var head = String(parent || "")
   var tail = String(leaf || "").trim()
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
-  if (head === "" || sep === "") return tail
-  return head + sep + tail
+  return head === "" ? tail : head + "/" + tail
 }
 
-function labelNameProblem(name, delimiter) {
+function labelNameProblem(name) {
   var text = String(name || "").trim()
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
   if (text === "") return "A label needs a name"
-  if (sep !== "" && text.indexOf(sep) >= 0) return "A name cannot contain " + sep + "; use New sub-label to nest"
+  if (text.indexOf("/") >= 0) return "A name cannot contain /; use New sub-label to nest"
   return ""
 }
 
-function labelNestProblem(parentPath, delimiter) {
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
-  if (sep !== "" || String(parentPath || "") === "") return ""
-  return "This server keeps its folders in one flat list, so nothing can go under " + String(parentPath)
-}
-
 // Invariant: A label cannot move under itself or a descendant.
-function labelMoveTargets(labels, movingPath, delimiter) {
+function labelMoveTargets(labels, movingPath) {
   var all = Array.isArray(labels) ? labels : []
-  var sep = String(delimiter === undefined || delimiter === null ? "/" : delimiter)
   var moving = String(movingPath || "")
   var result = [{ id: "", name: "Top level", path: "" }]
-
-  if (sep === "") return result
   for (var accountIndex = 0; accountIndex < all.length; accountIndex++) {
     var label = all[accountIndex]
     if (!label || label.system) continue
-    var path = String(label.name || label.rawName || "")
+    var path = String(label.name || "")
     if (path === "" || path === moving) continue
-    if (moving !== "" && path.indexOf(moving + sep) === 0) continue
-    if (path === labelParent(moving, sep)) continue
+    if (moving !== "" && path.indexOf(moving + "/") === 0) continue
+    if (path === labelParent(moving)) continue
     result.push({ id: String(label.id || ""), name: path, path: path })
   }
   return result
 }
 
-// Invariant: IMAP folder renames change watched wire IDs, while stable provider IDs survive; removed folders stop being watched.
-function migrateMonitoredIds(monitored, before, after, oldPath, newPath, delimiter) {
-  return migrateMonitoredChanges(monitored, [{ before: before, oldPath: oldPath,
-    newPath: newPath, delimiter: delimiter }], after)
-}
-
-// Invariant: Apply chained renames before matching the final listing, which may never contain their intermediate paths.
-function pathAfterLabelMoves(id, moves) {
-  var path = ""
-  for (var moveIndex = 0; moveIndex < moves.length; moveIndex++) {
-    var move = moves[moveIndex]
-    var before = Array.isArray(move.before) ? move.before : []
-    if (path === "") {
-      var oldIndex = indexById(before, id)
-      if (oldIndex >= 0) path = String(before[oldIndex].name || before[oldIndex].rawName || "")
-    }
-    var from = String(move.oldPath || "")
-    var to = String(move.newPath || "")
-    var delimiter = String(move.delimiter === undefined || move.delimiter === null ? "/" : move.delimiter)
-    if (from === "" || path === "") continue
-    if (path !== from && (delimiter === "" || path.indexOf(from + delimiter) !== 0)) continue
-    if (to === "") return ""
-    path = to + path.slice(from.length)
-  }
-  return path
-}
-
-function migrateMonitoredChanges(monitored, moves, after) {
+// Invariant: Gmail label IDs survive renames; only labels absent from a successful listing stop being watched.
+function retainedMonitoredIds(monitored, labels) {
   var ids = Array.isArray(monitored) ? monitored : []
-  var now = Array.isArray(after) ? after : []
-  var result = []
-  for (var idIndex = 0; idIndex < ids.length; idIndex++) {
-    var id = String(ids[idIndex] || "")
-    if (id === "") continue
-    if (indexById(now, id) >= 0) { result.push(id); continue }
-    var path = pathAfterLabelMoves(id, moves)
-    if (path === "") continue
-    for (var labelIndex = 0; labelIndex < now.length; labelIndex++) {
-      var label = now[labelIndex]
-      var labelPath = label ? String(label.name || label.rawName || "") : ""
-      var labelId = String(label && label.id || "")
-      if (labelPath !== path || labelId === "") continue
-      if (result.indexOf(labelId) < 0) result.push(labelId)
-      break
-    }
+  var remaining = Object.create(null)
+  var all = Array.isArray(labels) ? labels : []
+  for (var labelIndex = 0; labelIndex < all.length; labelIndex++) {
+    var id = String(all[labelIndex] && all[labelIndex].id || "")
+    if (id !== "") remaining[id] = true
   }
-  if (result.length !== ids.length) return result
-  for (var comparisonIndex = 0; comparisonIndex < ids.length; comparisonIndex++)
-    if (result[comparisonIndex] !== ids[comparisonIndex]) return result
-  return ids
+  var result = ids.filter(function(id) { return remaining[String(id)] === true })
+  return result.length === ids.length ? ids : result
 }
 
 function monitoredNote(grown) {

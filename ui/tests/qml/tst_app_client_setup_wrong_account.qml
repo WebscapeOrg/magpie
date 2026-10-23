@@ -31,13 +31,13 @@ Item {
     function initTestCase() {
       var fixture = BackendFixture.markReady(mailService, 4)
       fixture.answers = {
-        "credentials.get": {found:true,secret:"hunter2"},
+        "credentials.get": {found:false},
         "credentials.put": {stored:true},
         "credentials.delete": {deleted:true}
       }
     }
 
-    readonly property string imapId: "imap:shawn@example.test"
+    readonly property string firstId: "shawn@example.test"
     readonly property string gmailId: "ada@example.test"
 
     function named(item, objectName) {
@@ -105,87 +105,31 @@ Item {
       second.auth.cancelLogin()
     }
 
-    function test_client_setup_switches_off_a_non_gmail_active_account() {
+    function test_client_setup_reuses_a_saved_gmail_account_from_another_selection() {
       mailService.accountsLoaded = true
-      mailService.accountList = ({
-        version: 1,
-        accounts: [
-          { id: imapId, email: "shawn@example.test", provider: "imap", clientId: "",
-            imap: { imapHost: "imap.example.test", imapPort: 993,
-              smtpHost: "smtp.example.test", smtpPort: 465,
-              username: "shawn@example.test", aliases: [], insecure: false } }
-        ],
-        activeId: imapId
-      })
-      tryCompare(mailService, "accountCount", 1)
-      var imap = mailService.findAccount(imapId)
-      verify(!!imap, "the service builds a host for the IMAP row")
-      tryVerify(function() { return !!imap.auth }, 1000, "with its ImapAuth ready")
-      tryCompare(mailService, "current", imap)
-      tryCompare(app, "anyReady", true)
-      app.resetNavigation()
-      waitForRendering(app)
-      compare(app.page, "list")
-
-      app.openSettings()
-      compare(app.page, "settings")
-      app.openClientSetup()
-      waitForRendering(app)
-
-      compare(app.page, "setup", "the OAuth client form opens")
-      compare(app.editingProvider, "gmail")
-      verify(mailService.current !== imap,
-        "the active account moved off the IMAP row onto a Gmail one")
-      verify(!!mailService.current && mailService.current.providerId === "gmail",
-        "so the page's service.auth is a Gmail auth handler")
-
-      tryVerify(function() { return !!mailService.auth }, 1000,
-        "the auth object the setup page reads is ready")
-      compare(typeof mailService.auth.saveCredentials, "function",
-        "and it is the Gmail handler's, not ImapAuth's — this is what threw before the fix")
-
-      var page = named(app, "setup-page").item
-      verify(!!page, "the Gmail setup page is showing")
-
-      // Invariant: Adding an account may rebuild Instantiator delegates; reacquire the surviving account instead of trusting the old object.
-      compare(mailService.accountList.accounts[0].id, imapId)
-      var imapNow = mailService.findAccount(imapId)
-      verify(!!imapNow && !!imapNow.auth, "the IMAP host still exists and still has its auth")
-      verify(imapNow.auth.loginBusy === false, "and its own sign-in was never disturbed")
-    }
-
-    function test_client_setup_uses_an_existing_gmail_account() {
-      mailService.accountsLoaded = true
-      mailService.accountList = ({
-        version: 1,
-        accounts: [
-          { id: imapId, email: "shawn@example.test", provider: "imap", clientId: "",
-            imap: { imapHost: "imap.example.test", imapPort: 993,
-              smtpHost: "smtp.example.test", smtpPort: 465,
-              username: "shawn@example.test", aliases: [], insecure: false } },
-          { id: gmailId, email: gmailId, provider: "gmail", clientId: "" }
-        ],
-        activeId: imapId
-      })
+      mailService.accountList = ({version: 1, accounts: [
+        {id: gmailId, email: gmailId, provider: "gmail"},
+        {id: firstId, email: firstId, provider: "gmail"}
+      ], activeId: firstId})
       tryCompare(mailService, "accountCount", 2)
       var gmail = mailService.findAccount(gmailId)
-      verify(!!gmail, "the saved Gmail account has a host")
-      tryVerify(function() { return !!gmail.auth }, 1000, "with its Gmail auth ready")
+      var other = mailService.findAccount(firstId)
+      verify(gmail && other)
+      tryVerify(function() { return gmail.auth && other.auth })
+      tryCompare(mailService, "current", other)
       app.resetNavigation()
-      waitForRendering(app)
-
       app.openSettings()
       app.openClientSetup()
       waitForRendering(app)
 
       compare(app.page, "setup")
-      compare(app.editingProvider, "gmail")
-      tryVerify(function() {
-        return !!mailService.current && mailService.current.accountId === gmailId
-      }, 1000, "the shared client editor switches to the saved Gmail account")
-      compare(mailService.accountCount, 2,
-        "opening the editor does not create a second Gmail row")
+      compare(mailService.current, gmail)
+      compare(mailService.accountCount, 2, "shared client setup reuses a saved account")
       compare(typeof mailService.auth.saveCredentials, "function")
+      compare(named(app, "setup-page").item.auth, gmail.auth)
+      compare(other.auth.loginBusy, false)
+      compare(mailService.accountList.accounts[0].id, gmailId)
+      compare(mailService.accountList.accounts[1].id, firstId)
     }
   }
 }

@@ -75,7 +75,8 @@ Column {
     width: parent.width
     providerId: "gmail"
     title: root.addingMailbox ? "Add a Gmail mailbox" : "Connect your Gmail mailbox"
-    detail: "Google issues Gmail API access per project, so this app signs in with an OAuth client you own. About two minutes, once."
+    detail: root.configured ? "Use your existing Google client to sign in with a Gmail or Google Workspace account."
+      : "Set up your Google client once, then sign in with your Gmail or Google Workspace accounts."
     textColor: root.textColor
     dimColor: root.dimColor
     panelFontFamily: root.panelFontFamily
@@ -140,11 +141,13 @@ Column {
         wrapMode: Text.WordWrap
       }
 
-      Row {
+      Flow {
+        width: parent.width
         spacing: MailStyle.space(8)
 
         Widgets.Button {
-          text: "Open Google Cloud..."
+          focusable: true
+          text: "Google Cloud..."
           foreground: root.textColor
           bordered: true
           fontSize: MailStyle.bodySmall
@@ -152,7 +155,8 @@ Column {
         }
 
         Widgets.Button {
-          text: "Enable Gmail API..."
+          focusable: true
+          text: "Gmail API..."
           foreground: root.textColor
           bordered: true
           fontSize: MailStyle.bodySmall
@@ -204,6 +208,7 @@ Column {
       }
 
       Widgets.Button {
+          focusable: true
         text: "Save client"
         foreground: root.textColor
         bordered: true
@@ -237,11 +242,15 @@ Column {
         wrapMode: Text.WordWrap
       }
 
-      Row {
+      Flow {
+        width: parent.width
         spacing: MailStyle.space(8)
 
         Widgets.Button {
-          text: "Sign in with Google..."
+          focusable: true
+          objectName: "google-sign-in-button"
+          text: parent.width < MailStyle.space(280) ? "Sign in..." : "Sign in with Google..."
+          Accessible.name: "Sign in with Google"
           foreground: root.textColor
           bordered: true
           fontSize: MailStyle.bodySmall
@@ -250,6 +259,7 @@ Column {
         }
 
         Widgets.Button {
+          focusable: true
           text: "Consent screen..."
           foreground: root.dimColor
           bordered: false
@@ -258,6 +268,7 @@ Column {
         }
 
         Widgets.Button {
+          focusable: true
           visible: !!root.auth && root.auth.loginBusy
           text: "Cancel"
           foreground: root.dimColor
@@ -280,13 +291,15 @@ Column {
     }
   }
 
-  Row {
+  Flow {
+    width: parent.width
     visible: root.signedIn || root.accountCount > 1
     spacing: MailStyle.space(8)
     anchors.left: parent.left
     anchors.leftMargin: signOutButton.visible ? 0 : -removeButton.horizontalPadding
 
     Widgets.Button {
+          focusable: true
       id: signOutButton
       visible: root.signedIn
       text: "Sign out"
@@ -297,6 +310,7 @@ Column {
     }
 
     Widgets.Button {
+          focusable: true
       id: removeButton
       visible: root.accountCount > 1
       text: "Remove account"
@@ -310,9 +324,10 @@ Column {
 
   Text {
     width: parent.width
-    visible: !!root.auth && root.auth.lastError !== ""
+    visible: text !== ""
     textFormat: Text.PlainText
-    text: root.auth ? root.auth.lastError : ""
+    text: root.service && root.service.accountRegistryError ? root.service.accountRegistryError
+      : root.auth ? root.auth.lastError : ""
     color: root.dangerColor
     font.family: root.panelFontFamily
     font.pixelSize: MailStyle.caption
@@ -325,8 +340,9 @@ Column {
   }
 
   Widgets.Button {
+          focusable: true
     id: detailToggle
-    text: root.detailVisible ? "Hide the details" : "Need more detail?"
+    text: root.detailVisible ? "Hide setup details" : "Show setup details"
     foreground: root.dimColor
     bordered: false
     leftAlign: true
@@ -399,6 +415,7 @@ Column {
     }
 
     Widgets.Button {
+          focusable: true
       id: reopen
       anchors.right: parent.right
       anchors.top: parent.top
@@ -425,7 +442,7 @@ Column {
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.bodySmall
         font.bold: !step.done
-        elide: Text.ElideRight
+        wrapMode: Text.Wrap
       }
 
       // Invariant: use the single child’s implicitHeight; childrenRect closes a sizing loop through

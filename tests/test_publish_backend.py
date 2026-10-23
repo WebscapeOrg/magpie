@@ -42,6 +42,9 @@ class PublicationTests(unittest.TestCase):
                          'methods': ['system.info', 'message.new'],
                          'contractCases': [{'name': 'handshake', 'method': 'system.info', 'params': {}, 'types': {'name': 'string'}}],
                          'unreleased': {'methods': ['message.new'], 'cases': []}}
+        self.contract['releasedContract'] = {
+            'apiVersion': 1, 'protocolVersion': 1, 'methods': ['system.info', 'obsolete.send'],
+            'contractCases': self.contract['contractCases']}
         (self.repo / 'backend-api.json').write_text(json.dumps(self.contract))
         self.git('init', '-q', '-b', 'main')
         self.git('config', 'user.name', 'Test')
@@ -167,6 +170,7 @@ else:
         folded = json.loads((self.repo / 'backend-api.json').read_text())
         self.assertEqual(folded['releasedApiVersion'], 2)
         self.assertEqual(folded['unreleased'], {'methods': [], 'cases': []})
+        self.assertNotIn('releasedContract', folded)
 
     def test_failure_never_advances_pin_or_main(self):
         # Each subcase needs independent tags, checkout and simulated release state.

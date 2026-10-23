@@ -227,15 +227,17 @@ for(const reason of ['cancel','append failure']) {
   reply(sent[0],{})
   assert.deepStrictEqual(sent[64].params,{accountId:'one@example.org',message:{subject:'original'}})
 }
-// Invariant: Sequential IMAP command latency can exceed ordinary RPC deadlines without indicating a hung process.
 {
   const {backend,sent}=bridge()
-  backend.call('imap.list',{accountId:'one@example.org'},()=>{})
+  const startedAt=Date.now()
+  backend.call('gmail.list',{accountId:'one@example.org'},()=>{})
   backend.call('providers.list',{},()=>{})
-  const imap=backend.pending[sent[0].id].deadline-Date.now()
-  const other=backend.pending[sent[1].id].deadline-Date.now()
-  assert(imap>120000,'an imap frame outlives the backend call budget')
-  assert(other<=30000,'every other frame keeps the short deadline')
+  const finishedAt=Date.now()
+  for(const request of sent) {
+    const deadline=backend.pending[request.id].deadline
+    assert(deadline>=startedAt+30000 && deadline<=finishedAt+30000,
+      'mail and other normal requests use the 30-second deadline')
+  }
   assert.strictEqual(sent.length,2)
 }
 for(const shutdown of [false,true]) {

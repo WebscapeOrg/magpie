@@ -134,8 +134,6 @@ Item {
         var entry = queued.shift()
         var next = Object.assign({}, pending)
         var timeout = entry.operation === "agent.context" || entry.operation === "inbox.avatar" || entry.operation === "inbox.snooze" || entry.operation === "inbox.tick" || entry.operation === "inbox.wake" ? 65000 : 30000
-        // Invariant: IMAP deadlines exceed the backend call budget because one frame may perform many sequential server commands.
-        if (entry.operation.indexOf("imap.") === 0) timeout = 180000
         entry.deadline = Date.now() + timeout
         next[entry.id] = entry
         pending = next

@@ -23,7 +23,7 @@ function summary(id, ms, extra) {
 
 
 deepEqual(cache.emptyStore(), {
-  version: cache.VERSION, account: "", profile: null, labels: [], queries: {}, session: null
+  version: cache.VERSION, account: "", profile: null, labels: [], queries: {}
 })
 
 
@@ -230,26 +230,5 @@ assert.strictEqual(throughDisk.date.getTime(), readRow.date.getTime(),
 const unreadRow = { id: "18f3b", date: new Date("2026-08-20T11:00:00Z"), unread: true }
 assert.strictEqual(cache.hydrate(cache.dehydrate([unreadRow]))[0].unread, true)
 
-
-const session = { apiUrl: "https://api.example.org/jmap", state: "s1" }
-const withSession = cache.putSession(cache.emptyStore(),
-  "https://mail.example.org/jmap/session", "s1", session, 1000)
-deepEqual(cache.getSession(withSession, "https://mail.example.org/jmap/session"), {
-  url: "https://mail.example.org/jmap/session", state: "s1", session: session, at: 1000
-})
-
-// Invariant: Cached JMAP endpoints are bound to their session URL before credentials may use them.
-assert.strictEqual(cache.getSession(withSession, "https://other.example.org/jmap/session"), null)
-assert.strictEqual(cache.getSession(cache.emptyStore(), "https://mail.example.org/jmap/session"), null)
-assert.strictEqual(cache.getSession(null, ""), null)
-
-assert.strictEqual(
-  cache.putSession(withSession, "https://mail.example.org/jmap/session", "s1", null, 2000).session,
-  null)
-
-const keptStore = JSON.parse(JSON.stringify(
-  cache.putQuery(withSession, "role:inbox", { summaries: [], estimate: 0 }, 1000)))
-deepEqual(cache.getSession(keptStore, "https://mail.example.org/jmap/session").session, session)
-assert.ok(cache.getQuery(keptStore, "role:inbox"), "a session does not displace the query cache")
 
 console.log("test_cache.js ok")

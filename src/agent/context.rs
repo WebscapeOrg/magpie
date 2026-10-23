@@ -100,6 +100,7 @@ impl Request {
             }
             chosen.push(s.to_owned());
         }
+        validate_ids(&chosen)?;
         let summaries = p["summaries"]
             .as_array()
             .filter(|v| v.len() == chosen.len())
@@ -210,7 +211,6 @@ impl Contexts {
             })
             .await
             .map_err(|_| "agent_context_failed")??;
-            validate_ids(text(&owner, "provider"), &request.ids)?;
             let rows = collect(&request.ids, &request.summaries, |id| {
                 session.fetch_resource(&request.account, id)
             })
@@ -218,7 +218,6 @@ impl Contexts {
             let mut payload = build(
                 &rows,
                 text(&owner, "email"),
-                text(&owner, "provider"),
                 &request.folder,
                 &request.prompt,
                 &request.account,
@@ -226,7 +225,7 @@ impl Contexts {
             if rows.len() == 1 {
                 let selected = &rows[0];
                 let mut preceding = Vec::new();
-                if text(&owner, "provider") == "gmail" && !text(selected, "threadId").is_empty() {
+                if !text(selected, "threadId").is_empty() {
                     let resources = session
                         .gmail
                         .thread_resources(&request.account, text(selected, "threadId"))
@@ -249,30 +248,9 @@ impl Contexts {
                     payload["threadContext"] = json!(
                         "Preceding available emails in this Gmail thread are supplied separately."
                     );
-                } else if let Some(ids) = selected["thread"]["memberIds"].as_array() {
-                    let mut prior = Vec::new();
-                    for id in ids {
-                        let id = id.as_str().ok_or("agent_context_invalid")?;
-                        if id == request.ids[0] {
-                            break;
-                        }
-                        prior.push(id.to_owned());
-                    }
-                    if prior.len() > 100 {
-                        return Err("agent_context_too_large");
-                    }
-                    validate_ids(text(&owner, "provider"), &prior)?;
-                    let summaries: Vec<Value> = prior.iter().map(|id| json!({"id":id})).collect();
-                    let earlier = collect(&prior, &summaries, |id| {
-                        session.fetch_resource(&request.account, id)
-                    })
-                    .await?;
-                    preceding=earlier.iter().map(|row|json!({"messageId":row["id"],"message":message_text(row,text(row,"bodyText"))})).collect();
-                    payload["threadContext"] =
-                        json!("Preceding available conversation members are supplied separately.");
                 } else {
                     payload["threadContext"] = json!(
-                        "This provider supplied no separate conversation membership. Only the selected email and any history quoted in its body are available; do not claim to have seen other emails."
+                        "This email has no Gmail thread identifier. Only the selected email and any history quoted in its body are available; do not claim to have seen other emails."
                     );
                 }
                 if !preceding.is_empty() {
@@ -310,25 +288,13 @@ async fn bounded_work<T>(
     }
 }
 
-fn validate_ids(provider: &str, ids: &[String]) -> Result<()> {
+fn validate_ids(ids: &[String]) -> Result<()> {
     for id in ids {
-        let valid = match provider {
-            "imap" | "outlook" => id.split_once(':').is_some_and(|(uid, folder)| {
-                uid.parse::<u32>().is_ok_and(|n| n > 0) && !folder.is_empty()
-            }),
-            "hey" => id.split_once(':').is_some_and(|(a, b)| {
-                !a.is_empty()
-                    && !b.is_empty()
-                    && a.bytes().all(|b| b.is_ascii_digit())
-                    && b.bytes().all(|b| b.is_ascii_digit())
-            }),
-            "gmail" => id
+        if id.is_empty()
+            || !id
                 .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'),
-            "jmap" => id.len() <= 1024,
-            _ => false,
-        };
-        if !valid {
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
             return Err("agent_context_invalid");
         }
     }
@@ -451,7 +417,6 @@ pub fn message_text(row: &Value, body: &str) -> String {
 pub fn build(
     rows: &[Value],
     account: &str,
-    provider: &str,
     folder: &str,
     prompt: &str,
     account_id: &str,
@@ -474,11 +439,6 @@ pub fn build(
     let payload = if rows.len() == 1 {
         let row = &rows[0];
         let id = text(row, "id");
-        let folder = if provider == "imap" {
-            id.split_once(':').map(|(_, f)| f).unwrap_or(folder)
-        } else {
-            folder
-        };
         json!({"messageId":id,"accountId":account_id,"account":account,"folder":folder,"subject":text(row,"subject"),"prompt":prompt.trim(),"message":texts[0]})
     } else {
         json!({"messageId":"","messages":rows.iter().zip(texts).map(|(r,t)|json!({"messageId":r["id"],"message":t})).collect::<Vec<_>>(),"accountId":account_id,"account":account,"folder":folder,"subject":format!("{} messages",rows.len()),"prompt":prompt.trim(),"message":""})
@@ -498,26 +458,25 @@ mod tests {
         json!({"id":id,"payload":{"mimeType":"text/plain","headers":[{"name":"Subject","value":format!("Subject {id}")}],"body":{"data":URL_SAFE_NO_PAD.encode(body)}}})
     }
     fn request() -> Value {
-        json!({"accountId":"imap:test@example.org","requestId":"request-1","ids":["1:INBOX"],"summaries":[{"id":"1:INBOX","subject":"First"}],"prompt":"Read","folder":"inbox"})
+        json!({"accountId":"test@example.org","requestId":"request-1","ids":["message1"],"summaries":[{"id":"message1","subject":"First"}],"prompt":"Read","folder":"inbox"})
     }
     #[test]
     fn payload_matches_original_js_for_one_and_many_messages() {
         let rows = [
-            json!({"id":"1:INBOX","subject":"مرحبا","from":{"name":"Ada","email":"ada@example.org"},"to":[{"name":"Bob","email":"bob@example.org"}],"messageId":"<one@example.org>","bodyText":"First body\nمرحبا"}),
-            json!({"id":"2:Archive","subject":"Second","bodyText":"Second body"}),
+            json!({"id":"message1","subject":"مرحبا","from":{"name":"Ada","email":"ada@example.org"},"to":[{"name":"Bob","email":"bob@example.org"}],"messageId":"<one@example.org>","bodyText":"First body\nمرحبا"}),
+            json!({"id":"message2","subject":"Second","bodyText":"Second body"}),
         ];
         for count in [1, 2] {
             let rows = &rows[..count];
             let actual = build(
                 rows,
                 "test@example.org",
-                "imap",
                 "inbox",
                 " Read ",
-                "imap:test@example.org",
+                "test@example.org",
             )
             .unwrap();
-            let script = r#"const M=require('./ui/tests/load.js').load('tests/oracles/agent/Agent.js');const rows=JSON.parse(require('fs').readFileSync(0,'utf8'));const line=rows.length===1?M.payload(rows[0],rows[0].bodyText,'test@example.org',M.folderOf(rows[0].id,'inbox','imap'),' Read ','imap:test@example.org'):M.selectionPayload(rows,'test@example.org','inbox',' Read ','imap:test@example.org');process.stdout.write(line)"#;
+            let script = r#"const M=require('./ui/tests/load.js').load('tests/oracles/agent/Agent.js');const rows=JSON.parse(require('fs').readFileSync(0,'utf8'));const line=rows.length===1?M.payload(rows[0],rows[0].bodyText,'test@example.org','inbox',' Read ','test@example.org'):M.selectionPayload(rows,'test@example.org','inbox',' Read ','test@example.org');process.stdout.write(line)"#;
             let mut child = std::process::Command::new("node")
                 .args(["-e", script])
                 .stdin(std::process::Stdio::piped())
@@ -610,10 +569,19 @@ mod tests {
     async fn invalid_batch_is_refused_before_registering_work() {
         let contexts = Contexts::default();
         let session = crate::backend::Session::default();
-        for bad in ["2:INBOX\r", "2:INBOX\n", "2:INBOX\r\n", "2:INBOX\0"] {
+        for bad in [
+            "message2\r",
+            "message2\n",
+            "message2\r\n",
+            "message2\0",
+            "2:INBOX",
+            "4:8",
+            "message/2",
+            "message%2F2",
+        ] {
             let mut p = request();
-            p["ids"] = json!(["1:INBOX", bad]);
-            p["summaries"] = json!([{"id":"1:INBOX"},{"id":bad}]);
+            p["ids"] = json!(["message1", bad]);
+            p["summaries"] = json!([{"id":"message1"},{"id":bad}]);
             assert_eq!(
                 contexts
                     .call("agent.context", &p, &session)
@@ -624,11 +592,34 @@ mod tests {
         }
         assert!(contexts.active.lock().unwrap().is_empty());
     }
+    #[test]
+    fn gmail_request_keeps_workspace_account_and_label_identity() {
+        let mut p = request();
+        p["accountId"] = json!("owner@workspace.example");
+        p["ids"] = json!(["gmail-message_2"]);
+        p["summaries"] = json!([{"id":"gmail-message_2"}]);
+        p["folder"] = json!("Label_42");
+        let parsed = Request::parse(&p).unwrap();
+        assert_eq!(parsed.account, "owner@workspace.example");
+        assert_eq!(parsed.ids, ["gmail-message_2"]);
+        assert_eq!(parsed.folder, "Label_42");
+        let payload = build(
+            &parsed.summaries,
+            "owner@workspace.example",
+            &parsed.folder,
+            &parsed.prompt,
+            &parsed.account,
+        )
+        .unwrap();
+        assert_eq!(payload["accountId"], parsed.account);
+        assert_eq!(payload["messageId"], parsed.ids[0]);
+        assert_eq!(payload["folder"], "Label_42");
+    }
     #[tokio::test]
     async fn cancel_is_account_scoped_and_old_cleanup_cannot_remove_new_request() {
         let contexts = Contexts::default();
         let session = crate::backend::Session::default();
-        let key = ("imap:test@example.org".into(), "req".into());
+        let key = ("test@example.org".into(), "req".into());
         let (tx, mut rx) = watch::channel(false);
         contexts.active.lock().unwrap().insert(key.clone(), (1, tx));
         assert_eq!(
@@ -729,12 +720,12 @@ mod queued_cancel_tests {
         contexts
             .call(
                 "agent.contextCancel",
-                &json!({"accountId":"imap:test@example.org","requestId":"queued"}),
+                &json!({"accountId":"test@example.org","requestId":"queued"}),
                 &session,
             )
             .await
             .unwrap();
-        let request = json!({"accountId":"imap:test@example.org","requestId":"queued","ids":["1:INBOX"],"summaries":[{"id":"1:INBOX"}],"prompt":"Read","folder":"inbox"});
+        let request = json!({"accountId":"test@example.org","requestId":"queued","ids":["message1"],"summaries":[{"id":"message1"}],"prompt":"Read","folder":"inbox"});
         assert_eq!(
             contexts
                 .call("agent.context", &request, &session)

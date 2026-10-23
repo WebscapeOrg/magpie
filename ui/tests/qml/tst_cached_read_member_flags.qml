@@ -40,7 +40,6 @@ Item {
   Account.MailAccount {
     id: account
     pluginDir: "/synthetic/plugin"
-    providerId: "jmap"
     backend: backend
     clientOverride: clientFactory
     property var readMarks: []

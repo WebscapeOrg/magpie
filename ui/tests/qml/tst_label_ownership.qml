@@ -98,8 +98,13 @@ Item {
   QtObject {
     id: retryAccount
     property bool ready: true
-    property string providerId: "imap"
+    property string providerId: "gmail"
     property var monitoredIds: []
+    property var labels: []
+    property string rawQuery: ""
+    property string rawLabelId: ""
+    property string selectedName: ""
+    property var cache: QtObject { function putLabels(_labels) {} }
     property var api: QtObject {
       function getLabels(callback) {
         retryRecord.requests++
@@ -108,6 +113,9 @@ Item {
       }
     }
     function fail(_error) { retryRecord.errors++ }
+    function monitoredMigrated(ids) { monitoredIds = ids }
+    function selectLabel(name, id) { selectedName = name; rawLabelId = id }
+    function selectMailbox(_key) { rawQuery = ""; rawLabelId = "" }
   }
 
   Loader {
@@ -124,19 +132,17 @@ Item {
 
     readonly property string ada: "ada@example.com"
     readonly property string bob: "bob@example.com"
-    readonly property string adaId: "imap:ada@example.com"
-    readonly property string bobId: "imap:bob@example.com"
+    readonly property string adaId: "ada@example.com"
+    readonly property string bobId: "bob@example.com"
 
     function entry(email, monitored) {
       return {
-        email: email, provider: "imap", clientId: "", clientSecret: "",
-        imap: { imapHost: "imap.example.com", imapPort: 993, smtpHost: "smtp.example.com", smtpPort: 465,
-          username: email, aliases: [], insecure: false },
+        email: email, provider: "gmail", clientId: "123-test.apps.googleusercontent.com", clientSecret: "synthetic",
         label: "", signature: "", monitored: monitored || []
       }
     }
 
-    function folder(id) { return ({ id: id, name: id, rawName: id, delimiter: "/", unread: 0, system: false }) }
+    function folder(id, name) { return ({ id: id, name: name || id, unread: 0, system: false }) }
 
     function seed(entries, activeId) {
       var list = Accounts.emptyList()
@@ -153,8 +159,9 @@ Item {
         account.clientOverride = controlledClient
         account.auth.toolsChecked = true
         account.auth.missingTools = []
-        account.auth.passwordChecked = true
-        account.auth.password = "test-password"
+        account.auth.credentials = ({ clientId: "123-test.apps.googleusercontent.com", clientSecret: "synthetic", projectId: "test" })
+        account.auth.loggedIn = true
+        account.auth.refreshBusy = true
         tryCompare(account, "ready", true)
         account.api.email = entries[hostIndex].email
         account.labels = [folder("Work"), folder("Work/2026"), folder("Receipts")]
@@ -240,6 +247,35 @@ Item {
       compare(retryRecord.errors, 0)
     }
 
+    function test_open_label_follows_its_id_after_a_failed_rename_refresh() {
+      retryRecord.holdReplies = true
+      retryAccount.rawQuery = "label:Work"
+      retryAccount.rawLabelId = "Label_1"
+      retryAccount.selectedName = ""
+      retryAccount.monitoredIds = ["Label_1"]
+      retryLoader.active = true
+      retryLoader.item.afterLabelMoved({id: "Label_1"})
+      retryRecord.reply([], "controlled listing failure")
+      wait(1)
+      retryRecord.reply([{id: "Label_1", name: "Jobs"}], "")
+      compare(retryAccount.rawLabelId, "Label_1")
+      compare(retryAccount.selectedName, "Jobs")
+      compare(retryAccount.monitoredIds, ["Label_1"])
+    }
+
+    function test_rename_refresh_does_not_restore_a_label_the_user_left() {
+      retryRecord.holdReplies = true
+      retryAccount.rawQuery = "label:Work"
+      retryAccount.rawLabelId = "Label_1"
+      retryAccount.selectedName = ""
+      retryLoader.active = true
+      retryLoader.item.afterLabelMoved({id: "Label_1"})
+      retryAccount.rawLabelId = "Label_2"
+      retryRecord.reply([{id: "Label_1", name: "Jobs"}, {id: "Label_2", name: "Receipts"}], "")
+      compare(retryAccount.rawLabelId, "Label_2")
+      compare(retryAccount.selectedName, "")
+    }
+
     function test_a_change_goes_to_the_account_whose_menu_asked() {
       seed([entry(ada), entry(bob)], adaId)
       var menu = popup("label-menu")
@@ -261,8 +297,8 @@ Item {
 
     function test_a_change_for_a_removed_account_goes_nowhere() {
       seed([entry(ada), entry(bob)], bobId)
-      compare(mailService.renameLabel("Work", "Jobs", "imap:gone@example.com"), false)
-      compare(mailService.deleteLabel("Work", "imap:gone@example.com"), false)
+      compare(mailService.renameLabel("Work", "Jobs", "gone@example.com"), false)
+      compare(mailService.deleteLabel("Work", "gone@example.com"), false)
       wait(20)
       compare(record.renames.length, 0)
       compare(record.deletes.length, 0)
@@ -272,20 +308,18 @@ Item {
     function test_watched_ids_follow_a_rename_and_leave_with_a_delete() {
       seed([entry(ada, ["Work/2026", "Receipts"])], adaId)
       deepEqualIds(mailService.monitoredLabelIds, ["Work/2026", "Receipts"])
-      record.listing[ada] = [folder("Jobs"), folder("Jobs/2026"), folder("Receipts")]
+      record.listing[ada] = [folder("Work", "Jobs"), folder("Work/2026", "Jobs/2026"), folder("Receipts")]
       verify(mailService.renameLabel("Work", "Jobs", adaId))
       tryCompare(record, "renames", [ada + ":Work>Jobs"])
-      tryVerify(function() { return mailService.monitoredLabelIds.indexOf("Jobs/2026") >= 0 }, 1000)
-      deepEqualIds(mailService.monitoredLabelIds, ["Jobs/2026", "Receipts"])
-      deepEqualIds(Accounts.find(mailService.accountList, adaId).monitored, ["Jobs/2026", "Receipts"])
-      verify(mailService.accountsWritePayload.indexOf("Jobs/2026") >= 0, "and it is on its way to disk")
-      verify(mailService.accountsWritePayload.indexOf("Work/2026") < 0)
+      tryVerify(function() { return mailService.accountAt(0).labels.length > 0 && mailService.accountAt(0).labels[0].name === "Jobs" }, 1000)
+      deepEqualIds(mailService.monitoredLabelIds, ["Work/2026", "Receipts"])
+      deepEqualIds(Accounts.find(mailService.accountList, adaId).monitored, ["Work/2026", "Receipts"])
 
-      record.listing[ada] = [folder("Jobs"), folder("Jobs/2026")]
+      record.listing[ada] = [folder("Work", "Jobs"), folder("Work/2026", "Jobs/2026")]
       verify(mailService.deleteLabel("Receipts", adaId))
       tryCompare(record, "deletes", [ada + ":Receipts"])
       tryVerify(function() { return mailService.monitoredLabelIds.indexOf("Receipts") < 0 }, 1000)
-      deepEqualIds(mailService.monitoredLabelIds, ["Jobs/2026"])
+      deepEqualIds(mailService.monitoredLabelIds, ["Work/2026"])
     }
 
     function test_a_name_already_taken_is_refused() {
@@ -303,27 +337,26 @@ Item {
     function test_a_failed_listing_keeps_the_watch_waiting() {
       failOnWarning(/invalid context|TypeError/)
       seed([entry(ada, ["Work/2026", "Receipts"])], adaId)
-      record.listing[ada] = [folder("Jobs"), folder("Jobs/2026"), folder("Receipts")]
+      record.listing[ada] = [folder("Work", "Jobs"), folder("Work/2026", "Jobs/2026"), folder("Receipts")]
       record.listingError = "the server hung up"
       verify(mailService.renameLabel("Work", "Jobs", adaId))
       tryCompare(record, "renames", [ada + ":Work>Jobs"])
-      tryVerify(function() { return mailService.monitoredLabelIds.indexOf("Jobs/2026") >= 0 }, 2000)
-      deepEqualIds(mailService.monitoredLabelIds, ["Jobs/2026", "Receipts"])
+      tryVerify(function() { return mailService.accountAt(0).labels.length > 0 && mailService.accountAt(0).labels[0].name === "Jobs" }, 2000)
+      deepEqualIds(mailService.monitoredLabelIds, ["Work/2026", "Receipts"])
 
-      record.listing[ada] = [folder("Tasks"), folder("Tasks/2026")]
+      record.listing[ada] = [folder("Work", "Tasks"), folder("Work/2026", "Tasks/2026")]
       var account = mailService.accountAt(0)
-      account.labels = [folder("Jobs"), folder("Jobs/2026"), folder("Receipts")]
-      verify(mailService.renameLabel("Jobs", "Tasks", adaId))
+      account.labels = [folder("Work", "Jobs"), folder("Work/2026", "Jobs/2026"), folder("Receipts")]
+      verify(mailService.renameLabel("Work", "Tasks", adaId))
       verify(mailService.deleteLabel("Receipts", adaId))
-      tryVerify(function() { return mailService.monitoredLabelIds.indexOf("Tasks/2026") >= 0 }, 2000)
-      deepEqualIds(mailService.monitoredLabelIds, ["Tasks/2026"])
+      tryVerify(function() { return mailService.accountAt(0).labels.length > 0 && mailService.accountAt(0).labels[0].name === "Tasks" }, 2000)
+      deepEqualIds(mailService.monitoredLabelIds, ["Work/2026"])
     }
 
     function test_a_signed_out_owner_changes_nothing() {
       seed([entry(ada), entry(bob)], adaId)
       var bobs = mailService.accountAt(1)
-      bobs.auth.password = ""
-      bobs.auth.passwordChecked = true
+      bobs.auth.loggedIn = false
       bobs.clientOverride = null
       tryCompare(bobs, "ready", false)
       compare(mailService.renameLabel("Work", "Jobs", bobId), false)
@@ -387,11 +420,11 @@ Item {
     }
     function test_review_two_renames_keep_both_watches() {
       seed([entry(ada, ["Work", "Receipts"])], adaId)
-      record.listing[ada] = [folder("Jobs"), folder("Jobs/2026"), folder("Bills")]
+      record.listing[ada] = [folder("Work", "Jobs"), folder("Work/2026", "Jobs/2026"), folder("Receipts", "Bills")]
       verify(mailService.renameLabel("Work", "Jobs", adaId))
       verify(mailService.renameLabel("Receipts", "Bills", adaId))
-      tryVerify(function() { return mailService.accountAt(0).labels[0].id === "Jobs" }, 1000)
-      deepEqualIds(mailService.monitoredLabelIds, ["Jobs", "Bills"])
+      tryVerify(function() { return mailService.accountAt(0).labels.length > 0 && mailService.accountAt(0).labels[0].name === "Jobs" }, 1000)
+      deepEqualIds(mailService.monitoredLabelIds, ["Work", "Receipts"])
     }
     function deepEqualIds(actual, expected) {
       compare(JSON.stringify(actual), JSON.stringify(expected))

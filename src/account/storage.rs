@@ -108,6 +108,7 @@ fn call_at(root: &std::path::Path, method: &str, params: &Value) -> Result<Value
     if !writing {
         return Ok(json!({"registry":registry(&old)?,"revision":revision(&old)}));
     }
+    registry(&old)?;
     if params["revision"] != revision(&old) {
         return Err("accounts_conflict");
     }
@@ -190,6 +191,54 @@ mod tests {
         call_at(&root,"accounts.save",&json!({"registry":saved("b@example.org"),"revision":first["revision"],"allowDrop":true})).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn unsupported_accounts_are_never_created_coerced_or_removed() {
+        let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+            "omamail-registry-unsupported-{}-{}",
+            std::process::id(),
+            SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        for provider in ["outlook", "imap", "jmap", "hey", "unknown"] {
+            let mut incompatible = saved("a@example.org");
+            incompatible["accounts"][0]["provider"] = json!(provider);
+            assert_eq!(
+                call_at(
+                    &root,
+                    "accounts.save",
+                    &json!({"registry":incompatible,"revision":revision(&[])})
+                ),
+                Err("accounts_provider_unsupported")
+            );
+            assert!(!root.exists(), "rejected account must not create files");
+        }
+        let dir = crate::cache::directories(&root, &["omamail"], true)
+            .unwrap()
+            .unwrap();
+        let incompatible = json!({"version":1,"accounts":[{"provider":"imap","email":"a@example.org","imap":{"username":"a@example.org"}}]});
+        let original = serde_json::to_vec(&incompatible).unwrap();
+        crate::platform::private_fs::atomic_replace(&dir, "accounts.json", &original).unwrap();
+        assert_eq!(
+            call_at(&root, "accounts.read", &json!({})),
+            Err("accounts_provider_unsupported")
+        );
+        for allow_drop in [false, true] {
+            assert_eq!(
+                call_at(
+                    &root,
+                    "accounts.save",
+                    &json!({"registry":saved("a@example.org"),"revision":revision(&original),"allowDrop":allow_drop,"releasedIds":["imap:a@example.org"]})
+                ),
+                Err("accounts_provider_unsupported")
+            );
+            assert_eq!(
+                read(&dir).unwrap(),
+                original,
+                "unsupported stored record must remain byte-for-byte unchanged"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn links_at_registry_lock_and_config_directory_never_change_targets() {

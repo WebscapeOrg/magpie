@@ -34,6 +34,7 @@ Item {
 
     function preferredSendAs(_recipients) { return null }
     function accountEmailFor(id) { return id === composeAccountId ? accountEmail : "" }
+    function signatureFor(_id) { return "" }
     function switchTo(id) {
       switchedTo = String(id || "")
       activeAccountId = switchedTo
@@ -157,7 +158,7 @@ Item {
       mailService.sendIdentities = [
         { accountId: "me@example.com", email: "me@example.com",
           displayName: "", label: "me" },
-        { accountId: "imap:home@example.com", email: "home@example.com",
+        { accountId: "home@example.com", email: "home@example.com",
           displayName: "", label: "home" }
       ]
       compose.beginDraft({
@@ -173,7 +174,7 @@ Item {
         "clicking From must open the mailbox menu")
       compose.chooseFrom(mailService.sendIdentities[1])
       compare(compose.fromEmail, "home@example.com")
-      compare(mailService.switchedTo, "imap:home@example.com")
+      compare(mailService.switchedTo, "home@example.com")
       compare(named(compose, "compose-to-field").text, "jane@example.com",
         "changing From must keep the draft")
     }

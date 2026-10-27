@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import QtTest
 import "../../components" as Mail
 import "../../settings"
@@ -20,9 +21,9 @@ Item {
     id: settings
     width: 660
     service: service
-    textColor: Color.foreground
-    dimColor: Color.foreground
-    accentColor: Color.accent
+    textColor: Commons.Color.foreground
+    dimColor: Commons.Color.foreground
+    accentColor: Commons.Color.accent
   }
   TestCase {
     name: "DisplaySettings"

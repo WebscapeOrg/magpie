@@ -431,3 +431,58 @@ fn attached_multipart_subtrees_do_not_supply_body_text_or_missing_body_jobs() {
     assert_eq!(extracted.filenames, "attached.eml\n");
     assert!(extracted.complete);
 }
+
+#[test]
+fn cached_hydration_keeps_server_labels_pending_edits_and_metadata_repair() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.put(&message("one", "partial"), 1).unwrap();
+    store
+        .edit("star", &["one".into()], &["STARRED".into()], &[])
+        .unwrap();
+    let effective = store.resource("one").unwrap().unwrap();
+    store.put_cached(&effective, 1).unwrap();
+    store.cancel_edit("star").unwrap();
+    assert_eq!(
+        store.resource("one").unwrap().unwrap()["labelIds"],
+        json!(["INBOX", "UNREAD"])
+    );
+    assert_eq!(store.status().unwrap()["pending"], 1);
+    store.metadata(&json!({"id":"one"})).unwrap();
+    assert_eq!(store.label_counts("INBOX").unwrap()["total"], 0);
+    assert_eq!(store.status().unwrap()["pending"], 0);
+    assert!(store.complete_resource("one").unwrap().is_some());
+    for invalid in [json!(null), json!("INBOX"), json!([1])] {
+        assert!(
+            store
+                .metadata(&json!({"id":"one","labelIds":invalid}))
+                .is_err()
+        );
+        assert_eq!(
+            store.resource("one").unwrap().unwrap()["labelIds"],
+            json!([])
+        );
+    }
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn deletion_history_notifies_and_prevents_late_body_resurrection() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    let resource = message("one", "delayed saved body");
+    store.put(&resource, 1).unwrap();
+    let changed = sync::apply_history(
+        &store,
+        &json!({"historyId":"200","history":[{"messagesDeleted":[{"message":{"id":"one"}}]}]}),
+        "",
+    )
+    .unwrap();
+    assert!(changed);
+    assert_eq!(store.put_cached(&resource, 1), Err("gmail_not_found"));
+    assert_eq!(store.put(&resource, 1), Err("gmail_not_found"));
+    assert!(store.resource("one").unwrap().is_none());
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}

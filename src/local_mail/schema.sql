@@ -55,3 +55,5 @@ CREATE TABLE IF NOT EXISTS inventory_pages(generation INTEGER NOT NULL,token TEX
 CREATE INDEX IF NOT EXISTS complete_messages ON messages(text_complete);
 
 CREATE TABLE IF NOT EXISTS history_pages(token TEXT PRIMARY KEY);
+
+CREATE TABLE IF NOT EXISTS deleted_messages(id TEXT PRIMARY KEY);

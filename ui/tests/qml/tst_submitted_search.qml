@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import qs.Commons
+import qs.Commons as Commons
 import "../../account" as Account
 import "../../components" as Components
 
@@ -93,11 +94,11 @@ Item {
   Components.SearchBar {
     id: searchBar
     width: 500
-    textColor: Color.foreground
-    accentColor: Color.accent
-    dimColor: Color.foreground
-    popupBackgroundColor: Color.background
-    popupBorderColor: Color.foreground
+    textColor: Commons.Color.foreground
+    accentColor: Commons.Color.accent
+    dimColor: Commons.Color.foreground
+    popupBackgroundColor: Commons.Color.background
+    popupBorderColor: Commons.Color.foreground
     panelFontFamily: "Sans"
     onSubmitted: function(query) { if (testCase.account) testCase.account.search(query) }
     onCleared: if (testCase.account) testCase.account.search("")

@@ -3,6 +3,7 @@ import qs.Ui
 import "../settings"
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 
 BorderSurface {
   id: root
@@ -19,9 +20,9 @@ BorderSurface {
   property bool focusable: false
   property bool bordered: false
 
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property color background: "transparent"
-  property color accent: Color.accent
+  property color accent: Commons.Color.accent
 
   property string fontFamily: MailStyle.family
   property real fontSize: MailStyle.body
@@ -37,9 +38,9 @@ BorderSurface {
   topPadding: verticalPadding
   bottomPadding: verticalPadding
 
-  property color tooltipBackground: Color.tooltip.background
-  property color tooltipForeground: Color.tooltip.text
-  property color tooltipBorder: Color.tooltip.border
+  property color tooltipBackground: Commons.Color.tooltip.background
+  property color tooltipForeground: Commons.Color.tooltip.text
+  property color tooltipBorder: Commons.Color.tooltip.border
 
   signal clicked()
   signal rightClicked()
@@ -72,7 +73,7 @@ BorderSurface {
   readonly property bool hot: mouseArea.containsMouse || hasCursor
   readonly property bool _showFocusRing: focusable && activeFocus
   readonly property color _selectedColor: Style.selectedStateColor(root.foreground, root.accent)
-  readonly property var _tooltipBorderSpec: Border.localOrSurfaceSpec("tooltip", "border", root.tooltipBorder, Color.tooltip.border, Math.max(1, Style.normalBorderWidth))
+  readonly property var _tooltipBorderSpec: Border.localOrSurfaceSpec("tooltip", "border", root.tooltipBorder, Commons.Color.tooltip.border, Math.max(1, Style.normalBorderWidth))
   readonly property var _focusBorderSpec: Border.controlSpec("focus", root.foreground, root.accent)
   readonly property var _hoverBorderSpec: Border.controlSpec("hover-cursor", root.foreground, root.accent)
   readonly property var _selectedBorderSpec: Border.controlSpec("selected", root.foreground, root.accent)

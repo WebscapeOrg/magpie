@@ -20,9 +20,7 @@ pub(super) struct ClaimedChanges {
 }
 impl ClaimedChanges {
     pub(super) fn satisfied_by(&self, resource: &Value) -> Result<bool> {
-        let current = resource["labelIds"]
-            .as_array()
-            .ok_or("gmail_invalid_response")?;
+        let current = server_labels(resource)?;
         Ok(self
             .additions
             .iter()
@@ -65,6 +63,21 @@ pub(super) fn set_state(db: &Connection, key: &str, value: &str) -> Result<()> {
 }
 fn decode(value: &str) -> Result<Value> {
     serde_json::from_str(value).map_err(|_| "local_storage_corrupt")
+}
+fn server_labels(resource: &Value) -> Result<&[Value]> {
+    match resource.get("labelIds") {
+        None => Ok(&[]),
+        Some(Value::Array(labels))
+            if labels.iter().all(|label| {
+                label.as_str().is_some_and(|label| {
+                    !label.is_empty() && label.len() <= 1024 && !label.chars().any(char::is_control)
+                })
+            }) =>
+        {
+            Ok(labels)
+        }
+        _ => Err("gmail_invalid_response"),
+    }
 }
 fn labels(value: &Value) -> Vec<String> {
     value
@@ -479,6 +492,12 @@ impl Store {
         })
     }
     pub(super) fn put(&self, resource: &Value, generation: i64) -> Result<()> {
+        self.save(resource, generation, true)
+    }
+    pub(super) fn put_cached(&self, resource: &Value, generation: i64) -> Result<()> {
+        self.save(resource, generation, false)
+    }
+    fn save(&self, resource: &Value, generation: i64, authoritative: bool) -> Result<()> {
         let id = resource["id"].as_str().ok_or("local_content_invalid")?;
         if id.is_empty() || !resource["payload"].is_object() {
             return Err("local_content_invalid");
@@ -505,23 +524,30 @@ impl Store {
         let copied = header(resource, "cc");
         let subject = header(resource, "subject");
         self.write(|db| {
+            if sql(db.query_row("SELECT EXISTS(SELECT 1 FROM deleted_messages WHERE id=?1)", [id], |row| row.get::<_,bool>(0)))? {
+                return Err("gmail_not_found");
+            }
+            let mut base = json!(server_labels(resource)?);
+            if !authoritative {
+                let previous: Option<String> = sql(db.query_row("SELECT server_labels FROM messages WHERE id=?1", [id], |row| row.get(0)).optional())?;
+                if let Some(previous) = previous { base = decode(&previous)?; }
+            }
             sql(db.execute("INSERT INTO messages(id,thread_id,date,summary,blob,server_labels,sender,recipients,copied,subject,filenames,has_attachment,text_complete,generation) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id,date=excluded.date,summary=excluded.summary,blob=excluded.blob,server_labels=excluded.server_labels,sender=excluded.sender,recipients=excluded.recipients,copied=excluded.copied,subject=excluded.subject,filenames=excluded.filenames,has_attachment=excluded.has_attachment,text_complete=excluded.text_complete,generation=max(messages.generation,excluded.generation)",
                 params![id,resource["threadId"].as_str().unwrap_or(""),resource["internalDate"].as_str().and_then(|v|v.parse::<i64>().ok()).unwrap_or(0),
-                    summary.to_string(),hash,resource["labelIds"].to_string(),sender.to_lowercase(),recipients.to_lowercase(),copied.to_lowercase(),subject,text.filenames.to_lowercase(),summary["hasAttachments"]==true,text.complete,generation]))?;
-            replace_labels(db,id,&resource["labelIds"])?;
+                    summary.to_string(),hash,base.to_string(),sender.to_lowercase(),recipients.to_lowercase(),copied.to_lowercase(),subject,text.filenames.to_lowercase(),summary["hasAttachments"]==true,text.complete,generation]))?;
+            replace_labels(db,id,&base)?;
             sql(db.execute("DELETE FROM search WHERE rowid=(SELECT rowid FROM messages WHERE id=?1)",[id]))?;
             sql(db.execute("INSERT INTO search(rowid,id,subject,sender,recipients,copied,filenames,body) VALUES((SELECT rowid FROM messages WHERE id=?1),?1,?2,?3,?4,?5,?6,?7)",
                 params![id,subject,sender,recipients,copied,text.filenames,text.body]))?;
-            if text.complete {sql(db.execute("DELETE FROM jobs WHERE id=?1",[id]))?;}
-            else {sql(db.execute("INSERT INTO jobs(id,error,retry_at,generation) VALUES(?1,'local_text_incomplete',?2,?3) ON CONFLICT(id) DO UPDATE SET error=excluded.error,retry_at=excluded.retry_at,kind='content'",params![id,chrono::Utc::now().timestamp_millis()+300_000,generation]))?;}
+            if text.complete && authoritative {sql(db.execute("DELETE FROM jobs WHERE id=?1",[id]))?;}
+            else if text.complete {sql(db.execute("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,'metadata',50,?2) ON CONFLICT(id) DO UPDATE SET kind='metadata',retry_at=0,generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;}
+            else {sql(db.execute("INSERT INTO jobs(id,error,retry_at,generation) VALUES(?1,'local_text_incomplete',?2,?3) ON CONFLICT(id) DO UPDATE SET error=excluded.error,retry_at=excluded.retry_at,kind='content',generation=max(jobs.generation,excluded.generation)",params![id,chrono::Utc::now().timestamp_millis()+300_000,generation]))?;}
             Ok(())
         })
     }
     pub(super) fn metadata(&self, resource: &Value) -> Result<()> {
         let id = resource["id"].as_str().ok_or("local_content_invalid")?;
-        let labels = resource["labelIds"]
-            .as_array()
-            .ok_or("local_content_invalid")?;
+        let labels = server_labels(resource)?;
         self.write(|db| {
             let changed = sql(db.execute(
                 "UPDATE messages SET server_labels=?2 WHERE id=?1",
@@ -630,6 +656,7 @@ impl Drop for Store {
     }
 }
 pub(super) fn delete(db: &Connection, id: &str) -> Result<()> {
+    sql(db.execute("INSERT OR IGNORE INTO deleted_messages VALUES(?1)", [id]))?;
     sql(db.execute("UPDATE edits SET state='conflict',error='message_deleted' WHERE id=?1 AND state IN ('queued','sending')",[id]))?;
     sql(db.execute(
         "DELETE FROM search WHERE rowid=(SELECT rowid FROM messages WHERE id=?1)",

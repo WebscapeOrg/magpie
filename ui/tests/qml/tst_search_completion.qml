@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Window
 import QtTest
 import qs.Commons
+import qs.Commons as Commons
 import "../../components" as Components
 import "../../settings"
 import "../../settings/Display.js" as Display
@@ -10,18 +11,18 @@ Rectangle {
   id: host
   width: 800
   height: 700
-  color: Color.background
+  color: Commons.Color.background
   property var submitted: []
   property int clearCount: 0
   Item { id: parking; width: 1; height: 1 }
   Components.SearchBar {
     id: bar
     x: 24; y: 24; width: 420
-    textColor: Color.foreground
-    dimColor: Color.foreground
-    accentColor: Color.accent
-    popupBackgroundColor: Color.background
-    popupBorderColor: Color.foreground
+    textColor: Commons.Color.foreground
+    dimColor: Commons.Color.foreground
+    accentColor: Commons.Color.accent
+    popupBackgroundColor: Commons.Color.background
+    popupBorderColor: Commons.Color.foreground
     panelFontFamily: "sans-serif"
     overlayParent: host
     assistanceAvailable: true

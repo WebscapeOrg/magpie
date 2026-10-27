@@ -96,7 +96,7 @@ fn inventory_and_history_checkpoints_survive_process_exit() {
         );
         assert_eq!(
             store.status().unwrap()["pending"],
-            if phase == "inventory" { 1 } else { 2 }
+            if phase == "inventory" { 2 } else { 3 }
         );
     }
     let store = mailbox.open();
@@ -115,6 +115,9 @@ fn inventory_and_history_checkpoints_survive_process_exit() {
         store.edits().unwrap(),
         json!([{"ticket":"pending","state":"conflict","error":"message_deleted","count":1}])
     );
+    store
+        .metadata(&json!({"id":"seen","labelIds":["INBOX","UNREAD"]}))
+        .unwrap();
     for id in ["download", "arrived"] {
         store.put(&message(id, "download completed"), 2).unwrap();
     }
@@ -178,8 +181,8 @@ fn malformed_and_cyclic_inventory_pages_commit_nothing() {
     assert_eq!(checkpoint(&store, "page"), "last");
     assert_eq!(
         store.status().unwrap()["pending"],
-        0,
-        "refused page must not enqueue its messages"
+        1,
+        "refused page must not enqueue its messages beyond the earlier metadata repair"
     );
     assert_eq!(store.status().unwrap()["inventoryComplete"], false);
 }
@@ -249,6 +252,10 @@ fn expired_history_preserves_mail_and_intents_until_new_inventory_finishes() {
     .unwrap();
     assert_eq!(store.status().unwrap()["inventoryComplete"], false);
     sync::apply_history(&store, &json!({"historyId":"new"}), "old-history-page").unwrap();
+    assert_eq!(store.status().unwrap()["complete"], false);
+    store
+        .metadata(&json!({"id":"retained","labelIds":["INBOX","UNREAD"]}))
+        .unwrap();
     assert_eq!(store.status().unwrap()["complete"], true);
     assert_eq!(store.status().unwrap()["pendingEdits"], 1);
     store.cancel_edit("offline-star").unwrap();
@@ -333,4 +340,30 @@ fn local_admission_deferrals_are_pending_downloads_without_counting_as_failures(
     assert_eq!(status["pending"], 2);
     assert_eq!(status["failed"], 1);
     assert_eq!(status["complete"], false);
+}
+
+#[test]
+fn current_history_evidence_preserves_mail_with_an_old_content_job() {
+    let mailbox = Mailbox::new();
+    let store = mailbox.open();
+    let mut partial = message("moved", "");
+    partial["payload"]["body"] = json!({"attachmentId":"pending","size":10});
+    store.put(&partial, 1).unwrap();
+    set(&store, "generation", "2");
+    sync::apply_inventory(&store, &json!({"messages":[]}), "", 2).unwrap();
+    sync::apply_history(&store,&json!({"historyId":"200","history":[{"labelsRemoved":[{"message":{"id":"moved"},"labelIds":["INBOX"]}]}]}),"").unwrap();
+    assert!(store.resource("moved").unwrap().is_some());
+    assert_eq!(store.status().unwrap()["pending"], 1);
+    assert_eq!(
+        store
+            .read(|db| store::sql(db.query_row(
+                "SELECT generation FROM jobs WHERE id='moved'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )))
+            .unwrap(),
+        2
+    );
+    store.put(&message("moved", "body completed"), 2).unwrap();
+    assert!(store.complete_resource("moved").unwrap().is_some());
 }

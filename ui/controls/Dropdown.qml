@@ -3,6 +3,7 @@ import qs.Ui
 import "../settings"
 import QtQuick.Controls
 import qs.Commons
+import qs.Commons as Commons
 
 // Docs: options accept strings or objects with distinct value and label fields.
 Item {
@@ -12,11 +13,11 @@ Item {
   property string value: ""
   property var options: []
 
-  property color foreground: Color.popups.text
-  property color background: Color.popups.background
-  property color popupBorder: Color.popups.border
-  property color accent: Color.accent
-  readonly property var popupBorderSpec: Border.localOrSurfaceSpec("popups", "border", popupBorder, Color.popups.border, Style.normalBorderWidth)
+  property color foreground: Commons.Color.popups.text
+  property color background: Commons.Color.popups.background
+  property color popupBorder: Commons.Color.popups.border
+  property color accent: Commons.Color.accent
+  readonly property var popupBorderSpec: Border.localOrSurfaceSpec("popups", "border", popupBorder, Commons.Color.popups.border, Style.normalBorderWidth)
   property string fontFamily: MailStyle.family
   property int rowHeight: Math.max(Style.spacing.controlHeight, MailStyle.body + 18)
   property int popupRowHeight: Math.max(Style.spacing.popupRowHeight, MailStyle.body + 18)
@@ -58,7 +59,7 @@ Item {
       textFormat: Text.PlainText
       visible: root.showLabel && root.label !== ""
       text: root.label
-      color: MailStyle.muted(root.foreground, Color.background)
+      color: MailStyle.muted(root.foreground, Commons.Color.background)
       font.family: root.fontFamily
       font.pixelSize: MailStyle.caption
       font.bold: true
@@ -117,7 +118,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         anchors.rightMargin: trigger.borderRight + Style.spacing.controlGap
         text: "󰅀"
-        color: MailStyle.muted(root.foreground, Color.background)
+        color: MailStyle.muted(root.foreground, Commons.Color.background)
         font.family: Style.font.iconFamily
         font.pixelSize: MailStyle.body
       }

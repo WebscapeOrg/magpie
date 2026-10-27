@@ -967,7 +967,7 @@ Item {
   function setMonitoredIds(index, ids) {
     var account = accountAt(index)
     if (!account) return
-    commitAccounts(Accounts.setMonitored(accountList, account.accountId, ids))
+    commitAccounts(Accounts.setMonitored(accountList, account.accountId, Array.prototype.slice.call(ids)))
   }
 
   function commitAccounts(next) {

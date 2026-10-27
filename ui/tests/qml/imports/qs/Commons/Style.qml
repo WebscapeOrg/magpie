@@ -1,10 +1,11 @@
 pragma Singleton
 import QtQuick
+import qs.Commons as Commons
 
 QtObject {
   readonly property real cornerRadius: 2
   readonly property real normalBorderWidth: 1
-  readonly property color normalBorderColor: normalBorderFor(Color.foreground, Color.accent)
+  readonly property color normalBorderColor: normalBorderFor(Commons.Color.foreground, Commons.Color.accent)
   readonly property var font: ({
     family: "monospace", iconFamily: "monospace", title: 22, heading: 18, body: 14, bodySmall: 13, caption: 11,
     icon: 16, iconSmall: 14, iconLarge: 18

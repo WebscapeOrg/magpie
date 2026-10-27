@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import qs.Commons
+import qs.Commons as Commons
 import "../../components" as Mail
 import "../../search" as Search
 import "../../settings"
@@ -37,9 +38,9 @@ Item {
     id: status
     width: 400
     service: mail
-    textColor: Color.foreground
-    accentColor: Color.accent
-    dimColor: MailStyle.muted(Color.foreground,Color.background)
+    textColor: Commons.Color.foreground
+    accentColor: Commons.Color.accent
+    dimColor: MailStyle.muted(Commons.Color.foreground,Commons.Color.background)
     panelFontFamily: "sans-serif"
   }
 
@@ -49,10 +50,10 @@ Item {
     width: 400
     height: 350
     service: mail
-    textColor: Color.foreground
-    accentColor: Color.accent
-    dimColor: MailStyle.muted(Color.foreground,Color.background)
-    urgentColor: Color.urgent
+    textColor: Commons.Color.foreground
+    accentColor: Commons.Color.accent
+    dimColor: MailStyle.muted(Commons.Color.foreground,Commons.Color.background)
+    urgentColor: Commons.Color.urgent
     panelFontFamily: "sans-serif"
     property var activated: []
     onMessageActivated: function(id) { activated.push(id) }

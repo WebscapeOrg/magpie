@@ -262,7 +262,7 @@ impl LocalMail {
         let saved = sync::disk(store, move |s| {
             let generation =
                 s.read(|db| Ok(store::state(db, "generation")?.parse().unwrap_or(1)))?;
-            s.put(&saved, generation)
+            s.put_cached(&saved, generation)
         })
         .await;
         match saved {

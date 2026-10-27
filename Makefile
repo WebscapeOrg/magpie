@@ -97,6 +97,7 @@ QML_FILES += ui/search/SearchSuggestions.qml ui/search/SearchHelp.qml ui/search/
 QML_FILES += ui/account/SubmittedSearch.qml
 QML_FILES += ui/tests/qml/tst_search_completion.qml ui/tests/qml/tst_search_results.qml ui/tests/qml/tst_submitted_search.qml
 QML_FILES += ui/tests/qml/tst_search_participants.qml
+QML_FILES += ui/tests/qml/tst_panel_theme.qml
 APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml app/tests/qml/tst_calendar_palette_bindings.qml
 APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)

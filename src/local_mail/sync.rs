@@ -71,6 +71,7 @@ pub(super) async fn step(
     if disk(store, |s| s.read(|db| Ok(state(db, "paused")? == "true"))).await? {
         return Ok(false);
     }
+    disk(store, repair_inventory).await?;
     let legacy = disk(store, |s| {
         s.read(|db| Ok((state(db, "legacyImported")?, state(db, "legacyCursor")?)))
     })
@@ -83,7 +84,7 @@ pub(super) async fn step(
                     if s.revision(resource["id"].as_str().ok_or("local_content_invalid")?)?
                         .is_none()
                     {
-                        s.put(&resource, 0)?;
+                        s.put_cached(&resource, 0)?;
                     }
                 }
                 s.write(|db| set_state(db, "legacyCursor", &cursor))
@@ -116,14 +117,15 @@ pub(super) async fn step(
         })
     })
     .await?;
+    let mut changed = false;
     if due {
-        match changes(store, gmail, account, &history).await {
+        changed = match changes(store, gmail, account, &history).await {
             Err("gmail_not_found") => {
                 disk(store, restart_inventory).await?;
                 return Ok(true);
             }
             answer => answer?,
-        }
+        };
         disk(store, |s| {
             s.write(|db| {
                 if state(db, "historyPage")?.is_empty() {
@@ -175,7 +177,7 @@ pub(super) async fn step(
             [chrono::Utc::now().timestamp_millis()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?))).optional())
     })).await?;
     let Some((id, kind, generation)) = job else {
-        return Ok(false);
+        return Ok(changed || !complete);
     };
     let gate = store.fetch_gate(&id)?;
     let _guard = gate.lock().await;
@@ -193,11 +195,12 @@ pub(super) async fn step(
     {
         return Ok(true);
     }
-    if disk(store, |s| {
-        crate::platform::private_fs::available_bytes(s.directory())
-    })
-    .await?
-        < 1024 * 1024 * 1024
+    if kind != "metadata"
+        && disk(store, |s| {
+            crate::platform::private_fs::available_bytes(s.directory())
+        })
+        .await?
+            < 1024 * 1024 * 1024
     {
         return Err("local_disk_low");
     }
@@ -206,23 +209,18 @@ pub(super) async fn step(
             .replica_call(account, "minimal", &json!({"id":id}))
             .await
         {
-            Ok(resource) => disk(store, move |s| s.metadata(&resource)).await,
+            Ok(resource) if resource["id"] == id => {
+                disk(store, move |s| s.metadata(&resource)).await
+            }
+            Ok(_) => Err("gmail_invalid_response"),
             Err(error) => Err(error),
         }
     } else {
-        let cached = crate::cache::resource::read(account, &id)
-            .await
-            .ok()
-            .flatten();
-        let resource = match cached {
-            Some(v) => Ok(v),
-            None => {
-                gmail
-                    .replica_call(account, "content", &json!({"id":id}))
-                    .await
-            }
-        };
+        let resource = gmail
+            .replica_call(account, "content", &json!({"id":id}))
+            .await;
         match resource {
+            Ok(resource) if resource["id"] != id => Err("gmail_invalid_response"),
             Ok(mut resource) => match hydrate_text(gmail, account, &id, &mut resource, false).await
             {
                 Ok(()) => disk(store, move |s| s.put(&resource, generation)).await,
@@ -252,18 +250,31 @@ pub(super) async fn step(
     }
     Ok(true)
 }
-pub(super) fn restart_inventory(store: &Store) -> Result<()> {
+fn reset_inventory(db: &rusqlite::Connection) -> Result<()> {
+    let generation = state(db, "generation")?.parse::<u64>().unwrap_or(0) + 1;
+    set_state(db, "generation", &generation.to_string())?;
+    set_state(db, "history", "")?;
+    set_state(db, "historyPage", "")?;
+    set_state(db, "lastHistory", "0")?;
+    sql(db.execute("DELETE FROM history_pages", []))?;
+    sql(db.execute("DELETE FROM inventory_pages", []))?;
+    set_state(db, "page", "")?;
+    set_state(db, "inventoryListed", "false")?;
+    set_state(db, "inventoryComplete", "false")
+}
+pub(super) fn repair_inventory(store: &Store) -> Result<()> {
     store.write(|db| {
-        let generation = state(db, "generation")?.parse::<u64>().unwrap_or(0) + 1;
-        set_state(db, "generation", &generation.to_string())?;
-        set_state(db, "history", "")?;
-        set_state(db, "historyPage", "")?;
-        sql(db.execute("DELETE FROM history_pages", []))?;
-        sql(db.execute("DELETE FROM inventory_pages", []))?;
-        set_state(db, "page", "")?;
-        set_state(db, "inventoryListed", "false")?;
-        set_state(db, "inventoryComplete", "false")
+        if state(db, "labelInventoryVersion")? == "1" {
+            return Ok(());
+        }
+        if !state(db, "history")?.is_empty() {
+            reset_inventory(db)?;
+        }
+        set_state(db, "labelInventoryVersion", "1")
     })
+}
+pub(super) fn restart_inventory(store: &Store) -> Result<()> {
+    store.write(reset_inventory)
 }
 pub(super) fn apply_inventory(
     store: &Store,
@@ -299,16 +310,17 @@ pub(super) fn apply_inventory(
         }
         for message in response["messages"].as_array().into_iter().flatten() {
             let id = valid_id(&message["id"])?;
-            let found = sql(db.execute(
+            sql(db.execute(
                 "UPDATE messages SET generation=?2 WHERE id=?1",
                 params![id, generation],
             ))?;
-            if found == 0 {
-                sql(db.execute(
-                    "INSERT INTO jobs(id,generation) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET generation=excluded.generation",
-                    params![id, generation],
-                ))?;
-            }
+            sql(db.execute(
+                "INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,
+                    CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=?1 AND text_complete=1) THEN 'metadata' ELSE 'content' END,
+                    CASE WHEN EXISTS(SELECT 1 FROM labels WHERE message_id=?1 AND label='INBOX') THEN 50 ELSE 0 END,?2)
+                 ON CONFLICT(id) DO UPDATE SET generation=excluded.generation,priority=max(jobs.priority,excluded.priority)",
+                params![id, generation],
+            ))?;
         }
         set_state(db, "page", next)?;
         if next.is_empty() {
@@ -322,7 +334,7 @@ async fn changes(
     gmail: &gmail::Session,
     account: &str,
     history: &str,
-) -> Result<()> {
+) -> Result<bool> {
     let page = disk(store, |s| s.read(|db| state(db, "historyPage"))).await?;
     let response = gmail
         .replica_call(
@@ -333,7 +345,7 @@ async fn changes(
         .await?;
     disk(store, move |s| apply_history(s, &response, &page)).await
 }
-pub(super) fn apply_history(store: &Store, response: &Value, page: &str) -> Result<()> {
+pub(super) fn apply_history(store: &Store, response: &Value, page: &str) -> Result<bool> {
     if !response.is_object()
         || response
             .get("nextPageToken")
@@ -347,6 +359,7 @@ pub(super) fn apply_history(store: &Store, response: &Value, page: &str) -> Resu
     }
     let checkpoint = valid_id(&response["historyId"])?.to_owned();
     store.write(|db| {
+        let mut changed = false;
         let generation = state(db,"generation")?.parse::<i64>().unwrap_or(1);
         if response.get("history").is_some_and(|v|!v.is_array()) {return Err("gmail_invalid_response");}
         if !next.is_empty() && sql(db.execute("INSERT OR IGNORE INTO history_pages VALUES(?1)",[&next]))?==0 {return Err("gmail_invalid_response");}
@@ -357,17 +370,19 @@ pub(super) fn apply_history(store: &Store, response: &Value, page: &str) -> Resu
             }
             for added in event["messagesAdded"].as_array().into_iter().flatten() {
                 let id = valid_id(&added["message"]["id"])?;
-                sql(db.execute("INSERT INTO jobs(id,priority,generation) VALUES(?1,1000,?2) ON CONFLICT(id) DO UPDATE SET priority=1000,generation=excluded.generation",params![id,generation]))?;
+                    sql(db.execute("INSERT INTO jobs(id,priority,generation) VALUES(?1,1000,?2) ON CONFLICT(id) DO UPDATE SET priority=1000,generation=excluded.generation",params![id,generation]))?;
                 sql(db.execute("UPDATE messages SET generation=?2 WHERE id=?1",params![id,generation]))?;
             }
             for kind in ["labelsAdded","labelsRemoved"] {
                 for changed in event[kind].as_array().into_iter().flatten() {
                     let id = valid_id(&changed["message"]["id"])?;
-                    sql(db.execute("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=?1) THEN 'metadata' ELSE 'content' END,100,?2) ON CONFLICT(id) DO UPDATE SET priority=max(priority,100),retry_at=0",params![id,generation]))?;
+                    sql(db.execute("UPDATE messages SET generation=?2 WHERE id=?1",params![id,generation]))?;
+                    sql(db.execute("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=?1) THEN 'metadata' ELSE 'content' END,100,?2) ON CONFLICT(id) DO UPDATE SET priority=max(priority,100),retry_at=0,generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;
                 }
             }
             for removed in event["messagesDeleted"].as_array().into_iter().flatten() {
                 delete(db,valid_id(&removed["message"]["id"])?)?;
+                changed = true;
             }
         }
         set_state(db,"historyPage",&next)?;
@@ -375,14 +390,15 @@ pub(super) fn apply_history(store: &Store, response: &Value, page: &str) -> Resu
             set_state(db,"history",&checkpoint)?;
             sql(db.execute("DELETE FROM history_pages",[]))?;
             if state(db,"inventoryListed")?=="true" && state(db,"inventoryComplete")?!="true" {
-                let mut statement=sql(db.prepare("SELECT id FROM messages WHERE generation<?1"))?;
+                let mut statement=sql(db.prepare("SELECT id FROM messages WHERE generation<?1 UNION SELECT id FROM jobs WHERE generation<?1 AND NOT EXISTS(SELECT 1 FROM messages WHERE messages.id=jobs.id AND messages.generation>=?1)"))?;
                 let missing=sql(sql(statement.query_map([generation],|r|r.get::<_,String>(0)))?.collect::<rusqlite::Result<Vec<_>>>())?;
                 for id in missing {delete(db,&id)?;}
                 set_state(db,"inventoryComplete","true")?;
+                changed = true;
                 sql(db.execute("DELETE FROM inventory_pages",[]))?;
             }
         }
-        Ok(())
+        Ok(changed)
     })
 }
 pub(super) async fn hydrate_text(

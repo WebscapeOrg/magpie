@@ -2,13 +2,14 @@ import QtQuick
 import QtQuick.Window
 import QtTest
 import qs.Commons
+import qs.Commons as Commons
 import "../../components" as Components
 
 Rectangle {
   id: host
   width: 900
   height: 700
-  color: Color.background
+  color: Commons.Color.background
   property string mode: ""
   property string captureDirectory: ""
   property int applicationActivations: 0
@@ -34,17 +35,17 @@ Rectangle {
   Components.AccountRemovalDialog {
     id: removal
     visible: host.mode === "removal"
-    textColor: Color.foreground; dimColor: Color.foreground
-    dangerColor: Color.urgent; popupBackgroundColor: Color.background
-    popupBorderColor: Color.foreground; panelFontFamily: "sans-serif"
+    textColor: Commons.Color.foreground; dimColor: Commons.Color.foreground
+    dangerColor: Commons.Color.urgent; popupBackgroundColor: Commons.Color.background
+    popupBorderColor: Commons.Color.foreground; panelFontFamily: "sans-serif"
     onConfirmed: function(request) { host.selected = [request] }
   }
   Components.AccountSwitcher {
     id: accounts
     visible: host.mode === "accounts"
-    textColor: Color.foreground; dimColor: Color.foreground
-    accentColor: Color.accent; urgentColor: Color.urgent
-    popupBackgroundColor: Color.background; popupBorderColor: Color.foreground
+    textColor: Commons.Color.foreground; dimColor: Commons.Color.foreground
+    accentColor: Commons.Color.accent; urgentColor: Commons.Color.urgent
+    popupBackgroundColor: Commons.Color.background; popupBorderColor: Commons.Color.foreground
     panelFontFamily: "sans-serif"
     accounts: [{id:"synthetic",email:"alex@example.test",active:true,signedIn:true}]
     onAddAccountRequested: host.selected = ["add"]
@@ -54,9 +55,9 @@ Rectangle {
     id: contacts
     visible: host.mode === "contacts"
     contacts: [host.contact]
-    textColor: Color.foreground; dimColor: Color.foreground
-    accentColor: Color.accent; popupBackgroundColor: Color.background
-    popupBorderColor: Color.foreground; panelFontFamily: "sans-serif"
+    textColor: Commons.Color.foreground; dimColor: Commons.Color.foreground
+    accentColor: Commons.Color.accent; popupBackgroundColor: Commons.Color.background
+    popupBorderColor: Commons.Color.foreground; panelFontFamily: "sans-serif"
     onContactChosen: function(contact, target) {
       host.contactSelections++
       host.selected = [contact, target]
@@ -66,8 +67,8 @@ Rectangle {
     id: events
     x: 32; y: 32; width: 520
     suggestions: host.mode === "events" ? [host.suggestion] : []
-    textColor: Color.foreground; dimColor: Color.foreground
-    accentColor: Color.accent; dimmerColor: Color.foreground
+    textColor: Commons.Color.foreground; dimColor: Commons.Color.foreground
+    accentColor: Commons.Color.accent; dimmerColor: Commons.Color.foreground
     panelFontFamily: "sans-serif"
     onAddRequested: function(suggestion) { host.selected = [suggestion] }
   }
@@ -76,7 +77,7 @@ Rectangle {
     x: 32; y: 32
     visible: host.mode === "link"
     text: "Connection help"
-    color: Color.foreground
+    color: Commons.Color.foreground
     font.family: "sans-serif"
     font.pixelSize: 18
     onActivated: host.selected = ["help"]

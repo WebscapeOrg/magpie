@@ -2,16 +2,17 @@ import QtQuick
 import qs.Ui
 import "../settings"
 import qs.Commons
+import qs.Commons as Commons
 
 Text {
   textFormat: Text.PlainText
   id: root
 
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property string fontFamily: MailStyle.family
   property real fontSize: MailStyle.caption
 
-  color: MailStyle.muted(foreground, Color.background)
+  color: MailStyle.muted(foreground, Commons.Color.background)
   font.family: fontFamily
   font.pixelSize: fontSize
   font.bold: true

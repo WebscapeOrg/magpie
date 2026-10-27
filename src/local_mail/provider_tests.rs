@@ -80,7 +80,11 @@ impl Provider {
                         let (status, response) = answer(&mut world, &line, &url, request);
                         (status, response.to_string(), pause)
                     };
-                    if pause { std::future::pending::<()>().await; }
+                    if pause {
+                        while !state.lock().unwrap().pause.is_empty() {
+                            tokio::time::sleep(Duration::from_millis(5)).await;
+                        }
+                    }
                     let reply = format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len());
                     let _ = socket.write_all(reply.as_bytes()).await;
                 });
@@ -497,4 +501,278 @@ async fn attached_multipart_descendants_never_start_body_downloads() {
             assert_eq!(resource, before);
         }
     }).await;
+}
+
+#[tokio::test]
+async fn legacy_and_expired_inventory_refresh_labels_without_reloading_bodies_or_writing_gmail() {
+    if isolated() {
+        return;
+    }
+    let fixture =
+        account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        crate::cache::resource::put(ACCOUNT, "one", &message("one", "saved legacy body"))
+            .await
+            .unwrap();
+        provider
+            .world
+            .lock()
+            .unwrap()
+            .messages
+            .get_mut("one")
+            .unwrap()["labelIds"] = json!([]);
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        synchronize(&local, &gmail).await;
+        let store = local.store(ACCOUNT).await.unwrap();
+        assert_eq!(store.label_counts("INBOX").unwrap()["total"], 1);
+        assert_eq!(
+            store.resource("one").unwrap().unwrap()["labelIds"],
+            json!([])
+        );
+        assert_eq!(
+            store.resource("one").unwrap().unwrap()["payload"]["body"]["data"],
+            message("one", "saved legacy body")["payload"]["body"]["data"]
+        );
+        assert!(
+            provider
+                .world
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .any(|r| r.contains("/messages/one?format=minimal"))
+        );
+        assert!(
+            !provider
+                .world
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .any(|r| r.contains("/messages/one?format=full"))
+        );
+        provider
+            .world
+            .lock()
+            .unwrap()
+            .messages
+            .get_mut("two")
+            .unwrap()["labelIds"] = json!(["STARRED"]);
+        sync::restart_inventory(&store).unwrap();
+        synchronize(&local, &gmail).await;
+        assert_eq!(store.label_counts("INBOX").unwrap()["total"], 0);
+        assert_eq!(
+            store.resource("two").unwrap().unwrap()["labelIds"],
+            json!(["STARRED"])
+        );
+        assert!(
+            provider.world.lock().unwrap().writes.is_empty(),
+            "metadata repair must not change Gmail"
+        );
+        local.shutdown().await;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn upgrading_a_completed_replica_repairs_existing_labels_once() {
+    if isolated() {
+        return;
+    }
+    let fixture =
+        account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let gmail = gmail::Session::default();
+        let local = LocalMail::default();
+        let store = local.store(ACCOUNT).await.unwrap();
+        for id in ["one", "two"] {
+            store.put(&message(id, "retained body"), 4).unwrap();
+        }
+        for (key, value) in [
+            ("history", "200"),
+            ("generation", "4"),
+            ("legacyImported", "true"),
+            ("inventoryListed", "true"),
+            ("inventoryComplete", "true"),
+        ] {
+            set(&store, key, value);
+        }
+        assert_eq!(store.status().unwrap()["complete"], true);
+        provider
+            .world
+            .lock()
+            .unwrap()
+            .messages
+            .get_mut("one")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove("labelIds");
+        sync::step(&store, &gmail, ACCOUNT).await.unwrap();
+        assert_eq!(store.status().unwrap()["complete"], false);
+        drop(store);
+        local.shutdown().await;
+        drop(local);
+        let restarted = LocalMail::default();
+        synchronize(&restarted, &gmail).await;
+        let store = restarted.store(ACCOUNT).await.unwrap();
+        assert_eq!(store.label_counts("INBOX").unwrap()["total"], 1);
+        assert_eq!(
+            store.resource("one").unwrap().unwrap()["labelIds"],
+            json!([])
+        );
+        let generation = store.read(|db| store::state(db, "generation")).unwrap();
+        sync::repair_inventory(&store).unwrap();
+        assert_eq!(
+            store.read(|db| store::state(db, "generation")).unwrap(),
+            generation
+        );
+        assert!(provider.world.lock().unwrap().writes.is_empty());
+        restarted.shutdown().await;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn content_jobs_ignore_stale_cached_labels_and_refuse_wrong_message_identity() {
+    if isolated() {
+        return;
+    }
+    let fixture =
+        account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        crate::cache::resource::put(ACCOUNT, "one", &message("one", "old body"))
+            .await
+            .unwrap();
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        let store = local.store(ACCOUNT).await.unwrap();
+        set(&store, "legacyImported", "true");
+        provider
+            .world
+            .lock()
+            .unwrap()
+            .messages
+            .get_mut("one")
+            .unwrap()["labelIds"] = json!([]);
+        synchronize(&local, &gmail).await;
+        assert_eq!(
+            store.resource("one").unwrap().unwrap()["labelIds"],
+            json!([])
+        );
+        assert!(
+            provider
+                .world
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .any(|r| r.contains("/messages/one?format=full"))
+        );
+        store.put_cached(&message("one", "saved body"), 1).unwrap();
+        let before = store.resource("two").unwrap();
+        provider
+            .world
+            .lock()
+            .unwrap()
+            .messages
+            .get_mut("one")
+            .unwrap()["id"] = json!("two");
+        assert_eq!(
+            sync::step(&store, &gmail, ACCOUNT).await,
+            Err("gmail_invalid_response")
+        );
+        assert_eq!(store.resource("two").unwrap(), before);
+        assert_eq!(store.status().unwrap()["pending"], 1);
+        assert!(provider.world.lock().unwrap().writes.is_empty());
+        local.shutdown().await;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn delayed_foreground_reads_cannot_erase_history_repairs_or_resurrect_deleted_mail() {
+    if isolated() {
+        return;
+    }
+    let fixture =
+        account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        let store = local.store(ACCOUNT).await.unwrap();
+        for (key, value) in [
+            ("legacyImported", "true"),
+            ("labelInventoryVersion", "1"),
+            ("history", "200"),
+            ("inventoryListed", "true"),
+            ("inventoryComplete", "true"),
+        ] {
+            set(&store, key, value);
+        }
+        for (id, deleted) in [("one", false), ("two", true)] {
+            provider.world.lock().unwrap().pause = format!("/messages/{id}?");
+            let reading = local.read(ACCOUNT, id, &gmail);
+            tokio::pin!(reading);
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+            loop {
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(20), &mut reading)
+                        .await
+                        .is_err()
+                );
+                if provider
+                    .world
+                    .lock()
+                    .unwrap()
+                    .requests
+                    .iter()
+                    .any(|r| r.contains(&format!("/messages/{id}?")))
+                {
+                    break;
+                }
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "foreground request did not reach the controlled provider"
+                );
+            }
+            let event = if deleted {
+                json!({"messagesDeleted":[{"message":{"id":id}}]})
+            } else {
+                json!({"labelsRemoved":[{"message":{"id":id},"labelIds":["INBOX","UNREAD"]}]})
+            };
+            sync::apply_history(&store, &json!({"historyId":"300","history":[event]}), "").unwrap();
+            provider.world.lock().unwrap().messages.get_mut(id).unwrap()["labelIds"] = json!([]);
+            provider.world.lock().unwrap().pause.clear();
+            let answer = tokio::time::timeout(Duration::from_secs(2), reading)
+                .await
+                .unwrap();
+            if deleted {
+                assert_eq!(answer, Err("gmail_not_found"));
+                assert!(store.resource(id).unwrap().is_none());
+            } else {
+                answer.unwrap();
+                assert_eq!(store.status().unwrap()["pending"], 1);
+                sync::step(&store, &gmail, ACCOUNT).await.unwrap();
+                assert_eq!(store.resource(id).unwrap().unwrap()["labelIds"], json!([]));
+                assert_eq!(store.status().unwrap()["pending"], 0);
+            }
+        }
+        assert!(provider.world.lock().unwrap().writes.is_empty());
+        local.shutdown().await;
+    })
+    .await;
 }

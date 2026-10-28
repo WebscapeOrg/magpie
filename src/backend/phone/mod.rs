@@ -1,3 +1,4 @@
+mod history;
 mod push;
 mod storage;
 mod transport;
@@ -233,6 +234,7 @@ impl Service {
             }
         }
         match path {
+            "/v1/notifications" => history::request(p, &accounts),
             "/v1/status" => {
                 fields(p, &[])?;
                 Ok(
@@ -842,6 +844,61 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(status["accounts"][0]["id"], "one@example.org");
+        let pending = json!({"collapse":"synthetic-history","historyAccounts":["one@example.org"],"payload":{"aps":{"alert":{"title":"Magpie","body":"You have a new message."}}}});
+        history::retain(&pending).unwrap();
+        history::retain(&json!({"collapse":"foreign-history","historyAccounts":["other@example.org"],"payload":{"aps":{"alert":{"title":"Private","body":"Forbidden"}}}})).unwrap();
+        let before = storage::read_bounded("notification-history.json", 16 * 1024 * 1024).unwrap();
+        assert_eq!(
+            engine
+                .phone
+                .request(
+                    &engine,
+                    "/v1/notifications",
+                    token,
+                    &json!({"id":"foreign-history","read":true})
+                )
+                .await,
+            Err("notification_not_found")
+        );
+        assert_eq!(
+            engine
+                .phone
+                .request(
+                    &engine,
+                    "/v1/notifications",
+                    "invalid",
+                    &json!({"id":"synthetic-history","read":true})
+                )
+                .await,
+            Err("phone_unauthorized")
+        );
+        assert_eq!(
+            storage::read_bounded("notification-history.json", 16 * 1024 * 1024).unwrap(),
+            before
+        );
+        let history_list = engine
+            .phone
+            .request(&engine, "/v1/notifications", token, &json!({}))
+            .await
+            .unwrap();
+        assert_eq!(history_list["notifications"].as_array().unwrap().len(), 1);
+        assert!(!history_list.to_string().contains("Forbidden"));
+        engine
+            .phone
+            .request(
+                &engine,
+                "/v1/notifications",
+                token,
+                &json!({"id":"synthetic-history","read":true}),
+            )
+            .await
+            .unwrap();
+        history::retain(&pending).unwrap();
+        assert_eq!(
+            storage::read_bounded("notification-history.json", 16 * 1024 * 1024).unwrap()["synthetic-history"]
+                ["unread"],
+            false
+        );
         engine
             .phone
             .request(&engine, "/v1/disconnect", token, &json!({}))

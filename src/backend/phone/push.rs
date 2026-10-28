@@ -218,6 +218,7 @@ impl Sender {
         {
             return Ok(());
         }
+        super::history::retain(&record["pending"])?;
         let delivery = self
             .deliver(
                 device,
@@ -366,6 +367,7 @@ impl Service {
                         .any(|a| a["id"] == *id)
             });
             let mut new_ids = Vec::new();
+            let mut history_accounts = Vec::new();
             let mut seen = record["seen"].as_object().cloned().unwrap_or_default();
             let mut observed = Vec::new();
             seen.retain(|id, _| selected(device, &json!(id)));
@@ -385,7 +387,11 @@ impl Service {
                     .ok_or("phone_storage_invalid")?;
                 counts.insert(id.to_owned(), json!(unread.len()));
                 observed.push(json!(id));
-                for value in fresh(&record["seen"][id], unread) {
+                let arrivals = fresh(&record["seen"][id], unread);
+                if !arrivals.is_empty() {
+                    history_accounts.push(json!(id));
+                }
+                for value in arrivals {
                     new_ids.push(format!("{id}:{}", value.as_str().unwrap_or("")));
                 }
                 seen.insert(id.to_owned(), json!(ids));
@@ -403,11 +409,11 @@ impl Service {
             }
             new_ids.sort();
             let collapse = storage::hash(format!("{}:{total}", new_ids.join("\n")).as_bytes());
-            let mut payload = json!({"aps":{"alert":{"title":"Magpie","body":if new_ids.len()==1 { "You have a new message.".to_owned() } else { format!("You have {} new messages.",new_ids.len()) }},"sound":"default","badge":total,"thread-id":"mail"},"url":"magpie://inbox"});
+            let mut payload = json!({"aps":{"alert":{"title":"Magpie","body":if new_ids.len()==1 { "You have a new message.".to_owned() } else { format!("You have {} new messages.",new_ids.len()) }},"sound":"default","badge":total,"thread-id":"mail"},"url":format!("magpie://notifications/{collapse}")});
             if new_ids.is_empty() {
                 payload = json!({"aps":{"badge":total}});
             }
-            record["pending"] = json!({"payload":payload,"collapse":collapse,"seen":seen,"counts":counts,"accounts":observed});
+            record["pending"] = json!({"payload":payload,"collapse":collapse,"seen":seen,"counts":counts,"accounts":observed,"historyAccounts":history_accounts});
             storage::write_bounded(&name, &record, 16 * 1024 * 1024)?;
             sender.pending(device, &mut record).await?;
             storage::write_bounded(&name, &record, 16 * 1024 * 1024)?;

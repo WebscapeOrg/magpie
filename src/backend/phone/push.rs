@@ -409,7 +409,7 @@ impl Service {
             }
             new_ids.sort();
             let collapse = storage::hash(format!("{}:{total}", new_ids.join("\n")).as_bytes());
-            let mut payload = json!({"aps":{"alert":{"title":"Magpie","body":if new_ids.len()==1 { "You have a new message.".to_owned() } else { format!("You have {} new messages.",new_ids.len()) }},"sound":"default","badge":total,"thread-id":"mail"},"url":format!("magpie://notifications/{collapse}")});
+            let mut payload = json!({"aps":{"alert":{"title":"Magpie","body":if new_ids.len()==1 { "You have a new message.".to_owned() } else { format!("You have {} new messages.",new_ids.len()) }},"sound":"default","badge":total,"thread-id":"mail"},"url":"magpie://inbox","notification":collapse});
             if new_ids.is_empty() {
                 payload = json!({"aps":{"badge":total}});
             }

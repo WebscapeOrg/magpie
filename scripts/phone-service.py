@@ -132,7 +132,7 @@ def prepare():
     environment = service_environment()
     unit(UNIT, "# Managed by Magpie\n[Unit]\nDescription=Magpie mail engine\nAfter=network-online.target\n\n[Service]\nType=simple\n"
          + "ExecStart=" + quote(binary) + " daemon\n" + environment
-         + "UMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\nKillMode=control-group\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=150\nTimeoutStartSec=30\n\n[Install]\nWantedBy=default.target\n")
+         + "UMask=0077\nNoNewPrivileges=true\nRuntimeDirectory=magpie-engine\nRuntimeDirectoryMode=0700\nEnvironment=TMPDIR=%t/magpie-engine\nKillMode=control-group\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=150\nTimeoutStartSec=30\n\n[Install]\nWantedBy=default.target\n")
     prepare_certificate_units(environment)
     records = {name: hashlib.sha256((CONFIG / "systemd/user" / name).read_bytes()).hexdigest()
                for name in [UNIT, "magpie-certificate.service", "magpie-certificate.timer"]}

@@ -58,7 +58,7 @@ QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tool
 	ui/components/AccountRemovalDialog.qml \
 	ui/components/ComposeExitDialog.qml \
 	ui/components/BackBar.qml \
-	ui/components/SettingsPage.qml ui/components/AiSettings.qml \
+	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/PhoneSettings.qml \
 	ui/components/SettingsSidebar.qml \
 	ui/components/CalendarSettings.qml \
 	ui/components/CalendarEventComposer.qml \
@@ -223,6 +223,7 @@ test-shell-independent:
 	python3 tests/test_network_migration.py
 	python3 tests/test_plugin_workflow.py
 	python3 tests/test_backend_runtime.py
+	python3 tests/test_phone_service.py
 	python3 tests/test_backend_release.py
 	python3 tests/test_runtime_release_contract.py
 	sh tests/test_dev.sh

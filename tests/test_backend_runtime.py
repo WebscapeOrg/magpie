@@ -82,6 +82,52 @@ class RuntimeTests(unittest.TestCase):
         self.binary.chmod(0o700)
         return self.binary.read_bytes()
 
+    def test_service_restart_never_runs_without_a_private_owned_marker(self):
+        run = self.own_patch(patch.object(self.manager.subprocess, "run"))
+        self.manager.restart_engine()
+        run.assert_not_called()
+        marker = self.home / ".local/state/omamail/engine-enabled"
+        marker.parent.mkdir(parents=True, mode=0o700)
+        target = marker.with_name("unrelated")
+        target.write_text("preserve")
+        marker.symlink_to(target)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        self.assertEqual(target.read_text(), "preserve")
+        marker.unlink()
+        marker.write_text("1\n")
+        marker.chmod(0o644)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        marker.chmod(0o600)
+        link = marker.with_name("hardlink")
+        os.link(marker, link)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        link.unlink()
+        marker.parent.chmod(0o777)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        marker.parent.chmod(0o700)
+        self.manager.restart_engine()
+        self.assertEqual(run.call_args.args[0], ["/usr/bin/systemctl", "--user", "restart", "magpie-engine.service"])
+
+    def test_service_stop_failure_preserves_installed_runtime_and_marker(self):
+        previous = self.old()
+        marker = self.home / ".local/state/omamail/engine-enabled"
+        marker.parent.mkdir(parents=True, mode=0o700)
+        marker.write_text("1\n")
+        marker.chmod(0o600)
+        with patch.object(self.manager.subprocess, "run", side_effect=subprocess.TimeoutExpired("systemctl", 210)):
+            result = self.manager.run("uninstall")
+        self.assertEqual(result["state"], "error")
+        self.assertEqual(self.binary.read_bytes(), previous)
+        self.assertEqual(marker.read_text(), "1\n")
+
     def plugin_tree(self):
         return [(str(path.relative_to(self.root)), path.is_dir(),
                  b"" if path.is_dir() else path.read_bytes())

@@ -243,6 +243,14 @@ impl QueryCache {
     }
 
     /// Invariant: Flush accepted mutations after RPC and background producers have stopped.
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn forget_account(&self, account: &str) {
+        if let Some(entry) = self.accounts.lock().await.remove(account) {
+            let mut state = entry.lock().await;
+            state.dirty = false;
+            state.store = store::empty();
+        }
+    }
     pub async fn shutdown(&self) -> Result<()> {
         let accounts: Vec<_> = self
             .accounts

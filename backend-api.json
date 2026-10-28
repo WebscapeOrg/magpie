@@ -4,6 +4,9 @@
   "protocolVersion": 1,
   "methods": [
     "system.info",
+    "phone.pairBegin",
+    "phone.devices",
+    "phone.revoke",
     "inbox.snapshot",
     "inbox.overviews",
     "inbox.avatar",
@@ -2243,6 +2246,38 @@
       "types": {
         "generation": "number"
       }
+    },
+    {
+      "name": "phone.pairBegin rejects unknown fields before private storage",
+      "method": "phone.pairBegin",
+      "params": {
+        "unexpected": true
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "phone.devices rejects unknown fields before private storage",
+      "method": "phone.devices",
+      "params": {
+        "unexpected": true
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "phone.revoke rejects unknown fields before private storage",
+      "method": "phone.revoke",
+      "params": {
+        "unexpected": true
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Standalone handshake leaves wake scheduling with the frontend",
+      "method": "system.info",
+      "params": {},
+      "equals": {
+        "engineService": false
+      }
     }
   ],
   "unreleased": {
@@ -2275,7 +2310,10 @@
       "draft.compose",
       "calendar.read",
       "calendar.parse",
-      "local.labelCounts"
+      "local.labelCounts",
+      "phone.pairBegin",
+      "phone.devices",
+      "phone.revoke"
     ],
     "cases": [
       "Calendar requests refuse non-Google providers before authentication",
@@ -2344,7 +2382,11 @@
       "Local summaries include active edits omitted by the server snapshot",
       "Provider resolution refuses non-Gmail accounts",
       "Unified Gmail snapshots preserve account identities without provider capabilities",
-      "Query cache metadata omits legacy provider sessions"
+      "Query cache metadata omits legacy provider sessions",
+      "phone.pairBegin rejects unknown fields before private storage",
+      "phone.devices rejects unknown fields before private storage",
+      "phone.revoke rejects unknown fields before private storage",
+      "Standalone handshake leaves wake scheduling with the frontend"
     ]
   },
   "releasedContract": {

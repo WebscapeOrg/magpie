@@ -81,6 +81,7 @@ fn google_calendar(account: &str, value: &Value) -> Result<Value, &'static str> 
         "calendarId":id,"name":name,"isDefault":primary,
         "readOnly":!matches!(role.as_str(), "owner" | "writer"),
         "accessRole":role,"timeZone":bounded_text(value, "timeZone").unwrap_or_default(),
+        "color":value["backgroundColor"].as_str().filter(|text| text.len() == 7 && text.starts_with('#') && text[1..].bytes().all(|byte| byte.is_ascii_hexdigit())).unwrap_or(""),
         "selected":value["selected"] == true,"hidden":value["hidden"] == true,
         "defaultReminders":value["defaultReminders"].as_array().cloned().unwrap_or_default(),
         "canCreateMeet":value["conferenceProperties"]["allowedConferenceSolutionTypes"]

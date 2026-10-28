@@ -64,6 +64,23 @@ impl Job {
     }
 }
 impl ReaderStore {
+    #[cfg(feature = "mobile")]
+    pub(super) fn forget_account(&mut self, account: &str) {
+        self.entries.retain(|entry| entry.account != account);
+        self.bytes = self.entries.iter().map(|entry| entry.bytes).sum();
+        self.jobs.retain(|(owner, _), job| {
+            if owner != account {
+                return true;
+            }
+            if let Ok(mut live) = job.live.lock() {
+                *live = false;
+            }
+            job.cancelled.notify_waiters();
+            false
+        });
+        self.cancelled.retain(|entry| entry.key.0 != account);
+    }
+
     #[cfg(test)]
     fn put(
         &mut self,

@@ -75,9 +75,8 @@ fn client() -> Result<&'static reqwest::Client, &'static str> {
 }
 
 fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+    crate::platform::http_client()
         .https_only(true)
-        .hickory_dns(true)
         .redirect(reqwest::redirect::Policy::none())
         .no_proxy()
         .connect_timeout(Duration::from_secs(10))
@@ -459,6 +458,7 @@ fn read_operation(path: &[&str], query: &[(String, String)]) -> (&'static str, u
 fn write_operation(method: &reqwest::Method, path: &[&str]) -> (&'static str, u32) {
     match (method.as_str(), path) {
         ("POST", ["messages", "send"]) => ("messages.send", 100),
+        ("POST", ["drafts", "send"]) => ("drafts.send", 100),
         ("POST", ["messages", "batchModify"]) => ("messages.batchModify", 50),
         ("POST", ["messages", _, "modify"]) => ("messages.modify", 5),
         ("POST", ["messages", _, "trash"]) => ("messages.trash", 20),
@@ -593,18 +593,18 @@ fn prepare_get(
 }
 
 fn prepare_refresh(id: &str, secret: &str, token: &str) -> Result<Request, &'static str> {
-    for value in [id, secret, token] {
+    for value in [id, token] {
         valid(value)?;
         if value.is_empty() {
             return Err("gmail_invalid_input");
         }
     }
-    let body = format!(
-        "grant_type=refresh_token&client_id={}&client_secret={}&refresh_token={}",
-        encode(id),
-        encode(secret),
-        encode(token)
-    );
+    valid(secret)?;
+    let mut body = format!("grant_type=refresh_token&client_id={}", encode(id));
+    if !secret.is_empty() {
+        body.push_str(&format!("&client_secret={}", encode(secret)));
+    }
+    body.push_str(&format!("&refresh_token={}", encode(token)));
     if body.len() > MAX_INPUT {
         return Err("gmail_invalid_input");
     }

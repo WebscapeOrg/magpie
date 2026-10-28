@@ -36,6 +36,14 @@ pub(super) fn form(fields: &[(&str, &str)]) -> String {
 }
 
 impl Flows {
+    pub async fn shutdown(&self) {
+        let tasks: Vec<_> = self.0.lock().await.drain().map(|(_, task)| task).collect();
+        for task in tasks {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+
     pub async fn call(&self, method: &str, parameters: &Value) -> Result<Value, &'static str> {
         match method {
             "auth.begin" => self.begin(parameters).await,
@@ -137,7 +145,10 @@ impl Flows {
     }
 }
 
-async fn finish_google(mut response: Value, client_id: &str) -> Result<Value, &'static str> {
+pub(super) async fn finish_google(
+    mut response: Value,
+    client_id: &str,
+) -> Result<Value, &'static str> {
     if response["status"] != 200 {
         return Ok(response);
     }

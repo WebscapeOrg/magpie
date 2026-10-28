@@ -7,6 +7,7 @@ mod control;
 pub mod events;
 mod history;
 pub mod jobs;
+mod launch;
 pub mod mcp;
 pub mod opencode;
 mod prompt;

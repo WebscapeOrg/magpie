@@ -75,6 +75,9 @@ impl AppDirs {
                 root.join("downloads"),
             );
         }
+        #[cfg(target_os = "ios")]
+        return mobile_dirs().map(|(dirs, _)| dirs.clone());
+        #[cfg(not(target_os = "ios"))]
         Self::discover_with(|name| std::env::var_os(name), &std::env::temp_dir())
     }
     pub fn home() -> Result<PathBuf, &'static str> {
@@ -94,13 +97,16 @@ impl AppDirs {
         {
             return known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_Profile);
         }
-        #[cfg(unix)]
+        #[cfg(target_os = "ios")]
+        return mobile_dirs().map(|(_, home)| home.clone());
+        #[cfg(all(unix, not(target_os = "ios")))]
         absolute(
             std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .ok_or("home_missing")?,
         )
     }
+    #[cfg(not(target_os = "ios"))]
     fn discover_with(
         env: impl Fn(&str) -> Option<OsString>,
         temporary: &Path,
@@ -412,4 +418,36 @@ mod windows_tests {
             assert!(!root.starts_with(local.join("omamail")));
         }
     }
+}
+
+#[cfg(target_os = "ios")]
+static MOBILE_DIRS: std::sync::OnceLock<(AppDirs, PathBuf)> = std::sync::OnceLock::new();
+#[cfg(target_os = "ios")]
+fn mobile_dirs() -> Result<&'static (AppDirs, PathBuf), &'static str> {
+    MOBILE_DIRS.get().ok_or("mobile_storage_uninitialized")
+}
+#[cfg(target_os = "ios")]
+pub fn initialize_mobile(root: PathBuf, home: PathBuf) -> Result<(), &'static str> {
+    let root = root.canonicalize().map_err(|_| "mobile_storage_invalid")?;
+    let home = home.canonicalize().map_err(|_| "mobile_storage_invalid")?;
+    if !root.starts_with(&home) || root == home {
+        return Err("mobile_storage_invalid");
+    }
+    let dirs = AppDirs::from_roots(
+        root.join("config"),
+        root.join("cache"),
+        root.join("state"),
+        root.join("runtime"),
+        root.join("exports"),
+    )?;
+    if let Some(current) = MOBILE_DIRS.get() {
+        return if current == &(dirs, home) {
+            Ok(())
+        } else {
+            Err("mobile_storage_already_initialized")
+        };
+    }
+    MOBILE_DIRS
+        .set((dirs, home))
+        .map_err(|_| "mobile_storage_already_initialized")
 }

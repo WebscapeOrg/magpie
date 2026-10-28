@@ -182,7 +182,7 @@ pub async fn get(
             source = "initial";
         }
     }
-    let value = json!({"data":image,"source":source,"updated":now()});
+    let value = json!({"data":image,"source":source,"updated":now(),"owner":account});
     store::cache(&name, &value)?;
     Ok(value)
 }

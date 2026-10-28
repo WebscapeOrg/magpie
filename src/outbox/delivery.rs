@@ -1,6 +1,5 @@
 //! Invariant: Execute only the registered account's native provider send, exactly once.
 use serde_json::{Value, json};
-use std::time::Duration;
 
 pub async fn send(
     job: &Value,
@@ -42,21 +41,14 @@ pub async fn send(
     if draft.len() > 1024 || draft.chars().any(char::is_control) {
         return Err("outbox_invalid_payload");
     }
-    let mut answer = gmail.call("gmail.send", &params).await?;
+    if draft.is_empty() {
+        return gmail.call("gmail.send", &params).await;
+    }
+    params["id"] = json!(draft);
+    let mut answer = gmail.call("gmail.sendDraft", &params).await?;
     if !answer.is_object() {
-        answer = json!({});
+        return Err("gmail_invalid_response");
     }
-    if !draft.is_empty() {
-        let params = json!({"accountId":account,"id":draft});
-        let cleanup = gmail.call("gmail.deleteDraft", &params);
-        if tokio::time::timeout(Duration::from_secs(5), cleanup)
-            .await
-            .is_ok_and(|result| result.is_ok())
-        {
-            answer["draftRemoved"] = json!(true);
-        } else {
-            answer["warning"] = json!("Sent, but the original draft could not be removed");
-        }
-    }
+    answer["draftRemoved"] = json!(true);
     Ok(answer)
 }

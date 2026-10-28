@@ -8,13 +8,13 @@ compile_error!("integration-test-credentials must never be enabled in a release 
 
 pub mod rpc;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod keychain;
 #[cfg(target_os = "linux")]
 mod secret_service;
 #[cfg(target_os = "windows")]
 mod windows;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use keychain as platform;
 #[cfg(target_os = "linux")]
 use secret_service as platform;
@@ -165,7 +165,7 @@ impl CredentialKey {
 
     /// Invariant: Length-delimited fields prevent delimiter collisions. Hashing also keeps
     /// Windows target names below its limit without putting secrets in metadata.
-    #[cfg(any(target_os = "macos", target_os = "windows", test))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "windows", test))]
     fn native_id(&self) -> Result<String, Error> {
         use sha2::{Digest, Sha256};
         let mut hash = Sha256::new();
@@ -196,7 +196,12 @@ pub async fn delete(key: CredentialKey) -> Result<(), Error> {
         .map_err(|_| Error::Unavailable)?
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "windows"
+)))]
 mod platform {
     use super::*;
     pub fn get(_: &CredentialKey) -> Result<Secret, Error> {

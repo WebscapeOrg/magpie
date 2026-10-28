@@ -234,6 +234,21 @@ impl Store {
     pub(super) fn directory(&self) -> &File {
         self.vfs.directory()
     }
+    #[cfg(target_os = "linux")]
+    pub(super) fn notification_snapshot(&self) -> Result<Value> {
+        self.read(|db| {
+            let transaction=sql(db.unchecked_transaction())?;
+            let db=&transaction;
+            let waiting:i64=sql(db.query_row("SELECT (SELECT count(*) FROM jobs)+(SELECT count(*) FROM messages WHERE text_complete=0)",[],|r|r.get(0)))?;
+            if state(db,"inventoryComplete")?!="true" || waiting!=0 || state(db,"paused")?=="true" || !state(db,"error")?.is_empty() { return Err("local_snapshot_incomplete"); }
+            let mut query=sql(db.prepare("SELECT id FROM messages ORDER BY id LIMIT 500001"))?;
+            let ids:Vec<String>=sql(query.query_map([],|r|r.get(0)))?.map(sql).collect::<Result<_>>()?;
+            if ids.len()>500_000 { return Err("local_snapshot_too_large"); }
+            let mut query=sql(db.prepare("SELECT a.message_id FROM labels a JOIN labels b ON a.message_id=b.message_id AND b.label='UNREAD' WHERE a.label='INBOX' ORDER BY a.message_id"))?;
+            let unread:Vec<String>=sql(query.query_map([],|r|r.get(0)))?.map(sql).collect::<Result<_>>()?;
+            Ok(json!({"ids":ids,"unread":unread}))
+        })
+    }
     pub(super) fn status(&self) -> Result<Value> {
         self.read(|db| {
             let (stored, complete): (i64,i64) = sql(db.query_row("SELECT (SELECT count(*) FROM messages),(SELECT count(*) FROM messages WHERE text_complete=1)", [], |r| Ok((r.get(0)?,r.get(1)?))))?;
@@ -285,6 +300,20 @@ impl Store {
                 [ticket],
             ))?;
             Ok(())
+        })
+    }
+    #[cfg(feature = "mobile")]
+    pub(super) fn phone_summaries(&self, thread: Option<&str>) -> Result<Value> {
+        self.read(|db| {
+            let mut statement=sql(db.prepare("SELECT id,summary FROM messages WHERE (?1 IS NULL OR thread_id=?1) ORDER BY date DESC,id DESC LIMIT 2000"))?;
+            let rows=sql(statement.query_map([thread],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?))))?;
+            let mut summaries=Vec::new();let mut bytes=0;
+            for row in rows {
+                let (id,raw)=sql(row)?;
+                bytes+=raw.len(); if bytes>8*1024*1024 {return Err("local_response_too_large");}
+                summaries.push(cached_summary(db,&id,&raw)?);
+            }
+            Ok(json!({"summaries":summaries}))
         })
     }
     pub(super) fn list(&self, input: &str, limit: usize, cursor: &str) -> Result<Value> {

@@ -129,8 +129,9 @@ QtObject {
     if (serial !== generation) return
     phase = "checking"
     message = "Checking the installed mail engine"
-    expires = Date.now() + 20000
-    service.backendRuntime.refresh()
+    expires = Date.now() + 240000
+    if (typeof service.backendRuntime.restartEngine === "function") service.backendRuntime.restartEngine()
+    else service.backendRuntime.refresh()
     Qt.callLater(advance)
   }
 

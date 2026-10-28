@@ -51,6 +51,7 @@ Item {
     }
     run("status")
   }
+  function restartEngine() { if (bundled || development) refresh(); else run("restart-engine") }
   function install() { if (canInstall) run("install") }
   function enableCli() { if (!development && !cliInstalled && state === "ready") run("enable-cli") }
   function disableCli() { if (!development && cliInstalled) run("disable-cli") }
@@ -94,7 +95,7 @@ Item {
 
   Timer {
     id: deadline
-    interval: root.action === "install" ? 180000 : 15000
+    interval: root.action === "restart-engine" || root.action === "uninstall" ? 240000 : root.action === "install" ? 180000 : 15000
     onTriggered: {
       root.timedOut = true
       root.error = "Backend runtime operation timed out. Retry the check."

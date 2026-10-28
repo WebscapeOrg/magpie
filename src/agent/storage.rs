@@ -366,6 +366,18 @@ impl Store {
         }
         self.root.sync_all().map_err(|_| ioerror())
     }
+    pub fn discard_unadmitted(&self, id: &str) -> Result<()> {
+        let dir = self.directory(id)?;
+        for name in names(&dir, Some(256))? {
+            if !["context.json", "display.json", "bootstrap.json"].contains(&name.as_str())
+                && !name.starts_with(".write-")
+            {
+                return Err("agent_invalid_record");
+            }
+            regular(&dir, &name)?.ok_or("agent_unsafe_storage")?;
+        }
+        self.remove(id)
+    }
 }
 impl Drop for Store {
     fn drop(&mut self) {
@@ -397,6 +409,26 @@ mod tests {
         }
     }
     const ID: &str = "0123456789abcdef0123456789abcdef";
+    #[test]
+    fn only_unadmitted_jobs_can_be_recovered() {
+        let temp = Temp::new();
+        let store = Store::open_at(&temp.0).unwrap();
+        store.create(ID).unwrap();
+        store
+            .write_json(ID, "context.json", &json!({"prompt":"original"}))
+            .unwrap();
+        store.discard_unadmitted(ID).unwrap();
+        assert!(!store.contains(ID).unwrap());
+        store.create(ID).unwrap();
+        store
+            .write_json(ID, "job.json", &json!({"state":"queued"}))
+            .unwrap();
+        assert_eq!(store.discard_unadmitted(ID), Err("agent_invalid_record"));
+        assert_eq!(
+            store.read_json(ID, "job.json", 1024).unwrap(),
+            Some(json!({"state":"queued"}))
+        );
+    }
     #[test]
     fn private_roundtrip_atomic_bounds_and_remove() {
         let temp = Temp::new();

@@ -1,6 +1,9 @@
 // Invariant: Advertised public operations; transport and domain dispatch share this inventory.
 pub const ALL: &[&str] = &[
     "system.info",
+    "phone.pairBegin",
+    "phone.devices",
+    "phone.revoke",
     "inbox.snapshot",
     "inbox.overviews",
     "inbox.avatar",
@@ -151,6 +154,10 @@ pub const ALL: &[&str] = &[
 pub fn available() -> Vec<&'static str> {
     ALL.iter()
         .copied()
-        .filter(|method| !method.starts_with("agent.") || cfg!(all(feature = "agent", unix)))
+        .filter(|method| {
+            !method.starts_with("agent.")
+                || cfg!(all(feature = "agent", unix, not(target_os = "ios")))
+        })
+        .filter(|method| !method.starts_with("phone.") || cfg!(target_os = "linux"))
         .collect()
 }

@@ -17,9 +17,8 @@ const MAX_AUTH_PAYLOAD_BYTES: usize = 256 * 1024;
 fn client() -> Result<&'static reqwest::Client, &'static str> {
     CLIENT
         .get_or_init(|| {
-            reqwest::Client::builder()
+            crate::platform::http_client()
                 .https_only(true)
-                .hickory_dns(true)
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(Duration::from_secs(10))
@@ -102,6 +101,9 @@ async fn post_with_deadline(
 }
 
 impl Session {
+    pub async fn shutdown(&self) {
+        self.flows.shutdown().await;
+    }
     pub async fn call(&self, method: &str, parameters: &Value) -> Result<Value, &'static str> {
         if method != "auth.form" {
             return self.flows.call(method, parameters).await;
@@ -134,7 +136,7 @@ mod tests {
                 .unwrap();
             assert_eq!(ended, 0, "deadline must close the outstanding request");
         });
-        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let client = crate::platform::http_client().no_proxy().build().unwrap();
         assert_eq!(
             post_with_deadline(
                 &client,
@@ -171,7 +173,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let client = crate::platform::http_client().no_proxy().build().unwrap();
         assert_eq!(
             post(
                 &client,
@@ -235,7 +237,7 @@ mod tests {
                     .is_err()
             );
         });
-        let client = reqwest::Client::builder()
+        let client = crate::platform::http_client()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -251,4 +253,50 @@ mod tests {
         );
         server.await.unwrap();
     }
+}
+
+#[cfg(feature = "mobile")]
+pub async fn mobile_exchange(params: &Value) -> Result<Value, &'static str> {
+    let client_id = params["clientId"].as_str().ok_or("invalid_params")?;
+    let code = params["code"].as_str().ok_or("invalid_params")?;
+    let verifier = params["verifier"].as_str().ok_or("invalid_params")?;
+    let redirect = params["redirectURI"].as_str().ok_or("invalid_params")?;
+    let prefix = client_id
+        .strip_suffix(".apps.googleusercontent.com")
+        .ok_or("invalid_params")?;
+    if prefix.len() > 512
+        || !prefix
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        || !prefix.contains('-')
+        || !(43..=128).contains(&verifier.len())
+        || !verifier
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(&b))
+        || code.is_empty()
+        || code.len() > 16384
+        || code.chars().any(char::is_control)
+        || redirect != format!("com.googleusercontent.apps.{prefix}:/oauthredirect")
+    {
+        return Err("invalid_params");
+    }
+    let body = reqwest::Url::parse_with_params(
+        "https://unused.invalid/",
+        &[
+            ("client_id", client_id),
+            ("code", code),
+            ("code_verifier", verifier),
+            ("redirect_uri", redirect),
+            ("grant_type", "authorization_code"),
+        ],
+    )
+    .map_err(|_| "invalid_params")?
+    .query()
+    .unwrap_or("")
+    .to_owned();
+    callback::finish_google(
+        post(client()?, "https://oauth2.googleapis.com/token", body).await?,
+        client_id,
+    )
+    .await
 }

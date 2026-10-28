@@ -1,6 +1,48 @@
 use super::{account, fields, now, store};
 use serde_json::{Value, json};
 const FILE: &str = "snoozes.json";
+pub(super) fn revisions(account: &str) -> Result<Value, &'static str> {
+    Ok(store::read(&store::key(&["snooze-revisions", account]))?.unwrap_or(json!({})))
+}
+pub(super) fn advance(account: &str, thread: &str) -> Result<String, &'static str> {
+    advance_operation(account, thread, None)
+}
+fn advance_operation(
+    account: &str,
+    thread: &str,
+    operation: Option<&str>,
+) -> Result<String, &'static str> {
+    if let Some(operation) = operation {
+        let versions = revisions(account)?;
+        if versions[thread]["operationId"] == operation {
+            return versions[thread]["revision"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or("inbox_storage_invalid");
+        }
+    }
+    let mut entropy = [0; 16];
+    rustls::crypto::ring::default_provider()
+        .secure_random
+        .fill(&mut entropy)
+        .map_err(|_| "snooze_storage_failed")?;
+    use base64::Engine;
+    let generation = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(entropy);
+    store::update(&store::key(&["snooze-revisions", account]), |saved| {
+        let records = saved.as_object_mut().ok_or("inbox_storage_invalid")?;
+        records.retain(|_, v| {
+            v["updated"]
+                .as_i64()
+                .is_some_and(|t| t > now() - 31 * 86_400_000)
+        });
+        records.insert(
+            thread.to_owned(),
+            json!({"revision":generation,"updated":now(),"operationId":operation}),
+        );
+        Ok(())
+    })?;
+    Ok(generation)
+}
 pub fn snapshot(account: &str) -> Result<Value, &'static str> {
     let saved = store::read(FILE)?.unwrap_or(json!({}));
     Ok(json!(
@@ -17,6 +59,14 @@ pub async fn call(
     method: &str,
     p: &Value,
     gmail: &crate::providers::gmail::Session,
+) -> Result<Value, &'static str> {
+    call_with_operation(method, p, gmail, None).await
+}
+pub(super) async fn call_with_operation(
+    method: &str,
+    p: &Value,
+    gmail: &crate::providers::gmail::Session,
+    operation: Option<&str>,
 ) -> Result<Value, &'static str> {
     fields(
         p,
@@ -38,6 +88,11 @@ pub async fn call(
     if method == "inbox.wake" {
         let saved = store::read(FILE)?.unwrap_or(json!({}));
         let entry = saved.get(&key).ok_or("snooze_missing")?;
+        advance_operation(
+            &account,
+            entry["threadId"].as_str().ok_or("inbox_storage_invalid")?,
+            operation,
+        )?;
         wake(gmail, entry).await?;
         store::update(FILE, |v| {
             v.as_object_mut()
@@ -84,7 +139,8 @@ pub async fn call(
     if ids.is_empty() || ids.len() > 1000 {
         return Err("snooze_invalid_thread");
     }
-    let entry = json!({"accountId":account,"id":id,"ids":ids,"until":until,"state":"pending","subject":crate::message::content::summarize(&resource,now())?["subject"],"threadId":thread});
+    let generation = advance_operation(&account, thread, operation)?;
+    let entry = json!({"generation":generation,"operationId":operation,"accountId":account,"id":id,"ids":ids,"until":until,"state":"pending","subject":crate::message::content::summarize(&resource,now())?["subject"],"threadId":thread});
     store::update(FILE, |v| {
         if v.as_object().ok_or("inbox_storage_invalid")?.len() >= 1000 && v.get(&key).is_none() {
             return Err("snooze_limit");
@@ -171,6 +227,10 @@ async fn tick(gmail: &crate::providers::gmail::Session) -> Result<Value, &'stati
             continue;
         }
         processed += 1;
+        advance(
+            entry["accountId"].as_str().ok_or("inbox_storage_invalid")?,
+            entry["threadId"].as_str().ok_or("inbox_storage_invalid")?,
+        )?;
         match wake(gmail, entry).await {
             Ok(()) => {
                 store::update(FILE, |v| {

@@ -8,6 +8,10 @@ use std::sync::{
 pub fn serve() -> io::Result<()> {
     #[cfg(target_os = "linux")]
     bind_to_parent()?;
+    #[cfg(target_os = "linux")]
+    if super::daemon::enabled().map_err(io::Error::other)? {
+        return super::daemon::proxy();
+    }
     let failed = Arc::new(AtomicBool::new(false));
     super::protocol::serve(
         BufReader::new(Input {

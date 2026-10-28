@@ -1,12 +1,13 @@
 pub mod account;
 // Invariant: Detached assistant workers currently rely on Linux pidfds and private storage.
-#[cfg(all(feature = "agent", unix))]
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 pub mod agent;
 pub mod attachment;
 pub mod auth;
 pub mod backend;
 pub mod cache;
 pub mod calendar;
+#[cfg(not(target_os = "ios"))]
 pub mod cli;
 pub mod compose;
 pub mod contacts;
@@ -17,6 +18,7 @@ pub mod mail;
 pub mod message;
 pub mod outbox;
 pub mod platform;
+#[cfg(not(target_os = "ios"))]
 pub mod process;
 pub mod providers;
 pub mod public_http;

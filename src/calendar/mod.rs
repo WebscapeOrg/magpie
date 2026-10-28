@@ -16,7 +16,6 @@ static CLIENT: OnceLock<Result<Client, &'static str>> = OnceLock::new();
 fn client_builder() -> reqwest::ClientBuilder {
     Client::builder()
         .https_only(true)
-        .hickory_dns(true)
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
@@ -263,8 +262,14 @@ async fn execute(
     if status.as_u16() == 404 {
         return Err("calendar_not_found");
     }
+    if status.as_u16() == 410 {
+        return Err("calendar_gone");
+    }
     if status.as_u16() == 401 || status.as_u16() == 403 {
         return Err("calendar_auth_refused");
+    }
+    if status.as_u16() == 400 {
+        return Err("calendar_request_rejected");
     }
     if !status.is_success() {
         return Err("calendar_request_failed");

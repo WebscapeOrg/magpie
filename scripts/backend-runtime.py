@@ -381,8 +381,41 @@ def cli_installed():
         return False
 
 
+def engine_marker():
+    marker = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "omamail/engine-enabled"
+    require(marker.is_absolute() and ".." not in marker.parts, "Mail service path is unsafe.")
+    safe_path(marker)
+    for part in reversed(marker.parents):
+        if not part.exists():
+            return None
+        info = part.stat()
+        require(info.st_uid in (0, os.getuid()) and (info.st_mode & 0o022 == 0 or info.st_uid == 0 and info.st_mode & stat.S_ISVTX),
+                "Mail service directory permissions are unsafe.")
+    info = marker.parent.stat()
+    require(info.st_uid == os.getuid() and info.st_mode & 0o077 == 0, "Mail service storage must be private.")
+    if not marker.exists():
+        return None
+    info = marker.stat()
+    require(info.st_uid == os.getuid() and info.st_mode & 0o077 == 0 and info.st_nlink == 1, "Mail service marker permissions are unsafe.")
+    return marker
+
+
+def restart_engine():
+    if engine_marker() is None:
+        return
+    try:
+        subprocess.run(["/usr/bin/systemctl", "--user", "restart", "magpie-engine.service"],
+                       check=True, timeout=210, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (subprocess.SubprocessError, OSError):
+        raise Refused("The mail service could not restart. Your saved work is preserved.")
+
+
 def manage(command, required, architecture):
     with locked():
+        if command == "restart-engine":
+            require(version_of(BINARY) == required, "Install the required backend before restarting mail.")
+            restart_engine()
+            return required
         if command == "install":
             install(required, architecture)
             return required
@@ -391,6 +424,14 @@ def manage(command, required, architecture):
         if command == "uninstall":
             safe_path(BINARY)
             safe_path(LOCAL_BUILD)
+            marker = engine_marker()
+            if marker is not None:
+                try:
+                    subprocess.run(["/usr/bin/systemctl", "--user", "disable", "--now", "magpie-engine.service"],
+                                   check=True, timeout=210, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except (subprocess.SubprocessError, OSError):
+                    raise Refused("The mail service could not stop. The installed backend has been preserved.")
+                marker.unlink()
             LOCAL_BUILD.unlink(missing_ok=True)
             BINARY.unlink(missing_ok=True)
             return required
@@ -411,7 +452,7 @@ def run(command):
         development = os.environ.get("OMAMAIL_BIN", "")
         executable = Path(development) if development else BINARY
         result["executable"] = str(executable)
-        require(command in ("status", "install", "install-local", "uninstall", "enable-cli", "disable-cli"), "Unknown backend operation.")
+        require(command in ("status", "install", "install-local", "uninstall", "enable-cli", "disable-cli", "restart-engine"), "Unknown backend operation.")
         if command != "status":
             require(not development, "Unset OMAMAIL_BIN before managing the installed backend.")
         architecture = {"x86_64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}.get(platform.machine())
@@ -421,7 +462,7 @@ def run(command):
             return result
         if not development:
             safe_path(BINARY)
-            if command in ("status", "enable-cli", "disable-cli"):
+            if command in ("status", "enable-cli", "disable-cli", "restart-engine"):
                 required = local_required(required)
                 result["requiredVersion"] = required
         else:

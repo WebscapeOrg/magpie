@@ -236,14 +236,38 @@ fn paragraphs(value: &str) -> String {
         format!("<div>{value}</div>")
     }
 }
-fn signed_html(body: &str, signature: &str, html: &str, rtl: bool) -> String {
-    let sign = signature.trim();
+fn signed_html(
+    body: &str,
+    signature: &str,
+    html: &str,
+    rtl: bool,
+    offset: Option<u64>,
+) -> Result<String> {
     let dir = if rtl { " dir=\"rtl\"" } else { "" };
+    if let Some(offset) = offset {
+        let at = usize::try_from(offset).map_err(|_| "invalid_signature")?;
+        let end = at.checked_add(signature.len()).ok_or("invalid_signature")?;
+        if body.get(at..end) != Some(signature) {
+            return Err("invalid_signature");
+        }
+        return Ok(format!(
+            "<html><body{dir}>{}{}{}</body></html>",
+            paragraphs(&body[..at]),
+            html,
+            paragraphs(&body[end..])
+        ));
+    }
+    let body = body.replace("\r\n", "\n");
+    let signature = signature.replace("\r\n", "\n");
+    let sign = signature.trim();
     let (before, after, include) = if !sign.is_empty() {
-        if let Some(at) = body.find(sign) {
+        if let Some((at, _)) = body.rmatch_indices(sign).find(|(at, _)| {
+            (*at == 0 || body[..*at].ends_with("\n\n"))
+                && (at + sign.len() == body.len() || body[at + sign.len()..].starts_with("\n\n"))
+        }) {
             (&body[..at], &body[at + sign.len()..], true)
         } else {
-            (body, "", false)
+            (body.as_str(), "", false)
         }
     } else {
         let at = if body.starts_with('>') {
@@ -253,15 +277,15 @@ fn signed_html(body: &str, signature: &str, html: &str, rtl: bool) -> String {
         };
         match at {
             Some(at) => (&body[..at], &body[at..], true),
-            None => (body, "", true),
+            None => (body.as_str(), "", true),
         }
     };
-    format!(
+    Ok(format!(
         "<html><body{dir}>{}{}{}</body></html>",
         paragraphs(before),
         if include { html } else { "" },
         paragraphs(after)
-    )
+    ))
 }
 fn text_part(lines: &mut Vec<String>, mime: &str, body: &str) {
     lines.extend([
@@ -288,7 +312,17 @@ fn body_part(lines: &mut Vec<String>, v: &Value, boundary: &str) -> Result<()> {
     if !field(v, "signatureHtml").is_empty() {
         let swapped = super::signature::inline_parts(field(v, "signatureHtml"), "sig");
         let parts = swapped["parts"].as_array().ok_or("invalid_signature")?;
-        let html = signed_html(body, field(v, "signature"), field(&swapped, "html"), rtl);
+        let offset = v
+            .get("signatureOffset")
+            .map(|value| value.as_u64().ok_or("invalid_signature"))
+            .transpose()?;
+        let html = signed_html(
+            body,
+            field(v, "signature"),
+            field(&swapped, "html"),
+            rtl,
+            offset,
+        )?;
         let alt = nested(boundary);
         if !parts.is_empty() {
             lines.extend([format!("Content-Type: multipart/related; boundary=\"{boundary}\"; type=\"multipart/alternative\""),String::new(),format!("--{boundary}")]);
@@ -486,6 +520,27 @@ pub(crate) fn submission(fields: &Value, stamp: u64, seed: &str) -> Result<Value
 #[cfg(test)]
 mod submission_tests {
     use super::*;
+    #[test]
+    fn signature_offsets_preserve_authored_text_and_refuse_invalid_boundaries() {
+        let body = "Hi Alex 🐦\r\n\r\nAlex\r\n\r\nAfter";
+        let offset = body.find("\r\n\r\n").unwrap() + 4;
+        let html = signed_html(body, "Alex", "<b>Alex</b>", false, Some(offset as u64)).unwrap();
+        assert!(html.contains("Hi Alex 🐦"));
+        assert!(html.contains("<b>Alex</b>"));
+        assert_eq!(
+            html,
+            signed_html(body, "Alex", "<b>Alex</b>", false, None).unwrap()
+        );
+        for offset in [u64::MAX, 10, 0] {
+            assert!(signed_html(body, "Alex", "<b>Alex</b>", false, Some(offset)).is_err());
+        }
+        assert!(
+            !signed_html("Hi Alex", "Alex", "<b>Alex</b>", false, None)
+                .unwrap()
+                .contains("<b>")
+        );
+    }
+
     #[test]
     fn explicit_send_replays_preserve_mime_and_changed_content_does_not() {
         let fields = json!({"from":"a@example.org","to":"b@example.org","body":"one","attachments":[{"filename":"file.txt","data":"YQ"}]});

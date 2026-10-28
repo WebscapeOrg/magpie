@@ -1,6 +1,8 @@
 mod avatars;
-#[cfg(all(test, feature = "agent", unix))]
+#[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 mod overview_tests;
+#[cfg(target_os = "linux")]
+mod phone;
 mod snooze;
 mod store;
 use serde_json::{Value, json};
@@ -76,7 +78,7 @@ impl Inbox {
                 fields(params, &["accountId", "ids", "retry"])?;
                 let account = account(params)?;
                 let ids = ids(params)?;
-                #[cfg(all(feature = "agent", unix))]
+                #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
                 {
                     let Ok(permit) = self.overview_slots.clone().try_acquire_owned() else {
                         return Ok(json!({"accepted":false}));
@@ -96,7 +98,7 @@ impl Inbox {
                     });
                     Ok(json!({"accepted":true}))
                 }
-                #[cfg(not(all(feature = "agent", unix)))]
+                #[cfg(not(all(feature = "agent", unix, not(target_os = "ios"))))]
                 {
                     let _ = (account, ids, local_mail);
                     Err("overview_ai_unavailable")
@@ -141,7 +143,7 @@ impl Inbox {
         }
     }
 }
-#[cfg(all(feature = "agent", unix))]
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 fn claim_overviews(
     saved: &mut Value,
     ids: &[String],
@@ -157,6 +159,11 @@ fn claim_overviews(
         if old["text"].as_str().is_some_and(|s| !s.is_empty()) && old["version"] == 1 {
             continue;
         }
+        if old["state"] == "running"
+            && at.saturating_sub(old["updated"].as_i64().unwrap_or(0)) < 900_000
+        {
+            continue;
+        }
         if !retry
             && old["state"] == "failed"
             && at.saturating_sub(old["updated"].as_i64().unwrap_or(0)) < 900_000
@@ -169,7 +176,7 @@ fn claim_overviews(
     Ok(chosen)
 }
 
-#[cfg(all(feature = "agent", unix))]
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 fn finish_overviews(
     saved: &mut Value,
     chosen: &[String],
@@ -211,7 +218,7 @@ fn finish_overviews(
     Ok(())
 }
 
-#[cfg(all(feature = "agent", unix))]
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 async fn overview_batch(
     account: &str,
     ids: &[String],
@@ -224,7 +231,7 @@ async fn overview_batch(
     .await
 }
 
-#[cfg(all(feature = "agent", unix))]
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 async fn overview_batch_with<F, Fut>(
     account: &str,
     ids: &[String],
@@ -244,7 +251,7 @@ where
     generate(json!(messages)).await
 }
 
-#[cfg(all(feature = "agent", unix))]
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 fn overview_message(id: &str, raw: &Value) -> Result<Value, &'static str> {
     let prepared = crate::message::content::prepare(raw, now())?;
     let summary = &prepared["summary"];
@@ -298,7 +305,7 @@ mod overview_failure_tests {
     }
 }
 
-#[cfg(all(test, feature = "agent", unix))]
+#[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 mod overview_storage_tests {
     use super::{claim_overviews, finish_overviews};
     use serde_json::{Value, json};
@@ -368,4 +375,28 @@ mod overview_storage_tests {
         assert_eq!(saved["message"]["state"], "ready");
         assert_eq!(saved["message"]["text"], "fresh summary");
     }
+}
+
+#[cfg(feature = "mobile")]
+pub(crate) fn forget_phone_account(account: &str) -> Result<(), &'static str> {
+    use crate::platform::{dirs::AppDirs, private_fs};
+    let Some(dir) =
+        private_fs::directories(&AppDirs::discover()?.state, &["omamail", "inbox"], false)?
+    else {
+        return Ok(());
+    };
+    let _lock = private_fs::lock_exclusive(&dir, ".cache-lock")?;
+    let contacts = store::key(&["contacts", account]);
+    private_fs::remove_owned(&dir, &contacts)?;
+    for name in private_fs::names(&dir)? {
+        if !name.starts_with("avatar-") {
+            continue;
+        }
+        if let Some(row) = store::read(&name)? {
+            if row.get("owner").is_none() || row["owner"] == account {
+                private_fs::remove_owned(&dir, &name)?;
+            }
+        }
+    }
+    private_fs::sync_dir(&dir)
 }

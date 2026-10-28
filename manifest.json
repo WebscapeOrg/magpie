@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "magpie",
-  "name": "🐦 Magpie",
+  "name": "\ud83d\udc26 Magpie",
   "version": "1.0.0",
   "author": "dreinecke (fork of huacnlee/omamail)",
   "license": "MIT",
@@ -19,20 +19,16 @@
     "panel": "ui/App.qml"
   },
   "barWidget": {
-    "displayName": "🐦 Magpie",
-    "description": "Unread mail count in the bar; the inbox itself opens as its own window. Works with Gmail, HEY and any JMAP or IMAP mail server.",
+    "displayName": "\ud83d\udc26 Magpie",
+    "description": "Unread Gmail count in the bar; the inbox opens in its own window.",
     "category": "Communication",
     "aliases": [
       "mail",
       "email",
       "gmail",
-      "hey",
-      "imap",
-      "jmap",
       "inbox",
       "e-mail",
-      "mailbox",
-      "smtp"
+      "mailbox"
     ],
     "allowMultiple": false,
     "defaultSection": "right",

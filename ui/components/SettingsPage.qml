@@ -49,6 +49,7 @@ Column {
     values.push({ key: "writing", title: "Writing", y: writingHeading.y })
     values.push({ key: "mailboxes", title: "Mailboxes", y: mailboxesHeading.y })
     values.push({ key: "calendars", title: "Calendars", y: calendarsSection.y })
+    values.push({ key: "phone", title: "iPhone", y: phoneSettings.y })
     values.push({ key: "oauth", title: "Google OAuth client", y: oauthHeading.y })
     return values
   }
@@ -294,6 +295,8 @@ Column {
       Accessible.name: text
     }
   }
+
+
 
   DisplaySettings {
     id: displaySettings
@@ -1335,6 +1338,21 @@ Column {
     foreground: root.textColor
   }
 
+
+  PhoneSettings {
+    id: phoneSettings
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  PanelSeparator {
+    width: parent.width
+    foreground: root.textColor
+  }
 
   Text {
     id: oauthHeading

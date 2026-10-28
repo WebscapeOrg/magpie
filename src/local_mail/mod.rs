@@ -1,4 +1,8 @@
 mod content;
+#[cfg(not(target_os = "ios"))]
+mod ipc;
+#[cfg(target_os = "ios")]
+#[path = "mobile_ipc.rs"]
 mod ipc;
 #[cfg(test)]
 mod provider_tests;
@@ -59,11 +63,30 @@ fn search_time(params: &Value) -> Result<Option<i64>, &'static str> {
 
 #[derive(Default)]
 pub struct LocalMail {
+    suspended: std::sync::atomic::AtomicBool,
     stores: Arc<Mutex<HashMap<String, Arc<Store>>>>,
     jobs: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
     events: std::sync::OnceLock<tokio::sync::broadcast::Sender<Value>>,
 }
 impl LocalMail {
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn phone_summaries(
+        &self,
+        account: &str,
+        thread: Option<String>,
+    ) -> Result<Value, &'static str> {
+        let store = self.store(account).await?;
+        sync::disk(&store, move |store| {
+            store.phone_summaries(thread.as_deref())
+        })
+        .await
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn notification_snapshot(&self, account: &str) -> Result<Value, &'static str> {
+        let store = self.store(account).await?;
+        sync::disk(&store, |store| store.notification_snapshot()).await
+    }
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<Value> {
         self.events
             .get_or_init(|| tokio::sync::broadcast::channel(128).0)
@@ -76,6 +99,9 @@ impl LocalMail {
     ) -> Result<(), &'static str> {
         let store = self.store(account).await?;
         let mut jobs = self.jobs.lock().map_err(|_| "local_storage_unavailable")?;
+        if self.suspended.load(std::sync::atomic::Ordering::Acquire) {
+            return Err("local_suspended");
+        }
         if jobs.get(account).is_some_and(|job| !job.is_finished()) {
             return Ok(());
         }
@@ -98,9 +124,73 @@ impl LocalMail {
         })
         .await
     }
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn retire(&self, account: &str) -> Result<(), &'static str> {
+        let job = self
+            .jobs
+            .lock()
+            .map_err(|_| "local_storage_unavailable")?
+            .remove(account);
+        if let Some(job) = job {
+            job.abort();
+            let _ = job.await;
+        }
+        let store = self
+            .stores
+            .lock()
+            .map_err(|_| "local_storage_unavailable")?
+            .get(account)
+            .cloned();
+        if let Some(store) = store {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+            while Arc::strong_count(&store) > 2 {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err("local_busy");
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            self.stores
+                .lock()
+                .map_err(|_| "local_storage_unavailable")?
+                .remove(account);
+        }
+        Ok(())
+    }
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn quiesce(&self) -> Result<(), &'static str> {
+        let stores: Vec<_> = self
+            .stores
+            .lock()
+            .map_err(|_| "local_storage_unavailable")?
+            .values()
+            .cloned()
+            .collect();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+        while self.suspended.load(std::sync::atomic::Ordering::Acquire)
+            && stores.iter().any(|store| Arc::strong_count(store) > 2)
+        {
+            if tokio::time::Instant::now() >= deadline {
+                return Err("local_busy");
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        Ok(())
+    }
     pub fn stop(&self, account: &str) {
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(job) = jobs.remove(account) {
+                job.abort();
+            }
+        }
+    }
+    pub fn set_suspended(&self, suspended: bool) {
+        let Ok(mut jobs) = self.jobs.lock() else {
+            return;
+        };
+        self.suspended
+            .store(suspended, std::sync::atomic::Ordering::Release);
+        if suspended {
+            for (_, job) in jobs.drain() {
                 job.abort();
             }
         }

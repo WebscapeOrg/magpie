@@ -131,10 +131,41 @@ fn read_at(config: &Path, account: &str) -> Result<Client, &'static str> {
     read_file(file, account)
 }
 pub fn read_for_account(account: &str) -> Result<Client, &'static str> {
-    let config = crate::platform::dirs::AppDirs::discover()
-        .map_err(|_| "config_home_invalid")?
-        .config;
-    read_at(&config, account)
+    #[cfg(target_os = "ios")]
+    {
+        return mobile_client(&crate::account::raw_registry_readonly()?, account);
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let config = crate::platform::dirs::AppDirs::discover()
+            .map_err(|_| "config_home_invalid")?
+            .config;
+        read_at(&config, account)
+    }
+}
+
+#[cfg(any(target_os = "ios", test))]
+fn mobile_client(registry: &Value, account: &str) -> Result<Client, &'static str> {
+    if account.len() > 1024 || account.chars().any(char::is_control) {
+        return Err("gmail_token_account_invalid");
+    }
+    let account = account.trim().to_lowercase();
+    if !crate::account::valid_email(&account) || account.contains(':') {
+        return Err("gmail_token_account_invalid");
+    }
+    let entries = registry["accounts"].as_array().ok_or("accounts_invalid")?;
+    let mut owned = entries.iter().filter(|entry| {
+        entry["email"]
+            .as_str()
+            .is_some_and(|email| email.trim().to_lowercase() == account)
+    });
+    let entry = owned.next().ok_or("mail_account_unknown")?;
+    if owned.next().is_some() {
+        return Err("gmail_client_invalid");
+    }
+    crate::account::provider(entry)?;
+    let value = serde_json::json!({"clientId":entry["clientId"],"clientSecret":""});
+    client(&value).ok_or("gmail_client_invalid")
 }
 pub(super) fn lookup_with(
     client: &Client,
@@ -185,6 +216,53 @@ pub fn lookup_refresh_token(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mobile_accounts_use_only_their_registered_public_client() {
+        let mut registry = serde_json::json!({"accounts":[
+            {"email":"one@example.org","provider":"gmail","clientId":"123-one.apps.googleusercontent.com","clientSecret":"ignored"},
+            {"email":"two@example.org","provider":"gmail","clientId":"456-two.apps.googleusercontent.com"}
+        ]});
+        let own = mobile_client(&registry, "TWO@example.org").unwrap();
+        assert_eq!(own.client_id, "456-two.apps.googleusercontent.com");
+        assert!(own.client_secret.is_empty());
+        registry["accounts"][1]["email"] = serde_json::json!("Üser@example.org");
+        assert_eq!(
+            mobile_client(&registry, "üser@example.org")
+                .unwrap()
+                .client_id,
+            "456-two.apps.googleusercontent.com"
+        );
+        registry["accounts"][1]["email"] = serde_json::json!("two@example.org");
+        assert!(matches!(
+            mobile_client(&registry, "other@example.org"),
+            Err("mail_account_unknown")
+        ));
+        for id in ["", "bad", "123-one.apps.googleusercontent.com\n"] {
+            registry["accounts"][1]["clientId"] = serde_json::json!(id);
+            assert!(matches!(
+                mobile_client(&registry, "two@example.org"),
+                Err("gmail_client_invalid")
+            ));
+        }
+        registry["accounts"][1]["clientId"] =
+            serde_json::json!("456-two.apps.googleusercontent.com");
+        registry["accounts"][1]["provider"] = serde_json::json!("foreign");
+        assert!(matches!(
+            mobile_client(&registry, "two@example.org"),
+            Err("accounts_provider_unsupported")
+        ));
+        registry["accounts"][1] = registry["accounts"][0].clone();
+        assert!(matches!(
+            mobile_client(&registry, "one@example.org"),
+            Err("gmail_client_invalid")
+        ));
+        for account in ["", "../one", "one@example.org\n", "g:one@example.org"] {
+            assert!(matches!(
+                mobile_client(&registry, account),
+                Err("gmail_token_account_invalid")
+            ));
+        }
+    }
     use std::{
         path::PathBuf,
         sync::atomic::{AtomicU64, Ordering},

@@ -186,18 +186,12 @@ try {
         $SmokeHost = Join-Path $SmokePackage "bin\omamail-app.exe"
         $SmokeBackend = Join-Path $SmokePackage "bin\omamail.exe"
         $ReadyFile = Join-Path $Smoke "ready.json"
-        & $SmokeHost --check-resources
-        if ($LASTEXITCODE -ne 0) { throw "packaged host resource check failed" }
-        & $SmokeHost --smoke-test $ReadyFile
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $ReadyFile -PathType Leaf)) {
-            throw "packaged host smoke test failed"
-        }
         $BackendVersion = (& $SmokeBackend --version | Out-String).Trim()
         if ($LASTEXITCODE -ne 0 -or $BackendVersion -cne "omamail $RequestedVersion") {
             throw "packaged backend version does not match $RequestedVersion"
         }
         & $Python $BackendApiTestPath --binary $SmokeBackend --expected-version $RequestedVersion `
-            --standalone
+            --standalone --isolated-windows-runner --smoke-host $SmokeHost --smoke-ready $ReadyFile
         if ($LASTEXITCODE -ne 0) { throw "packaged backend API test failed" }
     }
     $Succeeded = $true

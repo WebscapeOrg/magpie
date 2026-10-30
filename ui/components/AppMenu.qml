@@ -22,6 +22,8 @@ Item {
   property bool canQuit: false
   property bool singlePane: true
   property bool hasAgent: true
+  property bool descriptionsEnabled: true
+  signal descriptionsToggleRequested()
   property bool overviewsPaused: false
   signal overviewPauseRequested()
   signal refreshImagesRequested()
@@ -37,7 +39,7 @@ Item {
   property int cursorIndex: -1
   property bool helpPage: false
   readonly property var menuRows: helpPage ? [helpBackRow, searchHelpRow, shortcutsRow]
-    : [snoozedRow, layoutRow, refreshRow, aiToolsRow, refreshImagesRow, pauseOverviewRow, overviewRow, inboxRow, calendarRow, markRow, webRow,
+    : [snoozedRow, layoutRow, refreshRow, aiToolsRow, refreshImagesRow, descriptionsRow, pauseOverviewRow, overviewRow, inboxRow, calendarRow, markRow, webRow,
       switchRow, settingsRow, helpRow, projectRow, authorRow, quitRow]
 
   function openAt(sceneX, sceneY) {
@@ -235,14 +237,20 @@ Item {
         onActivated: { menu.close(); root.refreshImagesRequested() }
       }
       MenuRow {
+        id: descriptionsRow
+        text: root.descriptionsEnabled ? "Show original subjects" : "Show AI descriptions"
+        visible: root.hasAgent
+        onActivated: { menu.close(); root.descriptionsToggleRequested() }
+      }
+      MenuRow {
         id: pauseOverviewRow
-        text: root.overviewsPaused ? "Resume AI overviews" : "Pause new AI overviews"
+        text: root.overviewsPaused ? "Resume AI descriptions" : "Pause new AI descriptions"
         visible: root.hasAgent
         onActivated: { menu.close(); root.overviewPauseRequested() }
       }
       MenuRow {
         id: overviewRow
-        text: "Retry AI overviews"
+        text: "Retry AI descriptions"
         visible: root.hasAgent
         onActivated: { menu.close(); root.overviewRetryRequested() }
       }

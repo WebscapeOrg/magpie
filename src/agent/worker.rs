@@ -367,10 +367,52 @@ async fn write(fd: AsyncFd<OwnedFd>, bytes: &[u8]) -> io::Result<()> {
             }
         }
     }
+    drop(fd);
     Ok(())
 }
 
 pub(super) async fn execute<
+    F: Future<Output = ()>,
+    P: FnMut(&ProviderStream) -> Result<(), &'static str>,
+>(
+    command: Command,
+    prompt: &[u8],
+    parser: &mut ProviderStream,
+    deadline: Duration,
+    cancel: F,
+    persist: P,
+) -> Outcome {
+    execute_bounded(
+        command,
+        prompt,
+        parser,
+        deadline,
+        cancel,
+        persist,
+        INPUT_LIMIT,
+    )
+    .await
+}
+
+pub(super) async fn execute_multimodal(
+    command: Command,
+    prompt: &[u8],
+    parser: &mut ProviderStream,
+    deadline: Duration,
+) -> Outcome {
+    execute_bounded(
+        command,
+        prompt,
+        parser,
+        deadline,
+        std::future::pending(),
+        |_| Ok(()),
+        16 * 1024 * 1024,
+    )
+    .await
+}
+
+async fn execute_bounded<
     F: Future<Output = ()>,
     P: FnMut(&ProviderStream) -> Result<(), &'static str>,
 >(
@@ -380,9 +422,10 @@ pub(super) async fn execute<
     deadline: Duration,
     cancel: F,
     mut persist: P,
+    input_limit: usize,
 ) -> Outcome {
     let setup = (|| {
-        if prompt.len() > INPUT_LIMIT {
+        if prompt.len() > input_limit {
             return Err(INVALID);
         }
         command

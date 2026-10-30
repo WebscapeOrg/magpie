@@ -1087,6 +1087,7 @@ Item {
   property int restoreAttempts: 0
 
   function applyWindowPrefs(raw) {
+    inboxController.descriptionsEnabled = Display.readWindow(raw).descriptionsEnabled !== false
     inboxController.paused = Display.readWindow(raw).overviewPaused === true
     displayPreferences = Display.fromWindow(raw)
     var prefs = Model.windowPrefs(raw)
@@ -1127,6 +1128,7 @@ Item {
     windowWritePayload = JSON.stringify({
       display: displayPreferences,
       overviewPaused: inboxController.paused,
+      descriptionsEnabled: inboxController.descriptionsEnabled,
       sidebarCollapsed: sidebarCollapsed,
       sidebarWidth: sidebarWidth,
       listWidth: listWidth,

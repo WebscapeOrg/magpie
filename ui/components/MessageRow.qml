@@ -67,7 +67,7 @@ Rectangle {
   }
 
   width: parent ? parent.width : 0
-  implicitHeight: body.implicitHeight + MailStyle.space(14)
+  implicitHeight: Math.max(body.implicitHeight, actions.visible ? actions.height : 0, avatar.height) + MailStyle.space(14)
   radius: Style.cornerRadius
   color: selected || hasCursor || checked
     ? Style.selectedFillFor(textColor, accentColor)
@@ -103,7 +103,7 @@ Rectangle {
     anchors.left: parent.left
     anchors.leftMargin: MailStyle.space(14)
     y: body.y
-    width: sender.implicitHeight + subject.implicitHeight + body.spacing
+    width: MailStyle.space(36)
     height: width
     sender: root.summary.from || ({})
     imageData: root.avatarData
@@ -129,13 +129,14 @@ Rectangle {
         id: sender
         objectName: "message-sender"
         anchors.left: parent.left
-        anchors.right: count.visible ? count.left : time.left
+        anchors.right: count.visible ? count.left : attachmentIndicator.visible ? attachmentIndicator.left : time.left
         anchors.rightMargin: count.visible ? MailStyle.space(4) : MailStyle.space(8)
         textFormat: Text.PlainText
         text: root.summary.from ? root.summary.from.display : ""
-        color: root.dimColor
+        color: root.textColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
+        font.bold: root.summary.unread === true
         elide: Text.ElideRight
         horizontalAlignment: root.textAlignment
       }
@@ -143,7 +144,7 @@ Rectangle {
       Text {
         id: count
         objectName: "message-conversation-count"
-        anchors.right: time.left
+        anchors.right: attachmentIndicator.visible ? attachmentIndicator.left : time.left
         anchors.rightMargin: MailStyle.space(8)
         anchors.baseline: sender.baseline
         visible: root.conversations && root.threadCount > 0
@@ -153,6 +154,20 @@ Rectangle {
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
         font.bold: root.summary.unread === true
+      }
+
+      ActionIcon {
+        id: attachmentIndicator
+        objectName: "message-attachment-indicator"
+        visible: root.attachmentIndicatorEnabled && root.summary.hasAttachments === true
+        anchors.right: time.left
+        anchors.rightMargin: MailStyle.space(8)
+        y: (sender.height - height) / 2
+        name: "attachment"
+        iconSize: MailStyle.listSize
+        color: root.dimColor
+        Accessible.role: Accessible.Graphic
+        Accessible.name: "Has attachments"
       }
 
       Text {
@@ -174,48 +189,40 @@ Rectangle {
       width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
       // Invariant: sender-controlled labels must never activate Qt’s rich-text loader.
       textFormat: Text.PlainText
-      text: String(root.summary.subject || "")
+      text: root.overview || String(root.summary.subject || "")
       color: root.textColor
       font.family: root.panelFontFamily
       font.pixelSize: MailStyle.listSize
       font.bold: root.summary.unread === true
       elide: Text.ElideRight
-      horizontalAlignment: root.subjectAlignment
+      horizontalAlignment: root.overview ? root.textAlignment : root.subjectAlignment
+      wrapMode: Text.Wrap
+      maximumLineCount: 3
+      Accessible.name: root.overview ? "AI description: " + root.overview : text
+      Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && (subject.truncated || root.overviewState === "failed"); text: root.overview || (root.overviewReason ? "Original subject shown. " + root.overviewReason : subject.text); fontFamily: root.panelFontFamily }
+      HoverHandler { id: overviewHover }
     }
 
     Item {
       width: Math.max(0, Math.min(subject.width, parent.width - time.width - MailStyle.space(16)))
-      implicitHeight: description.implicitHeight
+      visible: !root.overview && String(root.summary.snippet || "") !== ""
+      implicitHeight: visible ? description.implicitHeight : 0
 
-      ActionIcon {
-        id: attachmentIndicator
-        objectName: "message-attachment-indicator"
-        visible: root.attachmentIndicatorEnabled && root.summary.hasAttachments === true
-        anchors.left: parent.left
-        y: description.y + (description.height - height) / 2
-        name: "attachment"
-        iconSize: Math.min(MailStyle.listSize, description.implicitHeight)
-        color: root.dimColor
-        Accessible.role: Accessible.Graphic
-        Accessible.name: "Has attachments"
-      }
 
       Text {
         id: description
         objectName: "message-description"
-        anchors.left: attachmentIndicator.visible ? attachmentIndicator.right : parent.left
-        anchors.leftMargin: attachmentIndicator.visible ? MailStyle.space(6) : 0
+        anchors.left: parent.left
         anchors.right: parent.right
         visible: true
         textFormat: Text.PlainText
-        text: root.overview || (root.overviewState === "failed" ? "Overview unavailable · " + (root.overviewReason || "previous attempt saved no reason; retry from Menu") : root.overviewState === "paused" ? "Overviews paused" : root.overviewState === "running" ? "Creating overview" : root.overviewState === "unavailable" ? "Overview unavailable · " + (root.overviewReason || "mail backend is disconnected") : "Overview queued")
+        text: String(root.summary.snippet || "")
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
         elide: Text.ElideRight
-        Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && (description.truncated || root.overviewState === "failed"); text: description.text; fontFamily: root.panelFontFamily }
-        HoverHandler { id: overviewHover }
-        maximumLineCount: 1
+        maximumLineCount: 2
+        wrapMode: Text.Wrap
         horizontalAlignment: root.textAlignment
       }
     }

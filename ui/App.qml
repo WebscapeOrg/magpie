@@ -2125,6 +2125,8 @@ Item {
         canQuit: root.standaloneWindowChrome
         singlePane: root.singlePane
         hasAgent: !!root.service && root.service.hasAgent !== false
+        descriptionsEnabled: !root.service || !root.service.inboxTools || root.service.inboxTools.descriptionsEnabled !== false
+        onDescriptionsToggleRequested: if (root.service && root.service.inboxTools) root.service.inboxTools.setDescriptionsEnabled(!root.service.inboxTools.descriptionsEnabled)
         overviewsPaused: !!root.service && !!root.service.inboxTools && root.service.inboxTools.paused
         onRefreshImagesRequested: if (root.service && root.service.inboxTools) root.service.inboxTools.refreshAvatars()
         onOverviewPauseRequested: if (root.service && root.service.inboxTools) root.service.inboxTools.setPaused(!root.service.inboxTools.paused)

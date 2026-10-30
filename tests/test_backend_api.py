@@ -500,7 +500,7 @@ def main():
         inbox = state_root / 'omamail/inbox'
         inbox.mkdir(mode=0o700)
         overview = inbox / (digest.hexdigest() + '.json')
-        overview.write_text(json.dumps({'cached': {'state': 'failed', 'reason': 'AI response could not be verified against the mail; retry from Menu', 'version': 1, 'updated': 1}}))
+        overview.write_text(json.dumps({'cached': {'state': 'failed', 'reason': 'AI response could not be verified against the mail; retry from Menu', 'version': 1, 'updated': 1}, 'ready': {'state': 'ready', 'text': 'Receipt — R780 paid', 'version': 2, 'expiresAt': 0, 'updated': 1}, 'expired': {'state': 'ready', 'text': 'Due yesterday', 'version': 2, 'expiresAt': 1, 'updated': 1}}))
         overview.chmod(0o600)
         helpers = home / 'bin'
         helpers.mkdir()

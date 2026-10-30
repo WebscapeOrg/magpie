@@ -16,6 +16,7 @@ Item {
     id: service
     property var backend: backend
     property bool windowOpen: true
+    property bool alwaysShowImages: false
     property var accountSummaries: [{id:"one@example.org"},{id:"two@example.org"}]
     property var messages: [{id:"one-message",sourceId:"shared-id",from:{email:"alex@example.com"}},{id:"two-message",sourceId:"shared-id",from:{email:"alex@example.com"}}]
     function hostForId(id) { return String(id).indexOf("two-")===0 ? second : first }
@@ -24,8 +25,30 @@ Item {
   TestCase {
     name: "InboxTools"
     when: windowShown
-    function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.snapshotsPending=({});tools.requesting=false;service.windowOpen=true;tools.visibleRows=service.messages }
+    function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.descriptionsEnabled=true;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.snapshotsPending=({});tools.requesting=false;service.windowOpen=true;tools.visibleRows=service.messages }
     function cleanup() { backend.ready=false }
+    function test_cached_relative_words_expire_while_disconnected() {
+      wait(400)
+      tools.overviewClock=Date.now()
+      tools.overviews={"one@example.org\nshared-id":{text:"Due today",state:"ready",version:2,expiresAt:Date.now()+50}}
+      compare(tools.overviewFor(service.messages[0]).text,"Due today")
+      tryVerify(function(){return tools.overviewFor(service.messages[0]).text===""},6000)
+      compare(backend.calls.length,0)
+    }
+    function test_expired_descriptions_fall_back_and_remote_images_remain_opt_in() {
+      tools.overviews={"one@example.org\nshared-id":{text:"Due yesterday",state:"ready",version:2,expiresAt:1}}
+      compare(tools.overviewFor(service.messages[0]).text,"")
+      backend.apiVersion=8;backend.ready=true
+      var job=backend.calls.filter(function(request){return request.method==="inbox.overviews"})[0]
+      verify(job)
+      compare(job.params.allowRemoteImages,false)
+    }
+    function test_original_subject_mode_stops_admission_but_keeps_avatars() {
+      tools.descriptionsEnabled=false
+      backend.apiVersion=8;backend.ready=true;tools.refresh()
+      verify(!backend.calls.some(function(request){return request.method==="inbox.overviews"}))
+      verify(backend.calls.some(function(request){return request.method==="inbox.avatar"}))
+    }
     function test_admission_failure_explains_each_affected_row_without_leaking_error() {
       backend.apiVersion=8;backend.ready=true
       var job=backend.calls.filter(function(request){return request.method==="inbox.overviews"})[0]
@@ -82,7 +105,7 @@ Item {
       tryVerify(function() { return backend.calls.length>0 })
       var snapshot=backend.calls.filter(function(request){return request.method==="inbox.snapshot" && request.params.accountId==="one@example.org"})[0]
       verify(snapshot)
-      snapshot.done({overviews:{"shared-id":{text:"First account only",state:"ready"}},snoozes:[]},null)
+      snapshot.done({overviews:{"shared-id":{text:"First account only",state:"ready",version:2,expiresAt:0}},snoozes:[]},null)
       compare(tools.overviewFor(service.messages[0]).text,"First account only")
       compare(tools.overviewFor(service.messages[1]).text,undefined)
       var jobs=backend.calls.filter(function(request){return request.method==="inbox.overviews"})

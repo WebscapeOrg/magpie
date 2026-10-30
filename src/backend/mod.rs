@@ -151,6 +151,15 @@ impl Engine {
         if !methods::ALL.contains(&method) {
             return Err("unknown_method");
         }
+        if method == "backup.export" {
+            if params.as_object().is_none_or(|fields| !fields.is_empty()) {
+                return Err("invalid_params");
+            }
+            #[cfg(target_os = "linux")]
+            return self.local_mail.export_backup().await;
+            #[cfg(not(target_os = "linux"))]
+            return Err("unknown_method");
+        }
         if matches!(method, "local.watch" | "local.unwatch" | "local.refresh") {
             if params.as_object().is_none_or(|p| p.len() != 1) {
                 return Err("invalid_params");
@@ -687,6 +696,7 @@ mod api_contract_tests {
             .filter(|method| {
                 cfg!(target_os = "linux") || !method.as_str().unwrap().starts_with("phone.")
             })
+            .filter(|method| cfg!(target_os = "linux") || method.as_str() != Some("backup.export"))
             .collect();
         assert_eq!(info["methods"], json!(expected));
     }

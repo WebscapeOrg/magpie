@@ -119,7 +119,7 @@ Item {
         anchors.rightMargin: trigger.borderRight + Style.spacing.controlGap
         text: "󰅀"
         color: MailStyle.muted(root.foreground, Commons.Color.background)
-        font.family: Style.font.iconFamily
+        font.family: Style.font.iconFamily || Style.font.family
         font.pixelSize: MailStyle.body
       }
 

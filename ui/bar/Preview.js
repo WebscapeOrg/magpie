@@ -1,6 +1,5 @@
 .pragma library
 
-.import "../message/Html.js" as Html
 
 function messageTime(item) {
   var value = item ? item.date : null
@@ -33,32 +32,5 @@ function latestMessages(accounts, limit) {
   output.sort(function(left, right) {
     return messageTime(right) - messageTime(left)
   })
-  return output.slice(0, Math.max(0, Math.floor(Number(limit) || 0)))
-}
-
-// Performance: key the preview month by day so repeated clock ticks reuse its calendar range.
-function previewRange(nowMs) {
-  var now = new Date(Number(nowMs) || Date.now())
-  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  return [today.getTime(),
-    new Date(now.getFullYear(), now.getMonth(), now.getDate() + 31).getTime()]
-}
-
-function upcomingEvents(events, nowMs, limit) {
-  var values = Array.isArray(events) ? events : []
-  var now = Number(nowMs) || Date.now()
-  var output = []
-  for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
-    var item = values[valueIndex] || {}
-    if (!item.start || Number(item.start.ms) < now) continue
-    var copy = ({})
-    for (var key in item) copy[key] = item[key]
-    copy.sourceLabel = String(item.sourceName || item.sourceId || "Calendar")
-    var location = String(item.location || "").trim()
-    copy.callUrl = Html.externallyOpenableHttpUrl(item.meetLink)
-      || Html.externallyOpenableHttpUrl(/^https?:\/\/\S+$/i.test(location) ? location : "")
-    output.push(copy)
-  }
-  output.sort(function(left, right) { return Number(left.start.ms) - Number(right.start.ms) })
   return output.slice(0, Math.max(0, Math.floor(Number(limit) || 0)))
 }

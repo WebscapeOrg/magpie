@@ -94,18 +94,12 @@
     "cache.bodyClear",
     "cache.storeRead",
     "cache.storePut",
-    "cache.calendarRead",
-    "cache.calendarPut",
     "contacts.suggest",
     "attachment.read",
     "attachment.store",
     "attachment.storeUpload",
     "public.image",
     "public.unsubscribe",
-    "calendar.request",
-    "calendar.discover",
-    "calendar.attendance",
-    "calendar.reminders",
     "auth.form",
     "auth.begin",
     "auth.poll",
@@ -149,135 +143,9 @@
     "attachment.retain",
     "outbox.compose",
     "draft.compose",
-    "calendar.read",
-    "calendar.parse",
     "local.labelCounts"
   ],
   "contractCases": [
-    {
-      "name": "Reminder view cache has an independent namespace",
-      "method": "cache.calendarRead",
-      "params": {
-        "name": "calendar-reminders"
-      },
-      "equals": {
-        "version": 3
-      },
-      "types": {
-        "ranges": "object"
-      }
-    },
-    {
-      "name": "Reminder actions validate before opening the ledger",
-      "method": "calendar.reminders",
-      "params": {
-        "operation": "dismiss",
-        "now": 1,
-        "key": "../outside"
-      },
-      "errorCode": -32602
-    },
-    {
-      "name": "Simultaneous reminders retain each event identity",
-      "method": "calendar.reminders",
-      "params": {
-        "operation": "poll",
-        "now": 1400000,
-        "lastCheck": 1300000,
-        "candidates": [
-          {
-            "key": "contract-one",
-            "occurrence": "contract-one",
-            "eventId": "one",
-            "sourceId": "calendar",
-            "accountId": "synthetic",
-            "title": "First meeting",
-            "start": 2000000,
-            "end": 5600000,
-            "due": 1400000
-          },
-          {
-            "key": "contract-two",
-            "occurrence": "contract-two",
-            "eventId": "two",
-            "sourceId": "calendar",
-            "accountId": "synthetic",
-            "title": "Second meeting",
-            "start": 2000000,
-            "end": 5600000,
-            "due": 1400000
-          }
-        ]
-      },
-      "equals": {
-        "notifications.length": 2,
-        "notifications.0.eventId": "one",
-        "notifications.1.eventId": "two",
-        "notifications.1.title": "Second meeting"
-      },
-      "types": {
-        "notifications.0.key": "string",
-        "notifications.1.key": "string"
-      }
-    },
-    {
-      "name": "Google attendance rejects unsupported answers before authentication",
-      "method": "calendar.attendance",
-      "params": {
-        "accountId": "missing@example.org",
-        "uid": "invite",
-        "organizer": "organizer@example.org",
-        "response": "yes"
-      },
-      "errorCode": -32602
-    },
-    {
-      "name": "Google attendance requires the invitation organizer before authentication",
-      "method": "calendar.attendance",
-      "params": {
-        "accountId": "missing@example.org",
-        "uid": "invite",
-        "response": "accepted"
-      },
-      "errorCode": -32602
-    },
-    {
-      "name": "Google calendar identity is validated before authentication",
-      "method": "calendar.request",
-      "params": {
-        "source": {
-          "kind": "google",
-          "accountId": "missing@example.org",
-          "calendarId": ".."
-        },
-        "operation": "get",
-        "eventId": "event"
-      },
-      "errorCode": -32000
-    },
-    {
-      "name": "Calendar requests refuse non-Google providers before authentication",
-      "method": "calendar.request",
-      "params": {
-        "source": {
-          "kind": "icloud",
-          "accountId": "imap:missing@icloud.com",
-          "url": "https://example.org/calendar/"
-        },
-        "operation": "list",
-        "body": "report"
-      },
-      "errorCode": -32000,
-      "equals": {
-        "message": "calendar_provider_unsupported"
-      }
-    },
-    {
-      "name": "strict calendar discovery parameters",
-      "method": "calendar.discover",
-      "params": {},
-      "errorCode": -32602
-    },
     {
       "name": "mail list requires an account",
       "method": "mail.list",
@@ -1296,56 +1164,6 @@
       "errorCode": -32602
     },
     {
-      "name": "Calendar reads refuse mutations",
-      "method": "calendar.read",
-      "params": {
-        "operation": "delete"
-      },
-      "errorCode": -32602
-    },
-    {
-      "name": "Native Google calendar parsing retains display data",
-      "method": "calendar.parse",
-      "params": {
-        "kind": "google",
-        "sourceId": "synthetic",
-        "body": "{\"items\": [{\"id\": \"one\", \"summary\": \"Meeting\", \"start\": {\"dateTime\": \"2026-10-20T12:00:00Z\"}, \"end\": {\"dateTime\": \"2026-10-20T13:00:00Z\"}}]}"
-      },
-      "equals": {
-        "events.length": 1,
-        "events.0.googleId": "one",
-        "events.0.summary": "Meeting",
-        "events.0.sourceId": "synthetic",
-        "events.0.start.ms": 1792497600000
-      }
-    },
-    {
-      "name": "Calendar parsing refuses non-Google providers",
-      "method": "calendar.parse",
-      "params": {
-        "kind": "caldav",
-        "sourceId": "synthetic",
-        "body": "<!DOCTYPE x [<!ENTITY s SYSTEM \"file:///etc/passwd\">]><x>&s;</x>"
-      },
-      "errorCode": -32000,
-      "equals": {
-        "message": "calendar_provider_unsupported"
-      }
-    },
-    {
-      "name": "Shared calendar ranges have an independent namespace",
-      "method": "cache.calendarRead",
-      "params": {
-        "name": "calendar-shared"
-      },
-      "equals": {
-        "version": 3
-      },
-      "types": {
-        "ranges": "object"
-      }
-    },
-    {
       "name": "Unreleased handshake identifies its exact API contract",
       "method": "system.info",
       "params": {},
@@ -2308,15 +2126,12 @@
       "attachment.retain",
       "outbox.compose",
       "draft.compose",
-      "calendar.read",
-      "calendar.parse",
       "local.labelCounts",
       "phone.pairBegin",
       "phone.devices",
       "phone.revoke"
     ],
     "cases": [
-      "Calendar requests refuse non-Google providers before authentication",
       "Gmail send preview refuses missing authentication",
       "mail send rejects unknown fields",
       "mail send rejects nonboolean execution",
@@ -2340,10 +2155,6 @@
       "Native attachments refuse arbitrary resource URLs",
       "Native draft composition rejects unknown controls",
       "Native outbox composition requires structured fields",
-      "Calendar reads refuse mutations",
-      "Native Google calendar parsing retains display data",
-      "Calendar parsing refuses non-Google providers",
-      "Shared calendar ranges have an independent namespace",
       "Unreleased handshake identifies its exact API contract",
       "Attachment recovery preserves source and owned pending work",
       "Attachment recovery reads source and owned pending work",

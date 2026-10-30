@@ -27,9 +27,7 @@ function settings(values, defaults) {
 function snapshot(value) {
   var source = value || {}
   var messages = Array.isArray(source.barMessages) ? source.barMessages : []
-  var events = Array.isArray(source.barEvents) ? source.barEvents : []
   var mail = []
-  var calendar = []
   for (var messageIndex = 0; messageIndex < Math.min(messages.length, 3); messageIndex++) {
     var message = messages[messageIndex] || {}
     mail.push({
@@ -41,32 +39,21 @@ function snapshot(value) {
       sourceLabel: text(message.sourceLabel), receivedLabel: text(message.receivedLabel)
     })
   }
-  for (var eventIndex = 0; eventIndex < Math.min(events.length, 2); eventIndex++) {
-    var event = events[eventIndex] || {}
-    var start = event.start && event.start.ms
-    if (typeof start !== "number" || !isFinite(start)) continue
-    calendar.push({
-      uid: identifier(event.uid), start: { ms: start },
-      summary: text(event.summary), sourceLabel: text(event.sourceLabel),
-      callUrl: identifier(event.callUrl)
-    })
-  }
   return {
     ready: source.ready === true, windowOpen: source.windowOpen === true,
     showBarIcon: source.showBarIcon !== false,
     unreadTotal: typeof source.unreadTotal === "number" && isFinite(source.unreadTotal)
       ? Math.max(0, Math.floor(source.unreadTotal)) : 0,
     barTooltip: text(source.barTooltip), contentDirection: text(source.contentDirection),
-    barMessages: mail, barEvents: calendar
+    barMessages: mail
   }
 }
 
-function publish(readSnapshot, applySettings, refresh, refreshCalendarPreview) {
+function publish(readSnapshot, applySettings, refresh) {
   var api = Object.freeze({
     snapshot: function() { return active === api ? snapshot(readSnapshot()) : null },
     applySettings: function(values) { if (active === api) applySettings(values) },
-    refresh: function() { if (active === api) refresh() },
-    refreshCalendarPreview: function() { if (active === api) refreshCalendarPreview() }
+    refresh: function() { if (active === api) refresh() }
   })
   active = api
   return api

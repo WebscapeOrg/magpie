@@ -267,7 +267,7 @@ Item {
     function test_mail_and_calendar_have_mnemonic_shortcuts() {
       keyClick(Qt.Key_C, Qt.ControlModifier | Qt.ShiftModifier)
       compare(host.lastId, "calendarView")
-      host.context = "calendar"
+      host.context = "list"
       host.lastId = ""
       wait(20)
       keyClick(Qt.Key_M, Qt.ControlModifier | Qt.ShiftModifier)
@@ -276,10 +276,10 @@ Item {
 
     // Invariant: a matching week-view shortcut would make the platform Close chord ambiguous and swallow it.
     function test_calendar_week_is_not_the_close_chord() {
-      host.context = "calendar"
+      host.context = "list"
       wait(20)
       keyClick(Qt.Key_W)
-      compare(host.lastId, "calendarWeek")
+      compare(host.lastId, "")
       host.lastId = ""
       keyClick(Qt.Key_W, Qt.ControlModifier)
       compare(host.lastId, "", "Ctrl/Cmd+W is Close, not week view")

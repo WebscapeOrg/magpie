@@ -246,9 +246,9 @@ mod tests {
             });
             started.await.unwrap();
             let session = crate::backend::Session::default();
-            // Invariant: Parsing invalid calendar input exercises blocking dispatch without
+            // Invariant: Parsing invalid message input exercises blocking dispatch without
             // network, credentials or filesystem effects.
-            let frame = br#"{"jsonrpc":"2.0","id":1,"method":"calendar.parse","params":{"unexpected":true}}"#;
+            let frame = br#"{"jsonrpc":"2.0","id":1,"method":"message.parse","params":{"unexpected":true}}"#;
             let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
             let request = handle(frame, &session, deadline);
             tokio::pin!(request);

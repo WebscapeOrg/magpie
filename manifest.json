@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "magpie",
-  "name": "\ud83d\udc26 Magpie",
+  "name": "🐦 Magpie",
   "version": "1.0.0",
   "author": "dreinecke (fork of huacnlee/omamail)",
   "license": "MIT",
@@ -19,7 +19,7 @@
     "panel": "ui/App.qml"
   },
   "barWidget": {
-    "displayName": "\ud83d\udc26 Magpie",
+    "displayName": "🐦 Magpie",
     "description": "Unread Gmail count in the bar; the inbox opens in its own window.",
     "category": "Communication",
     "aliases": [
@@ -41,9 +41,6 @@
       "notifyNewMail": "On",
       "oauthPort": 9481,
       "undoSendSeconds": 10,
-      "unifiedCalendarView": false,
-      "calendarRemindersEnabled": true,
-      "calendarSnoozeMinutes": 5,
       "openOnClick": "Window",
       "showBarIcon": true,
       "suggestEvents": false,
@@ -164,30 +161,6 @@
         "step": 1,
         "defaultValue": 10,
         "description": "Delays outgoing mail so you can cancel it. Set this to 0 to send immediately."
-      },
-      {
-        "key": "unifiedCalendarView",
-        "type": "boolean",
-        "label": "Unified calendar view",
-        "defaultValue": false,
-        "description": "Show calendars from every connected account instead of following the current mailbox."
-      },
-      {
-        "key": "calendarRemindersEnabled",
-        "type": "boolean",
-        "label": "Calendar desktop reminders",
-        "defaultValue": true,
-        "description": "Show reminders while Magpie is running. Configure calendars and timing inside Calendar settings."
-      },
-      {
-        "key": "calendarSnoozeMinutes",
-        "type": "integer",
-        "label": "Calendar snooze minutes",
-        "min": 1,
-        "max": 1440,
-        "step": 1,
-        "defaultValue": 5,
-        "description": "How long to snooze a calendar desktop reminder."
       },
       {
         "key": "openOnClick",

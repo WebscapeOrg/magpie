@@ -19,16 +19,15 @@ const source = {
   }))
 }
 let refreshes = 0
-let calendarRefreshes = 0
 let applied = null
 const first = bridge.publish(() => source, values => { applied = values },
-  () => { refreshes++ }, () => { calendarRefreshes++ })
+  () => { refreshes++ })
 const result = first.snapshot()
 assert(!JSON.stringify(result).includes(secret), "credentials and full message bodies must not cross")
-deepEqual(Object.keys(first).sort(), ["applySettings", "refresh", "refreshCalendarPreview", "snapshot"])
+deepEqual(Object.keys(first).sort(), ["applySettings", "refresh", "snapshot"])
 assert(Object.isFrozen(first))
 assert.equal(result.barMessages.length, 3)
-assert.equal(result.barEvents.length, 2)
+assert.equal(result.barEvents, undefined)
 assert.equal(result.barMessages[0].subject, "<b>Hello</b>")
 assert.equal(result.barMessages[0].subjectDirection, "rtl", "reply subjects retain their resolved direction")
 for (const direction of ["ltr", "rtl", "", null, { secret }, "x".repeat(4097)]) {
@@ -36,15 +35,12 @@ for (const direction of ["ltr", "rtl", "", null, { secret }, "x".repeat(4097)]) 
   assert.equal(message.subjectDirection, direction === "rtl" || direction === "ltr" ? direction : "")
 }
 result.barMessages[0].from.display = "Changed"
-result.barEvents[0].start.ms = 0
 assert.equal(source.barMessages[0].from.display, "Ada", "snapshots cannot mutate the service")
 assert.equal(source.barEvents[0].start.ms, 1780000000000)
 first.applySettings({ refreshIntervalSec: 300 })
 first.refresh()
-first.refreshCalendarPreview()
 assert.equal(applied.refreshIntervalSec, 300)
 assert.equal(refreshes, 1)
-assert.equal(calendarRefreshes, 1)
 
 const second = bridge.publish(() => source, () => {}, () => {}, () => {})
 bridge.clear(first)
@@ -64,7 +60,7 @@ const bounded = bridge.snapshot({
 assert.equal(bounded.unreadTotal, 0)
 assert.equal(bounded.barMessages[0].id, "", "oversized identifiers cannot be silently retargeted")
 assert.equal(bounded.barMessages[0].subject.length, 4096)
-assert.equal(bounded.barEvents.length, 0)
+assert.equal(bounded.barEvents, undefined)
 deepEqual(bridge.settings({ refreshIntervalSec: 300, showBarIcon: false,
   maxMessages: Infinity, defaultQuery: { secret }, credential: secret },
   { refreshIntervalSec: 120, showBarIcon: true, maxMessages: 25, defaultQuery: "in:inbox" }),

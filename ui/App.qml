@@ -23,7 +23,6 @@ import "message/Mailto.js" as Mailto
 import "message/Message.js" as Message
 import "components"
 import "compose"
-import "calendar"
 import "backend" as Backend
 import "search" as Search
 import "search/Presentation.js" as SearchPresentation
@@ -140,9 +139,6 @@ Item {
   readonly property color popupBorder: Commons.Color.popups.border
   readonly property color borderColor: Style.normalBorderColor
   readonly property int borderWidth: Style.normalBorderWidth
-  readonly property color calendarBorder: Style.normalBorderColor
-  readonly property color calendarTodayBackground: Qt.alpha(root.accent, 0.035)
-  readonly property int calendarBorderWidth: Style.normalBorderWidth
   readonly property color dim: Qt.rgba(
     foreground.r * 0.68 + background.r * 0.32,
     foreground.g * 0.68 + background.g * 0.32,
@@ -303,15 +299,13 @@ Item {
   readonly property var navOverlay: Nav.overlay(nav)
   readonly property string page: navPage.kind
   readonly property string overlay: navOverlay ? navOverlay.kind : ""
-  readonly property string currentView: page === "reader" ? "reader"
-    : ((page === "calendar" || page === "calendarDetail") ? "calendar" : "list")
-  readonly property bool calendarVisible: currentView === "calendar"
+  readonly property string currentView: page === "reader" ? "reader" : "list"
   readonly property bool showSettings: page === "settings"
   readonly property bool showSetup: page === "setup"
   readonly property bool showPage: showSettings || showSetup
   onComposingChanged: { if (!composing) composeAgent.close(); else agentPrompt.close() }
   onShowPageChanged: if (showPage) { agentPrompt.close(); composeAgent.close() }
-  readonly property bool composing: overlay === "compose" || overlay === "eventComposer"
+  readonly property bool composing: overlay === "compose"
   readonly property bool shortcutHelpVisible: overlay === "help"
   readonly property bool accountDraftOpen: page === "setup" && navPage.draft === true
 
@@ -339,14 +333,11 @@ Item {
     var next = Nav.rootFor(rootState)
     // Invariant: Already-open drafts emit no openedChanged during root reset; restore their navigation entries explicitly.
     if (compose && compose.opened) next = Nav.push(next, Nav.entry("compose"))
-    if (eventComposer && eventComposer.opened) next = Nav.push(next, Nav.entry("eventComposer"))
     nav = next
     navUntouched = true
     pendingComposeReturnTo = -1
   }
-  function rootKind() {
-    return nav.length > 0 && nav[0].kind === "calendar" ? "calendar" : "list"
-  }
+  function rootKind() { return "list" }
 
   function pushEntry(kind, fields) {
     navUntouched = false
@@ -377,8 +368,6 @@ Item {
     var leaving = Nav.top(nav)
     pendingComposeReturnTo = -1
     if (leaving.kind === "compose") return requestLeaveCompose()
-    if (leaving.kind === "eventComposer") return eventComposer.close()
-    if (leaving.kind === "calendarDetail") return calendarView.closeDetail()
     if (leaving.kind === "reader") {
       pendingComposeMode = ""
       pendingDraftId = ""
@@ -469,12 +458,7 @@ Item {
         root.openMessage(messageId)
       })
     }
-    if (payload.view === "calendar") {
-      showCalendar()
-      Qt.callLater(function() {
-        calendarView.showEvent(String(payload.eventId || ""), Number(payload.eventStart || 0))
-      })
-    }
+    if (payload.view === "calendar" && service) service.openSkylark()
     var draft = Mailto.draftFromPayload(payload)
     if (draft) root.openDraft(draft)
     Qt.callLater(root.restoreComposeRecovery)
@@ -567,10 +551,7 @@ Item {
     Qt.callLater(function() { focusScope.applyContextFocus() })
   }
 
-  function showCalendar() {
-    navUntouched = false
-    nav = Nav.replaceRoot(nav, "calendar")
-  }
+  function showCalendar() { if (service) service.openSkylark() }
 
   function revealCursorRow() {
     if (list.visible) list.reveal(cursorId)
@@ -931,23 +912,7 @@ Item {
       if (service && service.mailboxKey === "drafts" && editDraft(cursorId)) return
       return startCompose("new")
     }
-    if (id === "createEvent") return eventComposer.begin()
-    if (id === "calendarNext") return calendarView.moveSelection(1)
-    if (id === "calendarPrevious") return calendarView.moveSelection(-1)
-    if (id === "openCalendarEvent") return calendarView.activateSelection()
-    if (id === "calendarPreviousPeriod") return calendarView.movePeriod(-1)
-    if (id === "calendarNextPeriod") return calendarView.movePeriod(1)
-    if (id === "calendarToday") return calendarView.goToday()
-    if (id === "calendarWeek") return calendarView.setView("week")
-    if (id === "calendarDay") return calendarView.setView("day")
-    if (id === "calendarAgenda") return calendarView.setView("agenda")
-    if (id === "calendarUndo") return root.service.calendarController.undoLastChange()
-    if (id === "calendarMonth") return calendarView.setView("month")
     if (id === "send") return compose.submit()
-    if (id === "saveEvent") return eventComposer.submit("all")
-    if (id === "guestNext") return eventComposer.moveGuestSuggestion(1)
-    if (id === "guestPrevious") return eventComposer.moveGuestSuggestion(-1)
-    if (id === "guestChoose") return eventComposer.chooseGuestSuggestion()
     if (id === "undoSend") { undoPendingSend(); return }
     if (id === "search") return searchBar.focusField()
     if (id === "searchSuggestionNext") return searchBar.moveSuggestion(1)
@@ -962,27 +927,15 @@ Item {
       return
     }
     if (id === "switchAccount") return accountSwitcher.openCentered()
-    if (id === "calendar") {
-      if (calendarVisible) backToList()
-      else {
-        showCalendar()
-        calendarView.refresh()
-      }
-      return
-    }
+    if (id === "calendar") return showCalendar()
     if (id === "mailView") return backToList()
-    if (id === "calendarView") {
-      showCalendar()
-      calendarView.refresh()
-      return
-    }
+    if (id === "calendarView") return showCalendar()
     if (id === "toggleSidebar") return toggleSidebar()
     if (id === "zoomIn") return zoomBy(0.1)
     if (id === "zoomOut") return zoomBy(-0.1)
     if (id === "zoomReset") { if (service) service.setBodyZoom(1.0); return }
     if (id === "refresh") {
-      if (calendarVisible) calendarView.refresh()
-      else if (service) service.refresh()
+      if (service) service.refresh()
       return
     }
     if (id === "settings") return openSettings()
@@ -993,8 +946,6 @@ Item {
   // Invariant: QQC.Popup with CloseOnEscape consumes Escape before this handler.
   function goBack() {
     if (searchBar.dismissAssistance()) return
-    if (eventComposer.guestSuggestionsOpen) { eventComposer.dismissGuestSuggestions(); return }
-    if (calendarView.dismissPreview()) return
     if (activeAssistant && activeAssistant.commandsOpen) { activeAssistant.dismissCommands(); return }
     if (activeAssistant && activeAssistant.historyMode) { activeAssistant.leaveHistory(); return }
     if (activeAssistant && activeAssistant.interrupt()) return
@@ -1085,30 +1036,22 @@ Item {
   // Invariant: Unified view selects a mailbox available across its accounts.
   function chooseUnified() {
     if (!service) return false
-    var keepCalendar = calendarVisible
     var mailbox = service.mailboxKey
     service.setUnifiedMailboxes(true)
     // Invariant: Select the new mailbox even while Calendar is visible, so the rail and returning list agree.
     var target = Model.mailboxAfterAccountSwitch(mailbox, service.mailboxes)
     service.selectMailbox(target !== "" ? target : "inbox")
-    if (keepCalendar) {
-      showCalendar()
-      return true
-    }
+
     backToList()
     return true
   }
 
   function switchAccount(index) {
     if (!service) return false
-    var keepCalendar = calendarVisible
     var mailbox = service.mailboxKey
     if (service.unifiedMailboxes) service.setUnifiedMailboxes(false)
     if (service.switchToIndex(index) !== true) return false
-    if (keepCalendar) {
-      showCalendar()
-      return true
-    }
+
     var target = Model.mailboxAfterAccountSwitch(mailbox, service.mailboxes)
     if (target !== "") service.selectMailbox(target)
     backToList()
@@ -1149,16 +1092,11 @@ Item {
     nav = Nav.push(Nav.resetTo(nav, rootKind()), Nav.entry("settings"))
   }
 
-  function requestEventDelete(sourceId, event) {
-    if (event && service) confirmDeleteDialog.openFor(service.calendarController.deleteRequest(sourceId, event))
-  }
+
 
   function confirmDelete(request) {
     if (!service) return
-    if (request.kind === "event" && request.event) {
-      service.calendarController.confirmDelete(request)
-      calendarView.closeDetail()
-    }
+
     if (request.kind === "label" && request.labelId) service.deleteLabel(request.labelId, request.accountId)
   }
 
@@ -1298,11 +1236,8 @@ Item {
         assistantCommands: !!root.activeAssistant && root.activeAssistant.commandsOpen,
         showPage: root.showPage,
         composing: root.composing,
-        eventComposing: eventComposer.opened,
-        guestSuggestions: eventComposer.guestSuggestionsOpen,
         searchFocused: searchBar.fieldFocused,
         searchSuggestions: searchBar.suggestionsOpen,
-        calendarVisible: root.calendarVisible,
         currentView: root.currentView,
         sendPending: !!root.service && root.service.sendPending
       }))
@@ -1321,13 +1256,10 @@ Item {
           if (composeAgent.opened && !composeAgent.activeFocus) composeAgent.takeFocus()
           else if (agentPrompt.opened && !agentPrompt.activeFocus) agentPrompt.takeFocus()
         }
-        else if (keyContext === "eventCompose" || keyContext === "eventGuests") {
-          if (!focusWithin(eventComposer)) eventComposer.takeFocus()
-        }
+
         else if (keyContext === "compose") {
           if (focusWithin(compose)) return
-          if (eventComposer.opened) eventComposer.takeFocus()
-          else compose.takeFocus()
+          compose.takeFocus()
         }
         else if (keyContext === "search" || keyContext === "searchSuggestions") searchBar.takeFocus()
         else parkKeyboard()
@@ -1348,17 +1280,14 @@ Item {
       Item {
         id: header
         objectName: "app-title-bar"
-        readonly property bool searchVisible: !root.showPage && !root.composing && !root.calendarVisible
+        readonly property bool searchVisible: !root.showPage && !root.composing
         readonly property bool searchStacked: searchVisible
           && width - headerLeft.width - headerRight.width - MailStyle.space(52) < MailStyle.space(220)
         readonly property real topRowHeight: Math.max(MailStyle.space(48),headerLeft.height + MailStyle.space(12),headerRight.height + MailStyle.space(12))
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: calendarHeaderSlot.visible && calendarHeaderSlot.stacked
-          ? MailStyle.space(60) + calendarView.toolbarHeight
-          : searchStacked ? topRowHeight + searchBar.implicitHeight + MailStyle.space(16)
-          : Math.max(topRowHeight,calendarHeaderSlot.visible ? calendarView.toolbarHeight + MailStyle.space(12) : 0)
+        height: searchStacked ? topRowHeight + searchBar.implicitHeight + MailStyle.space(16) : topRowHeight
         visible: !root.composing
 
         WindowMoveArea {
@@ -1372,8 +1301,7 @@ Item {
           anchors.left: parent.left
           anchors.leftMargin: MailStyle.space(14)
           anchors.verticalCenter: parent.verticalCenter
-          anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (MailStyle.space(48) - header.height) / 2
-            : header.searchStacked ? (header.topRowHeight - header.height) / 2 : 0
+          anchors.verticalCenterOffset: header.searchStacked ? (header.topRowHeight - header.height) / 2 : 0
           spacing: MailStyle.space(8)
 
           IconButton {
@@ -1397,7 +1325,7 @@ Item {
             objectName: "reader-back-button"
             anchors.verticalCenter: parent.verticalCenter
             visible: root.singleContent && root.currentView === "reader"
-              && !root.showPage && !root.composing && !root.calendarVisible
+              && !root.showPage && !root.composing
             text: "← Back"
             Accessible.name: "Back"
             tooltipText: "Back · esc"
@@ -1460,31 +1388,21 @@ Item {
           }
         }
 
-        Item {
-          id: calendarHeaderSlot
-          objectName: "calendar-header-slot"
-          readonly property bool stacked: header.width < MailStyle.space(1100)
-          visible: root.calendarVisible && !root.showPage && !root.composing && !calendarView.detailOpen
-          x: stacked ? MailStyle.space(14) : headerLeft.x + headerLeft.width + MailStyle.space(20)
-          y: stacked ? MailStyle.space(48) : (header.height - height) / 2
-          width: Math.max(0, (stacked ? header.width - MailStyle.space(14) : headerRight.x - MailStyle.space(20)) - x)
-          height: calendarView.toolbarHeight
-        }
+
 
         Row {
           id: headerRight
           anchors.right: parent.right
           anchors.rightMargin: MailStyle.space(14)
           anchors.verticalCenter: parent.verticalCenter
-          anchors.verticalCenterOffset: calendarHeaderSlot.visible && calendarHeaderSlot.stacked ? (MailStyle.space(48) - header.height) / 2
-            : header.searchStacked ? (header.topRowHeight - header.height) / 2 : 0
+          anchors.verticalCenterOffset: header.searchStacked ? (header.topRowHeight - header.height) / 2 : 0
           spacing: MailStyle.space(8)
 
           Widgets.Button {
             id: folderButton
             objectName: "folder-button"
             anchors.verticalCenter: parent.verticalCenter
-            visible: !root.showPage && !root.composing && !root.calendarVisible
+            visible: !root.showPage && !root.composing
             text: folderNameMetrics.elidedText
             Accessible.name: folderNameMetrics.text
             bordered: true
@@ -1516,7 +1434,7 @@ Item {
             id: headerComposeButton
             objectName: "compose-button"
             anchors.verticalCenter: parent.verticalCenter
-            visible: !root.showPage && !root.composing && !root.calendarVisible
+            visible: !root.showPage && !root.composing
             text: "Compose"
             tooltipText: "Compose · c"
             foreground: root.dim
@@ -1530,7 +1448,7 @@ Item {
 
           Widgets.Button {
             id: headerAccountButton
-            parent: !root.calendarVisible && root.currentView === "list" ? headerLeft : headerRight
+            parent: root.currentView === "list" ? headerLeft : headerRight
             objectName: "header-account-button"
             anchors.verticalCenter: parent.verticalCenter
             visible: !root.showPage && !root.composing
@@ -1607,7 +1525,6 @@ Item {
               : MailStyle.space(148))
           visible: root.foldersVisible && !root.singleContent && !root.showPage && !root.composing
           collapsed: root.sidebarCollapsed
-          calendarSelected: root.calendarVisible
           menuLabelPath: labelMenu.opened && !!root.service
             && labelMenu.accountId === root.service.activeAccountId ? labelMenu.labelPath : ""
           service: root.service
@@ -1620,7 +1537,6 @@ Item {
           onMailboxSelected: function(key) { root.goMailbox(key) }
           onCalendarRequested: {
             root.showCalendar()
-            calendarView.refresh()
           }
           // Invariant: Label selection keeps the Gmail label ID with its display name.
           onLabelSelected: function(labelId, name) {
@@ -1699,7 +1615,7 @@ Item {
                   root.listWidth > 0 ? root.listWidth
                     : Math.min(MailStyle.space(460), Math.round(parent.width * 0.34))))
           visible: width > 0 && !root.showPage && !root.composing
-            && !root.calendarVisible
+
 
           Flickable {
             id: statusViewport
@@ -1834,7 +1750,7 @@ Item {
           anchors.right: parent.right
           anchors.top: parent.top
           anchors.bottom: parent.bottom
-          visible: !root.showPage && !root.composing && !root.calendarVisible
+          visible: !root.showPage && !root.composing
             && (!root.singleContent || root.currentView === "reader")
           service: root.service
           textColor: root.foreground
@@ -1934,59 +1850,10 @@ Item {
           onDraftChanged: root.scheduleComposeRecovery()
         }
 
-        CalendarEventComposer {
-          id: eventComposer
-          anchors.fill: parent
-          z: 20
-          visible: opened && !root.showPage
-          onOpenedChanged: {
-            if (opened) root.pushEntry("eventComposer", {})
-            else root.dropOverlay("eventComposer")
-          }
-          controller: root.service ? root.service.calendarController : null
-          textColor: root.foreground
-          backgroundColor: root.background
-          accentColor: root.accent
-          urgentColor: root.urgent
-          dimColor: root.dim
-          panelFontFamily: root.fontFamily
-        }
 
 
-        Rectangle {
-          anchors.top: parent.top
-          anchors.right: parent.right
-          anchors.bottom: parent.bottom
-          anchors.left: sidebarSplitter.visible ? sidebarSplitter.right
-            : (sidebar.visible ? sidebar.right : parent.left)
-          visible: root.calendarVisible && !root.showPage && !root.composing
-          color: root.background
-          z: 10
 
-          CalendarView {
-            toolbarHost: calendarHeaderSlot
-            id: calendarView
-            anchors.fill: parent
-            controller: root.service ? root.service.calendarController : null
-            textColor: root.foreground
-            backgroundColor: root.background
-            accentColor: root.accent
-            urgentColor: root.urgent
-            dimColor: root.dim
-            calendarBorderColor: root.calendarBorder
-            calendarTodayBackgroundColor: root.calendarTodayBackground
-            calendarBorderWidth: root.calendarBorderWidth
-            panelFontFamily: root.fontFamily
-            // Invariant: CalendarView owns detail open state; navigation follows it so Back closes detail first.
-            onDetailOpenChanged: {
-              if (detailOpen) { if (root.page !== "calendarDetail") root.pushEntry("calendarDetail", {}) }
-              else if (root.page === "calendarDetail") { root.navUntouched = false; root.nav = Nav.pop(root.nav) }
-            }
-            onCreateAt: function(startMs) { eventComposer.beginAt(startMs) }
-            onEditRequested: function(sourceId, event) { eventComposer.beginEdit(sourceId, event) }
-            onDeleteRequested: function(sourceId, event) { root.requestEventDelete(sourceId, event) }
-          }
-        }
+
 
         BackBar {
           id: pageBack
@@ -2134,7 +2001,6 @@ Item {
               x: settingsArea.blockLeft + settingsArea.railWidth
               width: settingsArea.pageWidth
               service: root.service
-              calendarController: root.service ? root.service.calendarController : null
               textColor: root.foreground
               dimColor: root.dim
               accentColor: root.accent
@@ -2145,13 +2011,10 @@ Item {
               restartFailed: root.restartFailed
               onRestartRequested: root.requestRestart()
               onClientSetupRequested: root.openClientSetup()
-              onCalendarSignInRequested: function(index) {
-                if (root.editAccount(index)) root.service.signIn()
-              }
+
               onOpenCalendarRequested: {
                 root.showCalendar()
-                calendarView.refresh()
-              }
+                  }
               onAddRequested: root.addMailbox()
               onEditRequested: function(index) { root.editAccount(index) }
             }
@@ -2280,7 +2143,6 @@ Item {
         }
         onCalendarRequested: {
           root.showCalendar()
-          calendarView.refresh()
         }
         onSetupRequested: root.openSettings()
         onSwitchAccountRequested: accountSwitcher.openCentered()

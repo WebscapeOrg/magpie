@@ -1,8 +1,8 @@
-> **This is 🐦 Magpie, Dave’s fork of Omamail.** See [Magpie’s controls and installation](MAGPIE.md). Magpie supports Gmail and Google Workspace mailboxes, with Google Calendar. Upstream release installers below install Omamail; they do not install this development fork.
+> **This is 🐦 Magpie, Dave’s fork of Omamail.** See [Magpie’s controls and installation](MAGPIE.md). Magpie supports Gmail and Google Workspace mailboxes. Calendars run in the separate Skylark app. Upstream release installers below install Omamail; they do not install this development fork.
 
 # Omamail
 
-Omamail is a native email and calendar app with multiple accounts and keyboard navigation. It runs either as an Omarchy shell plugin or as a standalone Qt desktop application.
+Omamail is a native email app with multiple accounts and keyboard navigation. It runs either as an Omarchy shell plugin or as a standalone Qt desktop application.
 
 <img width="800" alt="Omamail — reading mail with AI assistance" src="docs/images/full-mail.webp" />
 
@@ -26,7 +26,7 @@ Click the envelope in the bar, install the pinned backend when prompted, and add
 
 ### Standalone desktop app
 
-The standalone app includes mail, calendar, and native desktop notifications. It has no system tray, AI assistance, or operating-system `mailto:` registration in this release.
+The standalone app includes mail and native desktop notifications. It has no system tray, AI assistance, or operating-system `mailto:` registration in this release.
 
 macOS & Linux:
 
@@ -55,19 +55,19 @@ make app-run
 ## Features
 
 - **Multiple Gmail mailboxes:** Gmail and Google Workspace, including custom domains, with separate identities and a unified inbox.
-- **Mail and calendar:** read, search, compose, manage attachments and respond to meeting invitations through Gmail and Google Calendar.
+- **Mail:** read, search, compose and manage attachments through Gmail. Open invitations and suggested events in Skylark.
 - **Keyboard navigation:** `j`/`k` to move, `r` to reply, `c` to compose, `/` to search and `?` for all shortcuts.
 - **AI assistance in Omarchy:** ask about selected messages and review suggested drafts with Claude, OpenCode V2 or Codex. Follow your Omarchy default, or select an agent and optional model in Settings. An unsupported system default disables the AI action with a setup explanation. Conversations retain follow-ups and draft proposals; `/clear`, `/history` and `/diagnose` manage the chat.
 - **Desktop integration:** native notifications and a compact layout for smaller windows; the Omarchy plugin also provides the bar widget and `mailto:` integration.
 - **Privacy controls:** credentials stored in the system keyring and remote images blocked until you choose to load them.
 
-<img width="265" alt="Omamail calendar" src="docs/images/full-calendar.webp" /> <img width="265" alt="Writing a message" src="docs/images/full-compose.webp" /> <img width="265" alt="Compact message list" src="docs/images/mini-list.webp" />
+<img width="265" alt="Writing a message" src="docs/images/full-compose.webp" /> <img width="265" alt="Compact message list" src="docs/images/mini-list.webp" />
 
 ## Add your mailbox
 
 Choose **Add mailbox...** in Settings to open Google setup directly. Create a Google OAuth client once, then reuse it for your Gmail and Google Workspace accounts.
 
-See [mailbox setup](docs/MAILBOXES.md) for Google sign-in, calendar selection and offline behavior.
+See [mailbox setup](docs/MAILBOXES.md) for Google sign-in and offline behavior.
 
 ## Make Omamail the default mail client
 

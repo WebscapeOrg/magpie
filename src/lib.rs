@@ -6,7 +6,6 @@ pub mod attachment;
 pub mod auth;
 pub mod backend;
 pub mod cache;
-pub mod calendar;
 #[cfg(not(target_os = "ios"))]
 pub mod cli;
 pub mod compose;

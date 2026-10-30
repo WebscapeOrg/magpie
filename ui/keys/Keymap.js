@@ -3,7 +3,7 @@
 // Invariant: this table is the shared authority for shortcut dispatch, help and status hints.
 
 // Invariant: one active context determines bindings; stale hidden focus must not enable shortcuts.
-var CONTEXTS = ["list", "reader", "search", "searchSuggestions", "compose", "eventCompose", "eventGuests", "page", "calendar", "assistant", "assistantCommands"]
+var CONTEXTS = ["list", "reader", "search", "searchSuggestions", "compose", "page", "assistant", "assistantCommands"]
 
 var MAIL = ["list", "reader"]
 var ANY = ["*"]
@@ -69,43 +69,8 @@ var BINDINGS = [
     group: "Writing", label: "Forward" },
   { id: "compose", keys: ["c"], contexts: MAIL,
     group: "Writing", label: "Compose or edit a draft", hint: { list: "compose" } },
-  { id: "createEvent", keys: ["c"], contexts: ["calendar"],
-    group: "Writing", label: "Create an event", hint: { calendar: "create" } },
-  { id: "calendarNext", keys: ["j", "Down"], contexts: ["calendar"],
-    group: "Calendar", label: "Select the next event",
-    hintKey: "j / k", hint: { calendar: "select" } },
-  { id: "calendarPrevious", keys: ["k", "Up"], contexts: ["calendar"],
-    group: "Calendar", label: "Select the previous event" },
-  { id: "openCalendarEvent", keys: ["Return", "o"], contexts: ["calendar"],
-    group: "Calendar", label: "Open the selected event",
-    hintKey: "o", hint: { calendar: "open" } },
-  { id: "calendarPreviousPeriod", keys: ["h", "Left"], contexts: ["calendar"],
-    group: "Calendar", label: "Previous week or month" },
-  { id: "calendarNextPeriod", keys: ["l", "Right"], contexts: ["calendar"],
-    group: "Calendar", label: "Next week or month" },
-  { id: "calendarToday", keys: ["t"], contexts: ["calendar"],
-    group: "Calendar", label: "Go to today" },
-  { id: "calendarWeek", keys: ["w"], contexts: ["calendar"],
-    group: "Calendar", label: "Show week view" },
-  { id: "calendarDay", keys: ["d"], contexts: ["calendar"],
-    group: "Calendar", label: "Show day view" },
-  { id: "calendarAgenda", keys: ["a"], contexts: ["calendar"],
-    group: "Calendar", label: "Show agenda view" },
-  { id: "calendarUndo", keys: ["u"], contexts: ["calendar"],
-    group: "Calendar", label: "Undo the last event change", hint: { calendar: "undo" } },
-  { id: "calendarMonth", keys: ["m"], contexts: ["calendar"],
-    group: "Calendar", label: "Show month view" },
-  // Invariant: Qt names the main keyboard Enter key Return and the numeric keypad key Enter.
   { id: "send", keys: ["Ctrl+Return", "Ctrl+Enter"], contexts: ["compose"],
     group: "Writing", label: "Send", hint: { compose: "send" } },
-  { id: "saveEvent", keys: ["Return", "Enter", "Ctrl+Return", "Ctrl+Enter"], contexts: ["eventCompose"],
-    group: "Writing", label: "Save and close the event", hint: { eventCompose: "save" } },
-  { id: "guestNext", keys: ["Down"], contexts: ["eventGuests"],
-    group: "Writing", label: "Next guest suggestion" },
-  { id: "guestPrevious", keys: ["Up"], contexts: ["eventGuests"],
-    group: "Writing", label: "Previous guest suggestion" },
-  { id: "guestChoose", keys: ["Return", "Enter"], contexts: ["eventGuests"],
-    group: "Writing", label: "Choose guest suggestion" },
   { id: "undoSend", keys: ["Alt+Z"], contexts: ANY,
     survivesOverlay: true,
     group: "Writing", label: "Undo send" },
@@ -124,7 +89,7 @@ var BINDINGS = [
   { id: "goAccount",
     keys: ["Alt+1", "Alt+2", "Alt+3", "Alt+4", "Alt+5",
       "Alt+6", "Alt+7", "Alt+8", "Alt+9", "Alt+0"],
-    contexts: ["list", "reader", "calendar"], group: "Going",
+    contexts: ["list", "reader"], group: "Going",
     label: "Go to that email account", display: "Alt+1…0" },
 
   // Invariant: modified mailbox switching keys preserve bare keys for message actions.
@@ -146,13 +111,13 @@ var BINDINGS = [
   { id: "assistantChooseCommand", keys: ["Return", "Enter"], contexts: ["assistantCommands"],
     group: "AI", label: "Complete or run the selected AI command" },
 
-  { id: "calendar", keys: ["Alt+C"], contexts: ["list", "reader", "calendar"],
-    group: "Going", label: "Switch between mail and calendar" },
-  { id: "mailView", keys: ["Ctrl+Shift+M"], contexts: ["list", "reader", "calendar"],
+  { id: "calendar", keys: ["Alt+C"], contexts: ["list", "reader"],
+    group: "Going", label: "Open Skylark..." },
+  { id: "mailView", keys: ["Ctrl+Shift+M"], contexts: ["list", "reader"],
     group: "Going", label: "Go to mail" },
-  { id: "calendarView", keys: ["Ctrl+Shift+C"], contexts: ["list", "reader", "calendar"],
-    group: "Going", label: "Go to calendar" },
-  { id: "toggleSidebar", keys: ["["], contexts: ["list", "reader", "calendar"],
+  { id: "calendarView", keys: ["Ctrl+Shift+C"], contexts: ["list", "reader"],
+    group: "Going", label: "Open Skylark..." },
+  { id: "toggleSidebar", keys: ["["], contexts: ["list", "reader"],
     group: "Going", label: "Show or hide the sidebar" },
 
   // Invariant: text sizing applies only where a message body exists.
@@ -174,7 +139,7 @@ var BINDINGS = [
   { id: "back", keys: ["Escape"], contexts: ANY,
     survivesOverlay: true,
     group: "Mailbox", label: "Back, or close the window",
-    hint: { reader: "back", page: "back", compose: "close", eventCompose: "close", search: "leave" } }
+    hint: { reader: "back", page: "back", compose: "close", search: "leave" } }
 ]
 
 // Invariant: undo-send remains available across navigation while a send is pending.
@@ -182,10 +147,8 @@ function contextFor(state) {
   var value = state || ({})
   if (value.assistantEditing) return value.assistantCommands ? "assistantCommands" : "assistant"
   if (value.showPage) return "page"
-  if (value.eventComposing) return value.guestSuggestions ? "eventGuests" : "eventCompose"
   if (value.composing) return "compose"
   if (value.searchFocused) return value.searchSuggestions ? "searchSuggestions" : "search"
-  if (value.calendarVisible) return "calendar"
   if (value.currentView === "reader") return "reader"
   return "list"
 }

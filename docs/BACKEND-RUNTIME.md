@@ -68,7 +68,7 @@ Magpie's Restart control drains and closes its frontend, restarts the enabled en
 
 The standalone Qt host under `app/` uses the same `ui/` composition and Rust business modules through small Quickshell compatibility adapters. A production archive places one exact-version `omamail` backend beside `omamail-app`, together with the QML, manifest, Qt libraries, and platform plugin. Production resource lookup accepts that bundled backend only; it does not search PATH, resolve `latest`, or use `OMAMAIL_BIN`. The environment override and source-resource lookup are enabled only when `OMAMAIL_DEVELOPMENT_RESOURCES=1`, which is what `make app-run` sets for a checkout build.
 
-The host starts one persistent bundled `omamail serve` process and performs the protocol, version, and API handshake before mail or calendar calls. Normal shutdown asks the service to quit, drains bounded output, and then terminates the process tree on deadline. `omamail-app --check-resources` verifies the packaged entry points, platform plugin, manifest version, backend architecture, and backend version without opening the UI. `omamail-app --smoke-test READY_FILE` additionally starts the bundled backend, completes the handshake, requests shutdown, and writes readiness metadata only after a clean exit.
+The host starts one persistent bundled `omamail serve` process and performs the protocol, version, and API handshake before mail calls. Normal shutdown asks the service to quit, drains bounded output, and then terminates the process tree on deadline. `omamail-app --check-resources` verifies the packaged entry points, platform plugin, manifest version, backend architecture, and backend version without opening the UI. `omamail-app --smoke-test READY_FILE` additionally starts the bundled backend, completes the handshake, requests shutdown, and writes readiness metadata only after a clean exit.
 
 Standalone credentials use the native store through typed backend RPC: Keychain on macOS, Secret Service on Linux, and Credential Manager on Windows. Account metadata, cache, state, runtime endpoints, and downloads use the platform directories selected by `src/platform/dirs.rs`; private files and outbox IPC are protected by the platform implementations under `src/platform/`. The host never places a secret in its process arguments. The standalone capability object enables native AI on Linux and macOS, disables it on Windows, and retains native notifications. The tray and operating-system `mailto:` registration remain disabled.
 
@@ -119,7 +119,7 @@ Proposal cards show their saved From, To and optional Cc, Bcc and Reply-To. If r
 
 ## Historical non-Google APIs
 
-The published API 7 contract includes other mail providers and non-Google calendars. Magpie's unreleased API 8 removes those implementations and advertises only its current methods. Historical fixtures remain in the frozen released contract so the pinned executable is still tested accurately; they do not imply current runtime support.
+The published API 7 contract includes other mail providers and calendar operations. Magpie's unreleased API 8 removes those implementations and advertises only its current methods. Historical fixtures remain in the frozen released contract so the pinned executable is still tested accurately; they do not imply current runtime support.
 
 ## Magpie API 8 inbox features
 
@@ -133,7 +133,7 @@ The published API 7 contract includes other mail providers and non-Google calend
 
 ## Local mail and native performance paths (API 8)
 
-The unreleased API 8 contract also includes `local.*` replica/watch/intent methods, `reader.prefetch`, account-scoped attachment import/preview/download/retain, `outbox.compose`, `draft.compose`, `calendar.read` and `calendar.parse`. Current QML gates these dependencies on revision 8; the pinned release continues to use its existing paths. `calendar-shared` is a separate cache namespace. See [local mail](LOCAL-MAIL.md) for durable-data and retry semantics. These changes do not update `backend-version` or install a development binary.
+The unreleased API 8 contract also includes `local.*` replica/watch/intent methods, `reader.prefetch`, account-scoped attachment import/preview/download/retain, `outbox.compose` and `draft.compose`. Current QML gates these dependencies on revision 8; the pinned release continues to use its existing paths. Calendar methods and caches now belong to Skylark; historical released fixtures remain frozen. See [local mail](LOCAL-MAIL.md) for durable-data and retry semantics. These changes do not update `backend-version` or install a development binary.
 
 API 8 distinguishes `gmail_request_deferred` (Magpie deferred a request before HTTP) from `gmail_server_rate_limited` (Google refused a request, or an active cooldown follows that refusal). Both are retryable within the existing bounded queue and sync schedules. API-7 `gmail_rate_limited` and persisted earlier API-8 values remain ambiguous, so the UI describes those without attributing the limit to Gmail. The named `Gmail request status` contract cases are listed under `unreleased.cases` and exercised by the private-replica API gate, Gmail transport and QML error tests; these semantics do not change the released binary pin.
 
@@ -265,7 +265,7 @@ A standalone release needs a separate security verdict for macOS arm64, Linux x8
 | Private files and outbox IPC | Platform directory resolution, unsafe ancestor/link/reparse refusal, ownership and ACL checks, atomic replacement/rollback, locks, peer identity, and oversized IPC frames. |
 | Archive installation | SHA-256 verification before extraction, strict single-root layout and architecture/version checks, traversal/link/special-file and size refusal, transactional upgrade rollback, and uninstall preserving user data. |
 | Notifications | Plain-text or escaped markup handling, NUL refusal, bounded private activation routes, stale/forged route refusal, cold and warm activation, and no secret or route token in process arguments. |
-| Network requests | Every mail/calendar request keeps credentials on the configured origin or validated public target, validates bytes before process start, applies TLS/protocol/redirect/proxy policy, and has a deadline and response bound. |
+| Network requests | Every mail request keeps credentials on the configured origin or validated public target, validates bytes before process start, applies TLS/protocol/redirect/proxy policy, and has a deadline and response bound. |
 
 The native standalone job runs this platform gate before its archive can become an artifact. It must run `cargo test --locked --no-default-features --features standalone`, the ignored native credential contract, CTest, the standalone QML tests, package and installer tests, `--check-resources`, `--smoke-test`, and the packaged backend API contract. The release's `publish-and-pin` job depends on all three platform jobs; missing or failed native evidence cannot be replaced by manually uploading an archive.
 

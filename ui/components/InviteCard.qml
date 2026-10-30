@@ -8,11 +8,6 @@ Rectangle {
   id: root
 
   property var invite: null
-  property string response: ""
-  property bool canRespond: false
-  property bool sending: false
-  property bool fallbackAvailable: false
-  property string calendarUrl: ""
 
   required property color textColor
   required property color accentColor
@@ -20,9 +15,8 @@ Rectangle {
   required property color dimmerColor
   required property string panelFontFamily
 
-  signal respondRequested(string answer)
-  signal mailOnlyRequested(string answer)
   signal openRequested(string url)
+  signal calendarRequested()
 
   readonly property bool cancelled: !!invite
     && (invite.method === "CANCEL" || String(invite.status || "") === "CANCELLED")
@@ -205,7 +199,7 @@ Rectangle {
     }
 
 
-    Item { width: 1; height: MailStyle.space(4); visible: joinButton.visible || rsvpRow.visible }
+    Item { width: 1; height: MailStyle.space(4); visible: joinButton.visible || calendarButton.visible }
 
     IconTextButton {
       id: joinButton
@@ -222,91 +216,13 @@ Rectangle {
     }
 
 
-    Row {
-      id: rsvpRow
-      spacing: MailStyle.space(6)
-      visible: root.canRespond && !root.fallbackAvailable
-
-      Text {
-        anchors.verticalCenter: parent.verticalCenter
-        text: "Going?"
-        color: root.dimColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.caption
-      }
-
-      Repeater {
-        model: [
-          { answer: "accepted", label: "Yes" },
-          { answer: "tentative", label: "Maybe" },
-          { answer: "declined", label: "No" }
-        ]
-
-        IconTextButton {
-          required property var modelData
-          anchors.verticalCenter: parent.verticalCenter
-          enabled: !root.sending
-          selected: root.response === modelData.answer
-          // Invariant: the selected response needs a glyph as well as theme-dependent fill.
-          iconName: root.response === modelData.answer ? "check" : ""
-          text: modelData.label
-          foreground: root.textColor
-          accent: root.accentColor
-          fontFamily: root.panelFontFamily
-          fontSize: MailStyle.caption
-          onClicked: root.respondRequested(modelData.answer)
-        }
-      }
-    }
-
-    Column {
-      width: parent.width
-      spacing: MailStyle.space(6)
-      visible: root.fallbackAvailable && root.canRespond
-      Text {
-        width: parent.width
-        text: "Calendar attendance cannot be confirmed here. You can open Calendar or send a reply email only; email does not confirm your Calendar attendance."
-        textFormat: Text.PlainText
-        wrapMode: Text.Wrap
-        color: root.dimColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.caption
-      }
-      Flow {
-        width: parent.width
-        spacing: MailStyle.space(6)
-        IconTextButton {
-          visible: root.calendarUrl !== ""
-          text: "Open Calendar..."
-          foreground: root.textColor
-          accent: root.accentColor
-          fontFamily: root.panelFontFamily
-          onClicked: root.openRequested(root.calendarUrl)
-        }
-        Repeater {
-          model: [{answer:"accepted",label:"Email Yes"}, {answer:"tentative",label:"Email Maybe"}, {answer:"declined",label:"Email No"}]
-          IconTextButton {
-            required property var modelData
-            text: modelData.label
-            enabled: !root.sending
-            foreground: root.textColor
-            accent: root.accentColor
-            fontFamily: root.panelFontFamily
-            onClicked: root.mailOnlyRequested(modelData.answer)
-          }
-        }
-      }
-    }
-
-    Text {
-      width: parent.width
-      visible: !root.canRespond && root.response !== ""
-      textFormat: Text.PlainText
-      text: root.response === "accepted" ? "You are going"
-        : (root.response === "declined" ? "You are not going" : "You might be going")
-      color: root.dimColor
-      font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.caption
+    IconTextButton {
+      id:calendarButton
+      text:"Open invitation in Skylark..."
+      foreground:root.textColor
+      accent:root.accentColor
+      fontFamily:root.panelFontFamily
+      onClicked:root.calendarRequested()
     }
   }
 }

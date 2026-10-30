@@ -195,6 +195,7 @@ Item {
       callback("draft-1", "")
     }
     function refresh() {}
+    function openSkylark() { record("skylark"); return true }
     function fail(text) { lastError = String(text || "") }
     function note(text) { actionStatus = String(text || "") }
     function act(id, action) {
@@ -444,12 +445,11 @@ Item {
       app.back()
     }
     function test_search_help_outside_mail_keeps_the_current_screen_data() {
-      return [{tag:"calendar",page:"calendar"}, {tag:"settings",page:"settings"},
+      return [{tag:"settings",page:"settings"},
         {tag:"compose",page:"compose"}]
     }
     function test_search_help_outside_mail_keeps_the_current_screen(data) {
-      if (data.page === "calendar") app.showCalendar()
-      else if (data.page === "settings") app.openSettings()
+      if (data.page === "settings") app.openSettings()
       else app.startCompose("new")
       wait(20)
       var before = kinds()
@@ -549,17 +549,15 @@ Item {
       compare(kinds(), "list,reader", "the key toggles")
     }
 
-    function test_the_calendar_is_the_other_root_and_back_on_a_root_closes() {
+    function test_skylark_shortcut_keeps_the_mail_navigation() {
+      app.openMessage("m1")
+      var before = kinds()
       app.runShortcut("calendarView", "")
-      compare(kinds(), "calendar")
-      verify(app.calendarVisible)
-
-      app.goBack()
-      compare(fakeShell.hidden.length, 1, "Back on a root hides the window")
-      compare(kinds(), "calendar", "and leaves the stack alone")
-
-      app.runShortcut("mailView", "")
-      compare(kinds(), "list", "the list is not a step back from the calendar")
+      compare(mailService.count("skylark"), 1)
+      compare(kinds(), before)
+      app.runShortcut("calendar", "")
+      compare(mailService.count("skylark"), 2)
+      compare(kinds(), before)
     }
 
     function test_the_header_account_button_opens_the_switcher() {
@@ -638,22 +636,13 @@ Item {
       tryCompare(app, "composing", false)
     }
 
-    function test_header_shows_compose_for_mail_and_view_selector_for_calendar() {
+    function test_skylark_handoff_keeps_the_mail_header() {
       var compose = named(app, "compose-button")
       verify(compose && compose.visible)
       compare(compose.text, "Compose")
-      compare(typeof compose.iconName, "undefined")
-
       app.showCalendar()
-      waitForRendering(app)
-      verify(!compose.visible)
-      compare(named(app, "create-event-button"), null)
-      var selector = named(app, "calendar-view-selector")
-      verify(selector && selector.visible)
-      app.runShortcut("calendarWeek")
-      compare(selector.currentText, "Week (w)")
-      app.runShortcut("calendarDay")
-      compare(selector.currentText, "Day (d)")
+      verify(compose.visible)
+      compare(named(app,"calendar-view-selector"), null)
     }
     function test_reader_toolbar_back_returns_to_list() {
       mailService.displayPreferences = Display.normalize({layout: "Single pane"})
@@ -707,18 +696,6 @@ Item {
       compare(button.visible, false)
     }
 
-    function test_an_event_opened_for_reading_is_a_place() {
-      app.runShortcut("calendarView", "")
-      var calendar = having(app, function(item) { return typeof item.closeDetail === "function" })
-      verify(calendar, "the calendar view is on the page")
-      calendar.activateEvent({ uid: "e1", summary: "Standup",
-        start: { ms: Date.now(), allDay: false }, end: { ms: Date.now() + 3600000 } })
-      compare(kinds(), "calendar,calendarDetail")
-
-      app.goBack()
-      compare(kinds(), "calendar", "Escape closes the event, not the calendar")
-      verify(!calendar.detailOpen)
-    }
 
     function test_changing_the_list_drops_the_history_over_it() {
       app.openMessage("message-1")
@@ -885,17 +862,17 @@ Item {
       var view = page
       while (view && String(view.toString()).indexOf("QQuickFlickable") < 0) view = view.parent
       verify(view, "the settings page scrolls inside a Flickable")
-      var calendars = -1
+      var writing = -1
       for (var itemIndex = 0; itemIndex < page.sections.length; itemIndex++)
-        if (page.sections[itemIndex].key === "calendars") calendars = page.sections[itemIndex].y
-      verify(calendars > 0, "the Calendars section is some way down the page")
-      view.contentY = calendars
-      compare(view.contentY, calendars, "the previous visit ended on Calendars")
+        if (page.sections[itemIndex].key === "writing") writing = page.sections[itemIndex].y
+      verify(writing > 0, "the Writing section is some way down the page")
+      view.contentY = writing
+      compare(view.contentY, writing, "the previous visit ended on Writing")
       app.back()
       compare(kinds(), "list")
 
-      app.showCalendar()
-      compare(kinds(), "calendar")
+      app.backToList()
+      compare(kinds(), "list")
       var switcher = having(app, function(item) {
         return typeof item.openCentered === "function" && typeof item.manageRequested === "function"
       })
@@ -909,18 +886,17 @@ Item {
       mouseClick(manage, manage.width / 2, manage.height / 2)
       tryCompare(switcher, "opened", false)
       compare(app.page, "settings", "which opens Settings")
-      compare(kinds(), "calendar,settings", "over the root it was opened on")
-      compare(app.calendarVisible, false, "and the calendar stands down for it")
+      compare(kinds(), "list,settings", "over the root it was opened on")
       verify(named(app, "settings-sidebar").visible, "the settings rail is up")
       compare(view.contentY, 0, "at the top of the page, not where the last visit ended")
       compare(named(app, "settings-sidebar").activeKey, page.sections[0].key)
 
-      view.contentY = calendars
+      view.contentY = writing
       app.editAccount(0)
-      compare(kinds(), "calendar,settings,setup")
+      compare(kinds(), "list,settings,setup")
       app.back()
-      compare(kinds(), "calendar,settings")
-      compare(view.contentY, calendars, "a return keeps the scroll")
+      compare(kinds(), "list,settings")
+      compare(view.contentY, writing, "a return keeps the scroll")
     }
 
     function test_editing_an_account_from_settings_returns_to_settings() {

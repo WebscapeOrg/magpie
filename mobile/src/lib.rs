@@ -355,8 +355,6 @@ fn read_only(method: &str) -> bool {
             | "reader.open"
             | "reader.render"
             | "contacts.suggest"
-            | "calendar.discover"
-            | "calendar.read"
             | "outbox.snapshot"
             | "compose.recoveryRead"
     )

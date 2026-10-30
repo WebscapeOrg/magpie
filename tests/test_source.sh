@@ -43,23 +43,6 @@ for file in "${JS_FILES[@]}"; do
   fi
 done
 
-# Invariant: Calendar display clocks use the locale's short format. The composer's HH:mm entry
-# convention and its validation error are deliberately separate.
-python3 - <<'PY_CALENDAR_TIME'
-import re
-from pathlib import Path
-files = sorted(Path("calendar").glob("*.qml")) + sorted(Path("calendar").glob("*.js"))
-files += sorted(Path("components").glob("*Calendar*.qml"))
-for path in files:
-    for number, line in enumerate(path.read_text().splitlines(), 1):
-        if re.match(r"\s*//", line):
-            continue
-        for match in re.finditer(r'"([^"\n]*(?:hh|HH):mm[^"\n]*)"', line):
-            if path == Path("calendar/Calendar.js") and match.group(1) == "Enter valid dates (YYYY-MM-DD) and times (HH:mm)":
-                continue
-            raise SystemExit("test_source.sh: %s:%d hard-codes a calendar clock; use the locale short time format" % (path, number))
-PY_CALENDAR_TIME
-
 # Invariant: Theme colours enter JS from QML. Html.js may retain its reviewed paper/ink palette
 # because sender content colours need a compatible reading background.
 for file in account/Model.js providers/GmailApi.js message/Message.js; do
@@ -237,7 +220,7 @@ awk '
 grep -q 'windowOpen' BarWidget.qml \
   || fail "the bar icon must show an active style while the window is open"
 grep -q 'KeyboardPanel {' BarWidget.qml \
-  || fail "the bar icon must open a mail and calendar preview"
+  || fail "the bar icon must open a mail preview"
 [ -f bar/BarPreview.qml ] || fail "the bar preview view is missing"
 python3 - <<'PY'
 from pathlib import Path
@@ -302,68 +285,17 @@ for icon in chevronLeft chevronRight chevronDown mail; do
     fail "Icons.js does not define the $icon icon"
   fi
 done
-grep -q 'objectName: "calendar-view-selector"' components/CalendarView.qml \
-  || fail "the calendar needs a view dropdown"
-python3 - <<'PY'
-from pathlib import Path
-text = Path("components/CalendarView.qml").read_text()
-if '["Day", "Week", "Month", "Agenda"]' not in text:
-    raise SystemExit("test_source.sh: Week must appear before Month in the view switcher")
-if 'text: "Today"' not in text or 'onClicked: root.goToday()' not in text:
-    raise SystemExit("test_source.sh: Today must read as a navigation action")
-today = text.index('text: "Today"')
-right = text.index('anchors.right: parent.right')
-if today > right:
-    raise SystemExit("test_source.sh: Go to today must sit with the date on the left")
-today_block = text[today:text.index('}', today)]
-# Invariant: A ghost: no box at rest. `ghost: true` is the icon buttons' look; a plain `bordered:
-# false` is the older text-only form and still counts.
-if 'ghost: true' not in today_block and 'bordered: false' not in today_block:
-    raise SystemExit("test_source.sh: Go to today must be a text-only action")
-if 'iconName: "refresh"' in text:
-    raise SystemExit("test_source.sh: calendar refresh belongs in the window header")
-if "id: calendarLoading" not in text or "root.controller.loading" not in text:
-    raise SystemExit("test_source.sh: calendar network refresh must show an inline loading animation")
-if "RotationAnimator on rotation" not in text:
-    raise SystemExit("test_source.sh: the calendar loading indicator must animate")
-error = text.index("id: calendarError")
-body = text.index("id: calendarBody")
-if error > body:
-    raise SystemExit("test_source.sh: calendar errors must reserve space above the calendar body")
-error_block = text[error:body]
-if "height:" not in error_block or "lastError" not in error_block:
-    raise SystemExit("test_source.sh: calendar errors must occupy their own visible row")
-PY
 python3 - <<'PY'
 from pathlib import Path
 text = Path("App.qml").read_text()
 if "function switchAccount(index)" not in text:
     raise SystemExit("test_source.sh: account entry points must share view-preserving switching")
 switch = text[text.index("function switchAccount(index)"):text.index("function editAccount", text.index("function switchAccount(index)"))]
-if "calendarVisible" not in switch or "mailboxAfterAccountSwitch" not in switch:
-    raise SystemExit("test_source.sh: account switching must retain Calendar or the current mailbox tab")
+if "mailboxAfterAccountSwitch" not in switch:
+    raise SystemExit("test_source.sh: account switching must retain the current mailbox tab")
 if "onAccountChosen" not in text or "root.switchAccount(index)" not in text:
     raise SystemExit("test_source.sh: the account picker must use view-preserving switching")
-service = Path("Service.qml").read_text()
-if "accountId: root.calendarAccountId" not in service:
-    raise SystemExit("test_source.sh: the visible Calendar must be told which account is displayed")
-# Performance: Unified calendars share a scope across mailbox switches; caching by mailbox
-# duplicates events and forces redundant fetches.
-controller = Path("calendar/CalendarController.qml").read_text()
-if "cachedEventsFor(refreshScope" not in controller or "eventCache.get(scope" not in controller or "eventCache.put(refreshScope" not in controller:
-    raise SystemExit("test_source.sh: the event cache must be keyed by the calendar scope, not the mailbox")
-# Algorithm: Reload on the derived calendar scope, not its individual inputs, so unchanged unified
-# views stay cached.
-if "onCalendarScopeChanged: reloadVisibleRange()" not in controller:
-    raise SystemExit("test_source.sh: the visible range must reload on a change of scope, not of mailbox")
-if "onAccountIdChanged" in controller or "onUnifiedCalendarViewChanged" in controller:
-    raise SystemExit("test_source.sh: reloading on either input separately is what the scope replaced")
-composer_default = Path("components/CalendarEventComposer.qml").read_text()
-if "preferredCalendarId()" not in composer_default:
-    raise SystemExit("test_source.sh: a new event must open on the mailbox being read, not the first account")
-composer = Path("components/CalendarEventComposer.qml").read_text()
-if "controller.writableSourceGroups" not in composer:
-    raise SystemExit("test_source.sh: event creation must offer writable calendars from the selected calendar view")
+
 PY
 python3 - <<'PY'
 from pathlib import Path
@@ -384,160 +316,20 @@ for name in ("compose-button",):
 PY
 python3 - <<'PY'
 from pathlib import Path
-
 sidebar = Path("components/MailboxSidebar.qml").read_text()
-footer = sidebar[sidebar.index("id: footer"):sidebar.index("component Entry:")]
-if 'label: "Calendar"' not in footer or "calendarRequested" not in footer:
-    raise SystemExit("test_source.sh: Calendar must stay fixed at the foot of the sidebar")
-calendar = footer.index('label: "Calendar"')
-if "MailStyle.space(6)" not in footer[calendar:]:
-    raise SystemExit("test_source.sh: Calendar must keep breathing room at the sidebar foot")
-
-app = Path("App.qml").read_text()
-sidebar_use = app[app.index("id: sidebar"):app.index("MailboxTabs {")]
-if "!root.calendarVisible" in sidebar_use or "calendarSelected: root.calendarVisible" not in sidebar_use:
-    raise SystemExit("test_source.sh: the mailbox sidebar must remain visible and select Calendar")
-header_start = app.index("id: headerRight")
-header = app[header_start:app.index("PanelSeparator {", header_start)]
-if 'iconName: root.calendarVisible ? "mail" : "calendar"' in header:
-    raise SystemExit("test_source.sh: Calendar navigation belongs in the sidebar, not the header")
-
-calendar = Path("components/CalendarView.qml").read_text()
-if "CalendarSidebar {" in calendar:
-    raise SystemExit("test_source.sh: Calendar must not open a second sidebar")
-week = Path("components/WeekCalendarView.qml").read_text()
-for source, name in ((calendar, "month"), (week, "week")):
-    if "required property color calendarBorderColor" not in source:
-        raise SystemExit("test_source.sh: %s calendar must inherit the themed border token" % name)
-    if "required property color calendarTodayBackgroundColor" not in source:
-        raise SystemExit("test_source.sh: %s calendar must inherit the themed Today background" % name)
-    if "required property int calendarBorderWidth" not in source:
-        raise SystemExit("test_source.sh: %s calendar must inherit the themed border width" % name)
-if "calendarBorderColor: root.calendarBorder" not in app:
-    raise SystemExit("test_source.sh: App must pass the system calendar border token")
-if "calendarTodayBackgroundColor: root.calendarTodayBackground" not in app:
-    raise SystemExit("test_source.sh: App must pass the system Today background token")
-if "readonly property color calendarBorder: Style.normalBorderColor" not in app:
-    raise SystemExit("test_source.sh: calendar borders must originate from the system border token")
-if "readonly property color calendarTodayBackground: Qt.alpha(root.accent, 0.035)" not in app:
-    raise SystemExit("test_source.sh: Today must use the quieter system accent fill token")
-if "calendarBorderWidth: root.calendarBorderWidth" not in app:
-    raise SystemExit("test_source.sh: App must pass the system calendar border width")
-if "color: Qt.alpha(root.calendarBorderColor, 0.25)" not in calendar or "width: root.calendarBorderWidth" not in calendar or "height: root.calendarBorderWidth" not in calendar:
-    raise SystemExit("test_source.sh: month dividers must consume the themed calendar border")
-if "? root.calendarTodayBackgroundColor" not in calendar:
-    raise SystemExit("test_source.sh: the Month Today cell must consume the themed background")
-if ("calendarBorderColor: root.calendarBorderColor" not in calendar
-        or "calendarTodayBackgroundColor: root.calendarTodayBackgroundColor" not in calendar
-        or "calendarBorderWidth: root.calendarBorderWidth" not in calendar):
-    raise SystemExit("test_source.sh: CalendarView must propagate themed calendar tokens to Week")
-if week.count("root.calendarTodayBackgroundColor") < 2:
-    raise SystemExit("test_source.sh: Week Today must span the all-day lane and timeline")
-PY
-grep -q 'function setSourceEnabled' calendar/CalendarController.qml \
-  || fail "calendar visibility must persist through the controller"
-grep -q 'function setSourceColor' calendar/CalendarController.qml \
-  || fail "calendar colors must persist through the controller"
-grep -q 'property bool sourcesLoaded' calendar/CalendarController.qml \
-  || fail "calendar refresh must wait for the saved source list"
-grep -q 'onEnabledSourceKeyChanged: reloadVisibleRange()' calendar/CalendarController.qml \
-  || fail "calendar events must load automatically when a source is discovered"
-grep -q 'function onSourcesLoadedChanged' components/CalendarView.qml \
-  || fail "the calendar view must refresh when its saved sources become ready"
-grep -q 'rangeStart = requestedStart' calendar/CalendarController.qml \
-  || fail "a calendar range change must select the target range immediately"
-grep -q 'CalendarCache {' calendar/CalendarController.qml \
-  || fail "CalendarController must restore events before refreshing the network"
-if grep -q '^    events = \[\]$' calendar/CalendarController.qml; then
-  fail "Calendar refresh must not blank cached events before the network answers"
-fi
-grep -q 'serial!==root.refreshSerial' calendar/CalendarController.qml \
-  || fail "an old calendar response must not replace the selected range"
-grep -q '"calendar.request"' calendar/CalendarController.qml \
-  || fail "calendar operations must use the bounded native backend"
-python3 - <<'PY'
-from pathlib import Path
-
-controller = Path("calendar/CalendarController.qml").read_text()
-if "XMLHttpRequest" in controller:
-    raise SystemExit("test_source.sh: calendar network must run in Rust")
-native = Path("../src/calendar/mod.rs").read_text()
-if "timeout(" not in native:
-    raise SystemExit("test_source.sh: native calendar requests require deadlines")
-
+assert 'label: "Skylark..."' in sidebar and "calendarRequested" in sidebar
 service = Path("Service.qml").read_text()
-if "readonly property var pendingSendHost" not in service:
-    raise SystemExit("test_source.sh: an undoable send must remain reachable across accounts")
+assert "readonly property var pendingSendHost" in service
+assert "calendarController:" not in service
+assert not Path("calendar").exists()
 PY
-grep -q 'Calendar.displayInAllDayLane' components/WeekCalendarView.qml \
-  || fail "all-day events must have a pinned week-view lane"
-grep -q 'signal createAt' components/WeekCalendarView.qml \
-  || fail "empty week slots must start event creation"
-grep -q 'function beginAt' components/CalendarEventComposer.qml \
-  || fail "event creation must accept a preselected time"
-python3 - <<'PY'
-from pathlib import Path
-
-app = Path("App.qml").read_text()
-for component_id in ("listColumn", "reader"):
-    marker = f"id: {component_id}"
-    start = app.index(marker)
-    end = app.find("\n        }", start)
-    block = app[start:end]
-    if "!root.calendarVisible" not in block:
-        raise SystemExit(
-            f"test_source.sh: {component_id} must be inactive behind the calendar view"
-        )
-PY
-[ -f components/CalendarEventDetail.qml ] \
-  || fail "calendar events need an in-app overview page"
-grep -q 'CalendarEventDetail {' components/CalendarView.qml \
-  || fail "calendar event activation must open the native overview"
-
 if grep -q 'Open Omamail' bar/BarPreview.qml; then
   fail "the bar preview must not contain a redundant Open Omamail button"
 fi
 grep -q 'messages: host ? host.previewMessages : \[\]' Service.qml \
   || fail "the bar preview must use each account's unread preview feed"
-grep -q 'id: barCalendar' Service.qml \
-  || fail "the bar preview needs an independent upcoming-event range"
-grep -q 'root.gmail.refreshCalendarPreview()' BarWidget.qml \
-  || fail "opening the bar preview must refresh its upcoming events"
 grep -q 'width: parent ? parent.width : 0' BarWidget.qml \
   || fail "bar preview rows must stay inside the panel's padded content area"
-grep -q '"MMM d · ddd HH:mm"' bar/BarPreview.qml \
-  || fail "upcoming events must show a calendar date as well as a weekday"
-if awk '
-  /function activateEvent\(event\)/ { in_function = 1 }
-  in_function && /Qt\.openUrlExternally/ { found = 1 }
-  in_function && /^  }/ { exit found ? 0 : 1 }
-  END { exit found ? 0 : 1 }
-' components/CalendarView.qml; then
-  fail "activating a calendar event must not jump to its provider"
-fi
-# Invariant: The overview is an entry on the navigation stack, so Back reaches it before the
-# calendar under it; `back()` asks the view to close it and the view's own change pops the entry.
-grep -q 'leaving.kind === "calendarDetail"' App.qml \
-  || fail "Escape must close the native calendar event overview first"
-if grep -q 'Shortcut { sequence: "Escape"' components/CalendarEventComposer.qml; then
-  fail "event creation must use the central Escape route, not an ambiguous duplicate"
-fi
-grep -q 'objectName: "event-repeat-selector"' components/CalendarEventComposer.qml \
-  || fail "event creation needs an optional recurrence section"
-grep -q 'text: "Choose calendars to show"' components/CalendarSettings.qml \
-  || fail "calendar setup must let users choose discovered Google calendars"
-grep -q 'root.controller.confirmDiscovery()' components/CalendarSettings.qml \
-  || fail "calendar discovery must save only after users confirm their selection"
-grep -q 'credentials.json|accounts.json|window.json|calendars.json|compose.json' ../scripts/config-store.sh \
-  || fail "the config writer must accept calendar source records"
-if grep -q 'Five Nextcloud calendars\|imported from Thunderbird\|Nextcloud password' components/CalendarSettings.qml; then
-  fail "calendar settings must not describe one user's imported setup"
-fi
-[ -f components/WeekCalendarView.qml ] \
-  || fail "the calendar week view is missing"
-grep -q 'id: dayHeaders' components/WeekCalendarView.qml \
-  || fail "the week view must label each day"
-
 # Invariant: Row fills reach the list/reader divider; content padding belongs inside a row, not in a
 # gutter that cuts every selected background short.
 grep -q 'width: root.width$' components/MessageList.qml \
@@ -777,7 +569,7 @@ settings = menu.index("id: settingsRow")
 switch = menu.index("id: switchRow")
 separator = menu.index("MenuSeparatorLine {", switch)
 if not calendar < switch < settings < separator:
-    raise SystemExit("test_source.sh: Settings must stay with the account actions below Calendar")
+    raise SystemExit("test_source.sh: Settings must stay with the account actions below Skylark")
 settings_block = menu[settings:menu.index("}", settings)]
 if 'text: "Settings..."' not in settings_block:
     raise SystemExit("test_source.sh: Settings opens an extra page and needs an ellipsis")
@@ -1113,9 +905,9 @@ if unknown:
 
 CONTRACTCALLS
 # Invariant: Credential metadata and secret values cross one typed backend RPC. Provider and
-# calendar QML must never regain a platform command or keyring helper.
+# presentation QML must never regain a platform command or keyring helper.
 if grep -E 'secret-tool|scripts/keyring-(lookup|store|clear)\.sh' \
-    providers/*.qml calendar/*.qml >/dev/null; then
+    providers/*.qml >/dev/null; then
   fail "QML credential paths must use the typed backend credential RPC"
 fi
 

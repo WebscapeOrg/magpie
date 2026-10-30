@@ -10,8 +10,6 @@ Item {
 
   // Invariant: dismissed suggestions last only for this session.
   property var dismissed: []
-  // Invariant: dismiss only after this suggestion is saved; closing its composer clears the pending link.
-  property var pending: null
   // Invariant: cached and live body arrivals must not start the same account/message twice.
   property var waiting: []
   property var started: []
@@ -141,29 +139,10 @@ Item {
   }
 
   function compose(suggestion) {
-    var controller = service ? service.calendarController : null
-    if (!suggestion || !controller) return false
-    var groups = controller.writableSourceGroups || []
-    if (groups.length === 0) {
-      if (reading) reading.fail("No calendar to add it to: add one in the calendar's settings first")
-      return false
-    }
-    if (controller.composerHeld) {
-      if (reading) reading.fail("Finish the event you are editing first")
-      return false
-    }
-    pending = suggestion
-    controller.composeRequested(Agent.eventPrefill(suggestion, reading ? reading.accountId : ""))
-    return true
-  }
-
-  Connections {
-    target: root.service ? root.service.calendarController : null
-    function onEventCreated(ok, error) {
-      if (!ok || !root.pending) return
-      root.dismiss(root.pending.key)
-      root.pending = null
-    }
-    function onComposeEnded() { root.pending = null }
+    if (!suggestion || !reading || !service) return false
+    var selected = suggestions.filter(function(value) { return value.key === suggestion.key })
+    if (selected.length !== 1 || !service.findAccount(reading.accountId)) return false
+    return service.openSkylark({version:1,kind:"suggestion",accountId:reading.accountId,
+      suggestion:Agent.eventPrefill(selected[0],reading.accountId)})
   }
 }

@@ -24,7 +24,6 @@ pub struct Engine {
     #[cfg(target_os = "linux")]
     phone: std::sync::Arc<phone::Service>,
     frontend: bool,
-    calendar_reads: std::sync::Arc<crate::calendar::reads::Reads>,
     local_mail: std::sync::Arc<crate::local_mail::LocalMail>,
     reader_prefetch: tokio::sync::Semaphore,
     inbox: std::sync::Arc<crate::inbox::Inbox>,
@@ -68,7 +67,6 @@ impl Default for Engine {
             frontend: false,
             #[cfg(target_os = "linux")]
             phone: Default::default(),
-            calendar_reads: Default::default(),
             local_mail: Default::default(),
             reader_prefetch: tokio::sync::Semaphore::new(1),
             inbox: Default::default(),
@@ -94,7 +92,6 @@ impl Engine {
         Self {
             frontend: true,
             phone: self.phone.clone(),
-            calendar_reads: self.calendar_reads.clone(),
             local_mail: self.local_mail.clone(),
             reader_prefetch: tokio::sync::Semaphore::new(1),
             inbox: self.inbox.clone(),
@@ -562,97 +559,6 @@ impl Engine {
             let params: Value = serde_json::from_slice(&bytes).map_err(|_| "invalid_params")?;
             return Box::pin(self.dispatch(target, &params)).await;
         }
-        if method == "calendar.parse" {
-            let params = params.clone();
-            return tokio::task::spawn_blocking(move || crate::calendar::parse::parse(&params))
-                .await
-                .map_err(|_| "worker_failed")?;
-        }
-        if method == "calendar.read" {
-            if params["operation"] != "list" {
-                return Err("invalid_params");
-            }
-            crate::calendar::validate(params)?;
-            reader::registered(
-                params["source"]["accountId"]
-                    .as_str()
-                    .ok_or("invalid_params")?,
-            )
-            .await?;
-            return self.calendar_reads.get(params,||async {
-                let response=Box::pin(self.dispatch("calendar.request",params)).await?;
-                let parse=serde_json::json!({"kind":params["source"]["kind"],"sourceId":params["source"]["id"],
-                    "body":response["body"],
-                    "startMs":chrono::DateTime::parse_from_rfc3339(params["start"].as_str().ok_or("invalid_params")?).map_err(|_|"invalid_params")?.timestamp_millis(),
-                    "endMs":chrono::DateTime::parse_from_rfc3339(params["end"].as_str().ok_or("invalid_params")?).map_err(|_|"invalid_params")?.timestamp_millis()});
-                tokio::task::spawn_blocking(move||crate::calendar::parse::parse(&parse)).await.map_err(|_|"worker_failed")?
-            }).await;
-        }
-        if method == "calendar.request" {
-            crate::calendar::validate(params)?;
-            let token = self
-                .gmail
-                .access_token(
-                    params["source"]["accountId"]
-                        .as_str()
-                        .ok_or("invalid_params")?,
-                )
-                .await?;
-            let answer = Box::pin(crate::calendar::call(params, Some(&token))).await;
-            if !matches!(
-                params["operation"].as_str(),
-                Some("list" | "get" | "lookup" | "instances")
-            ) {
-                self.calendar_reads.invalidate();
-            }
-            return answer;
-        }
-        if method == "calendar.attendance" {
-            crate::calendar::attendance::validate(params)?;
-            let token = self
-                .gmail
-                .access_token(params["accountId"].as_str().ok_or("invalid_params")?)
-                .await?;
-            let account = params["accountId"].as_str().ok_or("invalid_params")?;
-            let mut addresses = vec![account.to_owned()];
-            if let Ok(aliases) = self
-                .gmail
-                .call("gmail.sendAs", &json!({"accountId":account}))
-                .await
-            {
-                for alias in aliases.as_array().into_iter().flatten() {
-                    if let Some(email) = alias["email"].as_str().filter(|email| {
-                        !email.is_empty()
-                            && email.len() <= 1024
-                            && !email.chars().any(char::is_control)
-                    }) {
-                        addresses.push(email.to_owned());
-                    }
-                }
-            }
-            return crate::calendar::attendance::google(params, &token, &addresses).await;
-        }
-        if method == "calendar.reminders" {
-            let params = params.clone();
-            return tokio::task::spawn_blocking(move || crate::calendar::reminders::call(&params))
-                .await
-                .map_err(|_| "calendar_reminders_unavailable")?;
-        }
-        if method == "calendar.discover" {
-            let account = params["accountId"].as_str().ok_or("invalid_params")?;
-            if params.as_object().is_none_or(|fields| fields.len() != 1)
-                || account.is_empty()
-                || account.len() > 1024
-                || !account.contains('@')
-                || account.contains(':')
-                || account.chars().any(|c| c.is_control() || c.is_whitespace())
-            {
-                return Err("invalid_params");
-            }
-            reader::registered(account).await?;
-            let token = self.gmail.access_token(account).await?;
-            return crate::calendar::discover_google(account, &token).await;
-        }
         if method == "cache.bodyPutUpload" {
             let mut params = params.as_object().cloned().ok_or("invalid_params")?;
             if params
@@ -684,8 +590,6 @@ impl Engine {
                 | "cache.bodyClear"
                 | "cache.storeRead"
                 | "cache.storePut"
-                | "cache.calendarRead"
-                | "cache.calendarPut"
         ) {
             let method = method.to_owned();
             let params = params.clone();

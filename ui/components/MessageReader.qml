@@ -594,20 +594,12 @@ Item {
       y: MailStyle.space(24)
       width: root.bodyWidth
       invite: root.service ? root.service.selectedInvite : null
-      response: root.service ? root.service.selectedResponse : ""
-      canRespond: !!root.service && root.service.canRespondToInvite
-      sending: !!root.service && root.service.rsvpSending
-      fallbackAvailable: !!root.service && root.service.rsvpFallbackAvailable === true
-      calendarUrl: String(root.service && root.service.rsvpCalendarUrl || "")
       textColor: root.textColor
       accentColor: root.accentColor
       dimColor: root.dimColor
       dimmerColor: root.dimmerColor
       panelFontFamily: root.panelFontFamily
-      onRespondRequested: function(answer) {
-        if (root.service) root.service.rsvp(answer)
-      }
-      onMailOnlyRequested: function(answer) { if (root.service) root.service.rsvpMailOnly(answer) }
+      onCalendarRequested: if (root.service) root.service.openInvitationInSkylark()
       onOpenRequested: function(url) { root.openLink(url) }
     }
 

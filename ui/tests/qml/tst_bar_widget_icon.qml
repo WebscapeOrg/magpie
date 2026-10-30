@@ -121,7 +121,7 @@ Item {
       compare(fakeService.refreshCount, 1)
       button().pressed(Qt.RightButton)
       compare(widget.previewOpen, true)
-      compare(fakeService.calendarRefreshCount, 1)
+      compare(fakeService.calendarRefreshCount, 0)
       widget.openMessage("ada@example.org", "mail-1")
       compare(JSON.parse(startingShell.lastPayload).messageId, "mail-1")
 
@@ -169,7 +169,7 @@ Item {
       button().pressed(Qt.MiddleButton)
       button().pressed(Qt.RightButton)
       compare(fakeService.refreshCount, 1)
-      compare(fakeService.calendarRefreshCount, 1)
+      compare(fakeService.calendarRefreshCount, 0)
       compare(bridgeCalls, 0, "normal bar actions must use the direct service")
       icon.destroy()
       fakeService.unreadTotal = 3

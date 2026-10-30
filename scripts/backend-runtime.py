@@ -381,8 +381,8 @@ def cli_installed():
         return False
 
 
-def engine_marker():
-    marker = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "omamail/engine-enabled"
+def engine_marker(name="engine-enabled"):
+    marker = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "omamail" / name
     require(marker.is_absolute() and ".." not in marker.parts, "Mail service path is unsafe.")
     safe_path(marker)
     for part in reversed(marker.parents):
@@ -401,6 +401,8 @@ def engine_marker():
 
 
 def restart_engine():
+    require(engine_marker("engine-uninstalling") is None,
+            "Finish uninstalling the mail service before restarting it.")
     if engine_marker() is None:
         return
     try:
@@ -425,15 +427,27 @@ def manage(command, required, architecture):
             safe_path(BINARY)
             safe_path(LOCAL_BUILD)
             marker = engine_marker()
-            if marker is not None:
+            pending = engine_marker("engine-uninstalling")
+            if marker is not None or pending is not None:
+                if pending is None:
+                    pending = marker.with_name("engine-uninstalling")
+                    with os.fdopen(os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as output:
+                        output.write(b"1\n")
+                        output.flush()
+                        os.fsync(output.fileno())
                 try:
                     subprocess.run(["/usr/bin/systemctl", "--user", "disable", "--now", "magpie-engine.service"],
                                    check=True, timeout=210, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 except (subprocess.SubprocessError, OSError):
+                    if marker is not None:
+                        pending.unlink()
                     raise Refused("The mail service could not stop. The installed backend has been preserved.")
-                marker.unlink()
+                if marker is not None:
+                    marker.unlink()
             LOCAL_BUILD.unlink(missing_ok=True)
             BINARY.unlink(missing_ok=True)
+            if pending is not None:
+                pending.unlink()
             return required
         if command == "enable-cli":
             require(version_of(BINARY) == required, "Install the required backend before enabling the CLI.")

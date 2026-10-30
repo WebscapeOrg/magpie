@@ -110,7 +110,9 @@ jobs:
           set -euo pipefail
           python3 -m pip install "cmake==3.31.6" "ninja==1.11.1.4"
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libdbus-1-3 libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 patchelf
+          sudo apt-get install -y --no-install-recommends bubblewrap poppler-utils libdbus-1-3 libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 patchelf
+      - name: Verify the isolated document sandbox
+        run: bash .github/scripts/prepare-document-tests.sh
       - name: Build and test the standalone host
         env:
           QT_QPA_PLATFORM: offscreen
@@ -153,6 +155,11 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13.5"
+      - name: Verify native fixture roots and permissions
+        shell: pwsh
+        run: |
+          python tests/test_backend_release.py ReleaseTests.test_windows_fixture_applies_private_acl ReleaseTests.test_windows_fixture_resolves_native_app_data_in_child
+          if ($LASTEXITCODE -ne 0) { throw "private fixture preflight failed" }
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
         with:
           toolchain: "1.98.1"
@@ -204,11 +211,8 @@ jobs:
           Expand-Archive dist/omamail-app-windows-x86_64.zip -DestinationPath $smoke
           $appExecutable = Join-Path $smoke "omamail/bin/omamail-app.exe"
           $backend = Join-Path $smoke "omamail/bin/omamail.exe"
-          & $appExecutable --check-resources
-          if ($LASTEXITCODE -ne 0) { throw "resource check failed" }
-          & $appExecutable --smoke-test (Join-Path $env:RUNNER_TEMP "omamail-ready.json")
-          if ($LASTEXITCODE -ne 0) { throw "live smoke failed" }
-          python tests/test_backend_api.py --binary $backend --expected-version $version --standalone --isolated-windows-runner
+          $ready = Join-Path $smoke "ready.json"
+          python tests/test_backend_api.py --binary $backend --expected-version $version --standalone --isolated-windows-runner --smoke-host $appExecutable --smoke-ready $ready
           if ($LASTEXITCODE -ne 0) { throw "packaged backend API contract failed" }
 
   portable-tests:
@@ -221,6 +225,12 @@ jobs:
         with:
           node-version: "20"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Install isolated document-worker dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap poppler-utils
+      - name: Verify the isolated document sandbox
+        run: bash .github/scripts/prepare-document-tests.sh
       # Version-sensitive QML/libcurl checks remain on the Omarchy host.
       - run: make test-rust test-js test-shell-portable
       - run: python3 tests/test_backend_release.py

@@ -19,3 +19,4 @@ mod stream;
 pub mod worker;
 
 pub mod overview;
+mod vision;

@@ -55,7 +55,7 @@ def standalone_manifest(root):
     version = check(root)
     manifest = json.loads((root / 'manifest.json').read_bytes())
     manifest.update(id='omamail', name='Omamail', version=version)
-    return json.dumps(manifest, ensure_ascii=False, indent=2) + '\n'
+    return json.dumps(manifest, indent=2) + '\n'
 
 
 def pin_version(root):

@@ -148,7 +148,7 @@ try {
         "production packaging bypassed windeployqt"
 
     $PackageSource = [IO.File]::ReadAllText($PackageScript)
-    foreach ($SmokeCommand in @("--check-resources", "--smoke-test", "--version", "test_backend_api.py")) {
+    foreach ($SmokeCommand in @("--smoke-host", "--smoke-ready", "--isolated-windows-runner", "--version", "test_backend_api.py")) {
         Assert-True ($PackageSource.Contains($SmokeCommand)) `
             "production packaging does not run $SmokeCommand against the extracted archive"
     }

@@ -421,6 +421,12 @@ fn configured_list_failures_do_not_repair_registry_metadata() {
 fn configured_read_failures_do_not_repair_registry_metadata() {
     let fixture = mail_list_fixture(false);
     let directory = config_root(&fixture.0).join("omamail");
+    #[cfg(target_os = "macos")]
+    {
+        let mail = directory.join("mail");
+        fs::create_dir(&mail).unwrap();
+        set_mode(&mail, 0o700);
+    }
     let registry = directory.join("accounts.json");
     let before = (
         metadata(&directory),

@@ -70,14 +70,15 @@ class ReleaseWorkflowContract(unittest.TestCase):
             "-input app/tests/qml/tst_host_contract.qml",
             "test_qml_inventory.py",
             "test_backend_api.py",
-            "--check-resources",
-            "--smoke-test",
         )
         for job in APP_JOBS:
             with self.subTest(job=job):
                 block = job_block(self.workflow, job)
                 for needle in required:
                     self.assertIn(needle, block)
+                if "windows" not in job:
+                    self.assertIn("--check-resources", block)
+                    self.assertIn("--smoke-test", block)
                 self.assertIn("QT_QUICK_CONTROLS_STYLE: Omamail", block)
                 self.assertIn("QT_QUICK_CONTROLS_FALLBACK_STYLE: Basic", block)
                 self.assertIn("-import app/qml/styles", block)
@@ -85,7 +86,8 @@ class ReleaseWorkflowContract(unittest.TestCase):
                     self.assertEqual(block.count("QT_QPA_PLATFORM: offscreen"), 1)
                     self.assertEqual(block.count("QT_QPA_PLATFORM: windows"), 1)
                     self.assertNotRegex(block, r"(?i)\$host\s*=")
-                    self.assertIn("& $appExecutable --smoke-test", block)
+                    self.assertIn("--smoke-host $appExecutable --smoke-ready $ready", block)
+                    self.assertNotIn("& $appExecutable --smoke-test", block)
                     self.assertIn("Test-Package.ps1", block)
                     self.assertIn("Test-Install.ps1", block)
                     self.assertIn("package-release.ps1", block)
@@ -101,6 +103,14 @@ class ReleaseWorkflowContract(unittest.TestCase):
                     self.assertIn("test_install.sh", block)
                     self.assertIn("package-release.sh", block)
                     self.assertIn('--host "$PWD/build/app/omamail-app"', block)
+
+    def test_windows_package_smoke_uses_owned_data_for_host_and_backend(self):
+        package = (ROOT / "app/scripts/package-release.ps1").read_text()
+        self.assertIn("--standalone --isolated-windows-runner --smoke-host $SmokeHost --smoke-ready $ReadyFile", package)
+        self.assertNotIn("& $SmokeHost --smoke-test", package)
+        harness = (ROOT / "tests/test_backend_api.py").read_text()
+        self.assertIn("[str(smoke_host), '--check-resources']", harness)
+        self.assertIn("[str(smoke_host), '--smoke-test', str(ready)]", harness)
 
     def test_every_native_release_runs_the_complete_standalone_rust_suite(self):
         command = "cargo test --locked --no-default-features --features standalone,integration-test-credentials"
@@ -129,15 +139,17 @@ class ReleaseWorkflowContract(unittest.TestCase):
                 self.assertIn("-import app/qml/styles", block)
                 self.assertIn("test_backend_api.py", block)
                 self.assertIn("--standalone", block)
-                self.assertIn("--check-resources", block)
-                self.assertIn("--smoke-test", block)
+                if target != "windows-x86_64":
+                    self.assertIn("--check-resources", block)
+                    self.assertIn("--smoke-test", block)
                 self.assertIn(archive, block)
                 if target == "windows-x86_64":
                     self.assertEqual(block.count("QT_QPA_PLATFORM: offscreen"), 1)
                     self.assertEqual(block.count("QT_QPA_PLATFORM: windows"), 1)
                     self.assertIn("package-release.ps1", block)
                     self.assertNotRegex(block, r"(?i)\$host\s*=")
-                    self.assertIn("& $appExecutable --smoke-test", block)
+                    self.assertIn("--smoke-host $appExecutable --smoke-ready $ready", block)
+                    self.assertNotIn("& $appExecutable --smoke-test", block)
                     self.assertIn("Test-Package.ps1", block)
                     self.assertIn("Test-Install.ps1", block)
                     self.assertIn('-G "Visual Studio 17 2022" -A x64', block)

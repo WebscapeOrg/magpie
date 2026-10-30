@@ -1,4 +1,6 @@
 mod avatars;
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+mod context;
 #[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 mod overview_tests;
 #[cfg(target_os = "linux")]
@@ -71,11 +73,17 @@ impl Inbox {
                 fields(params, &["accountId"])?;
                 let account = account(params)?;
                 Ok(
-                    json!({"overviews":store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})),"snoozes":snooze::snapshot(&account)?}),
+                    json!({"overviews":overview_snapshot(store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})), now())?,"snoozes":snooze::snapshot(&account)?}),
                 )
             }
             "inbox.overviews" => {
-                fields(params, &["accountId", "ids", "retry"])?;
+                fields(params, &["accountId", "ids", "retry", "allowRemoteImages"])?;
+                for field in ["retry", "allowRemoteImages"] {
+                    if params.get(field).is_some_and(|value| !value.is_boolean()) {
+                        return Err("invalid_params");
+                    }
+                }
+                let remote = params["allowRemoteImages"] == true;
                 let account = account(params)?;
                 let ids = ids(params)?;
                 #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
@@ -92,7 +100,8 @@ impl Inbox {
                     }
                     tokio::spawn(async move {
                         let _permit = permit;
-                        let result = overview_batch(&account, &chosen, &gmail, &local_mail).await;
+                        let result =
+                            overview_batch(&account, &chosen, &gmail, &local_mail, remote).await;
                         let _ =
                             store::update(&name, |saved| finish_overviews(saved, &chosen, &result));
                     });
@@ -156,7 +165,7 @@ fn claim_overviews(
     }
     for id in ids {
         let old = &saved[id];
-        if old["text"].as_str().is_some_and(|s| !s.is_empty()) && old["version"] == 1 {
+        if overview_current(old, at) {
             continue;
         }
         if old["state"] == "running"
@@ -170,7 +179,7 @@ fn claim_overviews(
         {
             continue;
         }
-        saved[id] = json!({"state":"running","updated":at,"version":1});
+        saved[id] = json!({"state":"running","updated":at,"version":2});
         chosen.push(id.clone());
     }
     Ok(chosen)
@@ -186,18 +195,19 @@ fn finish_overviews(
         return Err("inbox_storage_invalid");
     }
     for id in chosen {
-        let text = result
+        let row = result
             .as_ref()
             .ok()
-            .and_then(|rows| rows.as_array())
-            .and_then(|rows| rows.iter().find(|v| v["id"] == *id))
-            .and_then(|v| v["text"].as_str());
-        saved[id] = match text {
-            Some(text) => {
-                json!({"state":"ready","text":text,"version":1,"updated":now()})
+            .and_then(Value::as_array)
+            .and_then(|rows| rows.iter().find(|v| v["id"] == *id));
+        saved[id] = match row
+            .filter(|row| row["text"].as_str().is_some_and(|text| !text.is_empty()))
+        {
+            Some(row) => {
+                json!({"state":"ready","text":row["text"],"version":2,"updated":now(),"expiresAt":if row["timeSensitive"] == false && !relative_words(row["text"].as_str().unwrap_or("")) { 0 } else { row["expiresAt"].as_i64().filter(|value| *value > 0).unwrap_or_else(|| next_day(now())) }})
             }
             None => {
-                json!({"state":"failed","reason":overview_failure(result.as_ref().err().copied()),"updated":now(),"version":1})
+                json!({"state":"failed","reason":overview_failure(result.as_ref().err().copied()),"updated":now(),"version":2})
             }
         };
     }
@@ -224,8 +234,17 @@ async fn overview_batch(
     ids: &[String],
     gmail: &crate::providers::gmail::Session,
     local_mail: &crate::local_mail::LocalMail,
+    remote: bool,
 ) -> Result<Value, &'static str> {
-    overview_batch_with(account, ids, gmail, local_mail, |messages| async move {
+    overview_batch_with(account, ids, gmail, local_mail, |mut messages| async move {
+        for message in messages.as_array_mut().ok_or("overview_input_invalid")? {
+            let id = message["id"]
+                .as_str()
+                .ok_or("overview_input_invalid")?
+                .to_owned();
+            let raw = local_mail.read(account, &id, gmail).await?;
+            context::enrich(account, &id, &raw, message, gmail, remote).await?;
+        }
         crate::agent::overview::generate(&messages).await
     })
     .await
@@ -246,7 +265,9 @@ where
     let mut messages = Vec::new();
     for id in ids {
         let raw = local_mail.read(account, id, gmail).await?;
-        messages.push(overview_message(id, &raw)?);
+        let mut message = overview_message(id, &raw)?;
+        message["owner"] = json!(account);
+        messages.push(message);
     }
     generate(json!(messages)).await
 }
@@ -256,24 +277,80 @@ fn overview_message(id: &str, raw: &Value) -> Result<Value, &'static str> {
     let prepared = crate::message::content::prepare(raw, now())?;
     let summary = &prepared["summary"];
     let body = prepared["body"]["text"].as_str().unwrap_or("");
-    // Algorithm: Preserve the opening request and the end (often where the real ask lives).
-    let body = if body.chars().count() > 48000 {
-        let start: String = body.chars().take(36000).collect();
-        let end: String = body
-            .chars()
-            .rev()
-            .take(12000)
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect();
-        format!("{start}\n[Middle omitted]\n{end}")
-    } else {
-        body.to_owned()
-    };
+    let current = chrono::Local::now();
+    let valid_until = next_day(current.timestamp_millis());
     Ok(
-        json!({"id":id,"from":summary["from"],"subject":summary["subject"],"date":summary["fullTime"],"body":body,"attachments":prepared["attachments"]}),
+        json!({"id":id,"from":summary["from"],"to":summary["to"],"cc":summary["cc"],"bcc":summary["bcc"],"subject":summary["subject"],"date":summary["date"],"currentDate":current.format("%Y-%m-%d").to_string(),"currentTime":current.to_rfc3339(),"validUntil":valid_until,"sentByOwner":summary["isSent"],"body":context::bounded(body,48000),"attachments":prepared["attachments"]}),
     )
+}
+
+fn overview_current(value: &Value, at: i64) -> bool {
+    value["version"] == 2
+        && value["state"] == "ready"
+        && value["text"].as_str().is_some_and(|text| !text.is_empty())
+        && value["expiresAt"]
+            .as_i64()
+            .is_some_and(|expires| expires == 0 || expires > at)
+}
+
+fn overview_snapshot(mut saved: Value, at: i64) -> Result<Value, &'static str> {
+    for value in saved
+        .as_object_mut()
+        .ok_or("inbox_storage_invalid")?
+        .values_mut()
+    {
+        if !overview_current(value, at) && value["state"] == "ready" {
+            value["state"] = json!("stale");
+            value.as_object_mut().map(|fields| fields.remove("text"));
+        }
+    }
+    Ok(saved)
+}
+
+fn relative_words(text: &str) -> bool {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphabetic())
+        .any(|word| {
+            matches!(
+                word,
+                "today"
+                    | "yesterday"
+                    | "tomorrow"
+                    | "tonight"
+                    | "ago"
+                    | "overdue"
+                    | "due"
+                    | "expires"
+                    | "expired"
+                    | "monday"
+                    | "tuesday"
+                    | "wednesday"
+                    | "thursday"
+                    | "friday"
+                    | "saturday"
+                    | "sunday"
+            )
+        })
+}
+
+fn next_day(at: i64) -> i64 {
+    use chrono::{Local, TimeZone};
+    let Some(current) = Local.timestamp_millis_opt(at).single() else {
+        return at.saturating_add(86_400_000);
+    };
+    let Some(date) = current
+        .date_naive()
+        .succ_opt()
+        .and_then(|date| date.and_hms_opt(0, 0, 0))
+    else {
+        return at.saturating_add(86_400_000);
+    };
+    Local
+        .from_local_datetime(&date)
+        .earliest()
+        .map_or(at.saturating_add(86_400_000), |date| {
+            date.timestamp_millis()
+        })
 }
 
 fn overview_failure(error: Option<&str>) -> &'static str {
@@ -311,6 +388,37 @@ mod overview_storage_tests {
     use serde_json::{Value, json};
 
     #[test]
+    fn descriptions_expire_against_generation_date_even_when_completion_crosses_midnight() {
+        let mut saved = json!({});
+        finish_overviews(&mut saved, &["dated".into(),"static".into()], &Ok(json!([
+            {"id":"dated","text":"Reminder — Your bill was due yesterday","timeSensitive":false,"expiresAt":1000},
+            {"id":"static","text":"Receipt — R780 received for invoice INV-520","timeSensitive":false,"expiresAt":1000}
+        ]))).unwrap();
+        assert_eq!(saved["dated"]["expiresAt"], 1000);
+        assert!(!super::overview_current(&saved["dated"], 1000));
+        assert!(super::overview_current(&saved["static"], 2000));
+        let snapshot = super::overview_snapshot(saved, 2000).unwrap();
+        assert_eq!(snapshot["dated"]["state"], "stale");
+        assert!(snapshot["dated"].get("text").is_none());
+        assert!(snapshot["static"]["text"].is_string());
+    }
+
+    #[test]
+    fn old_descriptions_are_hidden_and_admitted_for_regeneration() {
+        let mut saved = json!({"legacy":{"state":"ready","text":"Old overview","version":1},"missing":{"state":"ready","text":"Missing expiry","version":2}});
+        let snapshot = super::overview_snapshot(saved.clone(), 1000).unwrap();
+        assert!(
+            snapshot
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|value| value.get("text").is_none())
+        );
+        let ids = vec!["legacy".into(), "missing".into()];
+        assert_eq!(claim_overviews(&mut saved, &ids, false, 1000).unwrap(), ids);
+    }
+
+    #[test]
     fn expired_overview_failure_accepts_the_full_persisted_timestamp_range() {
         let mut saved = json!({"message": {"state":"failed", "updated":i64::MIN}});
         let ids = vec!["message".to_owned()];
@@ -336,7 +444,7 @@ mod overview_storage_tests {
     #[test]
     fn overview_claim_preserves_ready_results_and_observes_retry_cooldown() {
         let original = json!({
-            "ready": {"text":"saved summary", "version":1},
+            "ready": {"text":"saved summary", "version":2,"state":"ready","expiresAt":0},
             "recent": {"state":"failed", "updated":100_001},
             "expired": {"state":"failed", "updated":100_000}
         });

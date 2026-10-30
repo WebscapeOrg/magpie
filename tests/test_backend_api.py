@@ -7,13 +7,14 @@ mail server, or external agent is configured. This is a compatibility gate, not
 an exhaustive provider/network integration suite.
 """
 import argparse
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager, ExitStack, nullcontext
 import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
 import signal
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -50,7 +51,7 @@ def redirected_folders(changes, get_path, set_path):
             raise RuntimeError('Could not restore isolated runner Known Folders') from errors[0]
 
 
-def windows_fixture_folders(home, config, local):
+def windows_known_folders():
     import ctypes
     import uuid
     shell = ctypes.WinDLL('shell32')
@@ -81,11 +82,55 @@ def windows_fixture_folders(home, config, local):
         if result < 0:
             raise OSError(f'SHSetKnownFolderPath failed: {result:#x}')
 
+    return get_path, set_path
+
+
+@contextmanager
+def exclusive_fixture_directory(path):
+    path.mkdir(mode=0o700)
+    identity = path.stat(follow_symlinks=False)
+    try:
+        yield path
+    finally:
+        current = path.stat(follow_symlinks=False)
+        if path.is_symlink() or not path.is_dir() or not os.path.samestat(identity, current):
+            raise RuntimeError('Refusing to remove a replaced fixture directory')
+        shutil.rmtree(path)
+
+
+def windows_fixture_folders(home, config, get_path, set_path):
     return redirected_folders([
         ('3eb685db-65f9-4cf6-a03a-e3ef65729f3d', config),
-        ('f1b32785-6fba-4fcf-9d55-7b8e7f157091', local),
         ('374de290-123f-4565-9164-39c4925e467b', home / 'Downloads'),
     ], get_path, set_path)
+
+
+def windows_fixture_environment(config, local, get_path):
+    return {'USERPROFILE': get_path('5e6c858f-0e22-4760-9afe-ea3317b67173'),
+            'APPDATA': str(config), 'LOCALAPPDATA': str(local)}
+
+
+def windows_child_folders(env):
+    script = """
+import json, runpy, sys
+get_path, _ = runpy.run_path(sys.argv[1])['windows_known_folders']()
+print(json.dumps({
+    'profile': get_path('5e6c858f-0e22-4760-9afe-ea3317b67173'),
+    'config': get_path('3eb685db-65f9-4cf6-a03a-e3ef65729f3d'),
+    'local': get_path('f1b32785-6fba-4fcf-9d55-7b8e7f157091'),
+    'downloads': get_path('374de290-123f-4565-9164-39c4925e467b'),
+}))
+"""
+    result = subprocess.run([sys.executable, '-I', '-c', script, str(Path(__file__).resolve())],
+                            env=env, capture_output=True, text=True, check=True, timeout=10)
+    return json.loads(result.stdout)
+
+
+def verify_windows_fixture_folders(env, expected):
+    actual = windows_child_folders(env)
+    for name, path in expected.items():
+        if Path(actual[name]) != Path(path):
+            raise RuntimeError(f'Windows fixture {name} differs in child: {actual[name]!r} != {str(path)!r}')
 
 
 def process_group_options(platform=None):
@@ -106,6 +151,54 @@ def terminate_process_group(process, platform=None):
             process.kill()
     else:
         os.killpg(process.pid, signal.SIGKILL)
+
+
+def make_windows_fixture_private(roots):
+    entries = [{'path': str(path), 'directory': path.is_dir()}
+               for root in roots for path in [root] + sorted(root.rglob('*'))]
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$entries = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+foreach ($entry in $entries) {
+    if ($entry.directory) {
+        $acl = [System.Security.AccessControl.DirectorySecurity]::new()
+        $inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    } else {
+        $acl = [System.Security.AccessControl.FileSecurity]::new()
+        $inherit = [System.Security.AccessControl.InheritanceFlags]::None
+    }
+    $acl.SetOwner($owner)
+    $acl.SetAccessRuleProtection($true, $false)
+    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+        $owner, [System.Security.AccessControl.FileSystemRights]::FullControl,
+        $inherit, [System.Security.AccessControl.PropagationFlags]::None,
+        [System.Security.AccessControl.AccessControlType]::Allow)
+    $acl.AddAccessRule($rule)
+    if ($entry.directory) {
+        [System.IO.Directory]::SetAccessControl($entry.path, $acl)
+    } else {
+        [System.IO.File]::SetAccessControl($entry.path, $acl)
+    }
+}
+"""
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                            input=json.dumps(entries), text=True, capture_output=True)
+    if result.returncode:
+        raise RuntimeError('Could not set private fixture permissions: ' + result.stderr[:8192])
+
+
+def run_fixture_process(command, env, home):
+    process = subprocess.Popen(command, env=env, cwd=home, **process_group_options())
+    try:
+        return process.wait(timeout=60)
+    finally:
+        try:
+            terminate_process_group(process)
+        except (OSError, ProcessLookupError):
+            pass
+        process.wait(timeout=10)
+
 
 HARNESS = r"""
 const fs = require('fs');
@@ -129,12 +222,14 @@ const selected = released ? (whole.releasedContract || {
 // Standalone Linux/macOS share the native assistant. Windows remains deferred
 // and must reject the unavailable methods without touching storage.
 const agentUnavailable = standalone && process.platform === 'win32';
-const unavailable = agentUnavailable ? selected.methods.filter(m => m.startsWith('agent.')) : [];
-const contract = agentUnavailable ? {
+const methodUnavailable = method => (agentUnavailable && method.startsWith('agent.')) ||
+  (process.platform !== 'linux' && method.startsWith('phone.'));
+const unavailable = selected.methods.filter(methodUnavailable);
+const contract = {
   ...selected,
-  methods: selected.methods.filter(m => !m.startsWith('agent.')),
-  contractCases: selected.contractCases.filter(c => !c.method.startsWith('agent.'))
-} : selected;
+  methods: selected.methods.filter(m => !methodUnavailable(m)),
+  contractCases: selected.contractCases.filter(c => !methodUnavailable(c.method))
+};
 const child = spawn(process.env.CONTRACT_BINARY, ['serve'], {stdio:['pipe','pipe','pipe']});
 let buffer = '', state = null, serial = 0, finished = false;
 const pending = new Map();
@@ -180,7 +275,7 @@ function safeDocument(value) {
   assert.ok(value && typeof value === 'object');
   assert.ok(!JSON.stringify(value).includes('forbiddenScript'));
 }
-function storageSnapshot(directory = process.env.HOME) {
+function storageSnapshot() {
   const snapshot = {};
   function visit(path) {
     const stat = fs.lstatSync(path, {bigint:true});
@@ -188,7 +283,7 @@ function storageSnapshot(directory = process.env.HOME) {
       stat.isFile() ? fs.readFileSync(path).toString('base64') : null];
     if (stat.isDirectory()) for (const name of fs.readdirSync(path).sort()) visit(path + '/' + name);
   }
-  visit(directory);
+  for (const directory of JSON.parse(process.env.CONTRACT_STORAGE_ROOTS)) visit(directory);
   return snapshot;
 }
 (async () => {
@@ -273,7 +368,7 @@ function storageSnapshot(directory = process.env.HOME) {
     const emptyRegistry = fixture.name === 'mail list requires an account';
     const registryBefore = emptyRegistry ? fs.readFileSync(registryPath) : null;
     if (emptyRegistry) fs.writeFileSync(registryPath, JSON.stringify({version:1,accounts:[]}));
-    // The full isolated HOME includes seeded cache/config/state sentinels,
+    // All owned fixture roots include seeded cache/config/state sentinels,
     // credential helper effects and any newly created outbox/draft files.
     const noWrites = fixture.method.startsWith('mail.') || fixture.name === 'recovery rejects invalid edit history'
       || fixture.name === 'AI recovery refuses nontext quote metadata'
@@ -376,35 +471,48 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--expected-version')
+    parser.add_argument('--smoke-host', type=Path, help='exercise a packaged host inside the same isolated data roots')
+    parser.add_argument('--smoke-ready', type=Path, help='write the host readiness result to this new file')
     parser.add_argument('--released', action='store_true',
                         help='check only the released API, as the pinned published binary speaks it')
     parser.add_argument('--standalone', action='store_true',
                         help='check standalone capabilities, including native agents on Linux/macOS')
     parser.add_argument('--isolated-windows-runner', action='store_true',
-                        help='temporarily redirect Known Folders on a disposable GitHub-hosted Windows runner')
+                        help='use isolated app data on a disposable GitHub-hosted Windows runner')
     args = parser.parse_args()
     if os.name == 'nt' and not (args.isolated_windows_runner
             and os.environ.get('GITHUB_ACTIONS') == 'true'
             and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'):
         parser.error('Windows contract tests require --isolated-windows-runner on a disposable GitHub-hosted runner')
+    if args.smoke_ready and not args.smoke_host:
+        parser.error('--smoke-ready requires --smoke-host')
+    smoke_host = args.smoke_host.resolve(strict=True) if args.smoke_host else None
+    smoke_ready = args.smoke_ready.resolve() if args.smoke_ready else None
+    if smoke_ready and smoke_ready.exists():
+        parser.error('--smoke-ready must name a new file')
     binary = args.binary.resolve(strict=True)
     contract = selected_contract(args.released)
-    with tempfile.TemporaryDirectory(prefix='omamail-api-contract-') as directory:
+    with tempfile.TemporaryDirectory(prefix='omamail-api-contract-') as directory, ExitStack() as cleanup:
         # macOS exposes its temporary root through /var, a symlink to
         # /private/var. The production storage boundary refuses symlinked
         # ancestors, so seed and advertise the canonical isolated root.
         home = Path(directory).resolve()
+        storage_roots = [home]
         env = {key: value for key, value in os.environ.items()
-               if key in ('PATH', 'LANG', 'LC_ALL', 'SYSTEMROOT')}
+               if key in ('PATH', 'LANG', 'LC_ALL', 'SYSTEMROOT', 'QT_QPA_PLATFORM')}
         if os.name == 'nt':
             config_root = home / 'AppData/Roaming'
-            local_root = home / 'AppData/Local'
+            get_folder, set_folder = windows_known_folders()
+            local_root = Path(get_folder('f1b32785-6fba-4fcf-9d55-7b8e7f157091'))
+            # Windows forbids relocating LocalAppData. Claim only this app's absent
+            # subtree on the disposable runner; never reuse or remove existing data.
+            owned_data = cleanup.enter_context(exclusive_fixture_directory(local_root / 'OmamailData'))
+            storage_roots.append(owned_data)
             cache_root = local_root / 'OmamailData/Cache'
             state_root = local_root / 'OmamailData/State'
             data_root = local_root / 'OmamailData'
             runtime_root = local_root / 'OmamailData/Runtime'
-            env.update(USERPROFILE=str(home), APPDATA=str(config_root),
-                       LOCALAPPDATA=str(local_root))
+            env.update(windows_fixture_environment(config_root, local_root, get_folder))
         elif sys.platform == 'darwin':
             config_root = home / 'Library/Application Support'
             cache_root = home / 'Library/Caches'
@@ -424,6 +532,7 @@ def main():
         env.update(HOME=str(home), TMPDIR=str(runtime_root), TEMP=str(runtime_root),
                    TMP=str(runtime_root), CONTRACT_REGISTRY_PATH=str(registry),
                    CONTRACT_ROOT=str(ROOT), CONTRACT_BINARY=str(binary),
+                   CONTRACT_STORAGE_ROOTS=json.dumps([str(root) for root in storage_roots]),
                    CONTRACT_VERSION=args.expected_version or '',
                    CONTRACT_RELEASED='1' if args.released else '',
                    CONTRACT_STANDALONE='1' if args.standalone else '')
@@ -500,7 +609,7 @@ def main():
         inbox = state_root / 'omamail/inbox'
         inbox.mkdir(mode=0o700)
         overview = inbox / (digest.hexdigest() + '.json')
-        overview.write_text(json.dumps({'cached': {'state': 'failed', 'reason': 'AI response could not be verified against the mail; retry from Menu', 'version': 1, 'updated': 1}}))
+        overview.write_text(json.dumps({'cached': {'state': 'failed', 'reason': 'AI response could not be verified against the mail; retry from Menu', 'version': 1, 'updated': 1}, 'ready': {'state': 'ready', 'text': 'Receipt — R780 paid', 'version': 2, 'expiresAt': 0, 'updated': 1}, 'expired': {'state': 'ready', 'text': 'Due yesterday', 'version': 2, 'expiresAt': 1, 'updated': 1}}))
         overview.chmod(0o600)
         helpers = home / 'bin'
         helpers.mkdir()
@@ -509,34 +618,26 @@ def main():
         credential_helper.chmod(0o700)
         env['PATH'] = str(helpers) + os.pathsep + env.get('PATH', '')
         if os.name == 'nt':
-            # The private storage check wants what the backend itself creates:
-            # owned by this user, with a protected DACL naming nobody else.
-            # What mkdir made here inherits the runner's ACL and, from an
-            # elevated token, belongs to Administrators. The whole fixture home
-            # is made private the same way, files included.
-            #
-            # One object at a time: an inheritance flag on a file's ACE makes
-            # it inherit-only, which grants the file's own reader nothing.
-            user = os.environ['USERNAME']
-            subprocess.run(['icacls', str(home), '/setowner', user, '/T', '/Q'],
-                           check=True, capture_output=True)
-            for path in [home] + sorted(home.rglob('*')):
-                grant = user + (':(OI)(CI)F' if path.is_dir() else ':F')
-                subprocess.run(['icacls', str(path), '/inheritance:r', '/grant:r', grant, '/Q'],
-                               check=True, capture_output=True)
-        folders = windows_fixture_folders(home, config_root, local_root) if os.name == 'nt' else nullcontext()
+            # Replace every DACL: Python 0700 directories include explicit SYSTEM,
+            # Administrators and OWNER RIGHTS grants that inheritance:r cannot remove.
+            make_windows_fixture_private(storage_roots)
+        folders = windows_fixture_folders(home, config_root, get_folder, set_folder) if os.name == 'nt' else nullcontext()
         with folders:
-            process = subprocess.Popen(['node', '-e', HARNESS], env=env, cwd=home,
-                                       **process_group_options())
-            try:
-                status = process.wait(timeout=60)
-            finally:
-                # A failed/expired harness must not leave its backend running.
-                try:
-                    terminate_process_group(process)
-                except (OSError, ProcessLookupError):
-                    pass
-                process.wait(timeout=10)
+            if os.name == 'nt':
+                verify_windows_fixture_folders(env, {
+                    'profile': env['USERPROFILE'], 'config': config_root,
+                    'local': local_root, 'downloads': home / 'Downloads',
+                })
+            if smoke_host:
+                ready = smoke_ready or home / 'smoke-ready.json'
+                for command in ([str(smoke_host), '--check-resources'],
+                                [str(smoke_host), '--smoke-test', str(ready)]):
+                    status = run_fixture_process(command, env, home)
+                    if status:
+                        raise SystemExit(status)
+                if not ready.is_file():
+                    raise RuntimeError('Packaged host did not create its readiness result')
+            status = run_fixture_process(['node', '-e', HARNESS], env, home)
         if status:
             raise SystemExit(status)
 

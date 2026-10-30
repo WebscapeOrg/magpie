@@ -48,9 +48,10 @@ Item {
       compare(findChild(row,"message-subject").mapToItem(row,0,0).y,subject.y)
       verify(glyph.height<=description.height)
       verify(glyph.height<=description.font.pixelSize)
-      verify(description.x-glyph.x-glyph.width>=4,"the paperclip has right-hand breathing room")
+      var time=findChild(row,"message-time")
+      verify(time.x-glyph.x-glyph.width>=8,"the paperclip has right-hand breathing room")
       verify(Math.abs(glyph.mapToItem(row,0,glyph.height/2).y
-        - description.mapToItem(row,0,description.height/2).y) < 0.01)
+        - findChild(row,"message-sender").mapToItem(row,0,findChild(row,"message-sender").height/2).y) < 0.01)
       row.attachmentIndicatorEnabled=false
       compare(glyph.visible,false)
       compare(description.mapToItem(row,0,0).x,before.x)
@@ -61,7 +62,7 @@ Item {
       row.overview="";row.overviewState="failed"
       row.overviewReason="AI response could not be verified against the mail; retry from Menu"
       waitForRendering(row)
-      var description=findChild(row,"message-description")
+      var description=findChild(row,"message-subject")
       mouseMove(description,5,5)
       var tooltip=findChild(row,"overview-tooltip")
       tryCompare(tooltip,"visible",true)
@@ -85,8 +86,25 @@ Item {
       var actions=findChild(row,"message-actions")
       var unread=findChild(row,"message-mark-unread")
       compare(actions.spacing,unread.width*0.15)
-      verify(findChild(row,"message-description").text.indexOf(row.overviewReason)>=0)
+      compare(findChild(row,"message-subject").text,"Title")
+      compare(findChild(row,"message-description").visible,false)
       row.overviewState="";row.overviewReason="";row.hasCursor=false
+    }
+    function test_description_replaces_subject_and_preview_without_colliding_with_actions() {
+      row.width=360;row.hasCursor=true
+      row.summary={id:"one",subject:"Original subject",snippet:"Old preview",from:{display:"Sender"},time:"Yesterday",unread:true,hasAttachments:true}
+      row.overview="Reminder — Your electricity bill for the garden office was due yesterday"
+      waitForRendering(row)
+      var subject=findChild(row,"message-subject"),actions=findChild(row,"message-actions")
+      compare(subject.text,row.overview)
+      compare(subject.textFormat,Text.PlainText)
+      compare(findChild(row,"message-description").visible,false)
+      verify(subject.lineCount>1)
+      verify(subject.mapToItem(row,subject.width,0).x<=actions.x)
+      verify(subject.mapToItem(row,0,subject.height).y<=row.height-6)
+      row.overview=""
+      compare(subject.text,"Original subject")
+      compare(findChild(row,"message-description").visible,true)
     }
     function test_time_stays_fixed_when_actions_appear() {
       row.hasCursor=false

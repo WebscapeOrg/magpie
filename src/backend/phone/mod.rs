@@ -332,7 +332,10 @@ impl Service {
                 engine.dispatch("agent.providerStatus", &json!({})).await
             }
             "/v1/overviews" => {
-                fields(p, &["accountId", "ids", "request", "retry"])?;
+                fields(
+                    p,
+                    &["accountId", "ids", "request", "retry", "allowRemoteImages"],
+                )?;
                 let account = text(p, "accountId", 1024)?;
                 let ids = p["ids"]
                     .as_array()
@@ -344,7 +347,7 @@ impl Service {
                         id.as_str().ok_or("phone_invalid_request")?,
                     )?;
                 }
-                for key in ["request", "retry"] {
+                for key in ["request", "retry", "allowRemoteImages"] {
                     if p.get(key).is_some_and(|v| !v.is_boolean()) {
                         return Err("phone_invalid_request");
                     }
@@ -357,7 +360,7 @@ impl Service {
                     accepted = engine
                         .dispatch(
                             "inbox.overviews",
-                            &json!({"accountId":account,"ids":ids,"retry":p["retry"] == true}),
+                            &json!({"accountId":account,"ids":ids,"retry":p["retry"] == true,"allowRemoteImages":p["allowRemoteImages"] == true}),
                         )
                         .await?["accepted"]
                         .clone();
@@ -372,7 +375,10 @@ impl Service {
                         snapshot["overviews"].get(key).map(|value| {
                             (
                                 key.to_owned(),
-                                project(value, &["text", "state", "updated"]),
+                                project(
+                                    value,
+                                    &["text", "state", "updated", "version", "expiresAt", "reason"],
+                                ),
                             )
                         })
                     })

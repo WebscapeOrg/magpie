@@ -191,6 +191,7 @@ test-shell-portable: test-shell-independent
 	python3 tests/test_public_http.py
 
 test-shell-independent:
+	python3 tests/test_description_office.py
 	python3 tests/test_low_space.py
 	python3 tests/test_register_mailto.py
 	python3 tests/test_qml_native_resources.py

@@ -204,7 +204,7 @@
           "recipient@example.org"
         ],
         "subject": "Contract preview",
-        "body": "Hello \u5408\u6210\nSecond line"
+        "body": "Hello 合成\nSecond line"
       },
       "equals": {
         "message": "gmail_client_unreadable"
@@ -472,7 +472,7 @@
         "now": 1700000000000
       },
       "equals": {
-        "body.text": "Hello \u5408\u6210",
+        "body.text": "Hello 合成",
         "summary.subject": "API fixture",
         "summary.id": "fixture"
       },
@@ -2096,6 +2096,31 @@
       "equals": {
         "engineService": false
       }
+    },
+    {
+      "name": "AI descriptions reject nonboolean remote image permission",
+      "method": "inbox.overviews",
+      "params": {
+        "accountId": "contract@example.org",
+        "ids": [
+          "a"
+        ],
+        "allowRemoteImages": "yes"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "AI descriptions project current versions and hide expired wording",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "overviews.ready.text": "Receipt — R780 paid",
+        "overviews.ready.version": 2,
+        "overviews.ready.expiresAt": 0,
+        "overviews.expired.state": "stale"
+      }
     }
   ],
   "unreleased": {
@@ -2197,7 +2222,9 @@
       "phone.pairBegin rejects unknown fields before private storage",
       "phone.devices rejects unknown fields before private storage",
       "phone.revoke rejects unknown fields before private storage",
-      "Standalone handshake leaves wake scheduling with the frontend"
+      "Standalone handshake leaves wake scheduling with the frontend",
+      "AI descriptions reject nonboolean remote image permission",
+      "AI descriptions project current versions and hide expired wording"
     ]
   },
   "releasedContract": {
@@ -2713,7 +2740,7 @@
             "recipient@example.org"
           ],
           "subject": "Contract preview",
-          "body": "Hello \u5408\u6210\nSecond line"
+          "body": "Hello 合成\nSecond line"
         },
         "equals": {
           "dryRun": true,
@@ -2724,7 +2751,7 @@
             "recipient@example.org"
           ],
           "subject": "Contract preview",
-          "body": "Hello \u5408\u6210\nSecond line",
+          "body": "Hello 合成\nSecond line",
           "attachments": []
         }
       },
@@ -3013,7 +3040,7 @@
           "now": 1700000000000
         },
         "equals": {
-          "body.text": "Hello \u5408\u6210",
+          "body.text": "Hello 合成",
           "summary.subject": "API fixture",
           "summary.id": "fixture"
         },

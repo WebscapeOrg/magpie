@@ -274,11 +274,13 @@ Item {
       adas.selectedMessage = summary("message-44", "Dinner?")
       tryVerify(function() { return mailService.eventSuggestions.length === 1 }, 1000)
       var handed = null
-      var controller = mailService.calendarController
-      controller.sourceList = calendarFor("ada@example.com")
-      tryVerify(function() { return controller.writableSourceGroups.length > 0 }, 1000)
-      controller.composeRequested.connect(function(prefill) { handed = prefill })
+      var launcher = findChild(mailService,"skylark-launcher")
+      launcher.running = false
       verify(mailService.addSuggestedEvent(mailService.eventSuggestions[0]))
+      var request = JSON.parse(launcher.command[2])
+      compare(request.kind,"suggestion")
+      compare(request.accountId,ada)
+      handed = request.suggestion
       verify(handed !== null)
       compare(handed.title, "Offsite")
       compare(handed.allDay, true, "the composer receives an all-day event")
@@ -287,10 +289,8 @@ Item {
       compare(handed.location, "Conference centre")
       compare(handed.description, "Bring your notebook", "the original notes reach the composer")
       compare(handed.accountId, ada, "the suggestion stays with the reading account")
-      controller.eventCreated(false, "refused")
-      compare(mailService.eventSuggestions.length, 1, "a refused write keeps the suggestion")
-      controller.eventCreated(true, "")
-      tryVerify(function() { return mailService.eventSuggestions.length === 0 }, 1000, "a written event is no longer a suggestion")
+      compare(mailService.eventSuggestions.length,1,"handoff does not claim an event was saved")
+      launcher.running = false
     }
 
     function test_a_look_waits_for_the_runner_and_asks_once() {
@@ -317,34 +317,22 @@ Item {
       compare(bridge.starts.length, 2, "asked once")
     }
 
-    function test_add_respects_the_composer_and_the_calendars() {
-      var agent = seed(ada)
+    function test_add_refuses_stale_suggestions_and_busy_handoff() {
+      seed(ada)
       var adas = mailService.accountAt(0)
-      mailService.settings = ({ suggestEvents: true })
-      var start = new Date(2026, 8, 12, 19, 0).getTime()
-      setJobs([look("look-46", ada, "message-46", "done", [{ title: "Dinner", startMs: start, endMs: start + 3600000 }])])
+      mailService.settings = ({ suggestEvents:true })
+      setJobs([look("look-46",ada,"message-46","done",[{title:"Dinner",startMs:1,endMs:2}])])
       adas.selectedId = "message-46"
-      adas.selectedMessage = summary("message-46", "Dinner?")
-      tryVerify(function() { return mailService.eventSuggestions.length === 1 }, 1000)
-      var controller = mailService.calendarController
-      var handed = []
-      controller.composeRequested.connect(function(prefill) { handed.push(prefill) })
-      controller.sourceList = ({ version: 1, sources: [] })
-      compare(mailService.addSuggestedEvent(mailService.eventSuggestions[0]), false, "no calendar, no composer")
-      verify(adas.lastError.indexOf("No calendar") >= 0, adas.lastError)
-      compare(handed.length, 0)
-      controller.sourceList = calendarFor("ada@example.com")
-      tryVerify(function() { return controller.writableSourceGroups.length > 0 }, 1000)
-      controller.composerHeld = true
-      compare(mailService.addSuggestedEvent(mailService.eventSuggestions[0]), false)
-      verify(adas.lastError.indexOf("Finish the event") >= 0, adas.lastError)
-      controller.composerHeld = false
-      verify(mailService.addSuggestedEvent(mailService.eventSuggestions[0]))
-      compare(handed.length, 1)
-      compare(handed[0].accountId, ada, "the reading mailbox's calendar")
-      controller.composeEnded()
-      controller.eventCreated(true, "")
-      compare(mailService.eventSuggestions.length, 1, "an event written after the composer closed is not this one")
+      adas.selectedMessage = summary("message-46","Dinner?")
+      tryVerify(function() { return mailService.eventSuggestions.length === 1 })
+      var suggestion = mailService.eventSuggestions[0]
+      var launcher = findChild(mailService,"skylark-launcher")
+      launcher.running = true
+      verify(!mailService.addSuggestedEvent(suggestion))
+      launcher.running = false
+      adas.selectedId = "different"
+      verify(!mailService.addSuggestedEvent(suggestion))
+      verify(!launcher.running)
     }
 
     // Invariant: an unsupported system agent suppresses background checks until the selection is reset.

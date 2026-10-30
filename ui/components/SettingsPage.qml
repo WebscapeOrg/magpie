@@ -12,7 +12,6 @@ Column {
   id: root
 
   required property var service
-  required property var calendarController
   required property color textColor
   required property color dimColor
   required property color accentColor
@@ -23,7 +22,6 @@ Column {
   signal addRequested()
   signal editRequested(int index)
   signal openCalendarRequested()
-  signal calendarSignInRequested(int index)
   signal restartRequested()
   property bool restartBusy: false
   property string restartStatus: ""
@@ -48,7 +46,6 @@ Column {
       values.push({ key: "notifications", title: "Notifications", y: notificationsHeading.y })
     values.push({ key: "writing", title: "Writing", y: writingHeading.y })
     values.push({ key: "mailboxes", title: "Mailboxes", y: mailboxesHeading.y })
-    values.push({ key: "calendars", title: "Calendars", y: calendarsSection.y })
     values.push({ key: "phone", title: "iPhone", y: phoneSettings.y })
     values.push({ key: "oauth", title: "Google OAuth client", y: oauthHeading.y })
     return values
@@ -1313,25 +1310,7 @@ Column {
     foreground: root.textColor
   }
 
-  CalendarSettings {
-    id: calendarsSection
-    width: parent.width
-    service: root.service
-    controller: root.calendarController
-    textColor: root.textColor
-    dimColor: root.dimColor
-    accentColor: root.accentColor
-    urgentColor: root.urgentColor
-    panelFontFamily: root.panelFontFamily
-    onAccountSetupRequested: function(index) {
-      if (index < 0) return
-      if (root.accounts[index].calendarProvider === "google") root.calendarSignInRequested(index)
-      else root.editRequested(index)
-    }
-    onClientSetupRequested: root.clientSetupRequested()
-    onAddAccountRequested: root.addRequested()
-    onOpenCalendarRequested: root.openCalendarRequested()
-  }
+
 
   PanelSeparator {
     width: parent.width
@@ -1387,7 +1366,7 @@ Column {
 
       Text {
         width: parent.width
-        text: "Advanced setup · shared by Gmail and Google Calendar accounts"
+        text: "Advanced Gmail setup"
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.caption

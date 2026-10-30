@@ -5,13 +5,11 @@ QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tool
 	ui/tests/qml/tst_unified_batch.qml ui/tests/qml/tst_clipboard_arguments.qml \
 	ui/tests/qml/tst_reader_subject_menu.qml \
 	ui/tests/qml/tst_local_mail_status.qml \
-	ui/tests/qml/tst_calendar_pending_ranges.qml \
 	ui/backend/Backend.qml ui/backend/Runtime.qml ui/diagnostics/Diagnostics.qml \
 	ui/components/BackendSetup.qml ui/components/LocalMailStatus.qml ui/components/MagpieLogo.qml ui/components/DisplaySettings.qml ui/settings/MailStyle.qml \
-	ui/account/MailAccount.qml ui/account/LocalMailbox.qml ui/account/AccountResources.qml ui/account/BackendSync.qml ui/account/SendQueue.qml ui/account/Intents.qml ui/account/BatchAction.qml ui/account/UnifiedBatchAction.qml ui/account/UnifiedBatchSelection.qml ui/account/Rsvp.qml ui/account/LabelActions.qml ui/account/Unsubscribe.qml ui/account/NewMailNotification.qml \
+	ui/account/MailAccount.qml ui/account/LocalMailbox.qml ui/account/AccountResources.qml ui/account/BackendSync.qml ui/account/SendQueue.qml ui/account/Intents.qml ui/account/BatchAction.qml ui/account/UnifiedBatchAction.qml ui/account/UnifiedBatchSelection.qml  ui/account/LabelActions.qml ui/account/Unsubscribe.qml ui/account/NewMailNotification.qml \
 	ui/cache/CacheStore.qml ui/cache/BodyCache.qml \
 	ui/providers/AuthManager.qml ui/providers/GmailApiClient.qml \
-	 \
 	ui/components/ProviderHero.qml \
 	ui/components/LinkLabel.qml \
 	ui/components/MailboxSidebar.qml \
@@ -35,7 +33,6 @@ QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tool
 	ui/components/InviteCard.qml \
 	ui/components/SwitcherSearch.qml \
 	ui/components/AccountNameField.qml \
-	 \
 	ui/components/ReaderBlankSlate.qml \
 	ui/components/ReaderSkeleton.qml \
 	ui/components/ComposeView.qml \
@@ -60,16 +57,9 @@ QML_FILES := ui/tests/qml/tst_attachment_preview.qml ui/tests/qml/tst_inbox_tool
 	ui/components/BackBar.qml \
 	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/PhoneSettings.qml \
 	ui/components/SettingsSidebar.qml \
-	ui/components/CalendarSettings.qml \
-	ui/components/CalendarEventComposer.qml \
-	ui/components/CalendarEventDetail.qml ui/components/CalendarReminderPanel.qml \
-	ui/components/CalendarPalette.qml \
 	ui/components/ConfirmDeleteDialog.qml \
 	ui/components/SetupPage.qml \
 	ui/components/ShortcutHelp.qml \
-	ui/calendar/CalendarController.qml ui/calendar/CalendarCache.qml ui/calendar/CalendarReminders.qml ui/calendar/CalendarReminderInbox.qml \
-	ui/components/CalendarView.qml \
-	ui/components/WeekCalendarView.qml \
 	ui/components/WindowMoveArea.qml \
 	ui/bar/BarPreview.qml
 QML_FILES += ui/tests/qml/tst_account_message_identity.qml
@@ -98,7 +88,7 @@ QML_FILES += ui/account/SubmittedSearch.qml
 QML_FILES += ui/tests/qml/tst_search_completion.qml ui/tests/qml/tst_search_results.qml ui/tests/qml/tst_submitted_search.qml
 QML_FILES += ui/tests/qml/tst_search_participants.qml
 QML_FILES += ui/tests/qml/tst_panel_theme.qml
-APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml app/tests/qml/tst_calendar_palette_bindings.qml
+APP_QML_FILES := app/qml/Main.qml app/qml/StandaloneShell.qml app/qml/StandaloneManifest.qml
 APP_BUILD_DIR ?= app/build
 APP_EXEEXT := $(if $(filter Windows_NT,$(OS)),.exe,)
 APP_TARGET_DIR ?= $(CURDIR)/target/standalone
@@ -142,6 +132,7 @@ backend:
 	cargo build --locked --release --target-dir "$(CURDIR)/target" --bin omamail
 
 test-js:
+	node ui/tests/test_calendar_handoff.js
 	node ui/tests/test_oracles.js
 	node ui/tests/test_load.js
 	node --test tests/test_website.js
@@ -170,12 +161,6 @@ test-js:
 	node ui/tests/test_gmail_api.js
 	node ui/tests/test_message.js
 	node ui/tests/test_calendar.js
-	node ui/tests/test_calendar_time.js
-	node ui/tests/test_calendar_cache.js
-	node ui/tests/test_calendar_feed.js
-	node ui/tests/test_calendar_sources.js
-	node ui/tests/test_calendar_reminders.js
-	node ui/tests/test_calendar_palette.js
 	node ui/tests/test_bar_preview.js
 	node ui/tests/test_unsubscribe.js
 	node ui/tests/test_mailto.js
@@ -203,7 +188,6 @@ test-shell: test-shell-portable
 
 # Invariant: portable transport tests assert our policy using controlled servers.
 test-shell-portable: test-shell-independent
-	python3 tests/test_calendar_notifications.py
 	python3 tests/test_public_http.py
 
 test-shell-independent:

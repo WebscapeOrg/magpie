@@ -159,10 +159,6 @@ pub(super) async fn finish_google(
     for required in [
         "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/gmail.send",
-        "https://www.googleapis.com/auth/calendar.events",
-        // Invariant: Calendar discovery lists the account's calendars; OAuth.SCOPES asks
-        // for it and AuthManager refuses a grant without it, so this does too.
-        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
     ] {
         if !granted.split_whitespace().any(|scope| scope == required) {
             return Err("auth_missing_scope");

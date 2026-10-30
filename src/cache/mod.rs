@@ -165,7 +165,7 @@ fn call_at(root: &Path, method: &str, params: &Value) -> Result<Value> {
     }
     if matches!(
         method,
-        "cache.storeRead" | "cache.storePut" | "cache.calendarRead" | "cache.calendarPut"
+        "cache.storeRead" | "cache.storePut"
     ) {
         return store::call_at(root, method, params);
     }

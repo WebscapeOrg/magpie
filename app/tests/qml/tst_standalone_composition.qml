@@ -20,44 +20,6 @@ TestCase {
 
   Item { id: focusParking }
 
-  QtObject {
-    id: calendarFixture
-    property var accountSummaries: []
-    property bool backendCanDiscoverCalendars: true
-    property bool unifiedCalendarView: false
-    property int calendarSnoozeMinutes: 5
-    property string calendarPalettePath: ""
-    property string colorKey: "accent"
-    property bool savingSource: false
-    property bool discoveringCalendars: false
-    property string discoveringAccountId: ""
-    property int toggleCalls: 0
-    property bool enabledValue: true
-    property var availableSources: ({version:1, sources:[{
-      id:"google:one", kind:"google", name:"Personal", accountId:"fixture@example.org",
-      calendarId:"primary",
-      enabled:enabledValue, discovered:true, colorKey:colorKey
-    }]})
-    signal calendarSaved(bool ok, string error)
-    signal discoveryFinished(bool ok, string error, int count)
-    function setUnifiedCalendarView(value) { unifiedCalendarView = value }
-    function setSourceEnabled(id, value) { toggleCalls++; enabledValue = value }
-    function discoveredCount(id) { return 1 }
-  }
-
-  Component {
-    id: calendarComponent
-    Components.CalendarSettings {
-      service: calendarFixture
-      controller: calendarFixture
-      textColor: Commons.Color.foreground
-      dimColor: Style.mutedColorFor(Commons.Color.foreground, Commons.Color.background)
-      accentColor: Commons.Color.accent
-      urgentColor: Commons.Color.accent
-      panelFontFamily: Style.font.family
-    }
-  }
-
   Switch {
     id: styledSwitch
     visible: false
@@ -124,82 +86,6 @@ TestCase {
 
   function init() {
     host.reset()
-    calendarFixture.calendarPalettePath = ""
-    calendarFixture.colorKey = "accent"
-  }
-
-  function test_calendar_settings_palette_data() {
-    return [{tag: "theme palette", path: "/fixture/theme/colors.toml"},
-      {tag: "no theme palette", path: ""}]
-  }
-
-  function test_calendar_settings_palette(data) {
-    // Invariant: Read through the host FileView adapter: injecting Palette.values would
-    // miss a caller that never supplies the theme path in the first place.
-    var colors = {accent: "#e68e0d", red: "#d35f5f", green: "#52b788",
-      yellow: "#f4d35e", blue: "#4d96ff", magenta: "#c77dff", cyan: "#56cfe1"}
-    var lines = []
-    for (var key in colors) lines.push(key + ' = "' + colors[key] + '"')
-    host.write("/fixture/theme/colors.toml", lines.join("\n"), false)
-    Quickshell.fileStore = host
-    calendarFixture.calendarPalettePath = data.path
-    calendarFixture.colorKey = "blue"
-    var settings = createTemporaryObject(calendarComponent, testCase)
-    verify(settings)
-    settings.colorEditingId = "google:one"
-    var sourceSwatch = findChild(settings, "calendar-source-color-swatch")
-    verify(sourceSwatch)
-    for (var slot in colors) {
-      var swatch = findChild(settings, "calendar-color-swatch-" + slot)
-      verify(swatch, slot)
-      var expected = data.path !== "" ? colors[slot]
-        : String(slot === "accent" ? settings.accentColor
-          : slot === "red" ? settings.urgentColor : settings.dimColor)
-      tryCompare(swatch, "color", expected)
-    }
-    tryCompare(sourceSwatch, "color", data.path !== "" ? colors.blue : settings.dimColor)
-    if (data.path !== "") {
-      // Invariant: A live theme change must reach both the picker and the saved source dot.
-      host.write(data.path, lines.join("\n").replace(colors.blue, "#80bfff"), false)
-      host.changed(data.path)
-      tryCompare(findChild(settings, "calendar-color-swatch-blue"), "color", "#80bfff")
-      tryCompare(sourceSwatch, "color", "#80bfff")
-    }
-  }
-
-  function test_calendar_visibility_has_one_mouse_and_keyboard_owner() {
-    calendarFixture.enabledValue = true
-    calendarFixture.toggleCalls = 0
-    var settings = createTemporaryObject(calendarComponent, testCase)
-    verify(settings)
-    wait(0)
-    // Invariant: A switch like every other setting on the page, and its input is the
-    // only thing that answers the pointer and the keyboard.
-    var trigger = findChild(settings, "calendar-source-toggle")
-    verify(trigger)
-    var input = findChild(trigger, "toggle-switch-input")
-    verify(input)
-    compare(trigger.checked, true)
-    var position = input.mapToItem(testCase, input.width / 2, input.height / 2)
-    verify(position.x >= 0 && position.x < testCase.width
-      && position.y >= 0 && position.y < testCase.height, "toggle location: " + position)
-    verify(input.visible && input.enabled, "input visible/enabled: " + input.visible + "/" + input.enabled)
-    mouseClick(input, input.width / 2, input.height / 2)
-    compare(calendarFixture.toggleCalls, 1)
-    compare(calendarFixture.enabledValue, false)
-    wait(0)
-    trigger = findChild(settings, "calendar-source-toggle")
-    input = findChild(trigger, "toggle-switch-input")
-    compare(trigger.checked, false)
-    focusParking.forceActiveFocus()
-    for (var tab = 0; tab < 20 && !input.activeFocus; tab++) keyClick(Qt.Key_Tab)
-    verify(input.activeFocus, "the visibility switch receives Tab")
-    keyClick(Qt.Key_Space)
-    compare(calendarFixture.toggleCalls, 2)
-    compare(calendarFixture.enabledValue, true)
-    wait(0)
-    trigger = findChild(settings, "calendar-source-toggle")
-    compare(trigger.checked, true)
   }
 
   function test_standalone_controls_use_semantic_omamail_style() {
@@ -501,24 +387,6 @@ TestCase {
     assertHiddenNotQuit(composition)
     host.reopenRequested()
     compare(composition.app.opened, true)
-  }
-
-  function test_close_chord_stays_live_in_calendar_context() {
-    var composition = createTemporaryObject(compositionComponent, testCase)
-    verify(composition)
-    verify(composition.app.opened)
-    var scope = focusScopeOf(composition)
-    verify(scope)
-    scope.enabled = true
-    composition.app.showCalendar()
-    var router = keyRouter(composition)
-    verify(router)
-    router.context = "calendar"
-    wait(30)
-    compare(router.context, "calendar")
-    compare(scope.keyContext, "calendar")
-    sendCloseChord(composition)
-    assertHiddenNotQuit(composition)
   }
 
   function test_non_windowed_size_does_not_replace_saved_normal_size() {

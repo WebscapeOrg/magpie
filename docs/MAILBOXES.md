@@ -1,4 +1,4 @@
-# Connect Gmail and Google Calendar
+# Connect Gmail
 
 Magpie supports multiple Gmail and Google Workspace accounts, including accounts with custom domains. Open Settings and choose **Add mailbox...** to go directly to Google setup.
 
@@ -10,11 +10,9 @@ Magpie supports multiple Gmail and Google Workspace accounts, including accounts
 
 Existing Gmail accounts keep their credentials, account names, signatures, aliases, drafts and downloaded mail when upgrading. Refresh tokens stay in the system credential store. Client configuration stays in the private Omamail configuration directory; it does not go into shell settings.
 
-## Choose calendars
+## Calendars in Skylark
 
-Enable the Google Calendar API in the same Cloud project when using calendars. In calendar settings, enable Google Calendar access if required, refresh the account's calendars and choose which discovered calendars to show. Calendar settings preserve your choices, colors, reminders and default writable calendar. Shared and read-only calendars retain their permissions.
-
-Calendar and mail keep separate caches. A calendar failure does not discard saved mail. Google authorization and API errors are reported without exposing credential or server-response text.
+Skylark is a separate app with its own Google authorization and calendar storage. Open a meeting invitation or suggested event from Magpie to review it in Skylark. Existing calendar files remain untouched until the migration is verified. On iPhone, use Skylark’s reminder settings to explicitly move scheduled reminders; upgrading Magpie does not stop them.
 
 ## Search and offline mail
 
@@ -24,7 +22,7 @@ Downloaded mail remains readable offline. Background downloads and queued edits 
 
 ## Unsupported configurations
 
-Other mail services and non-Google calendar integrations are no longer supported. An explicit unsupported account must not be interpreted as Gmail. Existing unsupported records and credentials remain intact; an incompatible account configuration is refused rather than rewritten. Unsupported calendar sources are preserved but are not activated.
+Other mail services and non-Google calendar integrations are no longer supported. An explicit unsupported account must not be interpreted as Gmail. Existing unsupported records and credentials remain intact; an incompatible account configuration is refused rather than rewritten. Skylark preserves unsupported historical calendar sources without activating them.
 
 ## Remove the application
 

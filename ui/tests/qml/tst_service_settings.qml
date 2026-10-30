@@ -230,16 +230,6 @@ Item {
       compare(shellStore.updatedEntry.showBarIcon, false)
     }
 
-    function test_unified_calendar_setting_defaults_off_and_persists_changes() {
-      mailService.applySettings({})
-      compare(mailService.unifiedCalendarView, false)
-
-      mailService.setUnifiedCalendarView(true)
-      compare(mailService.unifiedCalendarView, true)
-      compare(shellStore.updatedId, "omamail")
-      verify(shellStore.updatedEntry !== null)
-      compare(shellStore.updatedEntry.unifiedCalendarView, true)
-    }
 
     function test_ai_settings_reach_the_native_runner_and_preserve_other_preferences() {
       mailService.applySettings({showBarIcon:false})

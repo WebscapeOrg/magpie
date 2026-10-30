@@ -30,7 +30,6 @@ readonly property string keyContext:
   : root.showPage  ? "page"
   : root.composing ? "compose"
   : searchBar.fieldFocused ? (searchBar.suggestionsOpen ? "searchSuggestions" : "search")
-  : root.calendarVisible ? "calendar"
   : root.currentView === "reader" ? "reader"
   : "list"
 ```
@@ -42,11 +41,9 @@ readonly property string keyContext:
 | `search` | A query being typed | `Escape`, and the modified keys |
 | `searchSuggestions` | Gmail search suggestions | Up/Down selects, Tab completes, Enter searches unless a suggestion was selected, Escape dismisses |
 | `compose` | A draft being written | `Escape`, `Ctrl+Return`, and the modified keys |
-| `eventCompose` | Creating or editing an event | `Enter` saves and closes after success; `Escape` closes; modified keys remain available |
 | `assistant` | Typing or reading in the AI dock | `Return`/`Enter` sends, `Escape`, and the modified keys |
 | `assistantCommands` | Slash-command suggestions | Up/Down selects, Return/Enter completes or executes, Escape dismisses |
 | `page` | Setup or settings | `Escape`, and the modified keys |
-| `calendar` | The calendar month | Calendar navigation and the modified keys |
 
 `Ctrl+,` opens Settings from every context, including a focused draft field.
 Back returns to the previous screen with the draft intact.
@@ -75,7 +72,7 @@ event is left alone, preserving normal typing, IME input and line breaks.
 `mail` in the table below is shorthand for `list` and `reader`; `all` is every
 context.
 
-**A text-entry context binds no bare key but `Escape`, except search suggestions, AI send/command selection described above and Enter to save in the single-line event editor.**
+**A text-entry context binds no bare key but `Escape`, except search suggestions, AI send/command selection described above.**
 There is no "is the user typing" question anywhere in the code, because there is
 nothing left for it to answer: if a bare letter is not bound in `compose`, it
 cannot fire there, and the field gets it the way any other character arrives.
@@ -137,27 +134,11 @@ used to exist, and they had.
 | `replyAll` | `a` | mail | Reply to all |
 | `forward` | `f` | mail | Forward |
 | `compose` | `c` | mail | Compose or edit a draft |
-| `createEvent` | `c` | calendar | Create an event |
-| `calendarNext` | `j`, `Down` | calendar | Select the next event |
-| `calendarPrevious` | `k`, `Up` | calendar | Select the previous event |
-| `openCalendarEvent` | `Return`, `o` | calendar | Open the selected event |
-| `calendarPreviousPeriod` | `h`, `Left` | calendar | Previous week or month |
-| `calendarNextPeriod` | `l`, `Right` | calendar | Next week or month |
-| `calendarToday` | `t` | calendar | Go to today |
-| `calendarWeek` | `w` | calendar | Show week view |
-| `calendarDay` | `d` | calendar | Show day view |
-| `calendarAgenda` | `a` | calendar | Show agenda view |
-| `calendarUndo` | `u` | calendar | Undo the last event change |
-| `calendarMonth` | `m` | calendar | Show month view |
 | `send` | `Ctrl+Return`, `Ctrl+Enter` | compose | Send |
-| `saveEvent` | `Return`, `Enter`, `Ctrl+Return`, `Ctrl+Enter` | eventCompose | Save and close the event |
-| `guestNext` | `Down` | eventGuests | Next guest suggestion |
-| `guestPrevious` | `Up` | eventGuests | Previous guest suggestion |
-| `guestChoose` | `Return`, `Enter` | eventGuests | Choose guest suggestion |
 | `undoSend` | `Alt+Z` | all | Undo send |
 | `search` | `/` | mail | Search |
 | `goMailbox` | `Ctrl+1`, `Ctrl+2`, `Ctrl+3`, `Ctrl+4`, `Ctrl+5`, `Ctrl+6`, `Ctrl+7`, `Ctrl+8`, `Ctrl+9` | mail | Go to that mailbox |
-| `goAccount` | `Alt+1`, `Alt+2`, `Alt+3`, `Alt+4`, `Alt+5`, `Alt+6`, `Alt+7`, `Alt+8`, `Alt+9`, `Alt+0` | mail+calendar | Go to that email account |
+| `goAccount` | `Alt+1`, `Alt+2`, `Alt+3`, `Alt+4`, `Alt+5`, `Alt+6`, `Alt+7`, `Alt+8`, `Alt+9`, `Alt+0` | mail | Go to that email account |
 | `switchAccount` | `Alt+A` | mail | Switch account |
 | `askAgent` | `Alt+G` | mail+compose | Ask AI about the message or draft |
 | `searchSuggestionNext` | `Down` | searchSuggestions | Next search suggestion |
@@ -168,10 +149,10 @@ used to exist, and they had.
 | `assistantCommandNext` | `Down` | assistantCommands | Next command |
 | `assistantCommandPrevious` | `Up` | assistantCommands | Previous command |
 | `assistantChooseCommand` | `Return`, `Enter` | assistantCommands | Complete or run the selected AI command |
-| `calendar` | `Alt+C` | mail+calendar | Switch between mail and calendar |
-| `mailView` | `Ctrl+Shift+M` | mail+calendar | Go to mail |
-| `calendarView` | `Ctrl+Shift+C` | mail+calendar | Go to calendar |
-| `toggleSidebar` | `[` | mail+calendar | Show or hide the sidebar |
+| `calendar` | `Alt+C` | mail | Open Skylark... |
+| `mailView` | `Ctrl+Shift+M` | mail | Go to mail |
+| `calendarView` | `Ctrl+Shift+C` | mail | Open Skylark... |
+| `toggleSidebar` | `[` | mail | Show or hide the sidebar |
 | `zoomIn` | `Ctrl++`, `Ctrl+=` | reader | Zoom the message body in |
 | `zoomOut` | `Ctrl+-` | reader | Zoom the message body out |
 | `zoomReset` | `Ctrl+0` | reader | Reset the zoom |
@@ -196,7 +177,7 @@ Back and `Escape` close an untouched composition immediately without saving, inc
 
 The attachment shelf reveals a card when Tab reaches its Open or Save control. Enter or Space activates the focused control. Those controls accept Qt’s shortcut override for their activation keys so the reader’s Open and selection shortcuts do not intercept them. Escape keeps the reader’s normal Back behavior.
 
-The event and label delete confirmation initially focuses Delete. Tab and Shift+Tab cycle between Delete and Cancel; Return or Enter activates the focused button. Escape cancels.
+The label delete confirmation initially focuses Delete. Tab and Shift+Tab cycle between Delete and Cancel; Return or Enter activates the focused button. Escape cancels.
 
 ## Why the rail is numbered and not chorded
 
@@ -233,7 +214,7 @@ reader in a wide window — it unticks them first and goes nowhere; the next
 press goes back. Where it goes is not decided by the key: the window keeps a history
 of the places it has been — a stack in `App.qml`, ruled by
 `ui/account/Navigation.js` — and `Escape`, like every Back bar, calls `back()`,
-which pops one entry. A draft, the event form and the shortcut sheet are
+which pops one entry. A draft and the shortcut sheet are
 entries too, so the sheet closes before the message under it, and a reply
 raised from the list returns to the list, not to the message it opened on the
 way. On the root, `back()` clears a search if there is one and otherwise closes

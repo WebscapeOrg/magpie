@@ -56,7 +56,6 @@ impl Engine {
         self.local_mail.retire(account).await?;
         self.gmail.call("gmail.invalidate", params).await?;
         self.queries.forget_account(account).await;
-        self.calendar_reads.invalidate();
         self.reader
             .lock()
             .map_err(|_| "session_failed")?

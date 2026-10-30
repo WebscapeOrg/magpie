@@ -111,6 +111,8 @@ jobs:
           python3 -m pip install "cmake==3.31.6" "ninja==1.11.1.4"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends bubblewrap poppler-utils libdbus-1-3 libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 patchelf
+      - name: Verify the isolated document sandbox
+        run: bash .github/scripts/prepare-document-tests.sh
       - name: Build and test the standalone host
         env:
           QT_QPA_PLATFORM: offscreen
@@ -225,6 +227,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends bubblewrap poppler-utils
+      - name: Verify the isolated document sandbox
+        run: bash .github/scripts/prepare-document-tests.sh
       # Version-sensitive QML/libcurl checks remain on the Omarchy host.
       - run: make test-rust test-js test-shell-portable
       - run: python3 tests/test_backend_release.py

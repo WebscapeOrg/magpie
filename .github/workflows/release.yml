@@ -330,19 +330,15 @@ jobs:
           Expand-Archive dist/omamail-app-windows-x86_64.zip -DestinationPath $smoke
           $appExecutable = Join-Path $smoke "omamail/bin/omamail-app.exe"
           $backend = Join-Path $smoke "omamail/bin/omamail.exe"
-          & $appExecutable --check-resources
-          if ($LASTEXITCODE -ne 0) { throw "resource check failed" }
           $ready = Join-Path $env:RUNNER_TEMP "omamail-ready.json"
           Remove-Item -LiteralPath $ready -Force -ErrorAction SilentlyContinue
-          & $appExecutable --smoke-test $ready
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $ready -PathType Leaf)) { throw "live smoke failed" }
+          python tests/test_backend_api.py --binary $backend --expected-version "${{ needs.prepare.outputs.version }}" --standalone --isolated-windows-runner --smoke-host $appExecutable --smoke-ready $ready
+          if ($LASTEXITCODE -ne 0) { throw "packaged host and backend API contract failed" }
           $readyValue = Get-Content -LiteralPath $ready -Raw | ConvertFrom-Json
           $apiIsInteger = (($readyValue.apiVersion -is [int]) -or ($readyValue.apiVersion -is [long]))
           if ([string]$readyValue.version -ne "${{ needs.prepare.outputs.version }}" -or -not $apiIsInteger) { throw "live smoke returned invalid readiness metadata" }
           $reported = & $backend --version
           if ($LASTEXITCODE -ne 0 -or $reported -ne "omamail ${{ needs.prepare.outputs.version }}") { throw "backend version mismatch" }
-          python tests/test_backend_api.py --binary $backend --expected-version "${{ needs.prepare.outputs.version }}" --standalone --isolated-windows-runner
-          if ($LASTEXITCODE -ne 0) { throw "packaged backend API contract failed" }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: app-windows-x86_64

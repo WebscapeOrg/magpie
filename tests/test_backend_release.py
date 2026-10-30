@@ -84,6 +84,74 @@ class ReleaseTests(unittest.TestCase):
                     raise OSError('synthetic test failure')
             self.assertEqual(current, original, 'no redirected folder may survive a failed fixture')
 
+    def test_windows_fixture_owns_only_new_data_and_preserves_replacements(self):
+        spec = importlib.util.spec_from_file_location('backend_api_owned_data', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        owned = self.root / 'OmamailData'
+        sibling = self.root / 'other-app'
+        sibling.write_bytes(b'preserve')
+        with self.assertRaisesRegex(OSError, 'synthetic failure'):
+            with backend_api.exclusive_fixture_directory(owned):
+                (owned / 'synthetic').write_bytes(b'test')
+                raise OSError('synthetic failure')
+        self.assertFalse(owned.exists())
+        self.assertEqual(sibling.read_bytes(), b'preserve')
+        owned.mkdir()
+        (owned / 'existing').write_bytes(b'untouched')
+        with self.assertRaises(FileExistsError):
+            with backend_api.exclusive_fixture_directory(owned):
+                self.fail('must not enter an existing directory')
+        self.assertEqual((owned / 'existing').read_bytes(), b'untouched')
+        owned.rename(self.root / 'old-data')
+        with self.assertRaisesRegex(RuntimeError, 'replaced fixture'):
+            with backend_api.exclusive_fixture_directory(owned):
+                owned.rename(self.root / 'moved-fixture')
+                owned.mkdir()
+                (owned / 'replacement').write_bytes(b'preserve replacement')
+        self.assertEqual((owned / 'replacement').read_bytes(), b'preserve replacement')
+
+    def test_contract_snapshot_detects_writes_outside_temporary_home(self):
+        spec = importlib.util.spec_from_file_location('backend_api_storage_snapshot', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        home = self.root / 'home'
+        home.mkdir()
+        local = self.root / 'local-data'
+        local.mkdir()
+        sentinel = local / 'sentinel'
+        sentinel.write_text('preserve')
+        start = backend_api.HARNESS.index('function storageSnapshot()')
+        end = backend_api.HARNESS.index('(async () =>', start)
+        script = "const fs = require('fs'); const assert = require('assert/strict');\n"
+        script += backend_api.HARNESS[start:end]
+        script += """
+const before = storageSnapshot();
+fs.writeFileSync(process.env.SENTINEL, 'forbidden change outside HOME');
+assert.notDeepEqual(storageSnapshot(), before);
+"""
+        result = subprocess.run(['node', '-e', script], env=dict(os.environ,
+                                HOME=str(home), SENTINEL=str(sentinel),
+                                CONTRACT_STORAGE_ROOTS=json.dumps([str(home), str(local)])),
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_windows_fixture_never_redirects_local_app_data(self):
+        spec = importlib.util.spec_from_file_location('backend_api_native_local', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        config_key = '3eb685db-65f9-4cf6-a03a-e3ef65729f3d'
+        downloads_key = '374de290-123f-4565-9164-39c4925e467b'
+        current = {config_key: 'original-config', downloads_key: 'original-downloads'}
+        original = dict(current)
+        def set_path(key, value):
+            self.assertIn(key, original, 'LocalAppData must never be redirected')
+            current[key] = value
+        with backend_api.windows_fixture_folders(self.root, self.root / 'config', current.__getitem__, set_path):
+            self.assertEqual(current[config_key], str(self.root / 'config'))
+            self.assertEqual(current[downloads_key], str(self.root / 'Downloads'))
+        self.assertEqual(current, original)
+
     def test_preparation_allows_old_pin_but_merge_requires_equality(self):
         self.metadata()
         self.assertEqual(self.run_helper('check', '--root', self.root, '--tag', 'v0.8.2').returncode, 0)

@@ -206,11 +206,8 @@ jobs:
           Expand-Archive dist/omamail-app-windows-x86_64.zip -DestinationPath $smoke
           $appExecutable = Join-Path $smoke "omamail/bin/omamail-app.exe"
           $backend = Join-Path $smoke "omamail/bin/omamail.exe"
-          & $appExecutable --check-resources
-          if ($LASTEXITCODE -ne 0) { throw "resource check failed" }
-          & $appExecutable --smoke-test (Join-Path $env:RUNNER_TEMP "omamail-ready.json")
-          if ($LASTEXITCODE -ne 0) { throw "live smoke failed" }
-          python tests/test_backend_api.py --binary $backend --expected-version $version --standalone --isolated-windows-runner
+          $ready = Join-Path $smoke "ready.json"
+          python tests/test_backend_api.py --binary $backend --expected-version $version --standalone --isolated-windows-runner --smoke-host $appExecutable --smoke-ready $ready
           if ($LASTEXITCODE -ne 0) { throw "packaged backend API contract failed" }
 
   portable-tests:

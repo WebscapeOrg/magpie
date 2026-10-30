@@ -111,6 +111,35 @@ class ReleaseTests(unittest.TestCase):
                 (owned / 'replacement').write_bytes(b'preserve replacement')
         self.assertEqual((owned / 'replacement').read_bytes(), b'preserve replacement')
 
+    @unittest.skipUnless(os.name == 'nt', 'requires native Windows Known Folders')
+    def test_windows_fixture_resolves_native_app_data_in_child(self):
+        spec = importlib.util.spec_from_file_location('backend_api_child_folders', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        get_path, _ = backend_api.windows_known_folders()
+        expected = {
+            'profile': get_path('5e6c858f-0e22-4760-9afe-ea3317b67173'),
+            'config': get_path('3eb685db-65f9-4cf6-a03a-e3ef65729f3d'),
+            'local': get_path('f1b32785-6fba-4fcf-9d55-7b8e7f157091'),
+            'downloads': get_path('374de290-123f-4565-9164-39c4925e467b'),
+        }
+        env = {key: value for key, value in os.environ.items()
+               if key in ('PATH', 'LANG', 'LC_ALL', 'SYSTEMROOT', 'QT_QPA_PLATFORM')}
+        env.update(HOME=str(self.root), TMP=str(self.root), TEMP=str(self.root))
+        env.update(backend_api.windows_fixture_environment(expected['config'], expected['local'], get_path))
+        backend_api.verify_windows_fixture_folders(env, expected)
+        altered = backend_api.windows_child_folders({**env, 'USERPROFILE': str(self.root)})
+        print('Synthetic USERPROFILE changes child LocalAppData:',
+              Path(altered['local']) != Path(expected['local']))
+
+    def test_windows_fixture_refuses_child_root_drift_before_use(self):
+        spec = importlib.util.spec_from_file_location('backend_api_child_root_guard', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        with mock.patch.object(backend_api, 'windows_child_folders', return_value={'local': '/other'}):
+            with self.assertRaisesRegex(RuntimeError, 'local differs in child'):
+                backend_api.verify_windows_fixture_folders({}, {'local': '/owned'})
+
     @unittest.skipUnless(os.name == 'nt', 'requires native Windows ACLs')
     def test_windows_fixture_applies_private_acl(self):
         spec = importlib.util.spec_from_file_location('backend_api_private_acl', ROOT / 'tests/test_backend_api.py')

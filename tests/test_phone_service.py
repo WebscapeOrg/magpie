@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -94,6 +95,54 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse((service.CONFIG/'systemd/user'/service.UNIT).exists())
         self.assertEqual(self.calls,[['systemctl','--user','daemon-reload'],['systemctl','--user','enable','--now','magpie-certificate.timer']])
         self.assertEqual((service.DATA/'phone-service.py').stat().st_mode & 0o777,0o700)
+
+    def test_engine_unit_requires_activation_and_no_pending_uninstall(self):
+        service.prepare()
+        unit = (service.CONFIG/'systemd/user'/service.UNIT).read_text()
+        conditions = [line.split('=', 1)[1] for line in unit.splitlines()
+                      if line.startswith('ConditionPathExists=')]
+        self.assertEqual(conditions, [str(service.STATE/'engine-enabled'), '!' + str(service.STATE/'engine-uninstalling')])
+
+    def test_condition_paths_preserve_spaces_escape_specifiers_and_refuse_newlines(self):
+        self.assertEqual(service.condition_path(Path('/private/state with space % name/engine-enabled')),
+                         '/private/state with space %% name/engine-enabled')
+        for path in ['/private/state\nRestart=always', '/private/state\rRestart=always', '/private/state\0marker']:
+            with self.assertRaises(RuntimeError):
+                service.condition_path(path)
+
+    @unittest.skipUnless(shutil.which('systemd-analyze'), 'systemd parser unavailable')
+    def test_systemd_enforces_generated_conditions_with_spaces_and_percent_in_paths(self):
+        with patch.object(service, 'STATE', self.root/'state with space % marker'):
+            service.STATE.mkdir(mode=0o700)
+            service.prepare()
+            marker = service.STATE/'engine-enabled'
+            pending = service.STATE/'engine-uninstalling'
+            unit_path = service.CONFIG/'systemd/user'
+            for activated, uninstalling, allowed in [(False, False, False), (True, False, True),
+                                                     (True, True, False), (False, True, False)]:
+                with self.subTest(activated=activated, uninstalling=uninstalling):
+                    for path, exists in [(marker, activated), (pending, uninstalling)]:
+                        if exists:
+                            service.write(path, b'1\n')
+                        else:
+                            path.unlink(missing_ok=True)
+                    result = subprocess.run(['systemd-analyze', '--user', '--unit='+service.UNIT, 'condition'],
+                                            env={**os.environ, 'SYSTEMD_UNIT_PATH': str(unit_path)},
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0 if allowed else 1, result.stderr)
+                    self.assertNotIn('ignoring', result.stderr.lower())
+                    self.assertIn('Conditions succeeded.' if allowed else 'Conditions failed.', result.stderr)
+
+    def test_unfinished_uninstall_cannot_be_reactivated(self):
+        service.prepare()
+        pending = service.STATE/'engine-uninstalling'
+        service.write(pending,b'1\n')
+        self.calls.clear()
+        with self.assertRaisesRegex(RuntimeError,'Finish uninstalling'):
+            service.enable()
+        self.assertFalse((service.STATE/'engine-enabled').exists())
+        self.assertEqual(pending.read_bytes(),b'1\n')
+        self.assertEqual(self.calls,[])
 
     def test_certificate_install_preserves_unrelated_timer(self):
         timer=service.CONFIG/'systemd/user/magpie-certificate.timer'

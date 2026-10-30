@@ -62,6 +62,13 @@ def quote(value):
     return '"' + value.replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def condition_path(path):
+    value = str(path)
+    if any(character in value for character in "\n\r\0"):
+        raise RuntimeError("Invalid service path")
+    return value.replace("%", "%%")
+
+
 def runtime():
     spec = importlib.util.spec_from_file_location("magpie_runtime", ROOT / "scripts/backend-runtime.py")
     manager = importlib.util.module_from_spec(spec)
@@ -132,7 +139,9 @@ def prepare():
     certificate()
     write(PHONE / "server.json", json.dumps({"listen": address + ":3450", "host": HOST + ":3450"}).encode())
     environment = service_environment()
-    unit(UNIT, "# Managed by Magpie\n[Unit]\nDescription=Magpie mail engine\nAfter=network-online.target\n\n[Service]\nType=simple\n"
+    unit(UNIT, "# Managed by Magpie\n[Unit]\nDescription=Magpie mail engine\nAfter=network-online.target\n"
+         + "ConditionPathExists=" + condition_path(STATE / "engine-enabled") + "\n"
+         + "ConditionPathExists=!" + condition_path(STATE / "engine-uninstalling") + "\n\n[Service]\nType=simple\n"
          + "ExecStart=" + quote(binary) + " daemon\n" + environment
          + "UMask=0077\nNoNewPrivileges=true\nRuntimeDirectory=magpie-engine\nRuntimeDirectoryMode=0700\nEnvironment=TMPDIR=%t/magpie-engine\nKillMode=control-group\nRestart=on-failure\nRestartSec=5\nTimeoutStopSec=150\nTimeoutStartSec=30\n\n[Install]\nWantedBy=default.target\n")
     prepare_certificate_units(environment)
@@ -165,6 +174,10 @@ def enable():
     binary = runtime()
     marker = STATE / "engine-enabled"
     safe(marker)
+    pending = STATE / "engine-uninstalling"
+    safe(pending)
+    if pending.exists():
+        raise RuntimeError("Finish uninstalling the mail service before enabling it again")
     safe(PHONE, True)
     if PHONE.stat().st_mode & 0o077:
         raise RuntimeError("Phone storage must be private")

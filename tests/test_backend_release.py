@@ -111,6 +111,54 @@ class ReleaseTests(unittest.TestCase):
                 (owned / 'replacement').write_bytes(b'preserve replacement')
         self.assertEqual((owned / 'replacement').read_bytes(), b'preserve replacement')
 
+    @unittest.skipUnless(os.name == 'nt', 'requires native Windows ACLs')
+    def test_windows_fixture_applies_private_acl(self):
+        spec = importlib.util.spec_from_file_location('backend_api_private_acl', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        directory = self.root / 'private [fixture]'
+        directory.mkdir(mode=0o700)
+        child = directory / 'child'
+        child.mkdir(mode=0o700)
+        (child / 'file').write_text('synthetic')
+        backend_api.make_windows_fixture_private([directory])
+        script = r"""
+$ErrorActionPreference = 'Stop'
+$paths = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$results = foreach ($path in $paths) {
+    $acl = Get-Acl -LiteralPath $path
+    $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+    [pscustomobject]@{
+        owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+        expectedOwner = $owner
+        protected = $acl.AreAccessRulesProtected
+        rules = @($rules | ForEach-Object { [pscustomobject]@{
+            sid = $_.IdentityReference.Value
+            allow = $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow
+            fullControl = $_.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl
+            inherited = $_.IsInherited
+            inheritance = [int]$_.InheritanceFlags
+            propagation = [int]$_.PropagationFlags
+        } })
+    }
+}
+ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
+"""
+        paths = [directory, child, child / 'file']
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                                input=json.dumps([str(path) for path in paths]), text=True,
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        records = json.loads(result.stdout)
+        self.assertEqual(len(records), len(paths))
+        for path, record in zip(paths, records):
+            self.assertEqual(record['owner'], record['expectedOwner'])
+            self.assertTrue(record['protected'])
+            self.assertEqual(record['rules'], [{'sid': record['owner'], 'allow': True,
+                             'fullControl': True, 'inherited': False,
+                             'inheritance': 3 if path.is_dir() else 0, 'propagation': 0}])
+
     def test_contract_snapshot_detects_writes_outside_temporary_home(self):
         spec = importlib.util.spec_from_file_location('backend_api_storage_snapshot', ROOT / 'tests/test_backend_api.py')
         backend_api = importlib.util.module_from_spec(spec)

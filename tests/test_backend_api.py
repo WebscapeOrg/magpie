@@ -150,8 +150,10 @@ foreach ($entry in $entries) {
     Set-Acl -LiteralPath $entry.path -AclObject $acl
 }
 """
-    subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
-                   input=json.dumps(entries), text=True, capture_output=True, check=True)
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                            input=json.dumps(entries), text=True, capture_output=True)
+    if result.returncode:
+        raise RuntimeError('Could not set private fixture permissions: ' + result.stderr[:8192])
 
 
 def run_fixture_process(command, env, home):

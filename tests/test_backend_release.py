@@ -127,7 +127,11 @@ $ErrorActionPreference = 'Stop'
 $paths = [Console]::In.ReadToEnd() | ConvertFrom-Json
 $owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $results = foreach ($path in $paths) {
-    $acl = Get-Acl -LiteralPath $path
+    $acl = if ([System.IO.Directory]::Exists($path)) {
+        [System.IO.Directory]::GetAccessControl($path)
+    } else {
+        [System.IO.File]::GetAccessControl($path)
+    }
     $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
     [pscustomobject]@{
         owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value

@@ -147,7 +147,11 @@ foreach ($entry in $entries) {
         $inherit, [System.Security.AccessControl.PropagationFlags]::None,
         [System.Security.AccessControl.AccessControlType]::Allow)
     $acl.AddAccessRule($rule)
-    Set-Acl -LiteralPath $entry.path -AclObject $acl
+    if ($entry.directory) {
+        [System.IO.Directory]::SetAccessControl($entry.path, $acl)
+    } else {
+        [System.IO.File]::SetAccessControl($entry.path, $acl)
+    }
 }
 """
     result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],

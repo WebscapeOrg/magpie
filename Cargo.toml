@@ -24,7 +24,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled", "backup", "hooks"] }
 sha2 = "0.10"
 unicode-normalization = "0.1"
 futures-util = "0.3"
@@ -49,6 +49,7 @@ tokio = { version = "1", features = ["test-util"] }
 security-framework = { version = "3", features = ["OSX_10_15"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+tar = { version = "0.4", default-features = false }
 ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["http2"] }
 hyper = { version = "1", features = ["server", "http1"] }

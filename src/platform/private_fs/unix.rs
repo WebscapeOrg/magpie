@@ -69,7 +69,11 @@ pub(crate) fn open_dir(
     Ok(Some(file))
 }
 
-fn open_dir_readonly(parent: &File, name: &std::ffi::OsStr, private: bool) -> Result<Option<File>> {
+pub(crate) fn open_dir_readonly(
+    parent: &File,
+    name: &std::ffi::OsStr,
+    private: bool,
+) -> Result<Option<File>> {
     let name = cstr(name)?;
     let access = libc::O_RDONLY
         | libc::O_DIRECTORY

@@ -223,7 +223,7 @@ const selected = released ? (whole.releasedContract || {
 // and must reject the unavailable methods without touching storage.
 const agentUnavailable = standalone && process.platform === 'win32';
 const methodUnavailable = method => (agentUnavailable && method.startsWith('agent.')) ||
-  (process.platform !== 'linux' && method.startsWith('phone.'));
+  (process.platform !== 'linux' && (method.startsWith('phone.') || method === 'backup.export'));
 const unavailable = selected.methods.filter(methodUnavailable);
 const contract = {
   ...selected,

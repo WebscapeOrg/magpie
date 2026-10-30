@@ -35,6 +35,12 @@ enum Command {
     Spam(mail::Action),
     /// Preview a message with UTF-8 body on stdin (maximum 16 MiB); --execute sends
     Send(mail::Send),
+    /// Export the local mail stores for the machine backup job
+    #[cfg(target_os = "linux")]
+    Backup {
+        #[command(subcommand)]
+        command: BackupCommand,
+    },
     /// Serve JSON-RPC 2.0 on persistent stdin/stdout pipes
     Serve,
     #[cfg(target_os = "linux")]
@@ -74,6 +80,13 @@ enum Command {
         long_about = "Call a backend method with JSON parameters on stdin (maximum 1 MiB).\nEmpty stdin means {}. Errors exit 1. With --json, prints an ok/result or\nok/error envelope. Each invocation has its own session; use serve for\nstateful upload sequences. Mutations are never automatically retried."
     )]
     Call { method: String },
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Subcommand)]
+enum BackupCommand {
+    /// Publish a verified private mail-backup.tar for the machine backup job
+    Export,
 }
 
 #[derive(Subcommand)]
@@ -164,6 +177,19 @@ pub fn run() {
         }
         return;
     }
+    #[cfg(target_os = "linux")]
+    if matches!(command, Command::Backup { .. }) {
+        if !cli.json {
+            eprintln!(
+                "Exporting local mail. The previous backup stays available until verification finishes."
+            );
+        }
+        let result = crate::backend::runtime()
+            .map_err(|_| "local_backup_failed")
+            .and_then(|runtime| runtime.block_on(crate::backend::daemon::export_backup()));
+        output::print_result(result, cli.json, true);
+        return;
+    }
     let session = crate::backend::Session::default();
     let runtime = crate::backend::runtime().unwrap_or_else(|_| {
         eprintln!("omamail: could not start async runtime");
@@ -209,6 +235,8 @@ pub fn run() {
         Command::Call { method } => call::read_params(io::stdin())
             .and_then(|params| runtime.block_on(call::dispatch(&session, &method, &params))),
         Command::Serve | Command::Licenses => unreachable!(),
+        #[cfg(target_os = "linux")]
+        Command::Backup { .. } => unreachable!(),
         #[cfg(target_os = "linux")]
         Command::Daemon => unreachable!(),
         #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]

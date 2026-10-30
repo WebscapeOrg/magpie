@@ -231,6 +231,25 @@ impl Store {
         sql(tx.commit())?;
         Ok(answer)
     }
+    #[cfg(target_os = "linux")]
+    pub(super) fn backup_database(
+        &self,
+        target: &mut Connection,
+        deadline: std::time::Instant,
+    ) -> Result<()> {
+        loop {
+            super::backup::check_deadline(deadline)?;
+            match self.writer.try_lock() {
+                Ok(writer) => {
+                    return super::backup::copy_database(&writer.connection, target, deadline);
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(std::time::Duration::from_millis(10))
+                }
+                Err(_) => return Err("local_storage_unavailable"),
+            }
+        }
+    }
     pub(super) fn directory(&self) -> &File {
         self.vfs.directory()
     }

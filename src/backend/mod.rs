@@ -696,6 +696,7 @@ mod api_contract_tests {
             .filter(|method| {
                 cfg!(target_os = "linux") || !method.as_str().unwrap().starts_with("phone.")
             })
+            .filter(|method| cfg!(target_os = "linux") || method.as_str() != Some("backup.export"))
             .collect();
         assert_eq!(info["methods"], json!(expected));
     }

@@ -1,10 +1,10 @@
 .pragma library
 
 // Invariant: Navigation changes return fresh arrays; popping the root returns the same array so the caller can close the window.
-var OVERLAYS = ["compose", "eventComposer", "help"]
+var OVERLAYS = ["compose", "help"]
 
-var KINDS = ["list", "calendar", "reader", "calendarDetail", "settings",
-  "setup", "compose", "eventComposer", "help"]
+var KINDS = ["list", "reader", "settings",
+  "setup", "compose", "help"]
 
 var DEFAULT_KIND = "list"
 
@@ -73,7 +73,7 @@ function push(stack, item) {
   var replaces = (added.kind === "reader" && above.kind === "reader")
     || (isOverlay(added.kind) && above.kind === added.kind)
   if (replaces) next.pop()
-  var remembers = added.kind === "compose" || added.kind === "eventComposer"
+  var remembers = added.kind === "compose"
   if (remembers && typeof added.returnTo !== "number") added.returnTo = next.length
   next.push(added)
   return next
@@ -125,7 +125,7 @@ function overlay(stack) {
 function rootFor(state) {
   var value = isObject(state) ? state : {}
   if (value.anyReady === true)
-    return [entry(trimmed(value.view) === "calendar" ? "calendar" : "list")]
+    return [entry("list")]
   return [entry("setup", { draft: false })]
 }
 

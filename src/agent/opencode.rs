@@ -223,21 +223,7 @@ impl Lease {
             if let Ok(stream) = UnixStream::connect(&socket).await {
                 return Ok::<_, &'static str>(stream);
             }
-            let mut launch =
-                Command::new(std::env::current_exe().map_err(|_| "agent_worker_unavailable")?);
-            launch
-                .arg("agent-opencode-server")
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            unsafe {
-                launch.pre_exec(|| {
-                    if libc::setsid() < 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    Ok(())
-                });
-            }
+            let mut launch = super::launch::command("agent-opencode-server", None, None)?;
             let mut child = launch.spawn().map_err(|_| "agent_server_unavailable")?;
             std::thread::spawn(move || {
                 let _ = child.wait();

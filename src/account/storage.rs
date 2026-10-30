@@ -378,3 +378,49 @@ mod lock_tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+
+#[cfg(feature = "mobile")]
+pub(crate) fn mobile_remove(account: &str) -> Result<()> {
+    use crate::credentials::{CredentialKey, CredentialKind, CredentialStore, Error, NativeStore};
+    let dir =
+        crate::cache::directories(&home()?, &["omamail"], false)?.ok_or("mail_account_unknown")?;
+    let _lock = crate::platform::private_fs::lock_exclusive(&dir, ".accounts.lock")?;
+    let old = read(&dir)?;
+    let mut value = registry(&old)?;
+    let entries = value["accounts"].as_array_mut().ok_or("accounts_invalid")?;
+    let index = entries
+        .iter()
+        .position(|row| {
+            row["email"]
+                .as_str()
+                .is_some_and(|email| email.trim().to_lowercase() == account)
+        })
+        .ok_or("mail_account_unknown")?;
+    let client = entries[index]["clientId"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or("accounts_invalid")?;
+    let key = CredentialKey {
+        provider: "gmail".into(),
+        account_id: account.into(),
+        kind: CredentialKind::GoogleRefreshToken {
+            client_id: client.into(),
+        },
+    };
+    match NativeStore.delete(&key) {
+        Ok(()) | Err(Error::Missing) => (),
+        Err(_) => return Err("credential_store_unavailable"),
+    };
+    entries.remove(index);
+    let active = entries
+        .first()
+        .and_then(|row| row["email"].as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if value["activeId"] == account {
+        value["activeId"] = json!(active);
+    }
+    let bytes = serde_json::to_vec(&value).map_err(|_| "accounts_invalid")?;
+    crate::platform::private_fs::atomic_replace(&dir, "accounts.json", &bytes)
+}

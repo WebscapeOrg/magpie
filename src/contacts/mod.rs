@@ -368,3 +368,21 @@ fn read(path: &Path) -> Option<String> {
     file.take(MAX_FILE + 1).read_to_end(&mut bytes).ok()?;
     (bytes.len() as u64 <= MAX_FILE).then(|| String::from_utf8_lossy(&bytes).into_owned())
 }
+
+#[cfg(feature = "mobile")]
+pub(crate) fn from_summaries(rows: &Value) -> Value {
+    let mut book = Book::new();
+    for row in rows.as_array().into_iter().flatten() {
+        for person in std::iter::once(&row["from"])
+            .chain(row["to"].as_array().into_iter().flatten())
+            .chain(row["cc"].as_array().into_iter().flatten())
+        {
+            collect(
+                &mut book,
+                person["name"].as_str().unwrap_or(""),
+                person["email"].as_str().unwrap_or(""),
+            );
+        }
+    }
+    json!(book.into_values().collect::<Vec<_>>())
+}

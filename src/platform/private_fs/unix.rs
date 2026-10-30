@@ -98,8 +98,8 @@ pub(crate) fn directories(root: &Path, suffix: &[&str], create: bool) -> Result<
     if !root.is_absolute() {
         return Err("cache_home_invalid");
     }
-    let mut dir = File::open("/").map_err(|_| "cache_unavailable")?;
-    for component in root.components() {
+    let (mut dir, relative) = directory_anchor(root)?;
+    for component in relative.components() {
         match component {
             Component::RootDir => (),
             Component::Normal(name) => {
@@ -132,8 +132,8 @@ pub(crate) fn directories_readonly(root: &Path, suffix: &[&str]) -> Result<Optio
     if !root.is_absolute() {
         return Err("cache_home_invalid");
     }
-    let mut dir = File::open("/").map_err(|_| "cache_unavailable")?;
-    for component in root.components() {
+    let (mut dir, relative) = directory_anchor(root)?;
+    for component in relative.components() {
         match component {
             Component::RootDir => (),
             Component::Normal(name) => {
@@ -160,6 +160,30 @@ pub(crate) fn directories_readonly(root: &Path, suffix: &[&str]) -> Result<Optio
         dir = next;
     }
     Ok(Some(dir))
+}
+
+fn directory_anchor(root: &Path) -> Result<(File, std::path::PathBuf)> {
+    #[cfg(target_os = "ios")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let home = crate::platform::dirs::AppDirs::home()?;
+        let relative = root.strip_prefix(&home).map_err(|_| "cache_unsafe_path")?;
+        let file = File::options()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&home)
+            .map_err(|_| "cache_unavailable")?;
+        let metadata = file.metadata().map_err(|_| "cache_unavailable")?;
+        if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o022 != 0 {
+            return Err("cache_unsafe_path");
+        }
+        return Ok((file, relative.to_owned()));
+    }
+    #[cfg(not(target_os = "ios"))]
+    Ok((
+        File::open("/").map_err(|_| "cache_unavailable")?,
+        root.to_owned(),
+    ))
 }
 
 fn regular_impl(dir: &File, name: &str, writable: bool) -> Result<Option<File>> {
@@ -310,7 +334,7 @@ pub(crate) fn names(dir: &File) -> Result<Vec<String>> {
 fn errno_location() -> *mut libc::c_int {
     unsafe { libc::__errno_location() }
 }
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 fn errno_location() -> *mut libc::c_int {
     unsafe { libc::__error() }
 }
@@ -612,4 +636,57 @@ fn validate_acl(file: &File, private: bool) -> Result<()> {
             }
         }
     }
+}
+
+#[cfg(feature = "mobile")]
+pub(crate) fn clear_tree(dir: &File) -> Result<()> {
+    fn walk(dir: &File, depth: usize, remove: bool) -> Result<()> {
+        if depth > 8 {
+            return Err("cache_unsafe_path");
+        }
+        validate_owned_root(dir)?;
+        for name in names(dir)? {
+            let c = cstr(name.as_ref())?;
+            let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+            if unsafe {
+                libc::fstatat(
+                    dir.as_raw_fd(),
+                    c.as_ptr(),
+                    stat.as_mut_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            } != 0
+            {
+                return Err("cache_unavailable");
+            }
+            let stat = unsafe { stat.assume_init() };
+            match stat.st_mode & libc::S_IFMT {
+                libc::S_IFDIR => {
+                    let child =
+                        open_dir_readonly(dir, name.as_ref(), true)?.ok_or("cache_unavailable")?;
+                    walk(&child, depth + 1, remove)?;
+                    if remove
+                        && unsafe {
+                            libc::unlinkat(dir.as_raw_fd(), c.as_ptr(), libc::AT_REMOVEDIR)
+                        } != 0
+                    {
+                        return Err("cache_unavailable");
+                    }
+                }
+                libc::S_IFREG => {
+                    regular_readonly(dir, &name)?.ok_or("cache_unavailable")?;
+                    if remove {
+                        remove_owned(dir, &name)?;
+                    }
+                }
+                _ => return Err("cache_unsafe_path"),
+            }
+        }
+        if remove {
+            sync_dir(dir)?;
+        }
+        Ok(())
+    }
+    walk(dir, 0, false)?;
+    walk(dir, 0, true)
 }

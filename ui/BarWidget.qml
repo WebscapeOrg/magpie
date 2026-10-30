@@ -43,15 +43,11 @@ BarWidget {
     readonly property string barTooltip: root.bridgeState ? root.bridgeState.barTooltip : "Magpie"
     readonly property string contentDirection: root.bridgeState ? root.bridgeState.contentDirection : ""
     readonly property var barMessages: root.bridgeState ? root.bridgeState.barMessages : []
-    readonly property var barEvents: root.bridgeState ? root.bridgeState.barEvents : []
     function applySettings(values) {
       if (root.bridgeApi) root.bridgeApi.applySettings(values)
     }
     function refresh() {
       if (root.bridgeApi) root.bridgeApi.refresh()
-    }
-    function refreshCalendarPreview() {
-      if (root.bridgeApi) root.bridgeApi.refreshCalendarPreview()
     }
   }
 
@@ -84,10 +80,6 @@ BarWidget {
   onSettingsChanged: pushSettings()
   onGmailChanged: pushSettings()
   onBridgeApiChanged: if (!directService) pushSettings()
-  onPreviewOpenChanged: {
-    if (previewOpen && gmail && typeof gmail.refreshCalendarPreview === "function")
-      root.gmail.refreshCalendarPreview()
-  }
   Component.onCompleted: {
     syncBridge()
     pushSettings()
@@ -108,17 +100,6 @@ BarWidget {
     else if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie", payload)
   }
 
-  function openEvent(eventData) {
-    close()
-    if (!bar || !bar.shell) return
-    var event = eventData || ({})
-    var payload = JSON.stringify({
-      view: "calendar", eventId: String(event.uid || ""),
-      eventStart: event.start ? Number(event.start.ms) : 0
-    })
-    if (typeof bar.shell.summon === "function") bar.shell.summon("magpie", payload)
-    else if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie", payload)
-  }
 
   // Invariant: Hiding the icon must retain this widget because it supplies persisted settings to Service.
   readonly property bool drawsIcon: !gmail || gmail.showBarIcon
@@ -217,7 +198,6 @@ BarWidget {
       id: preview
       width: parent ? parent.width : 0
       messages: root.gmail ? root.gmail.barMessages : []
-      events: root.gmail ? root.gmail.barEvents : []
       textColor: Commons.Color.popups.text
       backgroundColor: Commons.Color.popups.background
       accentColor: Commons.Color.accent
@@ -228,11 +208,6 @@ BarWidget {
       onMessageRequested: function(accountId, messageId) {
         root.openMessage(accountId, messageId)
       }
-      onCallRequested: function(url) {
-        root.close()
-        Qt.openUrlExternally(url)
-      }
-      onEventRequested: function(eventData) { root.openEvent(eventData) }
     }
   }
 }

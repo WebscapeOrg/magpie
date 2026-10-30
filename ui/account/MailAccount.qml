@@ -187,7 +187,6 @@ Item {
   property var selectedAttachments: []
 
   property var selectedInvite: null
-  property bool rsvpSending: false
 
   property var selectedUnsubscribe: null
   property bool unsubscribing: false
@@ -254,12 +253,6 @@ Item {
   }
   readonly property string receivedAsName: receivedAsAlias
     ? String(receivedAsAlias.displayName || "") : ""
-
-  // Invariant: The displayed attendance answer comes from the persisted attendee line, keeping the card and calendar file consistent.
-  readonly property string selectedResponse: selectedInvite
-    ? Calendar.responseOf(selectedInvite, receivedAsAddress) : ""
-  readonly property bool canRespondToInvite: !!selectedInvite && canSend
-    && Calendar.canRespond(selectedInvite, receivedAsAddress)
 
   readonly property string unsubscribeLabel: unsubscribeDone !== "" ? ""
     : Unsub.label(selectedUnsubscribe, canSend)
@@ -2033,15 +2026,7 @@ Item {
   // Invariant: replyFailed restores the parked draft, which may be the only remaining editable copy.
   signal replyFailed(string sendId)
 
-  function rsvp(response) { rsvpAction.run(response) }
-  readonly property bool rsvpFallbackAvailable: rsvpAction.fallbackAvailable
-  function rsvpMailOnly(response) { rsvpAction.run(response, true) }
   readonly property alias bodies: bodyCache
-
-  Rsvp {
-    id: rsvpAction
-    account: root
-  }
 
   function unsubscribe() { unsubscribeAction.run() }
 

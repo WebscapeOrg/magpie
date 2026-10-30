@@ -15,7 +15,6 @@ Item {
   required property color dimColor
   required property string panelFontFamily
   property bool collapsed: false
-  property bool calendarSelected: false
   property string menuLabelPath: ""
 
   signal mailboxSelected(string key)
@@ -70,7 +69,7 @@ Item {
           label: modelData.label
           icon: modelData.icon
           count: 0
-          selected: !root.calendarSelected && !!root.service
+          selected: !!root.service
             && root.service.mailboxKey === modelData.key
             && root.service.searchQuery === "" && root.service.rawQuery === ""
           slotNumber: Model.slotNumberOf(root.slots, "mailbox", modelData.key)
@@ -120,7 +119,7 @@ Item {
           slotNumber: modelData.selectable ? Model.slotNumberOf(root.slots, "label", modelData.id) : 0
           count: modelData.unread
           selected: root.menuLabelPath === modelData.path
-            || (modelData.selectable && !root.calendarSelected && !!root.service
+            || (modelData.selectable && !!root.service
               && root.service.rawQuery !== ""
               && root.service.rawLabelId === modelData.id)
           onActivated: {
@@ -141,9 +140,8 @@ Item {
 
     Entry {
       x: MailStyle.space(6)
-      label: "Calendar"
+      label: "Skylark..."
       icon: "calendar"
-      selected: root.calendarSelected
       onActivated: root.calendarRequested()
     }
 

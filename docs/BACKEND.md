@@ -2,9 +2,9 @@
 
 The CLI and the Omarchy plugin share a persistent Rust backend. The shell still
 constructs `Service.qml`, which owns the backend process independently of any
-window. QML owns theme, focus, layout, rendering and interaction state. Network requests use native asynchronous Rust transports for Gmail and Google Calendar.
+window. QML owns theme, focus, layout, rendering and interaction state. Network requests use native asynchronous Rust transports for Gmail.
 
-The backend now includes Gmail reads and mutations, Google OAuth and calendar networking, public
+The backend now includes Gmail reads and mutations, Google OAuth, public
 image fetching and unsubscribe requests, private account/cache persistence,
 attachments, contacts and automatic mailbox checks. Shared Rust modules also own
 MIME composition, message summaries and direction, HTML sanitization and reader
@@ -75,7 +75,7 @@ An explicit rate-limit refusal is retried with exponential backoff (1 s, 2 s, 4 
 Gmail transport diagnostics are retained in the private platform state directory at `omamail/diagnostics/gmail.json` (on Linux, `${XDG_STATE_HOME:-~/.local/state}/omamail/diagnostics/gmail.json`). The file holds at most 200 attempts and 64 KiB. Each record contains UTC time, process and temporary session/request numbers, a fixed operation name and lane, quota cost, attempt number, HTTP status, an allowlisted reason, numeric retry delay, wait/elapsed milliseconds, and a fixed outcome. A `localBudget` reason with no HTTP status means the app refused or deferred the request before contacting Gmail. No account addresses, IDs, URLs, queries, message content, credential bytes, arbitrary headers or raw server error text are recorded. Diagnostics storage uses descriptor-relative private files, refuses links, and never fails a mail operation when logging is unavailable. The existing error-diagnosis report includes a sanitized transport history alongside backend errors; opening diagnostics remains explicit.
 
 
-Gmail, Google Calendar and public HTTP verify TLS peers using the configured native trust roots. Credential destinations remain fixed by the Google transport; sender-controlled public resources retain separate public-address confinement.
+Gmail and public HTTP verify TLS peers using the configured native trust roots. Credential destinations remain fixed by the Google transport; sender-controlled public resources retain separate public-address confinement.
 
 Blocking keyring and file operations run on a separate bounded thread pool;
 the runtime has two async workers and at most eight blocking workers. Native requests enforce their deadlines. The 25-second RPC timeout currently wraps Gmail operations; expired
@@ -236,8 +236,8 @@ the seven root commands.
 | --- | --- | --- |
 | Gmail | Fixed-origin pooled HTTP; per-account token refresh; list, metadata/full message, attachments, labels/counts, profile and send-as; modify/batch modify, trash/restore, label changes, sending and draft create/update/delete. Draft message IDs are resolved to draft resources in Rust with bounded pagination. | QML tracks selection, displays progress and composes the user's message. |
 | Authentication | Native Google token networking, Google loopback callback, credential lookup/store/clear, fixed credential destinations and account-bound tokens. Gmail first-login identity is verified and its refresh token stored before the UI receives success. | Keyring access uses the system credential service; opening the browser remains a desktop interaction. |
-| Calendar | Native Google Calendar discovery, requests and pagination, account ownership, write permissions and origin-confined credential access. | Calendar presentation, iCalendar interpretation and compose/RSVP state remain in UI modules where not explicitly migrated. |
-| Local data | Account read/save with conflict detection; private body/calendar persistence; session-owned query cache policy and persistence; bounded render cache; local contacts and attachment read/store. | QML keeps returned snapshots, selection and progress for drawing the interface. |
+| Calendar handoff | No calendar RPCs or calendar mutation transport. | Invitation summaries and suggested events open Skylark for authoritative reads and human review. |
+| Local data | Account read/save with conflict detection; private body persistence; session-owned query cache policy and persistence; bounded render cache; local contacts and attachment read/store. | QML keeps returned snapshots, selection and progress for drawing the interface. |
 | Message content | MIME parsing and outgoing composition; header/address decoding, summaries, body/attachment extraction, direction and signature import; HTML sanitization and reader document preparation. | QML owns editor text, theme values and drawing the returned document. |
 | Actions | Model transforms, unified mailbox calculations and account-bound intent reconciliation. | QML submits user intent and displays authoritative returned state; provider requests remain separate from pure model transforms. |
 | Delivery and recovery | Durable outbox state, undo deadlines, serial delivery, authoritative cancellation and uncertain-delivery handling; private compose recovery with revision conflicts. | QML parks/restores editor drafts and displays countdowns and status. It never starts delivery from a UI timer. |

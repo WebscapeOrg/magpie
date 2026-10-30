@@ -26,7 +26,7 @@ The upstream release remains the fallback pin in `backend-version`. Phase 2 requ
 
 ## Development
 
-Keep `upstream` pointing at huacnlee/omamail and `origin` at dreinecke/magpie. Changes go through a branch and PR in this fork. `make validate` runs the inherited backend, UI, and packaging checks. Magpie's behavior tests are `ui/tests/test_display.js`, `ui/tests/qml/tst_display_settings.qml`, and the single-pane navigation test in `tst_app_compose_pending.qml`.
+Keep `upstream` pointing at huacnlee/omamail and `origin` at WebscapeOrg/magpie. Changes go through a branch and PR in this fork. `make validate` runs the inherited backend, UI, and packaging checks. Magpie's behavior tests are `ui/tests/test_display.js`, `ui/tests/qml/tst_display_settings.qml`, and the single-pane navigation test in `tst_app_compose_pending.qml`.
 
 The font-aware primitives in `ui/controls` are copies of the installed Omarchy Quattro toolkit with local typography bindings. Their upstream MIT notice is in `ui/controls/LICENSE`. They keep Omarchy's theme and interaction conventions while letting Magpie's interface size differ from the rest of the shell.
 
@@ -46,6 +46,6 @@ Unavailable overviews show a specific safe reason for worker startup, AI respons
 
 ## Gmail-only accounts
 
-Magpie uses the Gmail API for all mailboxes and Google Calendar for calendars. Google Workspace custom domains and multiple accounts are supported. Add mailbox opens Google setup directly. Existing credentials, account identities, downloaded mail, drafts, aliases and calendar choices are preserved. Unsupported provider records are never converted into Gmail accounts or silently deleted.
+Magpie uses the Gmail API for all mailboxes. Skylark owns calendars, event editing, attendance and reminders. Magpie opens invitations and suggested events in Skylark for review. Google Workspace custom domains and multiple accounts are supported. Add mailbox opens Google setup directly. Existing credentials, account identities, downloaded mail, drafts, aliases and calendar choices are preserved. Unsupported provider records are never converted into Gmail accounts or silently deleted.
 
 Unified search prepares syntax once, then each account resolves its own `me` and labels. Inbox overviews reuse downloaded message content. These changes preserve the existing quota scheduler and do not increase background request concurrency.

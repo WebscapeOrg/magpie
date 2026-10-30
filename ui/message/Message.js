@@ -979,12 +979,28 @@ function nestedBoundary(outer) {
 }
 
 // Invariant: inline signature images use related CID parts because Gmail does not render data URLs in received HTML.
-function htmlBodyWithSignature(body, plainSignature, signatureHtml, direction) {
+function htmlBodyWithSignature(body, plainSignature, signatureHtml, direction, signatureOffset) {
   var text = String(body === undefined || body === null ? "" : body)
-  var sign = String(plainSignature === undefined || plainSignature === null ? "" : plainSignature).trim()
+  var sign = String(plainSignature === undefined || plainSignature === null ? "" : plainSignature)
   var directionAttribute = Direction.isRightToLeft(direction) ? " dir=\"rtl\"" : ""
-  // Invariant: replace the first sign-off only; a signature removed from plain text must not reappear in markup.
-  var at = sign === "" ? -1 : text.indexOf(sign)
+  if (signatureOffset !== undefined) {
+    var bytes = utf8Bytes(text)
+    if (typeof signatureOffset !== "number" || !isFinite(signatureOffset) || Math.floor(signatureOffset) !== signatureOffset
+        || signatureOffset < 0 || signatureOffset > bytes.length
+        || (signatureOffset < bytes.length && bytes[signatureOffset] >= 0x80 && bytes[signatureOffset] <= 0xbf))
+      throw new Error("invalid_signature")
+    var index = bytesToUtf8(bytes.slice(0, signatureOffset)).length
+    if (text.slice(index, index + sign.length) !== sign) throw new Error("invalid_signature")
+    return "<html><body" + directionAttribute + ">" + escapedParagraphs(text.slice(0, index))
+      + String(signatureHtml || "") + escapedParagraphs(text.slice(index + sign.length)) + "</body></html>"
+  }
+  text = text.replace(/\r\n/g, "\n")
+  sign = sign.replace(/\r\n/g, "\n").trim()
+  // Invariant: the sign-off is a complete paragraph; mentions in the message and quoted history are preserved.
+  var at = sign === "" ? -1 : text.lastIndexOf(sign)
+  while (at >= 0 && !((at === 0 || text.slice(0, at).slice(-2) === "\n\n")
+      && (at + sign.length === text.length || text.slice(at + sign.length, at + sign.length + 2) === "\n\n")))
+    at = at === 0 ? -1 : text.lastIndexOf(sign, at - 1)
   if (sign !== "" && at < 0)
     return "<html><body" + directionAttribute + ">" + escapedParagraphs(text) + "</body></html>"
   var before, after
@@ -1013,7 +1029,7 @@ function escapedParagraphs(text) {
 
 function pushSignedBodyPart(lines, values, direction, boundary) {
   var swapped = Signature.inlineParts(values.signatureHtml, "sig")
-  var html = htmlBodyWithSignature(values.body, values.signature, swapped.html, direction)
+  var html = htmlBodyWithSignature(values.body, values.signature, swapped.html, direction, values.signatureOffset)
   var alt = nestedBoundary(boundary)
   var related = swapped.parts.length > 0 ? boundary : ""
   if (related !== "") {

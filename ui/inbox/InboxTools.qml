@@ -16,6 +16,8 @@ Item {
   onPausedChanged: if (!paused) refresh()
   property bool requesting: false
   property bool ticking: false
+  readonly property bool sharedScheduler: !!service && !!service.backend && service.backend.apiVersion >= 8
+    && !!service.backend.protocolInfo && service.backend.protocolInfo.engineService === true
   property bool retryFailed: false
   property string error: ""
   property string notice: ""
@@ -123,7 +125,7 @@ Item {
     })
   }
   function tick() {
-    if (!available || ticking) return
+    if (!available || sharedScheduler || ticking) return
     ticking = true
     service.backend.call("inbox.tick",{},function(result,failure) {
       root.ticking = false
@@ -141,7 +143,7 @@ Item {
   }
   Timer { id: refreshSoon; interval: 300; onTriggered: root.refresh() }
   Timer { interval: 5000; repeat: true; running: root.available && root.browsing; onTriggered: root.refresh() }
-  Timer { interval: 30000; repeat: true; running: root.available; onTriggered: root.tick() }
+  Timer { interval: 30000; repeat: true; running: root.available && !root.sharedScheduler; onTriggered: root.tick() }
   Timer { interval: 8000; running: root.notice !== "" && root.notice !== "Snoozing"; onTriggered: root.notice = "" }
   Component.onCompleted: if (available) { refresh(); tick() }
 }

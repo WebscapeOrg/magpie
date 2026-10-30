@@ -8,7 +8,7 @@ function serializedSnapshot(stack) {
 }
 
 
-deepEqual(nav.OVERLAYS, ["compose", "eventComposer", "help"])
+deepEqual(nav.OVERLAYS, ["compose", "help"])
 
 deepEqual(nav.entry("reader", { id: "m1" }), { id: "m1", kind: "reader" })
 deepEqual(nav.entry("list"), { kind: "list" })
@@ -18,7 +18,7 @@ deepEqual(nav.entry("settings", { kind: "bogus" }), { kind: "settings" },
   "a field named kind cannot smuggle an unknown one in")
 
 assert.strictEqual(nav.isOverlay("compose"), true)
-assert.strictEqual(nav.isOverlay("eventComposer"), true)
+assert.strictEqual(nav.isOverlay("eventComposer"), false)
 assert.strictEqual(nav.isOverlay("help"), true)
 assert.strictEqual(nav.isOverlay("reader"), false)
 assert.strictEqual(nav.isOverlay(""), false)
@@ -91,7 +91,7 @@ deepEqual(nav.kinds(nav.pop(replyFromReader)), ["list", "reader"])
 
 assert.strictEqual(nav.top(nav.push(list, nav.entry("compose"))).returnTo, 1)
 assert.strictEqual(nav.top(nav.push(fromList, nav.entry("compose"))).returnTo, 2)
-assert.strictEqual(nav.top(nav.push(fromList, nav.entry("eventComposer"))).returnTo, 2)
+assert.strictEqual(nav.top(nav.push(fromList, nav.entry("eventComposer"))).returnTo, undefined)
 assert.strictEqual(nav.top(nav.push(fromList, nav.entry("compose", { returnTo: 1 }))).returnTo, 1)
 assert.strictEqual(nav.top(nav.push(fromList, nav.entry("help"))).returnTo, undefined,
   "only a draft records where it was raised from")
@@ -131,18 +131,18 @@ deepEqual(nav.page(list), { kind: "list" })
 deepEqual(nav.page([nav.entry("help")]), { kind: "list" })
 
 
-deepEqual(nav.replaceRoot(reader1, "calendar"), [{ kind: "calendar" }])
+deepEqual(nav.replaceRoot(reader1, "calendar"), [{ kind: "list" }])
 deepEqual(nav.replaceRoot(helpOverCompose, "list"), [{ kind: "list" }])
 deepEqual(nav.resetTo(helpOverCompose, "list"), [{ kind: "list" }])
 deepEqual(nav.resetTo(reader1, "setup"), [{ kind: "setup" }],
   "a first-run root resets to setup")
 deepEqual(nav.replaceRoot(reader1, "not-a-kind"), [{ kind: "list" }])
-deepEqual(nav.replaceRoot(null, "calendar"), [{ kind: "calendar" }])
+deepEqual(nav.replaceRoot(null, "calendar"), [{ kind: "list" }])
 
 deepEqual(nav.rootFor({ anyReady: true, view: "list" }), [{ kind: "list" }])
-deepEqual(nav.rootFor({ anyReady: true, view: "calendar" }), [{ kind: "calendar" }])
+deepEqual(nav.rootFor({ anyReady: true, view: "calendar" }), [{ kind: "list" }])
 deepEqual(nav.rootFor({ anyReady: true, view: "reader" }), [{ kind: "list" }],
-  "only the calendar is a root; anything else is the list")
+  "mail opens at the list")
 deepEqual(nav.rootFor({ anyReady: true }), [{ kind: "list" }])
 
 deepEqual(nav.rootFor({ anyReady: false, hasSavedAccounts: false }), [{ kind: "setup", draft: false }])

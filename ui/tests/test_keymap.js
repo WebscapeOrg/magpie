@@ -113,7 +113,7 @@ keymap.CONTEXTS.forEach(function (context) {
   assert.strictEqual(keymap.isSequenceEnabled(settings, "Ctrl+,", context, false), true)
 })
 assert.strictEqual(keymap.isEnabled(settings, "calendar", false), true,
-  "settings must open from the calendar")
+  "Settings is global even if a legacy context is supplied")
 assert.strictEqual(keymap.isEnabled(settings, "page", false), true,
   "the settings route is available from every screen")
 
@@ -208,26 +208,15 @@ const calendar = byId("calendar")
 assert.strictEqual(keymap.displayFor(calendar), "Alt+C")
 assert.strictEqual(keymap.isEnabled(calendar, "list", false), true)
 assert.strictEqual(keymap.isEnabled(calendar, "reader", false), true)
-assert.strictEqual(keymap.isEnabled(calendar, "calendar", false), true)
+assert.strictEqual(keymap.isEnabled(calendar, "calendar", false), false)
 assert.strictEqual(keymap.isEnabled(calendar, "page", false), false)
-const createEvent = byId("createEvent")
-assert.strictEqual(keymap.displayFor(createEvent), "c")
-assert.strictEqual(keymap.isEnabled(createEvent, "calendar", false), true)
-assert.strictEqual(keymap.isEnabled(createEvent, "list", false), false)
-assert.strictEqual(keymap.isEnabled(createEvent, "compose", false), false)
-;["calendarNext", "calendarPrevious", "openCalendarEvent", "calendarPreviousPeriod",
-  "calendarNextPeriod", "calendarToday", "calendarWeek", "calendarMonth"].forEach(function(id) {
-  assert.ok(byId(id), id + " must be listed in the shared key map")
-  assert.strictEqual(keymap.isEnabled(byId(id), "calendar", false), true)
-  assert.strictEqual(keymap.isEnabled(byId(id), "list", false), false)
-})
-assert.strictEqual(keymap.displayFor(byId("calendarToday")), "t",
-  "t returns the calendar to today")
+for (const id of ["createEvent", "calendarNext", "calendarPrevious", "openCalendarEvent", "calendarPreviousPeriod", "calendarNextPeriod", "calendarToday", "calendarWeek", "calendarMonth"])
+  assert.strictEqual(byId(id), undefined, "calendar editing belongs to Skylark")
 const mailView = byId("mailView")
 const calendarView = byId("calendarView")
 assert.strictEqual(keymap.displayFor(mailView), "Ctrl+Shift+M")
 assert.strictEqual(keymap.displayFor(calendarView), "Ctrl+Shift+C")
-assert.strictEqual(keymap.isEnabled(mailView, "calendar", false), true)
+assert.strictEqual(keymap.isEnabled(mailView, "calendar", false), false)
 assert.strictEqual(keymap.isEnabled(calendarView, "list", false), true)
 assert.strictEqual(keymap.isEnabled(calendarView, "reader", false), true)
 assert.strictEqual(keymap.isEnabled(calendarView, "compose", false), false)
@@ -236,7 +225,7 @@ const sidebar = byId("toggleSidebar")
 assert.strictEqual(keymap.displayFor(sidebar), "[")
 assert.strictEqual(keymap.isEnabled(sidebar, "list", false), true)
 assert.strictEqual(keymap.isEnabled(sidebar, "reader", false), true)
-assert.strictEqual(keymap.isEnabled(sidebar, "calendar", false), true)
+assert.strictEqual(keymap.isEnabled(sidebar, "calendar", false), false)
 
 assert.strictEqual(keymap.hintKeyFor(byId("cursorDown")), "j / k",
   "the status bar shows one line for the pair")

@@ -167,8 +167,7 @@ class Diagnostics(unittest.TestCase):
                 codes.update(pattern.findall(source))
         # These are synthetic fixture errors, not production backend errors.
         codes -= {'unexpected_method', 'test_directories_override_active'}
-        self.assertTrue({'gmail_http_failed', 'accounts_provider_unsupported',
-                         'calendar_provider_unsupported'} <= codes)
+        self.assertTrue({'gmail_http_failed', 'accounts_provider_unsupported'} <= codes)
         self.assertEqual(sorted(codes - module.MESSAGES), [])
 
     def test_mail_errors_survive_recording_and_report_regeneration(self):

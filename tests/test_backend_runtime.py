@@ -82,6 +82,134 @@ class RuntimeTests(unittest.TestCase):
         self.binary.chmod(0o700)
         return self.binary.read_bytes()
 
+    def test_service_restart_never_runs_without_a_private_owned_marker(self):
+        run = self.own_patch(patch.object(self.manager.subprocess, "run"))
+        self.manager.restart_engine()
+        run.assert_not_called()
+        marker = self.home / ".local/state/omamail/engine-enabled"
+        marker.parent.mkdir(parents=True, mode=0o700)
+        target = marker.with_name("unrelated")
+        target.write_text("preserve")
+        marker.symlink_to(target)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        self.assertEqual(target.read_text(), "preserve")
+        marker.unlink()
+        marker.write_text("1\n")
+        marker.chmod(0o644)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        marker.chmod(0o600)
+        link = marker.with_name("hardlink")
+        os.link(marker, link)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        link.unlink()
+        marker.parent.chmod(0o777)
+        with self.assertRaises(self.manager.Refused):
+            self.manager.restart_engine()
+        run.assert_not_called()
+        marker.parent.chmod(0o700)
+        self.manager.restart_engine()
+        self.assertEqual(run.call_args.args[0], ["/usr/bin/systemctl", "--user", "restart", "magpie-engine.service"])
+
+    def test_service_stop_failure_preserves_installed_runtime_and_marker(self):
+        previous = self.old()
+        marker = self.home / ".local/state/omamail/engine-enabled"
+        marker.parent.mkdir(parents=True, mode=0o700)
+        marker.write_text("1\n")
+        marker.chmod(0o600)
+        with patch.object(self.manager.subprocess, "run", side_effect=subprocess.TimeoutExpired("systemctl", 210)):
+            result = self.manager.run("uninstall")
+        self.assertEqual(result["state"], "error")
+        self.assertEqual(self.binary.read_bytes(), previous)
+        self.assertEqual(marker.read_text(), "1\n")
+        self.assertFalse(marker.with_name("engine-uninstalling").exists())
+
+    def test_uninstall_blocks_service_starts_before_stopping_and_preserves_proxy_routing(self):
+        self.old()
+        marker = self.home / ".local/state/omamail/engine-enabled"
+        marker.parent.mkdir(parents=True, mode=0o700)
+        marker.write_text("1\n")
+        marker.chmod(0o600)
+        pending = marker.with_name("engine-uninstalling")
+
+        def stop(args, **kwargs):
+            self.assertEqual(args, ["/usr/bin/systemctl", "--user", "disable", "--now", "magpie-engine.service"])
+            self.assertTrue(marker.exists())
+            self.assertTrue(pending.exists())
+            self.assertEqual(pending.stat().st_mode & 0o777, 0o600)
+            self.assertTrue(self.binary.exists())
+
+        with patch.object(self.manager.subprocess, "run", side_effect=stop) as run:
+            self.assertEqual(self.manager.run("uninstall")["state"], "missing")
+        run.assert_called_once()
+        self.assertFalse(marker.exists())
+        self.assertFalse(pending.exists())
+        self.assertFalse(self.binary.exists())
+
+    def test_interrupted_uninstall_retries_stop_before_removing_runtime(self):
+        previous = self.old()
+        marker = self.home / ".local/state/omamail/engine-enabled"
+        marker.parent.mkdir(parents=True, mode=0o700)
+        marker.write_text("1\n")
+        marker.chmod(0o600)
+        pending = marker.with_name("engine-uninstalling")
+        with patch.object(self.manager.subprocess, "run", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.manager.run("uninstall")
+        self.assertTrue(marker.exists())
+        self.assertTrue(pending.exists())
+        self.assertEqual(self.binary.read_bytes(), previous)
+        with patch.object(self.manager.subprocess, "run") as run:
+            self.assertEqual(self.manager.run("uninstall")["state"], "missing")
+        run.assert_called_once()
+        self.assertFalse(pending.exists())
+        self.assertFalse(self.binary.exists())
+
+    def test_uninstall_retry_without_activation_marker_retains_pending_until_stop_succeeds(self):
+        previous = self.old()
+        pending = self.home / ".local/state/omamail/engine-uninstalling"
+        pending.parent.mkdir(parents=True, mode=0o700)
+        pending.write_text("1\n")
+        pending.chmod(0o600)
+        with patch.object(self.manager.subprocess, "run", side_effect=subprocess.TimeoutExpired("systemctl", 210)) as run:
+            self.assertEqual(self.manager.run("uninstall")["state"], "error")
+        run.assert_called_once()
+        self.assertTrue(pending.exists())
+        self.assertEqual(self.binary.read_bytes(), previous)
+        with patch.object(self.manager.subprocess, "run") as run:
+            self.assertEqual(self.manager.run("uninstall")["state"], "missing")
+        run.assert_called_once()
+        self.assertFalse(pending.exists())
+        self.assertFalse(self.binary.exists())
+
+    def test_uninstall_refuses_unsafe_pending_marker_without_stopping_or_removing_runtime(self):
+        previous = self.old()
+        pending = self.home / ".local/state/omamail/engine-uninstalling"
+        pending.parent.mkdir(parents=True, mode=0o700)
+        target = pending.with_name("unrelated")
+        target.write_text("preserve")
+        pending.symlink_to(target)
+        with patch.object(self.manager.subprocess, "run") as run:
+            self.assertEqual(self.manager.run("uninstall")["state"], "error")
+        run.assert_not_called()
+        self.assertEqual(target.read_text(), "preserve")
+        self.assertEqual(self.binary.read_bytes(), previous)
+
+    def test_restart_refuses_unfinished_uninstall_without_invoking_systemctl(self):
+        pending = self.home / ".local/state/omamail/engine-uninstalling"
+        pending.parent.mkdir(parents=True, mode=0o700)
+        pending.write_text("1\n")
+        pending.chmod(0o600)
+        with patch.object(self.manager.subprocess, "run") as run:
+            with self.assertRaisesRegex(self.manager.Refused, "Finish uninstalling"):
+                self.manager.restart_engine()
+        run.assert_not_called()
+
     def plugin_tree(self):
         return [(str(path.relative_to(self.root)), path.is_dir(),
                  b"" if path.is_dir() else path.read_bytes())

@@ -64,13 +64,12 @@ class NotificationTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             args = json.loads((tmp / 'argv').read_text())
             self.assertEqual(args[-2:], ['&lt;img&gt; &amp; sender', 'body &lt;b&gt;&amp;'])
+            before = (tmp / 'argv').read_bytes()
             result = subprocess.run(['python3', str(ROOT / 'scripts/notify-mail.py'), '--calendar',
                 '#eeeeee', '#abcdef', '--', '<img> & event', '--action=evil'], env=env)
-            self.assertEqual(result.returncode, 0)
-            args = json.loads((tmp / 'argv').read_text())
-            self.assertEqual(args[-3:], ['--', '&lt;img&gt; &amp; event', '--action=evil'])
-            self.assertEqual([arg for arg in args[:-3] if arg.startswith('--action=')],
-                ['--action=default=Open event...', '--action=snooze=Snooze', '--action=dismiss=Dismiss'])
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual((tmp / 'argv').read_bytes(), before, 'removed calendar mode must not notify')
+
 
 
 if __name__ == '__main__':

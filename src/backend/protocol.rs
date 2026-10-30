@@ -208,7 +208,7 @@ fn read_frames(
     }
 }
 
-fn reply(output: &mut impl Write, value: Value) -> io::Result<()> {
+pub(super) fn reply(output: &mut impl Write, value: Value) -> io::Result<()> {
     // Performance: Refuse before writing any partial response. The serializer itself is bounded;
     // building a huge temporary JSON string would defeat the ceiling.
     let mut encoded = BoundedResponse(Vec::new());

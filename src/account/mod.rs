@@ -13,6 +13,8 @@ mod storage;
 mod tests;
 pub mod unified;
 pub use storage::call;
+#[cfg(feature = "mobile")]
+pub(crate) use storage::mobile_remove;
 pub(crate) use storage::{raw_registry, raw_registry_readonly};
 
 pub fn list() -> Result<Value, &'static str> {

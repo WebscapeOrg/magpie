@@ -8,7 +8,7 @@ Use the [GPUI Component Coding Guides](http://longbridge.github.io/gpui-componen
 
 ## Architectural position
 
-Omamail is one stateful mail and calendar application with two desktop hosts: an Omarchy shell plugin and a standalone Qt executable. Its architecture has five layers:
+Omamail is one stateful mail application with two desktop hosts: an Omarchy shell plugin and a standalone Qt executable. Its architecture has five layers:
 
 1. Host entry points connect Omarchy or the native Qt process to the application.
 2. The window composition owns window state, navigation, action dispatch, and top-level layout.
@@ -32,10 +32,10 @@ The standalone executable under `app/` is a host rather than a second implementa
 
 - `app/src/main.cpp` resolves packaged resources, validates them, and loads `app/qml/Main.qml`.
 - `app/qml/Main.qml` constructs the same `Service.qml` and `App.qml`, then supplies `StandaloneShell` and `StandaloneManifest` in place of the Omarchy objects.
-- `app/qml/imports/` implements only the Quickshell and `qs.*` contracts used by the shared UI. It does not copy mail, calendar, provider, or navigation behavior.
+- `app/qml/imports/` implements only the Quickshell and `qs.*` contracts used by the shared UI. It does not copy mail, provider, or navigation behavior.
 - `app/src/` owns native process containment, bounded line transport, private settings writes, file watching, external URL dispatch, clipboard access, and notifications. These capabilities are exposed through `Omamail.Native`; QML does not branch by operating system.
 
-The standalone capability object is the product boundary: mail, calendar, and native notifications are enabled, as is native AI on Linux and macOS. Windows AI, the system tray, and operating-system `mailto:` registration remain disabled. Shared views hide or avoid unsupported operations by capability rather than by host identity.
+The standalone capability object is the product boundary: mail and native notifications are enabled, as is native AI on Linux and macOS. Windows AI, the system tray, and operating-system `mailto:` registration remain disabled. Shared views hide or avoid unsupported operations by capability rather than by host identity.
 
 This composition boundary is shaped by the shell entry-point contract and Qt's focus and popup behavior. `App.qml` coordinates:
 
@@ -104,7 +104,7 @@ Rust lives under `src/`, shared Qt/QML and its JavaScript under `ui/`, and the s
 - `ui/providers/` owns Google authentication, Gmail transport presentation and Gmail domain facts. No provider picker or multi-protocol registry remains.
 - `ui/account/` owns accounts, a mailbox, and list behavior after actions.
 - `ui/cache/` owns stored query results and message bodies.
-- `ui/calendar/` owns event sources, the range cache, and event reads and writes.
+- Skylark owns calendar sources, range caches, event operations and reminders in its own repository and storage. Magpie only sends explicit invitation or suggested-event handoffs.
 - `ui/message/` owns parsing, sanitizing, calendar data, and other decisions about a message's content.
 - `ui/keys/` owns the action and binding declaration.
 - `ui/components/` owns views and reusable interaction primitives.
@@ -122,7 +122,7 @@ QML components own Qt lifecycle and input mechanics. Feature views supply
 Omamail composition; semantic properties supplied from `App.qml` carry the
 Omarchy presentation.
 
-All mail accounts use Gmail. Retained provider fields at persistence and RPC boundaries validate compatibility; they do not choose a transport. Unknown providers are refused before side effects. Google Calendar still checks each calendar’s access permissions.
+All mail accounts use Gmail. Retained provider fields at persistence and RPC boundaries validate compatibility; they do not choose a transport. Unknown providers are refused before side effects. Skylark checks calendar access permissions independently.
 
 ## Vocabulary is an interface contract
 
@@ -162,7 +162,7 @@ Required semantic properties are preferable to hidden dependencies on `App.qml`.
 
 Menus, the account switcher, the image popover, and shortcut help all draw above the mail panes, but they do not share one implementation or input model.
 
-`App.qml` keeps one navigation history for the non-popup surfaces it composes: a stack of entries, ruled by `ui/account/Navigation.js`, with the pages (list, calendar, reader, event detail, settings, Google setup form) and the plain overlays (compose, event composer, shortcut help) as its entries. Every `visible:` is read off the top of that stack, and `back()` is the one way out: it pops an entry, or asks the view that owns an overlay's open state to close so that the view's own change pops it. Each Qt popup owns its close policy, placement, and popup-local keys and stays outside the stack; each plain overlay participates in the application key context and the stack. Feature views supply content and translate activation back into domain actions. There is no common overlay manager between them.
+`App.qml` keeps one navigation history for the non-popup surfaces it composes: a stack of entries, ruled by `ui/account/Navigation.js`, with the pages (list, reader, settings, Google setup form) and the plain overlays (compose, shortcut help) as its entries. Every `visible:` is read off the top of that stack, and `back()` is the one way out: it pops an entry, or asks the view that owns an overlay's open state to close so that the view's own change pops it. Each Qt popup owns its close policy, placement, and popup-local keys and stays outside the stack; each plain overlay participates in the application key context and the stack. Feature views supply content and translate activation back into domain actions. There is no common overlay manager between them.
 
 An overlay contract includes:
 

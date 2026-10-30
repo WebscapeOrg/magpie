@@ -270,6 +270,27 @@ assert.notDeepEqual(storageSnapshot(), before);
         (self.root / 'app/CMakeLists.txt').write_text('project(omamail-app VERSION 0.8.1 LANGUAGES CXX)\n')
         self.assertNotEqual(self.run_helper('standalone-manifest', '--root', self.root).returncode, 0)
 
+    def test_standalone_manifest_preserves_unicode_through_ascii_pipes(self):
+        self.metadata()
+        plugin = {'id': 'magpie', 'name': 'Magpie', 'version': '1.0.0',
+                  'icon': '🐦', 'description': '日本語 — café'}
+        path = self.root / 'manifest.json'
+        original = json.dumps(plugin, ensure_ascii=False).encode('utf-8')
+        path.write_bytes(original)
+        command = ['python3', str(ROOT / 'scripts/package-backend.py'),
+                   'standalone-manifest', '--root', str(self.root)]
+        env = {**os.environ, 'PYTHONIOENCODING': 'ascii:strict'}
+        result = subprocess.run(command, env=env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.isascii())
+        expected = dict(plugin, id='omamail', name='Omamail', version='0.8.2')
+        self.assertEqual(json.loads(result.stdout), expected)
+        output = self.root / 'bundled.json'
+        written = subprocess.run(command + ['--output', str(output)], env=env, capture_output=True)
+        self.assertEqual(written.returncode, 0, written.stderr)
+        self.assertEqual(json.loads(output.read_text(encoding='utf-8')), expected)
+        self.assertEqual(path.read_bytes(), original)
+
     def test_release_pr_gate_requires_published_version_before_merge(self):
         # Execute the actual workflow guard: removing or weakening it must let
         # the pre-publication release PR reach the forbidden merge marker.

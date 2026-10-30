@@ -129,12 +129,14 @@ const selected = released ? (whole.releasedContract || {
 // Standalone Linux/macOS share the native assistant. Windows remains deferred
 // and must reject the unavailable methods without touching storage.
 const agentUnavailable = standalone && process.platform === 'win32';
-const unavailable = agentUnavailable ? selected.methods.filter(m => m.startsWith('agent.')) : [];
-const contract = agentUnavailable ? {
+const methodUnavailable = method => (agentUnavailable && method.startsWith('agent.')) ||
+  (process.platform !== 'linux' && method.startsWith('phone.'));
+const unavailable = selected.methods.filter(methodUnavailable);
+const contract = {
   ...selected,
-  methods: selected.methods.filter(m => !m.startsWith('agent.')),
-  contractCases: selected.contractCases.filter(c => !c.method.startsWith('agent.'))
-} : selected;
+  methods: selected.methods.filter(m => !methodUnavailable(m)),
+  contractCases: selected.contractCases.filter(c => !methodUnavailable(c.method))
+};
 const child = spawn(process.env.CONTRACT_BINARY, ['serve'], {stdio:['pipe','pipe','pipe']});
 let buffer = '', state = null, serial = 0, finished = false;
 const pending = new Map();

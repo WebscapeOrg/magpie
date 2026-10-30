@@ -208,14 +208,14 @@ TestCase {
   }
 
   function test_default_stderr_reuses_the_bounded_native_tail() {
-    var native = createTemporaryObject(nativeProcessComponent, testCase)
-    var process = createTemporaryObject(processComponent, testCase, { nativeProcess: native })
+    var nativeProcess = createTemporaryObject(nativeProcessComponent, testCase)
+    var process = createTemporaryObject(processComponent, testCase, { nativeProcess: nativeProcess })
     verify(process)
-    native.stderrText = "retained diagnostic tail"
+    nativeProcess.stderrText = "retained diagnostic tail"
     for (var lineIndex = 0; lineIndex < 4096; lineIndex++)
-      native.stderrLine("discarded old diagnostic " + lineIndex)
-    compare(process.stderr.text, native.stderrText)
-    native.stderrText = ""
+      nativeProcess.stderrLine("discarded old diagnostic " + lineIndex)
+    compare(process.stderr.text, nativeProcess.stderrText)
+    nativeProcess.stderrText = ""
     compare(process.stderr.text, "")
   }
 

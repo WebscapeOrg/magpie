@@ -684,6 +684,9 @@ mod api_contract_tests {
                 cfg!(all(feature = "agent", unix, not(target_os = "ios")))
                     || !method.as_str().unwrap().starts_with("agent.")
             })
+            .filter(|method| {
+                cfg!(target_os = "linux") || !method.as_str().unwrap().starts_with("phone.")
+            })
             .collect();
         assert_eq!(info["methods"], json!(expected));
     }

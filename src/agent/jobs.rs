@@ -1308,7 +1308,7 @@ mod tests {
 
     #[test]
     fn round2_saved_context_cannot_change_job_ownership() {
-        let path = std::env::temp_dir().join(format!(
+        let path = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "omamail-context-binding-{}-{}",
             std::process::id(),
             SystemTime::now()

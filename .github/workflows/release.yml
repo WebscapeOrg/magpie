@@ -81,6 +81,8 @@ jobs:
         with:
           toolchain: "1.98.1"
       - run: sudo apt-get update && sudo apt-get install -y musl-tools bubblewrap poppler-utils
+      - name: Verify the isolated document sandbox
+        run: bash .github/scripts/prepare-document-tests.sh
       - run: rustup target add "${{ matrix.target }}"
       - name: Test and build native static Linux backend
         env:
@@ -205,6 +207,8 @@ jobs:
           python3 -m pip install "cmake==3.31.6" "ninja==1.11.1.4"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends bubblewrap poppler-utils dbus-x11 gnome-keyring libdbus-1-3 libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 patchelf
+      - name: Verify the isolated document sandbox
+        run: bash .github/scripts/prepare-document-tests.sh
       - name: Exercise the native Secret Service credential contract
         run: |
           set -euo pipefail

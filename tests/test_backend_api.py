@@ -105,6 +105,34 @@ def windows_fixture_folders(home, config, get_path, set_path):
     ], get_path, set_path)
 
 
+def windows_fixture_environment(config, local, get_path):
+    return {'USERPROFILE': get_path('5e6c858f-0e22-4760-9afe-ea3317b67173'),
+            'APPDATA': str(config), 'LOCALAPPDATA': str(local)}
+
+
+def windows_child_folders(env):
+    script = """
+import json, runpy, sys
+get_path, _ = runpy.run_path(sys.argv[1])['windows_known_folders']()
+print(json.dumps({
+    'profile': get_path('5e6c858f-0e22-4760-9afe-ea3317b67173'),
+    'config': get_path('3eb685db-65f9-4cf6-a03a-e3ef65729f3d'),
+    'local': get_path('f1b32785-6fba-4fcf-9d55-7b8e7f157091'),
+    'downloads': get_path('374de290-123f-4565-9164-39c4925e467b'),
+}))
+"""
+    result = subprocess.run([sys.executable, '-I', '-c', script, str(Path(__file__).resolve())],
+                            env=env, capture_output=True, text=True, check=True, timeout=10)
+    return json.loads(result.stdout)
+
+
+def verify_windows_fixture_folders(env, expected):
+    actual = windows_child_folders(env)
+    for name, path in expected.items():
+        if Path(actual[name]) != Path(path):
+            raise RuntimeError(f'Windows fixture {name} differs in child: {actual[name]!r} != {str(path)!r}')
+
+
 def process_group_options(platform=None):
     """Start the Node harness in a group that can be torn down with its backend."""
     if (platform or os.name) == 'nt':
@@ -484,8 +512,7 @@ def main():
             state_root = local_root / 'OmamailData/State'
             data_root = local_root / 'OmamailData'
             runtime_root = local_root / 'OmamailData/Runtime'
-            env.update(USERPROFILE=str(home), APPDATA=str(config_root),
-                       LOCALAPPDATA=str(local_root))
+            env.update(windows_fixture_environment(config_root, local_root, get_folder))
         elif sys.platform == 'darwin':
             config_root = home / 'Library/Application Support'
             cache_root = home / 'Library/Caches'
@@ -596,6 +623,11 @@ def main():
             make_windows_fixture_private(storage_roots)
         folders = windows_fixture_folders(home, config_root, get_folder, set_folder) if os.name == 'nt' else nullcontext()
         with folders:
+            if os.name == 'nt':
+                verify_windows_fixture_folders(env, {
+                    'profile': env['USERPROFILE'], 'config': config_root,
+                    'local': local_root, 'downloads': home / 'Downloads',
+                })
             if smoke_host:
                 ready = smoke_ready or home / 'smoke-ready.json'
                 for command in ([str(smoke_host), '--check-resources'],

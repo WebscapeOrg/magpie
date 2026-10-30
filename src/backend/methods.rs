@@ -1,6 +1,7 @@
 // Invariant: Advertised public operations; transport and domain dispatch share this inventory.
 pub const ALL: &[&str] = &[
     "system.info",
+    "backup.export",
     "phone.pairBegin",
     "phone.devices",
     "phone.revoke",
@@ -151,5 +152,6 @@ pub fn available() -> Vec<&'static str> {
                 || cfg!(all(feature = "agent", unix, not(target_os = "ios")))
         })
         .filter(|method| !method.starts_with("phone.") || cfg!(target_os = "linux"))
+        .filter(|method| *method != "backup.export" || cfg!(target_os = "linux"))
         .collect()
 }

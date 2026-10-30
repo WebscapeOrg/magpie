@@ -4,6 +4,7 @@
   "protocolVersion": 1,
   "methods": [
     "system.info",
+    "backup.export",
     "phone.pairBegin",
     "phone.devices",
     "phone.revoke",
@@ -2121,6 +2122,14 @@
         "overviews.ready.expiresAt": 0,
         "overviews.expired.state": "stale"
       }
+    },
+    {
+      "name": "Backup export refuses caller supplied paths",
+      "method": "backup.export",
+      "params": {
+        "path": "/tmp/forbidden"
+      },
+      "errorCode": -32602
     }
   ],
   "unreleased": {
@@ -2154,7 +2163,8 @@
       "local.labelCounts",
       "phone.pairBegin",
       "phone.devices",
-      "phone.revoke"
+      "phone.revoke",
+      "backup.export"
     ],
     "cases": [
       "Gmail send preview refuses missing authentication",
@@ -2224,7 +2234,8 @@
       "phone.revoke rejects unknown fields before private storage",
       "Standalone handshake leaves wake scheduling with the frontend",
       "AI descriptions reject nonboolean remote image permission",
-      "AI descriptions project current versions and hide expired wording"
+      "AI descriptions project current versions and hide expired wording",
+      "Backup export refuses caller supplied paths"
     ]
   },
   "releasedContract": {

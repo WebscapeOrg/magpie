@@ -101,7 +101,9 @@ def unit(name, text):
 
 
 def service_environment():
-    environment = "Environment=MAGPIE_WORKER_SERVICES=1\nEnvironment=" + quote("PATH=" + os.environ.get("PATH", "/usr/bin:/bin")) + "\n"
+    user_home = Path.home()
+    path = os.pathsep.join(map(str, [user_home / ".local/share/mise/shims", user_home / ".local/bin", "/usr/local/bin", "/usr/bin"]))
+    environment = "Environment=MAGPIE_WORKER_SERVICES=1\nEnvironment=" + quote("PATH=" + path) + "\n"
     for name in ["XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"]:
         if name in os.environ:
             environment += "Environment=" + quote(name + "=" + os.environ[name]) + "\n"

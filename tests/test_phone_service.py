@@ -3,6 +3,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -100,6 +102,35 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(timer.read_bytes(),b'# another owner\n')
         self.assertEqual(self.calls,[])
         self.assertFalse((service.STATE/'engine-enabled').exists())
+
+    def test_service_path_cannot_retain_or_execute_session_tools(self):
+        tool = self.root / 'magpie-test-session-tool'
+        touched = self.root / 'session-tool-ran'
+        tool.write_text('#!/bin/sh\nprintf executed > ' + shlex.quote(str(touched)) + '\n')
+        tool.chmod(0o700)
+        subprocess.run([str(tool)], env={'PATH': str(self.root)}, check=True, timeout=5)
+        self.assertEqual(touched.read_text(), 'executed')
+        touched.unlink()
+        with patch.dict(os.environ, PATH=str(self.root) + ':/old/mise/installs/claude/1.0'):
+            service.prepare()
+        paths = []
+        for name in [service.UNIT, 'magpie-certificate.service']:
+            text = (service.CONFIG/'systemd/user'/name).read_text()
+            value = next(line.removeprefix('Environment=') for line in text.splitlines()
+                         if line.startswith('Environment="PATH='))
+            path = shlex.split(value)[0].removeprefix('PATH=')
+            paths.append(path)
+            self.assertEqual(path.split(os.pathsep), [str(Path.home()/'.local/share/mise/shims'),
+                             str(Path.home()/'.local/bin'), '/usr/local/bin', '/usr/bin'])
+            result = subprocess.run(['/bin/sh', '-c', 'exec magpie-test-session-tool'],
+                                    env={'PATH': path}, capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 127)
+            self.assertFalse(touched.exists())
+        self.assertEqual(paths[0], paths[1])
+        before = (service.CONFIG/'systemd/user'/service.UNIT).read_bytes()
+        with patch.dict(os.environ, PATH='/another/session:/new/mise/installs/claude/2.0'):
+            service.prepare()
+        self.assertEqual((service.CONFIG/'systemd/user'/service.UNIT).read_bytes(), before)
 
 
 if __name__ == '__main__':

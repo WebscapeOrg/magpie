@@ -56,7 +56,7 @@ probe; `version --json` returns a JSON version object. `serve` always speaks the
 line-framed JSON-RPC protocol and rejects `--json`.
 
 `omamail info` prints a human-readable table; add `--json` for JSON. `omamail serve` reads newline-terminated JSON
-requests on persistent stdin/stdout pipes using JSON-RPC 2.0 envelopes. QML starts one backend and communicates directly through these pipes, without invoking CLI commands for data operations. Unix sockets are not used. CLI commands share the Rust domain implementation; they do not currently attach to the GUI process.
+requests on persistent stdin/stdout pipes using JSON-RPC 2.0 envelopes. QML communicates through these pipes, without invoking CLI commands for data operations. On an activated Enterprise installation, `serve` proxies to the authenticated local engine socket. The `phone` commands use that same running engine, so a pairing window survives the CLI process. Ordinary one-shot CLI commands otherwise use their own sessions; owner-coordinated outbox and backup operations follow their documented paths. See [pairing from SSH](PHONE-PAIRING.md).
 
 Example request:
 

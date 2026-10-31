@@ -69,7 +69,7 @@ fn result_failure(value: &Value) -> Option<&'static str> {
 }
 
 // Invariant: Sender-controlled text must not execute terminal escapes or inject table rows.
-fn safe(text: &str) -> String {
+pub(super) fn safe(text: &str) -> String {
     let mut result = String::new();
     for c in text.chars() {
         match c {

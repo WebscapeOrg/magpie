@@ -51,7 +51,7 @@ Rectangle {
   HoverHandler { id: rowHover }
 
   readonly property int threadCount: Model.badgeCount(root.summary)
-  readonly property real avatarTopInset: Math.max(0, sender.baselineOffset + senderMetrics.tightBoundingRect("H").y)
+  readonly property real avatarTopInset: Math.max(0, sender.baselineOffset + senderMetrics.tightBoundingRect.y)
 
   // Invariant: Latin reply prefixes must not determine subject direction; sender and snippet still
   // use their own first strong character.
@@ -112,9 +112,10 @@ Rectangle {
     fontFamily: root.panelFontFamily
   }
 
-  FontMetrics {
+  TextMetrics {
     id: senderMetrics
     font: sender.font
+    text: "H"
   }
 
   Column {
@@ -179,12 +180,12 @@ Rectangle {
         id: time
         objectName: "message-time"
         anchors.right: parent.right
-        anchors.baseline: sender.baseline
+        anchors.verticalCenter: sender.verticalCenter
         textFormat: Text.PlainText
         text: String(root.summary.time || "")
         color: root.secondaryTextColor
         font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.listSize
+        font.pixelSize: subject.font.pixelSize
       }
     }
 

@@ -6,6 +6,7 @@ import "../../settings" as Settings
 Item {
   width: 640
   height: 160
+  Component { id: fontMetrics; FontMetrics {} }
   Omamail.MessageRow {
     id: row
     width: 600
@@ -45,6 +46,10 @@ Item {
         row.overview = "Ready"
         waitForRendering(row)
         var avatar = findChild(row, "message-avatar")
+        var sender = findChild(row, "message-sender")
+        var metrics = createTemporaryObject(fontMetrics, row, {font: sender.font})
+        var capitalTop = sender.mapToItem(row, 0, sender.baselineOffset + metrics.tightBoundingRect("H").y).y
+        verify(Math.abs(avatar.y-capitalTop)<0.01,"avatar follows sender capitals after text size changes")
         verify(avatar.y >= 0, "avatar starts inside the row")
         verify(avatar.y + avatar.height <= row.height, "avatar ends inside the row")
       } finally {
@@ -180,7 +185,8 @@ Item {
       var timePoint=time.mapToItem(row,0,0)
       var subjectPoint=subject.mapToItem(row,0,0)
       var descriptionPoint=description.mapToItem(row,0,0)
-      compare(Math.round(senderPoint.y+sender.baselineOffset),Math.round(timePoint.y+time.baselineOffset))
+      verify(Math.abs(senderPoint.y+sender.height/2-timePoint.y-time.height/2)<=0.5,"sender and date centres align within pixel rounding")
+      compare(time.font.pixelSize,subject.font.pixelSize)
       verify(subjectPoint.y>=senderPoint.y+sender.height,"title occupies the second line")
       verify(descriptionPoint.y>=subjectPoint.y+subject.height,"description occupies the third line")
       var actions=findChild(row,"message-actions")

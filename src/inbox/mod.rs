@@ -1,5 +1,5 @@
 mod avatars;
-#[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(test)]
 include!("readiness_tests.rs");
 #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 mod context;
@@ -427,6 +427,12 @@ fn preferences(account: &str) -> Result<Value, &'static str> {
     )
 }
 
+#[cfg(not(all(feature = "agent", unix, not(target_os = "ios"))))]
+fn legacy_preferences() -> Result<Value, &'static str> {
+    Ok(json!({}))
+}
+
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 fn legacy_preferences() -> Result<Value, &'static str> {
     use crate::platform::{dirs::AppDirs, private_fs};
     use std::io::Read;

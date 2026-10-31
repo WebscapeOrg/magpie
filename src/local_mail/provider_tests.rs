@@ -157,6 +157,15 @@ fn answer(world: &mut World, line: &str, url: &reqwest::Url, body: Value) -> (u1
         return (200, json!({"labels":[{"id":"INBOX","name":"INBOX"}]}));
     }
     if path.ends_with("/messages") {
+        if url
+            .query_pairs()
+            .any(|(key, value)| key == "labelIds" && value == "INBOX")
+        {
+            return (
+                200,
+                json!({"messages":world.messages.values().filter(|m| m["labelIds"].as_array().is_some_and(|labels|labels.iter().any(|l| l=="INBOX"))).map(|m|json!({"id":m["id"]})).collect::<Vec<_>>() }),
+            );
+        }
         return if url
             .query_pairs()
             .any(|(key, value)| key == "pageToken" && value == "page-two")
@@ -221,7 +230,9 @@ async fn synchronize(local: &LocalMail, gmail: &gmail::Session) {
     for _ in 0..8 {
         set(&store, "lastHistory", "0");
         sync::step(&store, gmail, ACCOUNT).await.unwrap();
-        if store.status().unwrap()["complete"] == true {
+        if store.status().unwrap()["complete"] == true
+            && store.status().unwrap()["health"]["inboxKnown"] == true
+        {
             return;
         }
     }
@@ -307,7 +318,9 @@ async fn interrupted_provider_body_keeps_inventory_checkpoint_and_unvisited_mail
             .unwrap();
         set(&store, "legacyImported", "true");
         provider.world.lock().unwrap().pause = "/messages/one".into();
-        provider.interrupt(sync::step(&store, &gmail, ACCOUNT)).await;
+        provider
+            .interrupt(sync::step(&store, &gmail, ACCOUNT))
+            .await;
         assert!(
             provider
                 .world
@@ -356,7 +369,14 @@ async fn interrupted_inventory_and_history_requests_resume_their_saved_page() {
         let mut local = LocalMail::default();
         let mut store = local.store(ACCOUNT).await.unwrap();
         store
-            .put(&message("unvisited", "kept during partial inventory"), 0)
+            .put(
+                &{
+                    let mut m = message("unvisited", "kept during partial inventory");
+                    m["labelIds"] = json!([]);
+                    m
+                },
+                0,
+            )
             .unwrap();
         set(&store, "legacyImported", "true");
         sync::step(&store, &gmail, ACCOUNT).await.unwrap();
@@ -374,7 +394,9 @@ async fn interrupted_inventory_and_history_requests_resume_their_saved_page() {
                 sync::step(&store, &gmail, ACCOUNT).await.unwrap();
             }
             provider.world.lock().unwrap().pause = pause.into();
-            provider.interrupt(sync::step(&store, &gmail, ACCOUNT)).await;
+            provider
+                .interrupt(sync::step(&store, &gmail, ACCOUNT))
+                .await;
             assert!(
                 provider
                     .world
@@ -403,6 +425,7 @@ async fn interrupted_inventory_and_history_requests_resume_their_saved_page() {
             sync::step(&store, &gmail, ACCOUNT).await.unwrap();
         }
         assert!(store.resource("unvisited").unwrap().is_none());
+        synchronize(&local, &gmail).await;
         assert_eq!(store.status().unwrap()["complete"], true);
         store
             .put(
@@ -722,6 +745,8 @@ async fn delayed_foreground_reads_cannot_erase_history_repairs_or_resurrect_dele
             ("history", "200"),
             ("inventoryListed", "true"),
             ("inventoryComplete", "true"),
+            ("inboxListed", "true"),
+            ("inboxReady", "true"),
         ] {
             set(&store, key, value);
         }

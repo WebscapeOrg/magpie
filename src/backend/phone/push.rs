@@ -22,7 +22,7 @@ enum Delivery {
 fn response(status: u16, reason: &str) -> Delivery {
     match (status, reason) {
         (200, _) => Delivery::Accepted,
-        (403, "BadEnvironmentKeyIdInToken") => Delivery::OtherKey,
+        (403, "BadEnvironmentKeyIdInToken" | "BadEnvironmentKeyInToken") => Delivery::OtherKey,
         (410, _)
         | (_, "BadDeviceToken" | "DeviceTokenNotForTopic" | "ExpiredToken" | "Unregistered") => {
             Delivery::Gone
@@ -498,6 +498,11 @@ mod tests {
             response(403, "BadEnvironmentKeyIdInToken"),
             Delivery::OtherKey
         );
+        assert_eq!(
+            response(403, "BadEnvironmentKeyInToken"),
+            Delivery::OtherKey
+        );
+        assert_eq!(response(400, "BadEnvironmentKeyInToken"), Delivery::Refused);
         assert_eq!(response(410, "ExpiredToken"), Delivery::Gone);
         assert_eq!(response(429, "TooManyRequests"), Delivery::Later(60_000));
         assert_eq!(

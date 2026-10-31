@@ -533,6 +533,7 @@ pub(super) fn refresh(store: &Store, id: &str) -> Result<Value> {
 struct HeadIndex {
     path: std::path::PathBuf,
     revision: [u64; 6],
+    ids: Vec<String>,
     jobs: Vec<Value>,
 }
 static HEADS: std::sync::Mutex<Option<HeadIndex>> = std::sync::Mutex::new(None);
@@ -542,15 +543,16 @@ fn list(store: &Store) -> Result<Vec<Value>> {
     // only metadata in memory; a restart rebuilds it from the durable records.
     // Active heads are refreshed each poll, terminal displays only when paged.
     let revision = store.revision()?;
+    let ids = store.ids()?;
     let mut cached = HEADS.lock().map_err(|_| "agent_storage_unavailable")?;
-    if cached
-        .as_ref()
-        .is_none_or(|index| index.path != store.path() || index.revision != revision)
-    {
+    if cached.as_ref().is_none_or(|index| {
+        index.path != store.path() || index.revision != revision || index.ids != ids
+    }) {
         *cached = Some(HeadIndex {
             path: store.path().to_owned(),
             revision,
-            jobs: scan_heads(store)?,
+            jobs: scan_heads(store, &ids)?,
+            ids,
         });
     }
     let index = cached.as_mut().unwrap();
@@ -562,9 +564,9 @@ fn list(store: &Store) -> Result<Vec<Value>> {
     Ok(index.jobs.clone())
 }
 
-fn scan_heads(store: &Store) -> Result<Vec<Value>> {
+fn scan_heads(store: &Store, ids: &[String]) -> Result<Vec<Value>> {
     let mut jobs = Vec::new();
-    for id in store.ids()? {
+    for id in ids {
         if store.read_json(&id, "job.json", INPUT_LIMIT)?.is_none() {
             continue;
         }
@@ -1350,7 +1352,10 @@ mod tests {
     }
 
     #[test]
-    fn history_poll_reads_only_heads_and_invalidates_after_creation_or_removal() {
+    fn history_poll_reuses_records_and_checks_inventory_without_timestamp_changes() {
+        if crate::mail::tests::isolated() {
+            return;
+        }
         struct Temp(std::path::PathBuf);
         impl Drop for Temp {
             fn drop(&mut self) {
@@ -1367,6 +1372,10 @@ mod tests {
             )));
         std::fs::create_dir(&temp.0).unwrap();
         let store = Store::open_at(&temp.0).unwrap();
+        assert!(list(&store).unwrap().is_empty());
+        let mask_revision_change = || {
+            HEADS.lock().unwrap().as_mut().unwrap().revision = store.revision().unwrap();
+        };
         let make = |id: &str, conversation: &str, order: u64, state: &str| {
             store.create(id).unwrap();
             let job = json!({"id":id,"conversationId":conversation,"accountId":"synthetic",
@@ -1385,6 +1394,7 @@ mod tests {
                     .unwrap();
             }
         }
+        mask_revision_change();
         assert_eq!(list(&store).unwrap().len(), 1);
         store.reads.set(0);
         let page = refresh_page(&store, list(&store).unwrap()).unwrap();
@@ -1397,12 +1407,24 @@ mod tests {
 
         let independent = format!("{:032x}", 1000);
         let mut job = make(&independent, &independent, 1000, "queued");
+        mask_revision_change();
         assert_eq!(list(&store).unwrap().len(), 2);
         job["state"] = json!("done");
         store.write_json(&independent, "job.json", &job).unwrap();
         assert_eq!(list(&store).unwrap()[0]["state"], "done");
         store.remove(&independent).unwrap();
+        mask_revision_change();
         assert_eq!(list(&store).unwrap().len(), 1);
+
+        make(&independent, &independent, 1000, "done");
+        assert_eq!(list(&store).unwrap().len(), 2);
+        store.remove(&independent).unwrap();
+        let replacement = format!("{:032x}", 1001);
+        make(&replacement, &replacement, 1001, "done");
+        mask_revision_change();
+        let replaced = list(&store).unwrap();
+        assert_eq!(replaced.len(), 2);
+        assert_eq!(replaced[0]["id"], replacement);
 
         let head = format!("{:032x}", 319);
         store

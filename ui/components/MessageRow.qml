@@ -25,6 +25,7 @@ Rectangle {
   property bool selectionActive: false
   property bool ctrlHeld: false
   readonly property bool selectionMode: selectionActive || checked || ctrlHeld
+  readonly property color secondaryTextColor: selected || hasCursor || checked ? textColor : dimColor
   property string contentDirection: Direction.MODE_DEFAULT
 
   signal activated()
@@ -133,7 +134,7 @@ Rectangle {
         text: root.summary.from ? root.summary.from.display : ""
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.listSize
+        font.pixelSize: MailStyle.listSize + 96 / 72
         font.bold: false
         elide: Text.ElideRight
         horizontalAlignment: root.textAlignment
@@ -148,7 +149,7 @@ Rectangle {
         visible: root.conversations && root.threadCount > 0
         textFormat: Text.PlainText
         text: root.threadCount
-        color: root.dimColor
+        color: root.secondaryTextColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
         font.bold: false
@@ -163,7 +164,7 @@ Rectangle {
         y: (sender.height - height) / 2
         name: "attachment"
         iconSize: MailStyle.listSize
-        color: root.dimColor
+        color: root.secondaryTextColor
         Accessible.role: Accessible.Graphic
         Accessible.name: "Has attachments"
       }
@@ -175,7 +176,7 @@ Rectangle {
         anchors.baseline: sender.baseline
         textFormat: Text.PlainText
         text: String(root.summary.time || "")
-        color: root.dimColor
+        color: root.secondaryTextColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
       }
@@ -184,7 +185,7 @@ Rectangle {
     MarkedText {
       id: subject
       marked: root.summary.unread === true
-      markerColor: Qt.rgba(0.73,0.48,0.20,0.24)
+      markerColor: Qt.rgba(0.73,0.48,0.20,0.144)
       objectName: "message-subject"
       width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
       // Invariant: sender-controlled labels must never activate Qt’s rich-text loader.
@@ -192,7 +193,7 @@ Rectangle {
       text: root.overview || String(root.summary.subject || "")
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.listSize
+      font.pixelSize: Math.max(8, MailStyle.preferences.listSize - 1) * 96 / 72
       font.bold: false
       elide: Text.ElideRight
       horizontalAlignment: root.overview ? root.textAlignment : root.subjectAlignment
@@ -217,9 +218,9 @@ Rectangle {
         visible: true
         textFormat: Text.PlainText
         text: String(root.summary.snippet || "")
-        color: root.dimColor
+        color: root.secondaryTextColor
         font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.listSize
+        font.pixelSize: Math.max(8, MailStyle.preferences.listSize - 1) * 96 / 72
         elide: Text.ElideRight
         maximumLineCount: 2
         wrapMode: Text.Wrap

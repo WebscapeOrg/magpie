@@ -46,8 +46,9 @@ Item {
       compare(description.height,lineHeightPixels)
       compare(description.mapToItem(row,0,0).y,before.y)
       compare(findChild(row,"message-subject").mapToItem(row,0,0).y,subject.y)
-      verify(glyph.height<=description.height)
-      verify(glyph.height<=description.font.pixelSize)
+      var sender=findChild(row,"message-sender")
+      verify(glyph.height<=sender.height)
+      verify(glyph.height<=sender.font.pixelSize)
       var time=findChild(row,"message-time")
       verify(time.x-glyph.x-glyph.width>=8,"the paperclip has right-hand breathing room")
       verify(Math.abs(glyph.mapToItem(row,0,glyph.height/2).y

@@ -198,7 +198,10 @@ impl Session {
         let budget = self.account(account)?.budget.clone();
         let mut query = Vec::new();
         let path = match operation {
-            "inventory" => {
+            "inventory" | "inbox" => {
+                if operation == "inbox" {
+                    query.push(("labelIds".into(), "INBOX".into()));
+                }
                 query.extend([
                     ("maxResults".into(), "500".into()),
                     ("includeSpamTrash".into(), "true".into()),

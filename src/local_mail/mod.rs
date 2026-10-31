@@ -1,6 +1,7 @@
 #[cfg(target_os = "linux")]
 pub(crate) mod backup;
 mod content;
+mod inbox;
 #[cfg(not(target_os = "ios"))]
 mod ipc;
 #[cfg(target_os = "ios")]

@@ -644,7 +644,7 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     let mut saved = json!({});
     for n in 0..100 {
         saved[format!("m{n:03}")] =
-            json!({"version":2,"state":"ready","text":"Prepared receipt","expiresAt":0});
+            json!({"version":2,"promptRevision":1,"state":"ready","text":"Prepared receipt","expiresAt":0});
     }
     super::store::write(&name, &saved).unwrap();
     let inbox = Inbox::default();

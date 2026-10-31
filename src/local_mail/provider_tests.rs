@@ -803,3 +803,97 @@ async fn delayed_foreground_reads_cannot_erase_history_repairs_or_resurrect_dele
     })
     .await;
 }
+
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn background_receive_preserves_pause_and_queued_edits_without_provider_writes() {
+    if isolated() { return; }
+    let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        synchronize(&local, &gmail).await;
+        let store = local.store(ACCOUNT).await.unwrap();
+        store.edit("pending-star", &["one".into()], &["STARRED".into()], &[]).unwrap();
+        set(&store, "paused", "true");
+        local.set_suspended(true);
+        let requests = provider.world.lock().unwrap().requests.len();
+        let paused = local.background_refresh(ACCOUNT, &gmail).await.unwrap();
+        assert_eq!(paused["paused"], true);
+        assert_eq!(provider.world.lock().unwrap().requests.len(), requests, "paused refresh must not reach Gmail");
+        assert_eq!(store.status().unwrap()["pendingEdits"], 1);
+        set(&store, "paused", "false");
+        let result = local.background_refresh(ACCOUNT, &gmail).await.unwrap();
+        assert_eq!(result["checked"], true, "must await history response: {result}");
+        assert_eq!(result["ids"].as_array().unwrap().len(), 2);
+        assert!(provider.world.lock().unwrap().writes.is_empty(), "background refresh cannot send queued edits");
+        assert_eq!(store.status().unwrap()["pendingEdits"], 1);
+        let requests = provider.world.lock().unwrap().requests.len();
+        assert_eq!(local.background_refresh("foreign@example.test", &gmail).await, Err("local_account_unknown"));
+        assert_eq!(provider.world.lock().unwrap().requests.len(), requests, "unknown account cannot reach Gmail");
+        assert!(local.jobs.lock().unwrap().is_empty(), "background refresh must not start watchers");
+        local.shutdown().await;
+    }).await;
+}
+
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn cancelled_background_history_does_not_claim_a_completed_check_and_can_resume() {
+    if isolated() { return; }
+    let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        synchronize(&local, &gmail).await;
+        let store = local.store(ACCOUNT).await.unwrap();
+        let before = store.status().unwrap()["health"]["lastChecked"].clone();
+        provider.world.lock().unwrap().pause = "/history?".into();
+        {
+            let work = local.background_refresh(ACCOUNT, &gmail);
+            tokio::pin!(work);
+            tokio::select! {
+                result = &mut work => panic!("completed before history response: {result:?}"),
+                _ = provider.paused.notified() => {},
+                _ = tokio::time::sleep(Duration::from_secs(5)) => panic!("did not reach history"),
+            }
+        }
+        assert_eq!(store.status().unwrap()["health"]["lastChecked"], before);
+        assert!(provider.world.lock().unwrap().writes.is_empty());
+        provider.world.lock().unwrap().pause.clear();
+        let result = local.background_refresh(ACCOUNT, &gmail).await.unwrap();
+        assert_eq!(result["checked"], true);
+        assert_eq!(result["ids"].as_array().unwrap().len(), 2);
+        local.shutdown().await;
+    }).await;
+}
+
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn background_drain_tracks_cancelled_opens_before_the_store_exists_without_blocking() {
+    if isolated() { return; }
+    let _fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let local = LocalMail::default();
+    local.set_suspended(true);
+    let held = local.stores.lock().unwrap();
+    let gmail = gmail::Session::default();
+    {
+        let work = local.background_refresh(ACCOUNT, &gmail);
+        tokio::pin!(work);
+        tokio::select! {
+            _ = &mut work => panic!("store opened through held mutex"),
+            _ = tokio::time::sleep(Duration::from_millis(30)) => {},
+        }
+    }
+    assert!(Arc::strong_count(&local.stores) > 1, "blocking open still owns the map");
+    assert_eq!(local.drain(Duration::from_millis(30)).await, Err("local_busy"), "pending open cannot be mistaken for quiescence");
+    drop(held);
+    local.drain(Duration::from_secs(2)).await.unwrap();
+    assert!(local.stores.lock().unwrap().contains_key(ACCOUNT));
+    assert_eq!(Arc::strong_count(&local.stores), 1);
+}

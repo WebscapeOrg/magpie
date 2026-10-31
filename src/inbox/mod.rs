@@ -188,8 +188,7 @@ impl Inbox {
                                     let current: Vec<_> = chosen
                                         .into_iter()
                                         .filter(|id| {
-                                            saved[id]["state"] == "running"
-                                                && saved[id]["updated"] == claimed_at
+                                            overview_claimed(&saved[id], claimed_at)
                                         })
                                         .collect();
                                     finish_overviews_protected(saved, &current, &result, &protected)
@@ -203,10 +202,13 @@ impl Inbox {
                                 }
                                 store::update(&name, |saved| {
                                     for id in &ids {
-                                        if saved[id]["state"] == "running"
-                                            && saved[id]["updated"] == claimed_at
-                                        {
-                                            saved[id] = json!({"state":"failed","version":2,"updated":0,"reason":"Account settings changed; preparation will retry"});
+                                        if overview_claimed(&saved[id], claimed_at) {
+                                            if overview_current(&saved[id], now()) {
+                                                saved[id]["rewriteState"] = json!("failed");
+                                                saved[id]["rewriteAt"] = json!(0);
+                                            } else {
+                                                saved[id] = json!({"state":"failed","version":2,"updated":0,"reason":"Account settings changed; preparation will retry"});
+                                            }
                                         }
                                     }
                                     Ok(())
@@ -277,6 +279,12 @@ fn claim_overviews(
         if !overview_due(old, retry, at) {
             continue;
         }
+        if overview_current(old, at) {
+            saved[id]["rewriteState"] = json!("running");
+            saved[id]["rewriteAt"] = json!(at);
+            chosen.push(id.clone());
+            continue;
+        }
         let pending_since = old["pendingSince"]
             .as_i64()
             .filter(|value| *value > 0 && *value <= at)
@@ -310,7 +318,13 @@ fn finish_overviews_protected(
             .and_then(|rows| rows.iter().find(|v| v["id"] == *id));
         saved[id] = match row.filter(|row| row["text"].as_str().is_some_and(valid_description)) {
             Some(row) => {
-                json!({"state":"ready","text":row["text"],"version":2,"updated":now(),"expiresAt":if row["timeSensitive"] == false && !relative_words(row["text"].as_str().unwrap_or("")) { 0 } else { row["expiresAt"].as_i64().filter(|value| *value > 0).unwrap_or_else(|| next_day(now())) }})
+                json!({"state":"ready","text":row["text"],"version":2,"promptRevision":1,"updated":now(),"expiresAt":if row["timeSensitive"] == false && !relative_words(row["text"].as_str().unwrap_or("")) { 0 } else { row["expiresAt"].as_i64().filter(|value| *value > 0).unwrap_or_else(|| next_day(now())) }})
+            }
+            None if overview_current(&saved[id], now()) => {
+                let mut previous = saved[id].clone();
+                previous["rewriteState"] = json!("failed");
+                previous["rewriteAt"] = json!(now());
+                previous
             }
             None => {
                 json!({"state":"failed","reason":overview_failure(result.as_ref().err().copied()),"updated":now(),"pendingSince":pending_since,"version":2})
@@ -414,6 +428,27 @@ pub(crate) fn ready_ids(account: &str, ids: &[Value]) -> Result<Vec<Value>, &'st
         .collect())
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn background_revision(account: &str, ids: &[Value]) -> Result<String, &'static str> {
+    let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
+    if !saved.is_object() {
+        return Err("inbox_storage_invalid");
+    }
+    let ready: Vec<_> = ids
+        .iter()
+        .filter_map(|id| {
+            let id = id.as_str()?;
+            overview_current(&saved[id], now())
+                .then(|| json!([id, saved[id]["text"], saved[id]["expiresAt"]]))
+        })
+        .collect();
+    use sha2::{Digest, Sha256};
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&ready).map_err(|_| "inbox_storage_invalid")?)
+    ))
+}
+
 fn preferences(account: &str) -> Result<Value, &'static str> {
     let saved = store::read(&store::key(&["preferences", account]))?;
     let configured = saved.is_some();
@@ -488,12 +523,20 @@ fn valid_description(text: &str) -> bool {
 #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 fn overview_due(value: &Value, retry: bool, at: i64) -> bool {
     if overview_current(value, at) {
-        return false;
+        if value["promptRevision"] == 1 { return false; }
+        let age = at.saturating_sub(value["rewriteAt"].as_i64().unwrap_or(0));
+        return !(age >= 0 && age < 900_000 && (value["rewriteState"] == "running" || (!retry && value["rewriteState"] == "failed")));
     }
     let age = at.saturating_sub(value["updated"].as_i64().unwrap_or(0));
     !(age >= 0
         && age < 900_000
         && (value["state"] == "running" || (!retry && value["state"] == "failed")))
+}
+
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+fn overview_claimed(value: &Value, at: i64) -> bool {
+    (value["state"] == "running" && value["updated"] == at)
+        || (value["rewriteState"] == "running" && value["rewriteAt"] == at)
 }
 
 fn overview_current(value: &Value, at: i64) -> bool {
@@ -656,7 +699,7 @@ mod overview_storage_tests {
     #[test]
     fn overview_claim_preserves_ready_results_and_observes_retry_cooldown() {
         let original = json!({
-            "ready": {"text":"saved summary", "version":2,"state":"ready","expiresAt":0},
+            "ready": {"text":"saved summary", "version":2,"promptRevision":1,"state":"ready","expiresAt":0},
             "recent": {"state":"failed", "updated":100_001},
             "expired": {"state":"failed", "updated":100_000}
         });
@@ -674,6 +717,24 @@ mod overview_storage_tests {
             vec!["recent", "expired"]
         );
         assert_eq!(saved["ready"], original["ready"]);
+    }
+
+    #[test]
+    fn old_prompt_descriptions_are_rewritten_only_when_selected_for_preparation() {
+        let old = json!({"version":2,"state":"ready","text":"Receipt — Your payment arrived","expiresAt":0});
+        let mut saved = json!({"inbox":old,"archive":old});
+        assert!(super::overview_current(&saved["archive"], 1000));
+        assert_eq!(claim_overviews(&mut saved, &["inbox".into()], false, 1000).unwrap(), vec!["inbox"]);
+        assert_eq!(saved["archive"], old, "unselected archived descriptions stay available");
+        assert!(super::overview_current(&saved["inbox"], 1001), "rewriting must not hide an existing Inbox row");
+        assert!(super::overview_claimed(&saved["inbox"], 1000));
+        assert!(claim_overviews(&mut saved, &["inbox".into()], false, 1001).unwrap().is_empty());
+        finish_overviews(&mut saved, &["inbox".into()], &Err("overview_ai_unavailable")).unwrap();
+        assert_eq!(saved["inbox"]["text"], old["text"], "failed rewrite preserves valid text");
+        assert!(super::overview_current(&saved["inbox"], 1001));
+        finish_overviews(&mut saved, &["inbox".into()], &Ok(json!([{"id":"inbox","text":"Your payment of €20 has arrived","timeSensitive":false}]))).unwrap();
+        assert_eq!(saved["inbox"]["promptRevision"], 1);
+        assert!(claim_overviews(&mut saved, &["inbox".into()], false, 2000).unwrap().is_empty());
     }
 
     #[test]

@@ -134,7 +134,7 @@ Rectangle {
         text: root.summary.from ? root.summary.from.display : ""
         color: root.textColor
         font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.listSize + 96 / 72
+        font.pixelSize: MailStyle.listSize
         font.bold: false
         elide: Text.ElideRight
         horizontalAlignment: root.textAlignment
@@ -193,7 +193,7 @@ Rectangle {
       text: root.overview || String(root.summary.subject || "")
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: Math.max(8, MailStyle.preferences.listSize - 1) * 96 / 72
+      font.pixelSize: Math.max(8, MailStyle.preferences.listSize - 3) * 96 / 72
       font.bold: false
       elide: Text.ElideRight
       horizontalAlignment: root.overview ? root.textAlignment : root.subjectAlignment
@@ -220,7 +220,7 @@ Rectangle {
         text: String(root.summary.snippet || "")
         color: root.secondaryTextColor
         font.family: root.panelFontFamily
-        font.pixelSize: Math.max(8, MailStyle.preferences.listSize - 1) * 96 / 72
+        font.pixelSize: Math.max(8, MailStyle.preferences.listSize - 3) * 96 / 72
         elide: Text.ElideRight
         maximumLineCount: 2
         wrapMode: Text.Wrap

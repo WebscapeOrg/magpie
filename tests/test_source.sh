@@ -326,7 +326,7 @@ PY
 if grep -q 'Open Omamail' bar/BarPreview.qml; then
   fail "the bar preview must not contain a redundant Open Omamail button"
 fi
-grep -q 'messages: host ? host.previewMessages : \[\]' Service.qml \
+grep -q 'messages: host ? inboxController.admitted(host.accountId,host.previewMessages) : \[\]' Service.qml \
   || fail "the bar preview must use each account's unread preview feed"
 grep -q 'width: parent ? parent.width : 0' BarWidget.qml \
   || fail "bar preview rows must stay inside the panel's padded content area"

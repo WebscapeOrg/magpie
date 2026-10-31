@@ -328,4 +328,49 @@ emit({'type':'result','subtype':'success','result':'Final answer'})
         self.assertTrue(marker.exists())
 
 
+class PublicationLock(unittest.TestCase):
+    def test_stream_snapshots_exclude_concurrent_readers(self):
+        fixture = Bridge()
+        self.addCleanup(lambda: self.assertTrue(fixture.doCleanups(), 'Bridge fixture cleanup failed'))
+        fixture.setUp()
+        ident = fixture.new()
+        fixture.wait(ident)
+        file = fixture.store / ident / 'job.json'
+        job = json.loads(file.read_text())
+        job.update(state='queued', created=int(time.time()), resultReady=False)
+        file.write_text(json.dumps(job))
+        fixture.agent('time.sleep(.15)\n' + SUCCESS)
+        probe = '''
+import fcntl, importlib.util, os, sys
+spec = importlib.util.spec_from_file_location('bridge', sys.argv[1])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+original = bridge.write
+snapshots = []
+with bridge.store() as (base, path):
+    def write(fd, name, value):
+        if name == 'display.json':
+            handle = os.open('.lock', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=base)
+            try:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    pass
+                else:
+                    raise AssertionError('A reader can overlap display publication')
+            finally:
+                os.close(handle)
+            snapshots.append(value['complete'])
+        original(fd, name, value)
+    bridge.write = write
+    bridge.run(base, path, sys.argv[2])
+assert False in snapshots, snapshots
+assert snapshots[-1] is True, snapshots
+assert len(snapshots) >= 2, snapshots
+'''
+        run = subprocess.run(['python3', '-c', probe, str(SCRIPT), ident], env=fixture.env,
+                             capture_output=True, text=True, timeout=5)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+
 if __name__=='__main__':unittest.main()

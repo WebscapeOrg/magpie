@@ -1,6 +1,27 @@
 use super::{Engine, reader};
 use serde_json::{Value, json};
 impl Engine {
+    pub async fn mobile_background_drain(&self) -> Result<(), &'static str> {
+        self.local_mail.drain(std::time::Duration::from_secs(2)).await
+    }
+    pub async fn mobile_background_refresh(&self, params: &Value) -> Result<Value, &'static str> {
+        if params.as_object().is_none_or(|p| !p.is_empty()) {
+            return Err("invalid_params");
+        }
+        let registry = crate::account::list_readonly()?;
+        let accounts: Vec<_> = registry["accounts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|account| account["provider"] == "gmail")
+            .filter_map(|account| account["id"].as_str().filter(|id| !id.is_empty()))
+            .collect();
+        let pages = futures_util::future::join_all(accounts.iter().map(|account| async move {
+            self.local_mail.background_refresh(account, &self.gmail).await
+                .unwrap_or_else(|error| json!({"accountId":account,"changed":false,"checked":false,"error":error,"ids":[]}))
+        })).await;
+        Ok(json!({"accounts":pages}))
+    }
     pub async fn mobile_draft_attachments(
         &self,
         method: &str,

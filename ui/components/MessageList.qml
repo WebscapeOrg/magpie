@@ -189,6 +189,19 @@ ListView {
     textColor: root.textColor
   }
 
+  Text {
+    width: parent.width - MailStyle.space(20)
+    x: MailStyle.space(10)
+    visible: text !== ""
+    text: root.service && root.service.inboxTools ? root.service.inboxTools.preparationProblem : ""
+    textFormat: Text.PlainText
+    color: root.dimColor
+    font.family: root.panelFontFamily
+    font.pixelSize: MailStyle.bodySmall
+    wrapMode: Text.WordWrap
+    bottomPadding: visible ? MailStyle.space(12) : 0
+  }
+
   Item {
     width: parent.width
     visible: root.service.messages.length === 0
@@ -201,8 +214,9 @@ ListView {
       anchors.centerIn: parent
       width: parent.width - MailStyle.space(20)
       horizontalAlignment: Text.AlignHCenter
-      text: SearchPresentation.emptyText(root.service.searchStatus, root.service.listLoading,
-        root.service.listLoaded, root.service.searchQuery !== "")
+      text: root.service.preparingInbox > 0 ? "Inbox messages appear when their descriptions are ready. All mail includes messages still being prepared."
+        : SearchPresentation.emptyText(root.service.searchStatus, root.service.listLoading,
+          root.service.listLoaded, root.service.searchQuery !== "")
       textFormat: Text.PlainText
       color: root.dimColor
       font.family: root.panelFontFamily
@@ -240,8 +254,8 @@ ListView {
   function loadMoreIfAtFoot() {
     if (!root.scroller || !root.service || root.restoringViewport) return false
     var atFoot = root.scroller.atYEnd || root.scroller.contentY + root.scroller.height >= root.scroller.contentHeight - 1
-    if (!atFoot || !root.service.hasMore || root.service.listLoading || !root.count || root.lastAutoCount === root.count) return false
-    root.lastAutoCount = root.count
+    if (!atFoot || !root.service.hasMore || root.service.listLoading || !(root.service.rawMessages || root.service.messages).length || root.lastAutoCount === (root.service.rawMessages || root.service.messages).length) return false
+    root.lastAutoCount = (root.service.rawMessages || root.service.messages).length
     root.service.loadMore()
     return true
   }

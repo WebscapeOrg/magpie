@@ -1,4 +1,6 @@
 mod avatars;
+#[cfg(test)]
+include!("readiness_tests.rs");
 #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 mod context;
 #[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
@@ -61,6 +63,33 @@ fn fields(params: &Value, allowed: &[&str]) -> Result<(), &'static str> {
     Ok(())
 }
 impl Inbox {
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    pub(crate) async fn prepare(
+        &self,
+        account: &str,
+        gmail: Arc<crate::providers::gmail::Session>,
+        local_mail: Arc<crate::local_mail::LocalMail>,
+    ) -> Result<(), &'static str> {
+        if self.overview_slots.available_permits() == 0 {
+            return Ok(());
+        }
+        let prefs = preferences(account)?;
+        if prefs["paused"] == true {
+            return Ok(());
+        }
+        let candidates = local_mail.overview_candidates(account).await?;
+        let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
+        let ids: Vec<_> = candidates
+            .into_iter()
+            .filter(|id| overview_due(&saved[id], false, now()))
+            .take(4)
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        self.call("inbox.overviews", &json!({"accountId":account,"ids":ids,"allowRemoteImages":prefs["allowRemoteImages"] == true}), gmail, local_mail).await?;
+        Ok(())
+    }
     pub async fn call(
         &self,
         method: &str,
@@ -73,8 +102,41 @@ impl Inbox {
                 fields(params, &["accountId"])?;
                 let account = account(params)?;
                 Ok(
-                    json!({"overviews":overview_snapshot(store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})), now())?,"snoozes":snooze::snapshot(&account)?}),
+                    json!({"overviews":overview_snapshot(store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})), now())?,"snoozes":snooze::snapshot(&account)?,"preferences":preferences(&account)?}),
                 )
+            }
+            "inbox.preferences" => {
+                fields(params, &["accountId", "paused", "allowRemoteImages"])?;
+                for field in ["paused", "allowRemoteImages"] {
+                    if params.get(field).is_some_and(|value| !value.is_boolean()) {
+                        return Err("invalid_params");
+                    }
+                }
+                account(params)?;
+                let change = || {
+                    let account = account(params)?;
+                    if params.get("paused").is_none() && params.get("allowRemoteImages").is_none() {
+                        return preferences(&account);
+                    }
+                    store::update(&store::key(&["preferences", &account]), |saved| {
+                        validate_preferences(saved)?;
+                        for field in ["paused", "allowRemoteImages"] {
+                            if let Some(value) = params.get(field) {
+                                saved[field] = value.clone();
+                            }
+                        }
+                        Ok(())
+                    })?;
+                    preferences(&account)
+                };
+                #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+                {
+                    crate::account::with_incarnation(None, |_| change())
+                }
+                #[cfg(not(all(feature = "agent", unix, not(target_os = "ios"))))]
+                {
+                    change()
+                }
             }
             "inbox.overviews" => {
                 fields(params, &["accountId", "ids", "retry", "allowRemoteImages"])?;
@@ -92,8 +154,20 @@ impl Inbox {
                         return Ok(json!({"accepted":false}));
                     };
                     let name = store::key(&["overviews", &account]);
-                    let chosen = store::update(&name, |saved| {
-                        claim_overviews(saved, &ids, params["retry"] == true, now())
+                    let settings = preferences(&account)?;
+                    let remote = remote
+                        && (settings["configured"] != true
+                            || settings["allowRemoteImages"] == true);
+                    if settings["paused"] == true {
+                        return Ok(json!({"accepted":false}));
+                    }
+                    let claimed_at = now();
+                    let (incarnation, chosen) = crate::account::with_incarnation(None, |token| {
+                        crate::mail::resolve_account(&account)?;
+                        let chosen = store::update(&name, |saved| {
+                            claim_overviews(saved, &ids, params["retry"] == true, claimed_at)
+                        })?;
+                        Ok((token, chosen))
                     })?;
                     if chosen.is_empty() {
                         return Ok(json!({"accepted":true}));
@@ -102,8 +176,45 @@ impl Inbox {
                         let _permit = permit;
                         let result =
                             overview_batch(&account, &chosen, &gmail, &local_mail, remote).await;
-                        let _ =
-                            store::update(&name, |saved| finish_overviews(saved, &chosen, &result));
+                        let Ok(protected) = local_mail.overview_candidates(&account).await else {
+                            return;
+                        };
+                        let protected: std::collections::HashSet<_> =
+                            protected.into_iter().collect();
+                        let completed =
+                            crate::account::with_incarnation(Some(&incarnation), |_| {
+                                crate::mail::resolve_account(&account)?;
+                                store::update(&name, |saved| {
+                                    let current: Vec<_> = chosen
+                                        .into_iter()
+                                        .filter(|id| {
+                                            overview_claimed(&saved[id], claimed_at)
+                                        })
+                                        .collect();
+                                    finish_overviews_protected(saved, &current, &result, &protected)
+                                })
+                            });
+                        if completed == Err("overview_account_changed") {
+                            let _ = crate::account::with_incarnation(None, |_| {
+                                crate::mail::resolve_account(&account)?;
+                                if store::read(&name)?.is_none() {
+                                    return Ok(());
+                                }
+                                store::update(&name, |saved| {
+                                    for id in &ids {
+                                        if overview_claimed(&saved[id], claimed_at) {
+                                            if overview_current(&saved[id], now()) {
+                                                saved[id]["rewriteState"] = json!("failed");
+                                                saved[id]["rewriteAt"] = json!(0);
+                                            } else {
+                                                saved[id] = json!({"state":"failed","version":2,"updated":0,"reason":"Account settings changed; preparation will retry"});
+                                            }
+                                        }
+                                    }
+                                    Ok(())
+                                })
+                            });
+                        }
                     });
                     Ok(json!({"accepted":true}))
                 }
@@ -165,59 +276,67 @@ fn claim_overviews(
     }
     for id in ids {
         let old = &saved[id];
+        if !overview_due(old, retry, at) {
+            continue;
+        }
         if overview_current(old, at) {
+            saved[id]["rewriteState"] = json!("running");
+            saved[id]["rewriteAt"] = json!(at);
+            chosen.push(id.clone());
             continue;
         }
-        if old["state"] == "running"
-            && at.saturating_sub(old["updated"].as_i64().unwrap_or(0)) < 900_000
-        {
-            continue;
-        }
-        if !retry
-            && old["state"] == "failed"
-            && at.saturating_sub(old["updated"].as_i64().unwrap_or(0)) < 900_000
-        {
-            continue;
-        }
-        saved[id] = json!({"state":"running","updated":at,"version":2});
+        let pending_since = old["pendingSince"]
+            .as_i64()
+            .filter(|value| *value > 0 && *value <= at)
+            .unwrap_or(at);
+        saved[id] =
+            json!({"state":"running","updated":at,"pendingSince":pending_since,"version":2});
         chosen.push(id.clone());
     }
     Ok(chosen)
 }
 
 #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
-fn finish_overviews(
+fn finish_overviews_protected(
     saved: &mut Value,
     chosen: &[String],
     result: &Result<Value, &'static str>,
+    protected: &std::collections::HashSet<String>,
 ) -> Result<(), &'static str> {
     if !saved.is_object() {
         return Err("inbox_storage_invalid");
     }
     for id in chosen {
+        let pending_since = saved[id]["pendingSince"]
+            .as_i64()
+            .filter(|value| *value > 0 && *value <= now())
+            .unwrap_or_else(now);
         let row = result
             .as_ref()
             .ok()
             .and_then(Value::as_array)
             .and_then(|rows| rows.iter().find(|v| v["id"] == *id));
-        saved[id] = match row
-            .filter(|row| row["text"].as_str().is_some_and(|text| !text.is_empty()))
-        {
+        saved[id] = match row.filter(|row| row["text"].as_str().is_some_and(valid_description)) {
             Some(row) => {
-                json!({"state":"ready","text":row["text"],"version":2,"updated":now(),"expiresAt":if row["timeSensitive"] == false && !relative_words(row["text"].as_str().unwrap_or("")) { 0 } else { row["expiresAt"].as_i64().filter(|value| *value > 0).unwrap_or_else(|| next_day(now())) }})
+                json!({"state":"ready","text":row["text"],"version":2,"promptRevision":1,"updated":now(),"expiresAt":if row["timeSensitive"] == false && !relative_words(row["text"].as_str().unwrap_or("")) { 0 } else { row["expiresAt"].as_i64().filter(|value| *value > 0).unwrap_or_else(|| next_day(now())) }})
+            }
+            None if overview_current(&saved[id], now()) => {
+                let mut previous = saved[id].clone();
+                previous["rewriteState"] = json!("failed");
+                previous["rewriteAt"] = json!(now());
+                previous
             }
             None => {
-                json!({"state":"failed","reason":overview_failure(result.as_ref().err().copied()),"updated":now(),"version":2})
+                json!({"state":"failed","reason":overview_failure(result.as_ref().err().copied()),"updated":now(),"pendingSince":pending_since,"version":2})
             }
         };
     }
-    // Performance: Overviews are replaceable; keep a bounded recent working
-    // set.
     if saved.as_object().unwrap().len() > 5000 {
         let mut keys: Vec<_> = saved
             .as_object()
             .unwrap()
             .iter()
+            .filter(|(k, _)| !protected.contains(*k))
             .map(|(k, v)| (v["updated"].as_i64().unwrap_or(0), k.clone()))
             .collect();
         keys.sort();
@@ -226,6 +345,15 @@ fn finish_overviews(
         }
     }
     Ok(())
+}
+
+#[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
+fn finish_overviews(
+    saved: &mut Value,
+    chosen: &[String],
+    result: &Result<Value, &'static str>,
+) -> Result<(), &'static str> {
+    finish_overviews_protected(saved, chosen, result, &std::collections::HashSet::new())
 }
 
 #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
@@ -284,13 +412,140 @@ fn overview_message(id: &str, raw: &Value) -> Result<Value, &'static str> {
     )
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn ready_ids(account: &str, ids: &[Value]) -> Result<Vec<Value>, &'static str> {
+    let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
+    if !saved.is_object() {
+        return Err("inbox_storage_invalid");
+    }
+    Ok(ids
+        .iter()
+        .filter(|id| {
+            id.as_str()
+                .is_some_and(|id| overview_current(&saved[id], now()))
+        })
+        .cloned()
+        .collect())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn background_revision(account: &str, ids: &[Value]) -> Result<String, &'static str> {
+    let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
+    if !saved.is_object() {
+        return Err("inbox_storage_invalid");
+    }
+    let ready: Vec<_> = ids
+        .iter()
+        .filter_map(|id| {
+            let id = id.as_str()?;
+            overview_current(&saved[id], now())
+                .then(|| json!([id, saved[id]["text"], saved[id]["expiresAt"]]))
+        })
+        .collect();
+    use sha2::{Digest, Sha256};
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&ready).map_err(|_| "inbox_storage_invalid")?)
+    ))
+}
+
+fn preferences(account: &str) -> Result<Value, &'static str> {
+    let saved = store::read(&store::key(&["preferences", account]))?;
+    let configured = saved.is_some();
+    let saved = match saved {
+        Some(saved) => saved,
+        None => legacy_preferences()?,
+    };
+    validate_preferences(&saved)?;
+    Ok(
+        json!({"paused":saved["paused"] == true,"allowRemoteImages":saved["allowRemoteImages"] == true,"configured":configured}),
+    )
+}
+
+#[cfg(not(all(feature = "agent", unix, not(target_os = "ios"))))]
+fn legacy_preferences() -> Result<Value, &'static str> {
+    Ok(json!({}))
+}
+
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+fn legacy_preferences() -> Result<Value, &'static str> {
+    use crate::platform::{dirs::AppDirs, private_fs};
+    use std::io::Read;
+    let Some(dir) = private_fs::directories_readonly(&AppDirs::discover()?.config, &["omamail"])?
+    else {
+        return Ok(json!({}));
+    };
+    let Some(file) = private_fs::regular_readonly(&dir, "window.json")? else {
+        return Ok(json!({}));
+    };
+    let mut bytes = Vec::new();
+    file.take(128 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "inbox_storage_invalid")?;
+    if bytes.len() > 128 * 1024 {
+        return Err("inbox_storage_invalid");
+    }
+    let saved: Value = serde_json::from_slice(&bytes).map_err(|_| "inbox_storage_invalid")?;
+    if !saved.is_object()
+        || ["overviewPaused", "alwaysShowImages"]
+            .iter()
+            .any(|field| saved.get(field).is_some_and(|value| !value.is_boolean()))
+    {
+        return Err("inbox_storage_invalid");
+    }
+    Ok(
+        json!({"paused":saved["overviewPaused"] == true,"allowRemoteImages":saved["alwaysShowImages"] == true}),
+    )
+}
+
+fn validate_preferences(saved: &Value) -> Result<(), &'static str> {
+    if !saved.is_object()
+        || ["paused", "allowRemoteImages"]
+            .iter()
+            .any(|field| saved.get(field).is_some_and(|value| !value.is_boolean()))
+    {
+        return Err("inbox_storage_invalid");
+    }
+    Ok(())
+}
+
+fn valid_description(text: &str) -> bool {
+    !text.trim().is_empty()
+        && text.chars().count() <= 140
+        && !text.chars().any(|c| {
+            c.is_control()
+                || matches!(c as u32, 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x206f | 0xfeff)
+                || c == '<'
+                || c == '>'
+        })
+}
+
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+fn overview_due(value: &Value, retry: bool, at: i64) -> bool {
+    if overview_current(value, at) {
+        if value["promptRevision"] == 1 { return false; }
+        let age = at.saturating_sub(value["rewriteAt"].as_i64().unwrap_or(0));
+        return !(age >= 0 && age < 900_000 && (value["rewriteState"] == "running" || (!retry && value["rewriteState"] == "failed")));
+    }
+    let age = at.saturating_sub(value["updated"].as_i64().unwrap_or(0));
+    !(age >= 0
+        && age < 900_000
+        && (value["state"] == "running" || (!retry && value["state"] == "failed")))
+}
+
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+fn overview_claimed(value: &Value, at: i64) -> bool {
+    (value["state"] == "running" && value["updated"] == at)
+        || (value["rewriteState"] == "running" && value["rewriteAt"] == at)
+}
+
 fn overview_current(value: &Value, at: i64) -> bool {
     value["version"] == 2
         && value["state"] == "ready"
-        && value["text"].as_str().is_some_and(|text| !text.is_empty())
-        && value["expiresAt"]
-            .as_i64()
-            .is_some_and(|expires| expires == 0 || expires > at)
+        && value["text"].as_str().is_some_and(valid_description)
+        && value["expiresAt"].as_i64().is_some_and(|expires| {
+            expires <= 9_007_199_254_740_991 && (expires == 0 || expires > at)
+        })
 }
 
 fn overview_snapshot(mut saved: Value, at: i64) -> Result<Value, &'static str> {
@@ -444,7 +699,7 @@ mod overview_storage_tests {
     #[test]
     fn overview_claim_preserves_ready_results_and_observes_retry_cooldown() {
         let original = json!({
-            "ready": {"text":"saved summary", "version":2,"state":"ready","expiresAt":0},
+            "ready": {"text":"saved summary", "version":2,"promptRevision":1,"state":"ready","expiresAt":0},
             "recent": {"state":"failed", "updated":100_001},
             "expired": {"state":"failed", "updated":100_000}
         });
@@ -462,6 +717,24 @@ mod overview_storage_tests {
             vec!["recent", "expired"]
         );
         assert_eq!(saved["ready"], original["ready"]);
+    }
+
+    #[test]
+    fn old_prompt_descriptions_are_rewritten_only_when_selected_for_preparation() {
+        let old = json!({"version":2,"state":"ready","text":"Receipt — Your payment arrived","expiresAt":0});
+        let mut saved = json!({"inbox":old,"archive":old});
+        assert!(super::overview_current(&saved["archive"], 1000));
+        assert_eq!(claim_overviews(&mut saved, &["inbox".into()], false, 1000).unwrap(), vec!["inbox"]);
+        assert_eq!(saved["archive"], old, "unselected archived descriptions stay available");
+        assert!(super::overview_current(&saved["inbox"], 1001), "rewriting must not hide an existing Inbox row");
+        assert!(super::overview_claimed(&saved["inbox"], 1000));
+        assert!(claim_overviews(&mut saved, &["inbox".into()], false, 1001).unwrap().is_empty());
+        finish_overviews(&mut saved, &["inbox".into()], &Err("overview_ai_unavailable")).unwrap();
+        assert_eq!(saved["inbox"]["text"], old["text"], "failed rewrite preserves valid text");
+        assert!(super::overview_current(&saved["inbox"], 1001));
+        finish_overviews(&mut saved, &["inbox".into()], &Ok(json!([{"id":"inbox","text":"Your payment of €20 has arrived","timeSensitive":false}]))).unwrap();
+        assert_eq!(saved["inbox"]["promptRevision"], 1);
+        assert!(claim_overviews(&mut saved, &["inbox".into()], false, 2000).unwrap().is_empty());
     }
 
     #[test]

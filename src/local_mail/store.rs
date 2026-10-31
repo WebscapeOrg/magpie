@@ -254,6 +254,15 @@ impl Store {
     pub(super) fn directory(&self) -> &File {
         self.vfs.directory()
     }
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    pub(super) fn overview_candidates(&self) -> Result<Vec<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT m.id FROM messages m JOIN labels l ON m.id=l.message_id WHERE l.label='INBOX' AND m.text_complete=1 ORDER BY m.date DESC, m.id LIMIT 500001"))?;
+            let ids: Vec<String> = sql(query.query_map([], |r| r.get(0)))?.map(sql).collect::<Result<_>>()?;
+            if ids.len() > 500_000 { return Err("local_snapshot_too_large"); }
+            Ok(ids)
+        })
+    }
     #[cfg(target_os = "linux")]
     pub(super) fn notification_snapshot(&self) -> Result<Value> {
         self.read(|db| {
@@ -284,6 +293,19 @@ impl Store {
                 "paused":state(db,"paused")?=="true","error":state(db,"error")?,"updated":state(db,"updated")?,
                 "estimatedTotal":state(db,"estimate")?.parse::<u64>().unwrap_or(0),"health":super::inbox::health(db)?}))
         })
+    }
+    #[cfg(any(feature = "mobile", target_os = "linux"))]
+    pub(super) fn background_ids(&self) -> Result<Vec<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT m.id FROM messages m JOIN labels l ON m.id=l.message_id WHERE l.label='INBOX' AND m.text_complete=1 ORDER BY m.date DESC,m.id LIMIT 5000"))?;
+            sql(query.query_map([], |row| row.get(0)))?.map(sql).collect()
+        })
+    }
+    #[cfg(target_os = "linux")]
+    pub(super) fn background_snapshot(&self) -> Result<Value> {
+        let (history, paused) =
+            self.read(|db| Ok((state(db, "history")?, state(db, "paused")? == "true")))?;
+        Ok(json!({"history":history,"paused":paused,"ids":self.background_ids()?}))
     }
     pub(super) fn label_counts(&self, id: &str) -> Result<Value> {
         self.read(|db| {

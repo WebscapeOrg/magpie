@@ -8,7 +8,9 @@ Open **Settings → Layout and fonts** with **Ctrl+,**. Interface, message list,
 
 ## Inbox
 
-Unread senders and descriptions are bold. Each row has a circular sender avatar: an available Google contact photo, an organization logo cached by sender domain, or one initial. The **All / house / tree** account selector switches accounts or opens the unified inbox; Personal uses a house and Webscape uses a tree. Message rows show the date without mailbox symbols. **Folder** shows or hides folder navigation; it starts hidden. Layout, refresh and AI tools live in the main menu. The monochrome bird is shared by the window and bar.
+Inbox messages appear after their current AI description is ready. All mail and search include messages still being prepared. Choosing original subjects changes the displayed text without bypassing preparation. Pause stops new preparation; ready messages remain visible. Enterprise prepares downloaded Inbox mail even when the window is closed.
+
+Unread descriptions use an earthy marker stroke and regular text. Each row has a circular sender avatar: an available Google contact photo, an organization logo cached by sender domain, or one initial. The **All / house / tree** account selector switches accounts or opens the unified inbox; Personal uses a house and Webscape uses a tree. Message rows show the date without mailbox symbols. **Folder** shows or hides folder navigation; it starts hidden. Layout, refresh and AI tools live in the main menu. The monochrome bird is shared by the window and bar.
 
 Hover a row or move to it with the keyboard for **Mark unread**, **Snooze**, **Archive**, and **Trash**. Snooze offers tomorrow, the next Saturday and the next Monday at 08:00 in the local timezone, plus a custom future date and time. It archives the conversation and saves the schedule before changing Gmail. The persistent shell service returns due messages to Inbox as unread, catches up after resume, and leaves later Trash or Spam moves intact. **Menu → Snoozed mail…** returns a conversation early. Snooze currently requires Gmail and Enterprise to be awake to run on time.
 

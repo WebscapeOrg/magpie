@@ -275,6 +275,26 @@ fn fresh(previous: &Value, ids: &[Value]) -> Vec<Value> {
         .cloned()
         .collect()
 }
+fn notification_seen(previous: &Value, all: &[Value], unread: &Value, ready: &[Value]) -> Value {
+    let Some(previous) = previous.as_array() else {
+        return json!(all);
+    };
+    let old: std::collections::HashSet<_> = previous.iter().filter_map(Value::as_str).collect();
+    let waiting: std::collections::HashSet<_> = unread
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    let prepared: std::collections::HashSet<_> = ready.iter().filter_map(Value::as_str).collect();
+    json!(
+        all.iter()
+            .filter(|id| id.as_str().is_some_and(|id| old.contains(id)
+                || !waiting.contains(id)
+                || prepared.contains(id)))
+            .collect::<Vec<_>>()
+    )
+}
 fn selected(device: &Value, id: &Value) -> bool {
     device["accounts"]
         .as_array()
@@ -307,8 +327,13 @@ impl Service {
             {
                 continue;
             }
-            if let Ok(snapshot) = engine.local_mail.notification_snapshot(id).await {
-                pages.insert(id.to_owned(), snapshot);
+            if let Ok(mut snapshot) = engine.local_mail.notification_snapshot(id).await {
+                if let Some(unread) = snapshot["unread"].as_array() {
+                    if let Ok(ready) = crate::inbox::ready_ids(id, unread) {
+                        snapshot["ready"] = json!(ready);
+                        pages.insert(id.to_owned(), snapshot);
+                    }
+                }
             }
         }
         let mut sender = self.push.lock().await;
@@ -350,7 +375,24 @@ impl Service {
                     record["pending"] = Value::Null;
                     storage::write_bounded(&name, &record, 16 * 1024 * 1024)?;
                 } else {
-                    sender.pending(device, &mut record).await?;
+                    let ready = record["pending"]["ready"].as_object();
+                    if ready.is_none()
+                        || ready.is_some_and(|accounts| {
+                            accounts.iter().any(|(id, expected)| {
+                                pages.get(id).is_some_and(|page| page["ready"] != *expected)
+                            })
+                        })
+                    {
+                        record["pending"] = Value::Null;
+                        storage::write_bounded(&name, &record, 16 * 1024 * 1024)?;
+                    } else if ready
+                        .is_some_and(|accounts| accounts.keys().any(|id| !pages.contains_key(id)))
+                    {
+                        continue;
+                    }
+                    if record["pending"].is_object() {
+                        sender.pending(device, &mut record).await?;
+                    }
                     storage::write_bounded(&name, &record, 16 * 1024 * 1024)?;
                     if record["pending"].is_object() || device["notifications"] != true {
                         continue;
@@ -370,6 +412,7 @@ impl Service {
             let mut history_accounts = Vec::new();
             let mut seen = record["seen"].as_object().cloned().unwrap_or_default();
             let mut observed = Vec::new();
+            let mut ready = serde_json::Map::new();
             seen.retain(|id, _| selected(device, &json!(id)));
             for account in device["accounts"].as_array().into_iter().flatten() {
                 if !selected(device, &account["id"]) {
@@ -382,9 +425,10 @@ impl Service {
                     continue;
                 };
                 let ids = snapshot["ids"].as_array().ok_or("phone_storage_invalid")?;
-                let unread = snapshot["unread"]
+                let unread = snapshot["ready"]
                     .as_array()
                     .ok_or("phone_storage_invalid")?;
+                ready.insert(id.to_owned(), json!(unread));
                 counts.insert(id.to_owned(), json!(unread.len()));
                 observed.push(json!(id));
                 let arrivals = fresh(&record["seen"][id], unread);
@@ -394,7 +438,10 @@ impl Service {
                 for value in arrivals {
                     new_ids.push(format!("{id}:{}", value.as_str().unwrap_or("")));
                 }
-                seen.insert(id.to_owned(), json!(ids));
+                seen.insert(
+                    id.to_owned(),
+                    notification_seen(&record["seen"][id], ids, &snapshot["unread"], unread),
+                );
             }
             let total: usize = counts
                 .values()
@@ -413,7 +460,7 @@ impl Service {
             if new_ids.is_empty() {
                 payload = json!({"aps":{"badge":total}});
             }
-            record["pending"] = json!({"payload":payload,"collapse":collapse,"seen":seen,"counts":counts,"accounts":observed,"historyAccounts":history_accounts});
+            record["pending"] = json!({"payload":payload,"collapse":collapse,"seen":seen,"counts":counts,"accounts":observed,"historyAccounts":history_accounts,"ready":ready});
             storage::write_bounded(&name, &record, 16 * 1024 * 1024)?;
             sender.pending(device, &mut record).await?;
             storage::write_bounded(&name, &record, 16 * 1024 * 1024)?;
@@ -467,5 +514,61 @@ mod tests {
             serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[1]).unwrap()).unwrap();
         assert_eq!(claims["iat"], 1234);
         assert_eq!(claims["iss"], "DK896KQSMB");
+    }
+}
+
+#[cfg(test)]
+mod c023_push_hostile {
+    use super::*;
+    #[tokio::test]
+    async fn removed_or_unselected_account_clears_pending_before_readiness_wait() {
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let _fixture = crate::mail::tests::account_fixture(
+            json!({"version":1,"activeId":"kept@example.test","accounts":[{"email":"kept@example.test"}]}),
+        );
+        for (name, account, selected_ids) in [
+            (
+                "removed",
+                "removed@example.test",
+                json!(["removed@example.test"]),
+            ),
+            ("unselected", "kept@example.test", json!([])),
+        ] {
+            let device = json!({"notifications":true,"pushToken":"invalid-synthetic-token","pushGeneration":1,"accounts":[{"id":account}],"notificationAccounts":selected_ids});
+            storage::write("devices.json", &json!({name:device.clone()})).unwrap();
+            let filename = format!("push-{}.json", storage::hash(name.as_bytes()));
+            storage::write_bounded(&filename,&json!({"generation":1,"badge":0,"seen":{},"counts":{},"pending":{"blocked":true,"counts":{account:1},"accounts":[account],"ready":{account:["m"]},"payload":{"aps":{"badge":1}}}}),16*1024*1024).unwrap();
+            Service::default().notify(&Engine::default()).await.unwrap();
+            let result = storage::read_bounded(&filename, 16 * 1024 * 1024).unwrap();
+            assert!(
+                result["pending"].is_null(),
+                "stale pending locked the device: {name}: {result}"
+            );
+            assert_eq!(result["badge"], 0);
+            assert_eq!(
+                storage::read("devices.json").unwrap(),
+                json!({name:device}),
+                "no token, device or alert side effect"
+            );
+        }
+    }
+    #[test]
+    fn waiting_arrivals_remain_unseen_and_expired_seen_mail_never_realerts() {
+        let all = vec![json!("old"), json!("waiting")];
+        let unread = json!(all);
+        let recorded = notification_seen(&json!(["old"]), &all, &unread, &[json!("old")]);
+        assert_eq!(recorded, json!(["old"]));
+        assert_eq!(fresh(&recorded, &all), vec![json!("waiting")]);
+        let after = notification_seen(&recorded, &all, &unread, &all);
+        assert_eq!(after, json!(all));
+        let expired = notification_seen(&after, &all, &unread, &[]);
+        assert_eq!(expired, after);
+        assert!(fresh(&expired, &all).is_empty());
+        assert_eq!(
+            notification_seen(&Value::Null, &all, &unread, &[]),
+            json!(all)
+        );
     }
 }

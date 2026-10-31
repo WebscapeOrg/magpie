@@ -25,6 +25,32 @@ pub(crate) fn raw_registry_readonly() -> Result<Value> {
     };
     registry(&read_readonly(&dir)?)
 }
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+pub(crate) fn with_incarnation<T>(
+    expected: Option<&str>,
+    run: impl FnOnce(String) -> Result<T>,
+) -> Result<T> {
+    use std::os::unix::fs::MetadataExt;
+    let dir =
+        crate::cache::directories(&home()?, &["omamail"], false)?.ok_or("accounts_unreadable")?;
+    let _lock = crate::platform::private_fs::lock_exclusive(&dir, ".accounts.lock")?;
+    let file =
+        crate::cache::regular_readonly(&dir, "accounts.json")?.ok_or("accounts_unreadable")?;
+    let meta = file.metadata().map_err(|_| "accounts_unreadable")?;
+    let token = format!(
+        "{}:{}:{}:{}:{}",
+        revision(&read_readonly(&dir)?),
+        meta.dev(),
+        meta.ino(),
+        meta.mtime(),
+        meta.mtime_nsec()
+    );
+    if expected.is_some_and(|old| old != token) {
+        return Err("overview_account_changed");
+    }
+    run(token)
+}
+
 fn read(dir: &File) -> Result<Vec<u8>> {
     let Some(file) = crate::cache::regular(dir, "accounts.json", false)? else {
         return Ok(Vec::new());

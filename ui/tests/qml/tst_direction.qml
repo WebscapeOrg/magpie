@@ -47,7 +47,7 @@ Item {
 
     function texts(item, matches) {
       if (!item) return matches
-      if (item.toString().indexOf("QQuickText") === 0
+      if ((item.toString().indexOf("QQuickText") === 0 || item.objectName === "message-subject")
         && item.toString().indexOf("QQuickTextEdit") !== 0) matches.push(item)
       var values = item.children || []
       for (var itemIndex = 0; itemIndex < values.length; itemIndex++) texts(values[itemIndex], matches)

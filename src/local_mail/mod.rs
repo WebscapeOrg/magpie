@@ -85,6 +85,14 @@ impl LocalMail {
         .await
     }
 
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    pub(crate) async fn overview_candidates(
+        &self,
+        account: &str,
+    ) -> Result<Vec<String>, &'static str> {
+        let store = self.store(account).await?;
+        sync::disk(&store, |store| store.overview_candidates()).await
+    }
     #[cfg(target_os = "linux")]
     pub(crate) async fn notification_snapshot(&self, account: &str) -> Result<Value, &'static str> {
         let store = self.store(account).await?;

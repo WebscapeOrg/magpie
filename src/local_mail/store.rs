@@ -254,6 +254,15 @@ impl Store {
     pub(super) fn directory(&self) -> &File {
         self.vfs.directory()
     }
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    pub(super) fn overview_candidates(&self) -> Result<Vec<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT m.id FROM messages m JOIN labels l ON m.id=l.message_id WHERE l.label='INBOX' AND m.text_complete=1 ORDER BY m.date DESC, m.id LIMIT 500001"))?;
+            let ids: Vec<String> = sql(query.query_map([], |r| r.get(0)))?.map(sql).collect::<Result<_>>()?;
+            if ids.len() > 500_000 { return Err("local_snapshot_too_large"); }
+            Ok(ids)
+        })
+    }
     #[cfg(target_os = "linux")]
     pub(super) fn notification_snapshot(&self) -> Result<Value> {
         self.read(|db| {

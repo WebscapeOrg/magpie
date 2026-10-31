@@ -79,7 +79,8 @@ Item {
       width: parent.width
       horizontalAlignment: Text.AlignHCenter
       text: {
-        if (!root.service) return ""
+        if (!root.service || !root.service.messages) return ""
+        if (root.service.messages.length === 0 && root.service.preparingInbox > 0) return "Inbox messages appear when their descriptions are ready. All mail includes messages still being prepared."
         if (root.service.messages.length === 0) return SearchPresentation.emptyText(
           root.service.searchStatus, root.service.listLoading, root.service.listLoaded, root.searching)
         return "Pick a message to read it"

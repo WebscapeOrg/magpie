@@ -10,6 +10,7 @@
     "phone.revoke",
     "inbox.snapshot",
     "inbox.overviews",
+    "inbox.preferences",
     "inbox.avatar",
     "inbox.snooze",
     "inbox.wake",
@@ -205,7 +206,7 @@
           "recipient@example.org"
         ],
         "subject": "Contract preview",
-        "body": "Hello 合成\nSecond line"
+        "body": "Hello \u5408\u6210\nSecond line"
       },
       "equals": {
         "message": "gmail_client_unreadable"
@@ -473,7 +474,7 @@
         "now": 1700000000000
       },
       "equals": {
-        "body.text": "Hello 合成",
+        "body.text": "Hello \u5408\u6210",
         "summary.subject": "API fixture",
         "summary.id": "fixture"
       },
@@ -2123,7 +2124,7 @@
         "accountId": "contract@example.org"
       },
       "equals": {
-        "overviews.ready.text": "Receipt — R780 paid",
+        "overviews.ready.text": "Receipt \u2014 R780 paid",
         "overviews.ready.version": 2,
         "overviews.ready.expiresAt": 0,
         "overviews.expired.state": "stale"
@@ -2136,12 +2137,64 @@
         "path": "/tmp/forbidden"
       },
       "errorCode": -32602
+    },
+    {
+      "name": "Inbox preparation preferences default to private image loading",
+      "method": "inbox.preferences",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "paused": false,
+        "allowRemoteImages": false
+      }
+    },
+    {
+      "name": "Inbox pause is persisted for background preparation",
+      "method": "inbox.preferences",
+      "params": {
+        "accountId": "contract@example.org",
+        "paused": true
+      },
+      "equals": {
+        "paused": true,
+        "allowRemoteImages": false
+      }
+    },
+    {
+      "name": "Inbox snapshot includes background pause",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "preferences.paused": true
+      }
+    },
+    {
+      "name": "Inbox preparation rejects nonboolean permission",
+      "method": "inbox.preferences",
+      "params": {
+        "accountId": "contract@example.org",
+        "allowRemoteImages": "true"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox preparation refuses foreign account",
+      "method": "inbox.preferences",
+      "params": {
+        "accountId": "missing@example.org",
+        "paused": false
+      },
+      "errorCode": -32000
     }
   ],
   "unreleased": {
     "methods": [
       "inbox.snapshot",
       "inbox.overviews",
+      "inbox.preferences",
       "inbox.avatar",
       "inbox.snooze",
       "inbox.wake",
@@ -2241,7 +2294,12 @@
       "Standalone handshake leaves wake scheduling with the frontend",
       "AI descriptions reject nonboolean remote image permission",
       "AI descriptions project current versions and hide expired wording",
-      "Backup export refuses caller supplied paths"
+      "Backup export refuses caller supplied paths",
+      "Inbox preparation preferences default to private image loading",
+      "Inbox pause is persisted for background preparation",
+      "Inbox snapshot includes background pause",
+      "Inbox preparation rejects nonboolean permission",
+      "Inbox preparation refuses foreign account"
     ]
   },
   "releasedContract": {
@@ -2757,7 +2815,7 @@
             "recipient@example.org"
           ],
           "subject": "Contract preview",
-          "body": "Hello 合成\nSecond line"
+          "body": "Hello \u5408\u6210\nSecond line"
         },
         "equals": {
           "dryRun": true,
@@ -2768,7 +2826,7 @@
             "recipient@example.org"
           ],
           "subject": "Contract preview",
-          "body": "Hello 合成\nSecond line",
+          "body": "Hello \u5408\u6210\nSecond line",
           "attachments": []
         }
       },
@@ -3057,7 +3115,7 @@
           "now": 1700000000000
         },
         "equals": {
-          "body.text": "Hello 合成",
+          "body.text": "Hello \u5408\u6210",
           "summary.subject": "API fixture",
           "summary.id": "fixture"
         },

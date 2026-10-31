@@ -1089,6 +1089,7 @@ Item {
   function applyWindowPrefs(raw) {
     inboxController.descriptionsEnabled = Display.readWindow(raw).descriptionsEnabled !== false
     inboxController.paused = Display.readWindow(raw).overviewPaused === true
+    inboxController.restorePreparation(Display.readWindow(raw))
     displayPreferences = Display.fromWindow(raw)
     var prefs = Model.windowPrefs(raw)
     sidebarCollapsed = prefs.sidebarCollapsed
@@ -1128,6 +1129,8 @@ Item {
     windowWritePayload = JSON.stringify({
       display: displayPreferences,
       overviewPaused: inboxController.paused,
+      preparationQueue: inboxController.preferenceQueue,
+      preparationFailures: inboxController.preparationFailures,
       descriptionsEnabled: inboxController.descriptionsEnabled,
       sidebarCollapsed: sidebarCollapsed,
       sidebarWidth: sidebarWidth,
@@ -1412,7 +1415,7 @@ Item {
       var host = accountHosts.objectAt(accountIndex)
       accounts.push({
         id: values[accountIndex].id, label: Accounts.label(values[accountIndex]), inbox: "Inbox",
-        messages: host ? host.previewMessages : []
+        messages: host ? inboxController.admitted(host.accountId,host.previewMessages) : []
       })
     }
     return Preview.latestMessages(accounts, 3)
@@ -1497,8 +1500,11 @@ Item {
   readonly property string accountAddress: String(editingEntry().email || "")
   readonly property int inboxUnread: unified
     ? Number(unifiedSnapshot.totalUnread || 0) : (current ? current.inboxUnread : 0)
-  readonly property var messages: unified
+  readonly property var rawMessages: unified
     ? unifiedMessages : (current ? current.messages : [])
+  readonly property bool curatedInbox: mailboxKey === "inbox" && !searchActive
+  readonly property var messages: curatedInbox ? inboxController.inboxRows(rawMessages) : rawMessages
+  readonly property int preparingInbox: curatedInbox ? rawMessages.length - messages.length : 0
   // Invariant: Labels belong to one account and are unavailable in unified view.
   readonly property var labels: unified ? [] : (current ? current.labels : [])
   readonly property bool canMoveToLabel: !unified

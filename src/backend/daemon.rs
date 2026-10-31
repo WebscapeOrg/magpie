@@ -76,6 +76,7 @@ pub fn serve() -> io::Result<()> {
         let maintenance = engine.clone();
         let scheduler = tokio::task::spawn_local(async move {
             let mut tick = tokio::time::interval(Duration::from_secs(30));
+            let mut preparation_turn = 0usize;
             loop {
                 tokio::select! { _ = tick.tick() => (), _ = maintenance_stop.changed() => break }
                 if *maintenance_stop.borrow() { break; }
@@ -85,6 +86,18 @@ pub fn serve() -> io::Result<()> {
                         let params = json!({"accountId":account["id"]});
                         let _ = maintenance.dispatch("local.watch", &params).await;
                         let _ = maintenance.dispatch("outbox.snapshot", &params).await;
+                    }
+                }
+                #[cfg(feature = "agent")]
+                if let Ok(accounts) = crate::account::list_readonly() {
+                    if let Some(accounts) = accounts["accounts"].as_array().filter(|accounts| !accounts.is_empty()) {
+                        for offset in 0..accounts.len() {
+                            let index = (preparation_turn + offset) % accounts.len();
+                            if let Some(id) = accounts[index]["id"].as_str().filter(|id| !id.is_empty()) {
+                                let _ = maintenance.inbox.prepare(id, maintenance.gmail.clone(), maintenance.local_mail.clone()).await;
+                            }
+                        }
+                        preparation_turn = (preparation_turn + 1) % accounts.len();
                     }
                 }
                 let _ = maintenance.dispatch("inbox.tick", &json!({})).await;

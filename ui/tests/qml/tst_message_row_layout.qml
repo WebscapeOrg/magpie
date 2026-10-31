@@ -171,7 +171,9 @@ Item {
       }
       verify(sender.width>0)
       verify(senderPoint.x+sender.width<=timePoint.x)
-      compare(subject.font.bold,true,"unread emphasis survives reordering")
+      compare(subject.font.bold,false,"unread text uses the regular weight")
+      compare(subject.marked,true,"the marker identifies unread mail")
+      verify(subject.bands.length > 0,"the marker follows the laid-out text")
       compare(subject.textFormat,Text.PlainText)
       compare(subject.effectiveHorizontalAlignment,data.rtl?Text.AlignRight:Text.AlignLeft)
       compare(findChild(row,"message-source"),null)

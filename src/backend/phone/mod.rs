@@ -331,6 +331,11 @@ impl Service {
                 fields(p, &[])?;
                 engine.dispatch("agent.providerStatus", &json!({})).await
             }
+            "/v1/overview-settings" => {
+                fields(p, &["accountId", "paused", "allowRemoteImages"])?;
+                text(p, "accountId", 1024)?;
+                engine.dispatch("inbox.preferences", p).await
+            }
             "/v1/overviews" => {
                 fields(
                     p,
@@ -377,13 +382,23 @@ impl Service {
                                 key.to_owned(),
                                 project(
                                     value,
-                                    &["text", "state", "updated", "version", "expiresAt", "reason"],
+                                    &[
+                                        "text",
+                                        "state",
+                                        "updated",
+                                        "version",
+                                        "expiresAt",
+                                        "reason",
+                                        "pendingSince",
+                                    ],
                                 ),
                             )
                         })
                     })
                     .collect();
-                Ok(json!({"overviews":rows,"accepted":accepted}))
+                Ok(
+                    json!({"overviews":rows,"accepted":accepted,"preferences":snapshot["preferences"]}),
+                )
             }
             "/v1/ai/start" | "/v1/ai/show" | "/v1/ai/cancel" | "/v1/ai/list" => {
                 ai(engine, path, p, &accounts, &device_id).await

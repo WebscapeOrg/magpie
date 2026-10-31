@@ -7,8 +7,6 @@ import "../message/Direction.js" as Direction
 import "../account/Model.js" as Model
 import "../keys/Keymap.js" as Keymap
 
-// Invariant: unread state uses weight and a dot because theme accent alone may be
-// indistinguishable.
 Rectangle {
   id: root
 
@@ -136,7 +134,7 @@ Rectangle {
         color: root.textColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
-        font.bold: root.summary.unread === true
+        font.bold: false
         elide: Text.ElideRight
         horizontalAlignment: root.textAlignment
       }
@@ -153,7 +151,7 @@ Rectangle {
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
-        font.bold: root.summary.unread === true
+        font.bold: false
       }
 
       ActionIcon {
@@ -183,8 +181,10 @@ Rectangle {
       }
     }
 
-    Text {
+    MarkedText {
       id: subject
+      marked: root.summary.unread === true
+      markerColor: Qt.rgba(0.73,0.48,0.20,0.24)
       objectName: "message-subject"
       width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
       // Invariant: sender-controlled labels must never activate Qt’s rich-text loader.
@@ -193,12 +193,12 @@ Rectangle {
       color: root.textColor
       font.family: root.panelFontFamily
       font.pixelSize: MailStyle.listSize
-      font.bold: root.summary.unread === true
+      font.bold: false
       elide: Text.ElideRight
       horizontalAlignment: root.overview ? root.textAlignment : root.subjectAlignment
       wrapMode: Text.Wrap
       maximumLineCount: 3
-      Accessible.name: root.overview ? "AI description: " + root.overview : text
+      Accessible.name: (root.summary.unread === true ? "Unread. " : "") + (root.overview ? "AI description: " + root.overview : text)
       Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && (subject.truncated || root.overviewState === "failed"); text: root.overview || (root.overviewReason ? "Original subject shown. " + root.overviewReason : subject.text); fontFamily: root.panelFontFamily }
       HoverHandler { id: overviewHover }
     }

@@ -1,3 +1,29 @@
+#[cfg(all(test, not(all(feature = "agent", unix, not(target_os = "ios")))))]
+mod unsupported_ai_preferences {
+    use super::*;
+
+    #[test]
+    fn window_settings_cannot_enable_remote_images_or_block_inbox_snapshots() {
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let account = "curated@example.test";
+        let fixture = crate::mail::tests::account_fixture(json!({
+            "version": 1, "activeId": account, "accounts": [{"email": account}]
+        }));
+        preferences(account).unwrap();
+        let window = fixture.config.join("omamail/window.json");
+        for contents in [r#"{"alwaysShowImages":true,"overviewPaused":true}"#, "not JSON"] {
+            std::fs::write(&window, contents).unwrap();
+            let before = crate::mail::tests::fixture_tree(&fixture.root);
+            assert_eq!(preferences(account).unwrap(), json!({
+                "paused": false, "allowRemoteImages": false, "configured": false
+            }));
+            assert_eq!(crate::mail::tests::fixture_tree(&fixture.root), before);
+        }
+    }
+}
+
 #[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 mod c023_hostile {
     use super::*;

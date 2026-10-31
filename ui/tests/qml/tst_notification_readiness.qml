@@ -17,6 +17,8 @@ Item {
   function saveWindowPrefs(){saves++}
   property bool alwaysShowImages:false
   property bool notifyNewMail:true
+  property bool hasAgent:true
+  property bool agentAvailable:false
   property bool curatedInbox:true
   property bool listLoading:false
   property bool hasMore:false
@@ -30,10 +32,37 @@ Item {
  Inbox.InboxTools {id:tools;service:service}
  TestCase {
   name:"CuratedNotifications";when:windowShown
-  function init(){backend.ready=false;backend.calls=[];root.delivered=[];service.accountsLoaded=true;service.saves=0;tools.preferenceQueue=({});tools.preparationFailures=({});tools.preferenceWrites=0;tools.error="";service.accountSummaries=[{id:"a@example.test"}];tools.overviews=({});tools.snapshotsPending=({});tools.notificationRows=({});tools.notificationsPending=({});tools.overviewClock=1000;backend.ready=true;tools.overviewClock=1000}
+  function init(){backend.ready=false;backend.calls=[];root.delivered=[];service.hasAgent=true;service.accountsLoaded=true;service.saves=0;tools.preferenceQueue=({});tools.preparationFailures=({});tools.preferenceWrites=0;tools.error="";service.accountSummaries=[{id:"a@example.test"}];tools.overviews=({});tools.snapshotsPending=({});tools.notificationRows=({});tools.notificationsPending=({});tools.overviewClock=1000;backend.ready=true;tools.overviewClock=1000}
   function cleanup(){backend.ready=false}
   function ready(id,expiry){var records=Object.assign({},tools.overviews);records["a@example.test\n"+id]={version:2,state:"ready",text:"Prepared "+id,expiresAt:expiry||0};tools.overviews=records}
   function summaryRequest(){var calls=backend.calls.filter(function(c){return c.method==="local.summaries"});return calls[calls.length-1]}
+
+  function test_unsupported_ai_keeps_inbox_and_bar_rows_without_requesting_preparation(){
+   service.hasAgent=false
+   var rows=[{id:"raw",subject:"Original subject"}]
+   compare(tools.inboxRows(rows),rows);compare(tools.admitted(host.accountId,rows),rows)
+   tools.requestOverviews({accountId:host.accountId,ids:["raw"]})
+   compare(backend.calls.filter(function(c){return c.method==="inbox.overviews"}).length,0)
+  }
+  function test_unsupported_ai_notifications_still_require_current_unread_inbox_membership(){
+   service.hasAgent=false
+   tools.queueNotifications(host.accountId,[{id:"raw"},{id:"read"},{id:"missing"},{id:"unknown"}])
+   compare(root.delivered.length,0)
+   tools.flushNotifications(host.accountId);var q=summaryRequest();verify(q)
+   compare(q.params.query,"in:inbox is:unread")
+   q.done({summaries:[{id:"raw",matchesQuery:true,subject:"Original subject",snippet:"Original preview"},{id:"read",matchesQuery:false},{id:"unknown"}]},null)
+   compare(root.delivered.length,1);compare(root.delivered[0].id,"raw")
+   compare(root.delivered[0].subject,"Original subject");compare(root.delivered[0].snippet,"Original preview")
+  }
+  function test_temporary_provider_outage_keeps_curated_admission(){
+   verify(service.hasAgent);compare(service.agentAvailable,false)
+   var rows=[{id:"raw",subject:"Original subject"}]
+   compare(tools.inboxRows(rows).length,0);compare(tools.admitted(host.accountId,rows).length,0)
+   tools.queueNotifications(host.accountId,rows);tools.flushNotifications(host.accountId)
+   var q=summaryRequest();verify(q)
+   q.done({summaries:[{id:"raw",matchesQuery:true,subject:"Original subject"}]},null)
+   compare(root.delivered.length,0)
+  }
 
   function test_unready_archived_notifications_are_pruned_in_bounded_rotating_batches(){
    var rows=[];for(var n=0;n<201;n++)rows.push({id:"pending"+n})

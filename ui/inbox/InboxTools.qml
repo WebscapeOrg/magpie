@@ -5,6 +5,7 @@ Item {
   required property var service
   property var visibleRows: []
   readonly property bool browsing: !!service && service.windowOpen === true
+  readonly property bool preparesInbox: !!service && service.hasAgent !== false
   property var overviews: ({})
   property var avatars: ({})
   property string avatarRefreshId: ""
@@ -94,10 +95,12 @@ Item {
     return value
   }
   function admitted(account, rows) {
+    if (!preparesInbox) return rows
     var values = overviews; var at = overviewClock
     return rows.filter(function(row) { return Readiness.ready(values[key(account, id(row))], at) })
   }
   function inboxRows(rows) {
+    if (!preparesInbox) return rows
     return rows.filter(function(row) { var host = owner(row); return host && Readiness.ready(overviews[key(host.accountId,id(row))], overviewClock) })
   }
   function savePreparationPreferences(field,value) {
@@ -167,7 +170,7 @@ Item {
     var pending = notificationRows[account] || ({})
     var ids = Object.keys(pending)
     if (!ids.length || notificationsPending[account]) return
-    var ready = ids.filter(function(id) { return Readiness.ready(overviews[key(account,id)],overviewClock) })
+    var ready = ids.filter(function(id) { return !root.preparesInbox || Readiness.ready(overviews[key(account,id)],overviewClock) })
     var offset = ready.length ? 0 : (notificationOffsets[account] || 0)
     if (ready.length) ids = ready
     if (offset >= ids.length) offset = 0
@@ -187,8 +190,8 @@ Item {
       for (var n=0;n<ids.length;n++) {
         var id = ids[n]
         if (!current[id]) { delete remaining[id]; continue }
-        if (Readiness.ready(root.overviews[root.key(account,id)],root.overviewClock)) {
-          admitted.push(Object.assign({},current[id],{subject:root.overviews[root.key(account,id)].text,snippet:""})); delete remaining[id]
+        if (!root.preparesInbox || Readiness.ready(root.overviews[root.key(account,id)],root.overviewClock)) {
+          admitted.push(root.preparesInbox ? Object.assign({},current[id],{subject:root.overviews[root.key(account,id)].text,snippet:""}) : current[id]); delete remaining[id]
         }
       }
       var next = Object.assign({},root.notificationRows); next[account] = remaining; root.notificationRows = next
@@ -229,7 +232,7 @@ Item {
     return batch
   }
   function requestOverviews(batch) {
-    if (batch.ids.length === 0) return
+    if (!preparesInbox || batch.ids.length === 0) return
     requesting = true
     service.backend.call("inbox.overviews", {accountId:batch.accountId,ids:batch.ids,retry:retryFailed,allowRemoteImages:service.alwaysShowImages === true}, function(result,failure) {
       root.requesting = false

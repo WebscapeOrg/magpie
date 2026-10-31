@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import "../../components" as Omamail
+import "../../settings" as Settings
 
 Item {
   width: 640
@@ -27,6 +28,28 @@ Item {
     }
     function test_attachment_indicator_keeps_line_height_and_text_gap_data() {
       return [{tag:"wide",width:600,actions:false},{tag:"narrow-actions",width:360,actions:true}]
+    }
+    function test_avatar_stays_inside_short_rows_at_independent_text_sizes_data() {
+      var cases = []
+      for (var interfaceSize of [11, 17, 26]) {
+        for (var listSize of [8, 10, 12, 14, 17, 26, 36]) {
+          cases.push({tag: interfaceSize + "-" + listSize, interfaceSize: interfaceSize, listSize: listSize})
+        }
+      }
+      return cases
+    }
+    function test_avatar_stays_inside_short_rows_at_independent_text_sizes(data) {
+      var previous = Settings.MailStyle.preferences
+      try {
+        Settings.MailStyle.preferences = {interfaceSize: data.interfaceSize, listSize: data.listSize}
+        row.overview = "Ready"
+        waitForRendering(row)
+        var avatar = findChild(row, "message-avatar")
+        verify(avatar.y >= 0, "avatar starts inside the row")
+        verify(avatar.y + avatar.height <= row.height, "avatar ends inside the row")
+      } finally {
+        Settings.MailStyle.preferences = previous
+      }
     }
     function test_attachment_indicator_keeps_line_height_and_text_gap(data) {
       row.width=data.width;row.hasCursor=data.actions;row.checked=false

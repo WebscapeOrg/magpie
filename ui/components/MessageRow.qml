@@ -51,6 +51,7 @@ Rectangle {
   HoverHandler { id: rowHover }
 
   readonly property int threadCount: Model.badgeCount(root.summary)
+  readonly property real avatarTopInset: Math.max(0, sender.baselineOffset + senderMetrics.tightBoundingRect("H").y)
 
   // Invariant: Latin reply prefixes must not determine subject direction; sender and snippet still
   // use their own first strong character.
@@ -66,7 +67,7 @@ Rectangle {
   }
 
   width: parent ? parent.width : 0
-  implicitHeight: Math.max(body.implicitHeight, actions.visible ? actions.height : 0, avatar.height) + MailStyle.space(14)
+  implicitHeight: Math.max(body.implicitHeight, actions.visible ? actions.height : 0, avatar.height + avatarTopInset) + MailStyle.space(14)
   radius: Style.cornerRadius
   color: selected || hasCursor || checked
     ? Style.selectedFillFor(textColor, accentColor)
@@ -101,7 +102,7 @@ Rectangle {
     objectName: "message-avatar"
     anchors.left: parent.left
     anchors.leftMargin: MailStyle.space(14)
-    y: body.y
+    y: body.y + root.avatarTopInset
     width: MailStyle.space(36)
     height: width
     sender: root.summary.from || ({})
@@ -111,13 +112,18 @@ Rectangle {
     fontFamily: root.panelFontFamily
   }
 
+  FontMetrics {
+    id: senderMetrics
+    font: sender.font
+  }
+
   Column {
     id: body
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.leftMargin: MailStyle.space(14) + avatar.width + MailStyle.space(10)
     anchors.rightMargin: MailStyle.space(6) + (MailStyle.space(24) - Style.font.iconSmall) / 2
-    anchors.verticalCenter: parent.verticalCenter
+    y: MailStyle.space(7)
     spacing: MailStyle.space(2)
 
     Item {

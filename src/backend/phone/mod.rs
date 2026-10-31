@@ -238,7 +238,7 @@ impl Service {
             "/v1/status" => {
                 fields(p, &[])?;
                 Ok(
-                    json!({"connected":true,"accounts":accounts,"notifications":device["notifications"],"notificationError":device["pushError"],"apiVersion":1}),
+                    json!({"connected":true,"accounts":accounts,"notifications":device["notifications"],"notificationError":device["pushError"],"backgroundRefresh":true,"apiVersion":1}),
                 )
             }
             "/v1/disconnect" => {
@@ -254,12 +254,22 @@ impl Service {
             "/v1/devices" => {
                 fields(
                     p,
-                    &["pushToken", "notifications", "environment", "accountIds"],
+                    &[
+                        "pushToken",
+                        "notifications",
+                        "environment",
+                        "accountIds",
+                        "backgroundRefresh",
+                    ],
                 )?;
                 let environment = p["environment"].as_str().unwrap_or("development");
                 if !["development", "production"].contains(&environment) {
                     return Err("phone_invalid_request");
                 }
+                let background = p
+                    .get("backgroundRefresh")
+                    .map(|v| v.as_bool().ok_or("phone_invalid_request"))
+                    .transpose()?;
                 let notifications = p["notifications"]
                     .as_bool()
                     .ok_or("phone_invalid_request")?;
@@ -308,6 +318,9 @@ impl Service {
                         journal["pending"]["retryAt"] = json!(0);
                         storage::write_bounded(&name, &journal, 16 * 1024 * 1024)?;
                     }
+                }
+                if let Some(background) = background {
+                    devices[&device_id]["backgroundRefresh"] = json!(background);
                 }
                 devices[&device_id]["notifications"] = json!(notifications);
                 if !push.is_empty() {
@@ -965,5 +978,32 @@ mod tests {
         }
         assert_eq!(engine.phone.pair(&json!({"code":code,"name":"Test","bundleId":"XTL-DK896KQSMB.net.anotherdave.magpie"})),Err("phone_pair_expired"));
         assert!(storage::bytes("devices.json", 1024).unwrap().is_none());
+    }
+}
+
+#[cfg(test)]
+mod background_registration_tests {
+    use super::*;
+    #[tokio::test]
+    async fn background_registration_is_independent_of_alerts_and_cannot_expand_pairing_scope() {
+        if crate::mail::tests::isolated() { return; }
+        let _fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[{"email":"one@example.org","provider":"gmail"}]}));
+        let engine = Arc::new(Engine::default());
+        engine.phone.active.store(true, std::sync::atomic::Ordering::Release);
+        let code = engine.phone.desktop("phone.pairBegin", &json!({})).await.unwrap()["code"].clone();
+        let paired = engine.phone.request(&engine, "/v1/pair", "", &json!({"code":code,"name":"Test iPhone","bundleId":"XTL-DK896KQSMB.net.anotherdave.magpie"})).await.unwrap();
+        let token = paired["token"].as_str().unwrap();
+        let request = json!({"notifications":false,"backgroundRefresh":true,"pushToken":"ab".repeat(32),"environment":"development","accountIds":["one@example.org","foreign@example.org"]});
+        engine.phone.request(&engine, "/v1/devices", token, &request).await.unwrap();
+        let devices = storage::read("devices.json").unwrap();
+        let device = &devices[paired["id"].as_str().unwrap()];
+        assert_eq!(device["backgroundRefresh"], true);
+        assert_eq!(device["notifications"], false);
+        assert_eq!(device["notificationAccounts"], json!(["one@example.org"]));
+        let mut invalid = request.clone(); invalid["backgroundRefresh"] = json!("yes");
+        assert_eq!(engine.phone.request(&engine, "/v1/devices", token, &invalid).await, Err("phone_invalid_request"));
+        assert_eq!(storage::read("devices.json").unwrap(), devices, "invalid registration must not write any state");
+        assert_eq!(engine.phone.request(&engine, "/v1/devices", "not-paired", &request).await, Err("phone_unauthorized"));
+        assert_eq!(storage::read("devices.json").unwrap(), devices, "unpaired request must not write any state");
     }
 }

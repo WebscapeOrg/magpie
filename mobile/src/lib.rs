@@ -174,12 +174,13 @@ pub unsafe extern "C" fn magpie_engine_request(
         if submit(Box::new(move || Box::pin(async move {
             let cancellable = read_only(&method);
             let dispatch = async {
-                let removing=matches!(method.as_str(),"accounts.mobileRemove"|"engine.suspend"|"engine.copyAttachments"|"engine.clearDraft");
+                let removing=matches!(method.as_str(),"accounts.mobileRemove"|"engine.suspend"|"engine.copyAttachments"|"engine.clearDraft"|"engine.backgroundRefresh");
                 let _exclusive=if removing {Some(host.operations.write().await)}else{None};
                 let _shared=if !removing {Some(host.operations.read().await)}else{None};
-                if !host.active.load(Ordering::Acquire) && !matches!(method.as_str(), "engine.info" | "engine.events" | "engine.suspend" | "engine.resume") { return Err("mobile_suspended"); }
+                if !host.active.load(Ordering::Acquire) && !matches!(method.as_str(), "engine.info" | "engine.events" | "engine.suspend" | "engine.resume" | "engine.backgroundRefresh") { return Err("mobile_suspended"); }
                 host.engine.mobile_authorize(&params).await?;
                 match method.as_str() {
+                    "engine.backgroundRefresh" => { if host.active.load(Ordering::Acquire) { return Err("mobile_refresh_foreground"); } host.engine.mobile_background_refresh(&params).await },
                     "accounts.mobileRemove"=>host.engine.mobile_remove_account(&params).await,
                     "engine.contacts"=>host.engine.mobile_contacts(&params).await,
                     "engine.copyAttachments" | "engine.clearDraft"=>host.engine.mobile_draft_attachments(&method,&params).await,
@@ -215,14 +216,23 @@ pub unsafe extern "C" fn magpie_engine_request(
                     _ => host.engine.dispatch(&method, &params).await,
                 }
             };
+            let mut outcome = {
             let guarded = AssertUnwindSafe(dispatch).catch_unwind();
             tokio::pin!(guarded);
-            let outcome = if cancellable {
+            if method == "engine.backgroundRefresh" {
+                tokio::select! {
+                    biased;
+                    _ = cancelled => Ok(Err("mobile_cancelled")),
+                    result = tokio::time::timeout(Duration::from_secs(20), &mut guarded) => result.unwrap_or(Ok(Err("mobile_refresh_expired"))),
+                }
+            } else if cancellable {
                 tokio::select! {
                     _ = cancelled => { let _=guarded.await; Ok(Err("mobile_cancelled")) },
                     result = tokio::time::timeout(Duration::from_secs(90), &mut guarded) => match result { Ok(value)=>value, Err(_)=>{let _=guarded.await; Ok(Err("mobile_timeout"))} },
                 }
-            } else { guarded.await };
+            } else { guarded.await }
+            };
+            if method == "engine.backgroundRefresh" && !host.active.load(Ordering::Acquire) { if let Err(error) = host.engine.mobile_background_drain().await { outcome = Ok(Err(error)); } }
             let answer = match outcome {
                 Ok(Ok(result)) => json!({"result":result}),
                 Ok(Err(code)) => error(code),

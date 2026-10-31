@@ -294,6 +294,19 @@ impl Store {
                 "estimatedTotal":state(db,"estimate")?.parse::<u64>().unwrap_or(0),"health":super::inbox::health(db)?}))
         })
     }
+    #[cfg(any(feature = "mobile", target_os = "linux"))]
+    pub(super) fn background_ids(&self) -> Result<Vec<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT m.id FROM messages m JOIN labels l ON m.id=l.message_id WHERE l.label='INBOX' AND m.text_complete=1 ORDER BY m.date DESC,m.id LIMIT 5000"))?;
+            sql(query.query_map([], |row| row.get(0)))?.map(sql).collect()
+        })
+    }
+    #[cfg(target_os = "linux")]
+    pub(super) fn background_snapshot(&self) -> Result<Value> {
+        let (history, paused) =
+            self.read(|db| Ok((state(db, "history")?, state(db, "paused")? == "true")))?;
+        Ok(json!({"history":history,"paused":paused,"ids":self.background_ids()?}))
+    }
     pub(super) fn label_counts(&self, id: &str) -> Result<Value> {
         self.read(|db| {
             let total:i64=sql(db.query_row("SELECT count(*) FROM labels WHERE label=?1",[id],|r|r.get(0)))?;

@@ -8,6 +8,7 @@ use ring::{
 use serde_json::{Value, json};
 use std::{collections::HashMap, io::Read, time::Duration};
 use storage::Result;
+mod background;
 
 const TOPIC: &str = "XTL-DK896KQSMB.net.anotherdave.magpie";
 #[derive(Debug, PartialEq)]
@@ -172,7 +173,7 @@ impl Sender {
                 .version(reqwest::Version::HTTP_2)
                 .header("authorization", auth)
                 .header("apns-topic", TOPIC)
-                .header("apns-push-type", "alert")
+                .header("apns-push-type", push_type(&payload))
                 .header(
                     "apns-priority",
                     if payload["aps"]["alert"].is_null() {
@@ -265,6 +266,17 @@ impl Sender {
         Ok(())
     }
 }
+fn push_type(payload: &Value) -> &'static str {
+    if payload["aps"]["content-available"] == 1
+        && payload["aps"]["alert"].is_null()
+        && payload["aps"]["sound"].is_null()
+        && payload["aps"]["badge"].is_null()
+    {
+        "background"
+    } else {
+        "alert"
+    }
+}
 fn fresh(previous: &Value, ids: &[Value]) -> Vec<Value> {
     let Some(previous) = previous.as_array() else {
         return Vec::new();
@@ -310,6 +322,8 @@ impl Service {
         let _guard = self.gate.lock().await;
         let mut devices = storage::read("devices.json")?;
         let current = crate::account::list_readonly()?;
+        self.background_notifications(engine, &mut devices, &current)
+            .await?;
         let mut pages = HashMap::new();
         for account in current["accounts"].as_array().into_iter().flatten() {
             let Some(id) = account["id"].as_str().filter(|s| !s.is_empty()) else {

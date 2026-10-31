@@ -68,6 +68,14 @@ pub(super) async fn step(
     if deliver_edit(store, gmail, account).await? {
         return Ok(true);
     }
+    receive(store, gmail, account).await
+}
+
+pub(super) async fn receive(
+    store: &Arc<Store>,
+    gmail: &gmail::Session,
+    account: &str,
+) -> Result<bool> {
     if disk(store, |s| s.read(|db| Ok(state(db, "paused")? == "true"))).await? {
         return Ok(false);
     }

@@ -1,3 +1,5 @@
+#[cfg(feature = "mobile")]
+mod background;
 #[cfg(target_os = "linux")]
 pub(crate) mod backup;
 mod content;
@@ -98,6 +100,11 @@ impl LocalMail {
         let store = self.store(account).await?;
         sync::disk(&store, |store| store.notification_snapshot()).await
     }
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn background_snapshot(&self, account: &str) -> Result<Value, &'static str> {
+        let store = self.store(account).await?;
+        sync::disk(&store, |store| store.background_snapshot()).await
+    }
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<Value> {
         self.events
             .get_or_init(|| tokio::sync::broadcast::channel(128).0)
@@ -169,23 +176,23 @@ impl LocalMail {
     }
     #[cfg(feature = "mobile")]
     pub(crate) async fn quiesce(&self) -> Result<(), &'static str> {
-        let stores: Vec<_> = self
-            .stores
-            .lock()
-            .map_err(|_| "local_storage_unavailable")?
-            .values()
-            .cloned()
-            .collect();
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
-        while self.suspended.load(std::sync::atomic::Ordering::Acquire)
-            && stores.iter().any(|store| Arc::strong_count(store) > 2)
-        {
-            if tokio::time::Instant::now() >= deadline {
-                return Err("local_busy");
+        self.drain(std::time::Duration::from_secs(20)).await
+    }
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn drain(&self, budget: std::time::Duration) -> Result<(), &'static str> {
+        let deadline = tokio::time::Instant::now() + budget;
+        loop {
+            if !self.suspended.load(std::sync::atomic::Ordering::Acquire) { return Ok(()); }
+            if Arc::strong_count(&self.stores) == 1 {
+                match self.stores.try_lock() {
+                    Ok(stores) if stores.values().all(|store| Arc::strong_count(store) == 1) => return Ok(()),
+                    Err(std::sync::TryLockError::Poisoned(_)) => return Err("local_storage_unavailable"),
+                    _ => {},
+                }
             }
+            if tokio::time::Instant::now() >= deadline { return Err("local_busy"); }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        Ok(())
     }
     pub fn stop(&self, account: &str) {
         if let Ok(mut jobs) = self.jobs.lock() {

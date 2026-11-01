@@ -350,7 +350,7 @@ impl Inbox {
                 let _guard = self.snooze_lock.lock().await;
                 tokio::time::timeout(
                     std::time::Duration::from_secs(55),
-                    snooze::call(method, params, &gmail),
+                    snooze::call(method, params, gmail.as_ref()),
                 )
                 .await
                 .map_err(|_| "snooze_pending_retry")?

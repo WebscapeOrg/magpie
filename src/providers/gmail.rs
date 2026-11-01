@@ -266,6 +266,22 @@ impl Session {
         account: &str,
         id: &str,
     ) -> Result<Vec<Value>, &'static str> {
+        self.thread_with(account, id, "full").await
+    }
+    /// The thread's message ids and label ids only, without headers or bodies.
+    pub(crate) async fn thread_labels(
+        &self,
+        account: &str,
+        id: &str,
+    ) -> Result<Vec<Value>, &'static str> {
+        self.thread_with(account, id, "minimal").await
+    }
+    async fn thread_with(
+        &self,
+        account: &str,
+        id: &str,
+        format: &'static str,
+    ) -> Result<Vec<Value>, &'static str> {
         if id.is_empty()
             || id.len() > 256
             || !id
@@ -293,7 +309,7 @@ impl Session {
                     async move {
                         gmail_http::get_paced(
                             &["threads", id],
-                            &[("format".into(), "full".into())],
+                            &[("format".into(), format.into())],
                             &token,
                             &budget,
                             gmail_http::Lane::Interactive,
@@ -449,7 +465,7 @@ impl Session {
             "gmail.invalidate" => &["accountId"],
             "gmail.labels" | "gmail.profile" | "gmail.sendAs" => &["accountId"],
             "gmail.labelCounts" => &["accountId", "id"],
-            "gmail.list" => &["accountId", "query", "pageSize", "pageToken"],
+            "gmail.list" => &["accountId", "query", "pageSize", "pageToken", "labelId"],
             "gmail.read" => &["accountId", "id", "full"],
             "gmail.attachment" => &["accountId", "messageId", "attachmentId"],
             _ => return Err("unknown_method"),
@@ -502,6 +518,18 @@ impl Session {
                     "pageToken".into(),
                     field(params, "pageToken", false)?.into(),
                 ));
+                // An exact label filter, for labels whose search spelling could match another label.
+                let label = field(params, "labelId", false)?;
+                if !label.is_empty() {
+                    if label.len() > 256
+                        || !label
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+                    {
+                        return Err("invalid_params");
+                    }
+                    query.push(("labelIds".into(), label.into()));
+                }
                 vec!["messages"]
             }
             "gmail.read" => {

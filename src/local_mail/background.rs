@@ -52,6 +52,9 @@ impl LocalMail {
         let outcome = tokio::time::timeout(Duration::from_secs(18), work).await;
         let status = sync::disk(&store, |s| s.status()).await?;
         let ids = sync::disk(&store, |s| s.background_ids()).await?;
+        let alerts = sync::disk(&store, |s| s.alert_snapshot())
+            .await
+            .unwrap_or(Value::Null);
         let checked = status["health"]["lastChecked"].as_i64().unwrap_or(0) >= started;
         let failure = match outcome {
             Ok(Err(error)) => Some(error),
@@ -59,7 +62,7 @@ impl LocalMail {
             _ => None,
         };
         Ok(
-            json!({"accountId":account,"changed":changed,"checked":checked,"status":status,"ids":ids,"error":failure}),
+            json!({"accountId":account,"changed":changed,"checked":checked,"status":status,"ids":ids,"alerts":alerts,"error":failure}),
         )
     }
 }

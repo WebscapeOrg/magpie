@@ -22,6 +22,30 @@ impl Engine {
         })).await;
         Ok(json!({"accounts":pages}))
     }
+    pub async fn mobile_mail_alerts(&self, params: &Value) -> Result<Value, &'static str> {
+        if params.as_object().is_none_or(|p| !p.is_empty()) {
+            return Err("invalid_params");
+        }
+        let registry = crate::account::list_readonly()?;
+        let accounts: Vec<_> = registry["accounts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|account| account["provider"] == "gmail")
+            .filter_map(|account| account["id"].as_str().filter(|id| !id.is_empty()))
+            .collect();
+        let pages = futures_util::future::join_all(accounts.iter().map(|account| async move {
+            match self.local_mail.alert_snapshot(account).await {
+                Ok(mut page) => {
+                    page["accountId"] = json!(account);
+                    page
+                }
+                Err(error) => json!({"accountId":account,"error":error}),
+            }
+        }))
+        .await;
+        Ok(json!({"accounts":pages}))
+    }
     pub async fn mobile_draft_attachments(
         &self,
         method: &str,

@@ -486,3 +486,50 @@ fn deletion_history_notifies_and_prevents_late_body_resurrection() {
     drop(store);
     std::fs::remove_dir_all(path).unwrap();
 }
+#[test]
+fn alert_snapshot_lists_inbox_ids_and_names_only_unread_senders() {
+    let path = directory();
+    {
+        let store = Store::open(open_directory(&path)).unwrap();
+        let mut fresh = message("fresh", "New body");
+        fresh["internalDate"] = json!("1700000300000");
+        let mut read = message("read", "Seen body");
+        read["labelIds"] = json!(["INBOX"]);
+        read["internalDate"] = json!("1700000200000");
+        let mut archived = message("archived", "Archived body");
+        archived["labelIds"] = json!(["UNREAD"]);
+        archived["internalDate"] = json!("1700000250000");
+        let mut old = message("old", "Old body");
+        old["internalDate"] = json!("1600000000000");
+        for resource in [&fresh, &read, &archived, &old] {
+            store.put(resource, 1).unwrap();
+        }
+        let snapshot = store.alert_snapshot().unwrap();
+        assert_eq!(snapshot["ready"], false, "an Inbox that was never listed is not ready");
+        assert_eq!(snapshot["paused"], false);
+        assert_eq!(snapshot["inbox"], json!(["fresh", "read", "old"]), "Inbox only, newest first, however old");
+        let unread = snapshot["unread"].as_array().unwrap();
+        let ids: Vec<_> = unread.iter().map(|m| m["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["fresh", "old"], "unread Inbox mail only");
+        assert_eq!(unread[0]["date"], 1_700_000_300_000_i64);
+        assert_eq!(unread[0]["from"]["email"], "alice@example.org");
+        assert_eq!(unread[0]["subject"], "Café 合成");
+        assert!(unread.iter().all(|m| m.get("snippet").is_none() && m.get("body").is_none()));
+        assert_eq!(unread[1]["from"]["email"], "alice@example.org", "the newest 2,000 carry sender details");
+        store
+            .edit("ticket", &["fresh".into()], &[], &["UNREAD".into()])
+            .unwrap();
+        store
+            .write(|db| store::set_state(db, "inboxReady", "true"))
+            .unwrap();
+        let snapshot = store.alert_snapshot().unwrap();
+        assert_eq!(snapshot["ready"], true);
+        assert_eq!(snapshot["unread"].as_array().unwrap().len(), 1, "a local read edit counts immediately");
+        assert_eq!(snapshot["unread"][0]["id"], "old");
+        store
+            .write(|db| store::set_state(db, "paused", "true"))
+            .unwrap();
+        assert_eq!(store.alert_snapshot().unwrap()["paused"], true);
+    }
+    std::fs::remove_dir_all(path).unwrap();
+}

@@ -183,6 +183,7 @@ pub unsafe extern "C" fn magpie_engine_request(
                     "engine.backgroundRefresh" => { if host.active.load(Ordering::Acquire) { return Err("mobile_refresh_foreground"); } host.engine.mobile_background_refresh(&params).await },
                     "accounts.mobileRemove"=>host.engine.mobile_remove_account(&params).await,
                     "engine.contacts"=>host.engine.mobile_contacts(&params).await,
+                    "engine.mailAlerts"=>host.engine.mobile_mail_alerts(&params).await,
                     "engine.copyAttachments" | "engine.clearDraft"=>host.engine.mobile_draft_attachments(&method,&params).await,
                     "engine.conversation"=>host.engine.mobile_conversation(&params).await,
                     "engine.releaseSend"=>host.engine.mobile_release_send(&params).await,
@@ -345,6 +346,7 @@ fn read_only(method: &str) -> bool {
     matches!(
         method,
         "engine.contacts"
+            | "engine.mailAlerts"
             | "engine.conversation"
             | "engine.checkSend"
             | "engine.info"

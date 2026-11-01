@@ -43,6 +43,17 @@ pub fn write(name: &str, value: &Value) -> Result<(), &'static str> {
     fs::atomic_replace(&dir, name, &bytes)?;
     fs::sync_dir(&dir)
 }
+/// Writes `value` under the lock `update` takes, for a file `update` cannot read.
+pub fn replace(name: &str, value: &Value) -> Result<(), &'static str> {
+    let dir = directory()?;
+    let _lock = fs::lock_exclusive(&dir, ".lock")?;
+    write(name, value)
+}
+pub fn remove(name: &str) -> Result<(), &'static str> {
+    let dir = directory()?;
+    fs::remove_owned(&dir, name)?;
+    fs::sync_dir(&dir)
+}
 pub fn update<T>(
     name: &str,
     run: impl FnOnce(&mut Value) -> Result<T, &'static str>,

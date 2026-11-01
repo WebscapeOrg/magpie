@@ -25,6 +25,13 @@ impl LocalMail {
         let work = async {
             loop {
                 let result = sync::receive(&store, gmail, account).await;
+                // Invariant: background Gmail requests give way to foreground ones, such as the
+                // snooze tick that runs beside this check, so a deferred request waits briefly and
+                // is asked again within the bound instead of ending the check.
+                if result == Err("gmail_request_deferred") {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    continue;
+                }
                 changed |= result == Ok(true);
                 let error = result.as_ref().err().copied().unwrap_or("");
                 sync::disk(&store, move |s| {

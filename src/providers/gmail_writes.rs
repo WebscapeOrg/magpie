@@ -225,6 +225,7 @@ impl Session {
         &self,
         method: &str,
         params: &Value,
+        withdrawable: bool,
     ) -> Result<(u64, tokio::sync::oneshot::Receiver<queue::Outcome>), &'static str> {
         let plan = plan(method, params)?;
         let account = field(params, "accountId", true)?.to_lowercase();
@@ -247,6 +248,7 @@ impl Session {
                 http: plan.method,
                 path: plan.path,
                 body: plan.body,
+                withdrawable,
             },
         )
     }

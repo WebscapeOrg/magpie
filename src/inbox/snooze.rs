@@ -21,6 +21,17 @@ const LISTS_PER_RUN: usize = 5;
 const READS_PER_RUN: usize = 20;
 const WORK_PER_RUN: usize = 10;
 const MAX_SECONDS: u64 = 40;
+/// An emptied due slot label stays this long before Magpie deletes it, so a Magpie that was off
+/// meanwhile can tell a label removed after its mail returned from one deleted before its time.
+const KEEP_DUE: i64 = 3 * 86_400_000;
+/// A snooze that cannot read its thread in this time is saved to finish once Gmail answers.
+const RESOLVE_WITHIN: Duration = Duration::from_secs(25);
+/// A snooze Gmail could not take or return is tried again after a growing pause, so one that keeps
+/// failing never holds up the others. Only failures caused by the message itself wait more than
+/// five minutes, so mail returns soon after the network or Dave's Google access is back.
+const BACKOFF: i64 = 60_000;
+const BACKOFF_OFFLINE: i64 = 5 * 60_000;
+const BACKOFF_MAX: i64 = 6 * 3_600_000;
 
 /// The Gmail operations snooze needs, so its rules can be tested without a server.
 pub(super) trait Mail: Sync {
@@ -41,7 +52,12 @@ pub(super) trait Mail: Sync {
         add: &[String],
         remove: &[String],
     ) -> impl Future<Output = Result<()>> + Send;
-    fn list(&self, account: &str, label: &str) -> impl Future<Output = Result<Value>> + Send;
+    fn list(
+        &self,
+        account: &str,
+        label: &str,
+        page: &str,
+    ) -> impl Future<Output = Result<Value>> + Send;
     fn accounts(&self) -> impl Future<Output = Result<Vec<String>>> + Send;
 }
 
@@ -57,8 +73,7 @@ impl Mail for crate::providers::gmail::Session {
         self.thread_labels(account, thread).await
     }
     async fn labels(&self, account: &str) -> Result<Value> {
-        self.call("gmail.labels", &json!({"accountId":account}))
-            .await
+        self.all_labels(account).await
     }
     async fn create_label(&self, account: &str, name: &str) -> Result<Value> {
         self.call(
@@ -83,19 +98,19 @@ impl Mail for crate::providers::gmail::Session {
         add: &[String],
         remove: &[String],
     ) -> Result<()> {
-        self.call_settled(
+        self.call_withdrawable(
             "gmail.batchModify",
             &json!({"accountId":account,"ids":ids,"addLabelIds":add,"removeLabelIds":remove}),
         )
         .await
         .map(|_| ())
     }
-    async fn list(&self, account: &str, label: &str) -> Result<Value> {
-        self.call(
-            "gmail.list",
-            &json!({"accountId":account,"query":"","pageSize":100,"labelId":label}),
-        )
-        .await
+    async fn list(&self, account: &str, label: &str, page: &str) -> Result<Value> {
+        let mut params = json!({"accountId":account,"query":"","pageSize":100,"labelId":label});
+        if !page.is_empty() {
+            params["pageToken"] = json!(page);
+        }
+        self.call("gmail.list", &params).await
     }
     async fn accounts(&self) -> Result<Vec<String>> {
         let saved = tokio::task::spawn_blocking(crate::account::list_readonly)
@@ -107,14 +122,49 @@ impl Mail for crate::providers::gmail::Session {
             .flatten()
             .filter(|row| row["provider"] == "gmail")
             .filter_map(|row| row["id"].as_str())
-            .take(32)
             .map(str::to_owned)
             .collect())
     }
 }
 
+/// Records that this device keeps snooze bookkeeping for the account, so `drop_accounts` removes it
+/// once the account signs out, even when no snooze of it is left.
+fn note(account: &str) -> Result<()> {
+    let key = store::key(&["snooze-accounts"]);
+    if bookkeeping(&key)?["accounts"]
+        .as_array()
+        .is_some_and(|list| list.iter().any(|v| v == account))
+    {
+        return Ok(());
+    }
+    store::update(&key, |saved| {
+        if !saved["accounts"].is_array() {
+            *saved = json!({"accounts":[]});
+        }
+        if let Some(list) = saved["accounts"].as_array_mut()
+            && !list.iter().any(|v| v == account)
+        {
+            list.push(json!(account));
+        }
+        Ok(())
+    })
+}
+
 pub(super) fn revisions(account: &str) -> Result<Value> {
-    Ok(store::read(&store::key(&["snooze-revisions", account]))?.unwrap_or(json!({})))
+    bookkeeping(&store::key(&["snooze-revisions", account]))
+}
+/// Reads a bookkeeping file, starting it again when it is damaged. These files only save work or
+/// let a phone notice a change, so a damaged one must not stop snooze on this device.
+fn bookkeeping(name: &str) -> Result<Value> {
+    match store::read(name) {
+        Ok(Some(saved)) if saved.is_object() => Ok(saved),
+        Ok(_) => Ok(json!({})),
+        Err("inbox_storage_invalid") => {
+            store::replace(name, &json!({}))?;
+            Ok(json!({}))
+        }
+        Err(error) => Err(error),
+    }
 }
 #[cfg(test)]
 pub(super) fn advance(account: &str, thread: &str) -> Result<String> {
@@ -143,7 +193,12 @@ fn advance_operation(account: &str, thread: &str, operation: Option<&str>) -> Re
         }
     }
     let generation = random()?;
+    note(account)?;
+    revisions(account)?;
     store::update(&store::key(&["snooze-revisions", account]), |saved| {
+        if !saved.is_object() {
+            *saved = json!({});
+        }
         let records = saved.as_object_mut().ok_or("inbox_storage_invalid")?;
         records.retain(|_, v| {
             v["updated"]
@@ -194,22 +249,50 @@ fn record(key: &str, row: Value) -> Result<()> {
         Ok(())
     })
 }
+/// Clears the record of failed attempts once a row's change lands.
+fn settled(row: &mut Value) {
+    if let Some(fields) = row.as_object_mut() {
+        fields.remove("attempts");
+        fields.remove("retryAt");
+    }
+}
 fn confirm(key: &str, name: &str, label: &str) -> Result<()> {
     change(|rows| {
         if let Some(row) = rows.get_mut(key).filter(|row| row["label"] == name) {
             row["state"] = json!("sleeping");
             row["labelId"] = json!(label);
+            settled(row);
         }
         Ok(())
     })
 }
-fn readopt(key: &str, slot: &Slot) -> Result<()> {
+/// Moves a row to the slot another device chose, with the thread's new revision, so a phone holding
+/// the old one cannot act on it.
+fn readopt(key: &str, slot: &Slot, generation: &str) -> Result<()> {
     change(|rows| {
         if let Some(row) = rows.get_mut(key) {
+            row["generation"] = json!(generation);
             row["label"] = json!(slot.name);
             row["labelId"] = json!(slot.id);
             row["until"] = json!(slot.until);
             row["state"] = json!("sleeping");
+            settled(row);
+        }
+        Ok(())
+    })
+}
+/// Puts a row that failed off until its pause ends, doubling the pause each time.
+fn defer(key: &str, error: &str) -> Result<()> {
+    let cap = if lasting(error) {
+        BACKOFF_MAX
+    } else {
+        BACKOFF_OFFLINE
+    };
+    change(|rows| {
+        if let Some(row) = rows.get_mut(key) {
+            let attempts = row["attempts"].as_u64().unwrap_or(0).min(20);
+            row["attempts"] = json!(attempts + 1);
+            row["retryAt"] = json!(now() + (BACKOFF << attempts.min(10)).min(cap));
         }
         Ok(())
     })
@@ -243,7 +326,28 @@ fn transient(error: &str) -> bool {
             | "gmail_server_rate_limited"
             | "gmail_session_invalidated"
             | "gmail_queue_dropped"
+            | "gmail_request_deferred"
             | "session_failed"
+    )
+}
+/// Failures caused by the message or its saved snooze, which signing in again or a working network
+/// does not fix.
+fn lasting(error: &str) -> bool {
+    error.starts_with("snooze_")
+        || matches!(
+            error,
+            "gmail_invalid_response"
+                | "gmail_response_too_large"
+                | "gmail_invalid_input"
+                | "agent_context_too_large"
+                | "inbox_storage_invalid"
+        )
+}
+/// Failures that say the message itself can no longer be snoozed, so a saved snooze of it ends.
+fn ended(error: &str) -> bool {
+    matches!(
+        error,
+        "gmail_not_found" | "snooze_invalid_folder" | "snooze_invalid_thread"
     )
 }
 fn has(message: &Value, label: &str) -> bool {
@@ -287,6 +391,10 @@ fn slot_time(name: &str) -> Option<i64> {
         .timestamp_millis();
     (slot(at).ok()?.1.to_ascii_lowercase() == lower).then_some(at)
 }
+/// True for Magpie's snooze slot labels, which Magpie keeps out of the label lists it shows.
+pub(crate) fn is_snooze_label(name: &str) -> bool {
+    slot_time(name).is_some()
+}
 #[derive(Clone, Debug, PartialEq)]
 struct Slot {
     id: String,
@@ -314,11 +422,54 @@ fn slots(labels: &Value) -> Vec<Slot> {
     found
 }
 
+/// Magpie's slot labels from a labels listing Gmail answered in full. A listing without Gmail's own
+/// Inbox label is refused, so a broken answer never reads as every slot label deleted.
+fn listing(labels: Result<Value>) -> Result<Vec<Slot>> {
+    let labels = labels?;
+    if !labels
+        .as_array()
+        .is_some_and(|all| all.iter().any(|label| label["id"] == "INBOX"))
+    {
+        return Err("gmail_invalid_response");
+    }
+    Ok(slots(&labels))
+}
+
 struct Thread {
     id: String,
-    ids: Vec<String>,
-    labels: HashSet<String>,
+    messages: Vec<Value>,
     subject: Value,
+}
+fn id_of(message: &Value) -> Option<&str> {
+    message["id"].as_str().filter(|id| message_id(id))
+}
+/// When Gmail received a message, in milliseconds.
+fn received(message: &Value) -> Option<i64> {
+    let value = &message["internalDate"];
+    value
+        .as_str()
+        .and_then(|text| text.parse().ok())
+        .or_else(|| value.as_i64())
+}
+impl Thread {
+    /// The thread's messages a snooze takes out of the Inbox: those `keep` allows, never mail in
+    /// Trash or Spam.
+    fn ids(&self, keep: impl Fn(&Value, &str) -> bool) -> Result<Vec<String>> {
+        let ids: Vec<String> = self
+            .messages
+            .iter()
+            .filter(|message| !binned(message))
+            .filter_map(|message| id_of(message).filter(|id| keep(message, id)))
+            .map(str::to_owned)
+            .collect();
+        if ids.is_empty() || ids.len() > 1000 {
+            return Err("snooze_invalid_thread");
+        }
+        Ok(ids)
+    }
+    fn carries(&self, label: &str) -> bool {
+        self.messages.iter().any(|message| has(message, label))
+    }
 }
 /// The message's thread as Gmail reports it now; a caller's or the mirror's idea of the thread
 /// is never used to choose what is changed.
@@ -335,26 +486,9 @@ async fn resolve(gmail: &impl Mail, account: &str, id: &str) -> Result<Thread> {
         Err("agent_context_too_large") => return Err("snooze_invalid_thread"),
         other => other?,
     };
-    let ids: Vec<String> = messages
-        .iter()
-        .filter(|message| !binned(message))
-        .filter_map(|message| message["id"].as_str())
-        .filter(|id| message_id(id))
-        .map(str::to_owned)
-        .collect();
-    if ids.is_empty() || ids.len() > 1000 {
-        return Err("snooze_invalid_thread");
-    }
-    let labels = messages
-        .iter()
-        .flat_map(|message| message["labelIds"].as_array().into_iter().flatten())
-        .filter_map(Value::as_str)
-        .map(str::to_owned)
-        .collect();
     Ok(Thread {
         id: thread.to_owned(),
-        ids,
-        labels,
+        messages,
         subject: crate::message::content::summarize(&resource, now())?["subject"].clone(),
     })
 }
@@ -370,7 +504,8 @@ async fn ensure(gmail: &impl Mail, account: &str, name: &str, known: &[Slot]) ->
     if let Some(id) = find(known) {
         return Ok(id);
     }
-    if known.len() >= LABELS {
+    // Emptied due labels wait to be deleted, so only slots still to come count against the limit.
+    if known.iter().filter(|slot| slot.until > now()).count() >= LABELS {
         return Err("snooze_limit");
     }
     match gmail.create_label(account, name).await {
@@ -385,23 +520,53 @@ async fn ensure(gmail: &impl Mail, account: &str, name: &str, known: &[Slot]) ->
     }
 }
 
-/// Labels the thread for its slot and takes it out of the Inbox in one change, so Gmail never
-/// holds it half snoozed. An earlier Magpie slot on the thread is removed in the same change.
-async fn settle(gmail: &impl Mail, account: &str, thread: &Thread, name: &str) -> Result<String> {
-    let known = slots(&gmail.labels(account).await?);
-    let label = ensure(gmail, account, name, &known).await?;
+/// Labels the messages for their slot and takes them out of the Inbox in one change, so Gmail
+/// never holds the thread half snoozed. An earlier Magpie slot on the thread is removed with it.
+async fn settle(
+    gmail: &impl Mail,
+    account: &str,
+    thread: &Thread,
+    ids: &[String],
+    name: &str,
+    known: &[Slot],
+) -> Result<String> {
+    let label = ensure(gmail, account, name, known).await?;
     let mut remove = vec!["INBOX".to_owned()];
     remove.extend(
         known
             .iter()
-            .filter(|slot| slot.id != label && thread.labels.contains(&slot.id))
+            .filter(|slot| slot.id != label && thread.carries(&slot.id))
             .map(|slot| slot.id.clone())
             .take(99),
     );
-    gmail
-        .modify(account, &thread.ids, &[label.clone()], &remove)
-        .await?;
+    gmail.modify(account, ids, &[label.clone()], &remove).await?;
     Ok(label)
+}
+
+/// The slot Gmail had for this snooze as this device last saw it, kept on a snooze that has not
+/// reached Gmail so a later change made on another device can be told apart from it.
+fn seen(saved: &Map<String, Value>, key: &str, account: &str, thread: Option<&str>) -> Value {
+    let row = saved.get(key).or_else(|| {
+        thread.and_then(|thread| {
+            saved
+                .values()
+                .find(|row| row["accountId"] == account && row["threadId"] == thread)
+        })
+    });
+    match row {
+        Some(row) if row["state"] == "sleeping" => row["label"].clone(),
+        Some(row) => row["over"].clone(),
+        None => Value::Null,
+    }
+}
+
+/// The slot this device holds for a thread under a snooze other than `key`, as `seen` reads it.
+fn held(account: &str, key: &str, thread: &str) -> Result<Option<String>> {
+    let saved = rows()?;
+    let found = saved.iter().find(|(other, row)| {
+        other.as_str() != key && row["accountId"] == account && row["threadId"] == thread
+    });
+    Ok(found.and_then(|(other, _)| seen(&saved, other, account, None).as_str().map(str::to_owned)))
 }
 
 async fn snooze(gmail: &impl Mail, p: &Value, operation: Option<&str>) -> Result<Value> {
@@ -419,25 +584,35 @@ async fn snooze(gmail: &impl Mail, p: &Value, operation: Option<&str>) -> Result
         .ok_or("snooze_invalid_time")?;
     let (_, name) = slot(until)?;
     let key = store::key(&[&account, id]);
-    let thread = match resolve(gmail, &account, id).await {
+    let at = now();
+    let resolved = tokio::time::timeout(RESOLVE_WITHIN, resolve(gmail, &account, id)).await;
+    let thread = match resolved.unwrap_or(Err("gmail_timeout")) {
         Ok(thread) => thread,
         Err(error) if transient(error) => {
             // Invariant: An offline snooze is saved unresolved, with no thread or message ids,
-            // until tick reads its thread from Gmail. The caller's subject is only displayed.
+            // until tick reads its thread from Gmail. It then snoozes only mail Gmail received
+            // by `at`, when Dave chose it. The caller's subject is only displayed.
+            let over = seen(&rows()?, &key, &account, None);
             record(
                 &key,
-                json!({"generation":random()?,"operationId":operation,"accountId":account,"id":id,"ids":[],"until":until,"state":"pending","subject":shown,"threadId":"","label":name}),
+                json!({"generation":random()?,"operationId":operation,"accountId":account,"id":id,"ids":[],"until":until,"state":"pending","subject":shown,"threadId":"","label":name,"at":at,"over":over}),
             )?;
             return Err("snooze_pending_retry");
         }
         Err(error) => return Err(error),
     };
+    let ids = thread.ids(|_, _| true)?;
+    let over = seen(&rows()?, &key, &account, Some(&thread.id));
     let generation = advance_operation(&account, &thread.id, operation)?;
     record(
         &key,
-        json!({"generation":generation,"operationId":operation,"accountId":account,"id":id,"ids":thread.ids,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name}),
+        json!({"generation":generation,"operationId":operation,"accountId":account,"id":id,"ids":ids,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name,"at":at,"over":over}),
     )?;
-    match settle(gmail, &account, &thread, &name).await {
+    let landed = match listing(gmail.labels(&account).await) {
+        Ok(known) => settle(gmail, &account, &thread, &ids, &name, &known).await,
+        Err(error) => Err(error),
+    };
+    match landed {
         Ok(label) => confirm(&key, &name, &label)?,
         Err("snooze_limit") => {
             forget(&key)?;
@@ -450,8 +625,10 @@ async fn snooze(gmail: &impl Mail, p: &Value, operation: Option<&str>) -> Result
     Ok(json!({"ok":true,"until":until}))
 }
 
-/// Applies a saved snooze Gmail has not confirmed, reading its thread again first.
-async fn retry(gmail: &impl Mail, account: &str, key: &str, row: &Value) -> Result<()> {
+/// Applies a saved snooze Gmail has not confirmed. It snoozes only the mail Dave snoozed: the
+/// messages saved with it, or for an offline snooze those Gmail received by then. It gives way
+/// when the thread shows the snooze was changed on another device since.
+async fn retry(gmail: &impl Mail, account: &str, key: &str, row: &Value, known: &[Slot]) -> Result<()> {
     let id = row["id"]
         .as_str()
         .filter(|id| message_id(id))
@@ -463,25 +640,67 @@ async fn retry(gmail: &impl Mail, account: &str, key: &str, row: &Value) -> Resu
     };
     let thread = match resolve(gmail, account, id).await {
         Ok(thread) => thread,
-        Err(error) if transient(error) => return Err(error),
-        Err(error) => {
-            forget(key)?;
-            return Err(error);
-        }
+        Err(error) if ended(error) => return forget(key),
+        Err(error) => return Err(error),
     };
+    let stored: Option<HashSet<&str>> = row["ids"]
+        .as_array()
+        .filter(|ids| !ids.is_empty())
+        .map(|ids| ids.iter().filter_map(Value::as_str).collect());
+    let at = row["at"].as_i64();
+    let wanted = |message: &Value, mid: &str| match &stored {
+        Some(stored) => stored.contains(mid),
+        // Gmail's label-only reads carry internalDate (inference: the format documentation does
+        // not list it). A message without one is snoozed with the rest, as before.
+        None => mid == id || at.zip(received(message)).is_none_or(|(at, got)| got <= at),
+    };
+    let on_thread: Vec<&Slot> = known.iter().filter(|slot| thread.carries(&slot.id)).collect();
     let mut fresh = row.clone();
+    settled(&mut fresh);
+    fresh["threadId"] = json!(thread.id);
+    fresh["subject"] = thread.subject.clone();
+    fresh["label"] = json!(name);
+    fresh["state"] = json!("pending");
+    if let Some(own) = on_thread
+        .iter()
+        .find(|slot| slot.name.eq_ignore_ascii_case(&name))
+    {
+        // The earlier change reached Gmail; only its answer was lost.
+        fresh["ids"] = json!(thread.ids(|message, mid| has(message, &own.id) || wanted(message, mid)).unwrap_or_default());
+        record(key, fresh)?;
+        return confirm(key, &name, &own.id);
+    }
+    // An offline snooze started from another message of a thread snoozed here saw that snooze, so
+    // only a slot other than it counts as a later change.
+    let over = match row["over"].as_str() {
+        Some(over) => Some(over.to_owned()),
+        None => held(account, key, &thread.id)?,
+    };
+    let over = over.as_deref();
+    let changed = on_thread
+        .iter()
+        .any(|slot| over.is_none_or(|over| !slot.name.eq_ignore_ascii_case(over)));
+    let woken_early =
+        on_thread.is_empty() && over.and_then(slot_time).is_some_and(|due| due > now());
+    if changed || woken_early {
+        // Dave snoozed or returned this thread on another device after choosing this snooze
+        // here, so that later choice stands.
+        advance_operation(account, &thread.id, None)?;
+        forget(key)?;
+        return Ok(());
+    }
+    let ids = match thread.ids(wanted) {
+        Ok(ids) => ids,
+        Err(_) => return forget(key),
+    };
     fresh["generation"] = json!(advance_operation(
         account,
         &thread.id,
         row["operationId"].as_str()
     )?);
-    fresh["ids"] = json!(thread.ids);
-    fresh["threadId"] = json!(thread.id);
-    fresh["subject"] = thread.subject.clone();
-    fresh["label"] = json!(name);
-    fresh["state"] = json!("pending");
+    fresh["ids"] = json!(ids);
     record(key, fresh)?;
-    match settle(gmail, account, &thread, &name).await {
+    match settle(gmail, account, &thread, &ids, &name, known).await {
         Ok(label) => confirm(key, &name, &label),
         Err("snooze_limit") => {
             forget(key)?;
@@ -496,14 +715,8 @@ enum Woke {
     Gone,
     Moved(Slot),
 }
-/// Returns a snoozed thread to the Inbox. A due wake leaves alone a thread Gmail shows already
-/// returned, or snoozed again elsewhere; a chosen wake returns it from any Magpie slot.
-async fn wake(gmail: &impl Mail, account: &str, row: &Value, chosen: bool) -> Result<Woke> {
+fn wanted_ids(row: &Value) -> Result<HashSet<&str>> {
     let ids = row["ids"].as_array().ok_or("inbox_storage_invalid")?;
-    // Invariant: An unresolved snooze never reached Gmail, so there is nothing to return.
-    if ids.is_empty() {
-        return Ok(Woke::Gone);
-    }
     if ids.len() > 1000 {
         return Err("inbox_storage_invalid");
     }
@@ -513,44 +726,57 @@ async fn wake(gmail: &impl Mail, account: &str, row: &Value, chosen: bool) -> Re
         crate::mail::action::validate_message_id(crate::mail::Provider::Gmail, id)?;
         wanted.insert(id);
     }
-    let thread = row["threadId"]
+    Ok(wanted)
+}
+fn thread_of(row: &Value) -> Result<&str> {
+    row["threadId"]
         .as_str()
         .filter(|thread| safe_id(thread))
-        .ok_or("inbox_storage_invalid")?;
-    let messages = gmail.thread(account, thread).await?;
-    fn id_of<'a>(message: &&'a Value) -> Option<&'a str> {
-        message["id"].as_str().filter(|id| message_id(id))
+        .ok_or("inbox_storage_invalid")
+}
+/// Returns a snoozed thread to the Inbox: the messages carrying a Magpie slot and those saved with
+/// the snooze. A message already in the Inbox keeps its read state, and mail in Trash or Spam
+/// only loses the slot label. A due wake leaves alone a thread Gmail shows returned or snoozed
+/// again elsewhere; a chosen wake returns it from wherever it is.
+async fn wake(
+    gmail: &impl Mail,
+    account: &str,
+    row: &Value,
+    chosen: bool,
+    known: &[Slot],
+) -> Result<Woke> {
+    let wanted = wanted_ids(row)?;
+    // Invariant: An unresolved snooze never reached Gmail, so there is nothing to return.
+    if wanted.is_empty() {
+        return Ok(Woke::Gone);
     }
-    let Some(name) = row["label"].as_str() else {
-        // A snooze saved before labels, or by an older Magpie, returns by its message ids.
-        let back: Vec<String> = messages
-            .iter()
-            .filter(|message| !binned(message))
-            .filter_map(|message| id_of(&message))
-            .filter(|id| wanted.contains(id))
-            .map(str::to_owned)
-            .collect();
-        if !back.is_empty() {
-            gmail
-                .modify(account, &back, &["INBOX".into(), "UNREAD".into()], &[])
-                .await?;
-        }
-        return Ok(Woke::Done);
+    let messages = match gmail.thread(account, thread_of(row)?).await {
+        Err("gmail_not_found") => return Ok(Woke::Gone),
+        other => other?,
     };
-    let known = slots(&gmail.labels(account).await?);
     let on_thread: Vec<&Slot> = known
         .iter()
         .filter(|slot| messages.iter().any(|message| has(message, &slot.id)))
         .collect();
-    let Some(latest) = on_thread.last() else {
-        return Ok(Woke::Gone);
-    };
-    if !chosen
-        && !on_thread
-            .iter()
-            .any(|slot| slot.name.eq_ignore_ascii_case(name))
-    {
-        return Ok(Woke::Moved((*latest).clone()));
+    if !chosen {
+        let own = row["label"].as_str();
+        // Invariant: Magpie deletes a due label only KEEP_DUE after its time, so an own label
+        // missing sooner was deleted in Gmail and the mail saved with the snooze still returns.
+        let deleted = own.is_some_and(|name| !known.iter().any(|slot| slot.name.eq_ignore_ascii_case(name)))
+            && row["until"].as_i64().is_some_and(|until| until > now() - KEEP_DUE);
+        match on_thread.last() {
+            // Its label is off the thread, or went after Magpie's time to keep it: another Magpie
+            // returned it.
+            None if own.is_some() && !deleted => return Ok(Woke::Gone),
+            Some(latest)
+                if !own.is_some_and(|name| {
+                    on_thread.iter().any(|slot| slot.name.eq_ignore_ascii_case(name))
+                }) =>
+            {
+                return Ok(Woke::Moved((*latest).clone()));
+            }
+            _ => {}
+        }
     }
     let remove: Vec<String> = on_thread
         .iter()
@@ -558,22 +784,90 @@ async fn wake(gmail: &impl Mail, account: &str, row: &Value, chosen: bool) -> Re
         .take(100)
         .collect();
     let snoozed = |message: &Value| on_thread.iter().any(|slot| has(message, &slot.id));
-    let (back, rest): (Vec<&Value>, Vec<&Value>) = messages
-        .iter()
-        .filter(|message| snoozed(message) || id_of(message).is_some_and(|id| wanted.contains(id)))
-        .partition(|message| !binned(message));
-    let back: Vec<String> = back.iter().filter_map(id_of).map(str::to_owned).collect();
-    let rest: Vec<String> = rest.iter().filter_map(id_of).map(str::to_owned).collect();
+    let (mut back, mut clear) = (Vec::new(), Vec::new());
+    for message in &messages {
+        let Some(id) = id_of(message) else { continue };
+        if binned(message) || has(message, "INBOX") {
+            // Invariant: Mail in Trash or Spam loses the slot label but never returns to the Inbox.
+            if snoozed(message) {
+                clear.push(id.to_owned());
+            }
+        } else if snoozed(message) || wanted.contains(id) {
+            back.push(id.to_owned());
+        }
+    }
     if !back.is_empty() {
         gmail
             .modify(account, &back, &["INBOX".into(), "UNREAD".into()], &remove)
             .await?;
     }
-    // Invariant: Mail in Trash or Spam loses the slot label but never returns to the Inbox.
-    if !rest.is_empty() {
-        gmail.modify(account, &rest, &[], &remove).await?;
+    if !clear.is_empty() {
+        gmail.modify(account, &clear, &[], &remove).await?;
     }
-    Ok(Woke::Done)
+    Ok(if back.is_empty() { Woke::Gone } else { Woke::Done })
+}
+
+/// Gives a snooze with no slot label its label, so every Magpie on the account sees it: one saved
+/// by an older Magpie, or one whose label was deleted before its time. Only messages still out of
+/// the Inbox are labelled; when none are, Dave already has the thread back and the snooze ends.
+async fn upgrade(gmail: &impl Mail, account: &str, key: &str, row: &Value, known: &[Slot]) -> Result<()> {
+    let wanted = wanted_ids(row)?;
+    let thread = thread_of(row)?;
+    let messages = match gmail.thread(account, thread).await {
+        Err("gmail_not_found") => return forget(key),
+        other => other?,
+    };
+    if let Some(latest) = known
+        .iter()
+        .filter(|slot| messages.iter().any(|message| has(message, &slot.id)))
+        .next_back()
+    {
+        let generation = advance_operation(account, thread, None)?;
+        readopt(key, latest, &generation)?;
+        return Ok(());
+    }
+    let back: Vec<String> = messages
+        .iter()
+        .filter(|message| !binned(message) && !has(message, "INBOX"))
+        .filter_map(id_of)
+        .filter(|id| wanted.contains(id))
+        .map(str::to_owned)
+        .collect();
+    if back.is_empty() {
+        advance_operation(account, thread, None)?;
+        forget(key)?;
+        return Ok(());
+    }
+    let (_, name) = slot(row["until"].as_i64().ok_or("inbox_storage_invalid")?)?;
+    let label = ensure(gmail, account, &name, known).await?;
+    gmail.modify(account, &back, &[label.clone()], &[]).await?;
+    change(|rows| {
+        if let Some(row) = rows.get_mut(key) {
+            row["label"] = json!(name);
+            row["labelId"] = json!(label);
+            settled(row);
+        }
+        Ok(())
+    })
+}
+
+/// The row a chosen wake names: by its key, or by any message it holds, since a snooze found on
+/// another device is kept under the first message Gmail listed.
+fn row_for(account: &str, id: &str) -> Result<(String, Value)> {
+    let mut saved = rows()?;
+    let key = store::key(&[account, id]);
+    if let Some(row) = saved.remove(&key) {
+        return Ok((key, row));
+    }
+    saved
+        .into_iter()
+        .find(|(_, row)| {
+            row["accountId"] == account
+                && row["ids"]
+                    .as_array()
+                    .is_some_and(|ids| ids.iter().any(|saved| saved == id))
+        })
+        .ok_or("snooze_missing")
 }
 
 async fn wake_chosen(gmail: &impl Mail, p: &Value, operation: Option<&str>) -> Result<Value> {
@@ -581,14 +875,19 @@ async fn wake_chosen(gmail: &impl Mail, p: &Value, operation: Option<&str>) -> R
     let account = account(p)?;
     let id = p["id"].as_str().ok_or("invalid_params")?;
     crate::mail::action::validate_message_id(crate::mail::Provider::Gmail, id)?;
-    let key = store::key(&[&account, id]);
-    let row = rows()?.remove(&key).ok_or("snooze_missing")?;
+    let (key, row) = row_for(&account, id)?;
     advance_operation(
         &account,
         row["threadId"].as_str().ok_or("inbox_storage_invalid")?,
         operation,
     )?;
-    wake(gmail, &account, &row, true).await?;
+    // An unresolved snooze ends here without Gmail, so it can be cancelled offline.
+    let known = if wanted_ids(&row)?.is_empty() {
+        Vec::new()
+    } else {
+        listing(gmail.labels(&account).await)?
+    };
+    wake(gmail, &account, &row, true, &known).await?;
     forget(&key)?;
     Ok(json!({"ok":true}))
 }
@@ -602,9 +901,7 @@ async fn discover(
     out_of_time: &impl Fn() -> bool,
 ) -> Result<()> {
     let marks_key = store::key(&["snooze-labels", account]);
-    let mut marks = store::read(&marks_key)?
-        .filter(Value::is_object)
-        .unwrap_or(json!({}));
+    let mut marks = bookkeeping(&marks_key)?;
     let at = now();
     if marks["checked"]
         .as_i64()
@@ -612,10 +909,11 @@ async fn discover(
     {
         return Ok(());
     }
-    let known = slots(&gmail.labels(account).await?);
+    let known = listing(gmail.labels(account).await)?;
     marks["checked"] = json!(at);
+    note(account)?;
     store::write(&marks_key, &marks)?;
-    let ended: Vec<(String, String)> = rows()?
+    let ended: Vec<(String, i64, String)> = rows()?
         .into_iter()
         .filter(|(_, row)| {
             row["accountId"] == account
@@ -624,17 +922,40 @@ async fn discover(
                     .as_str()
                     .is_some_and(|id| !known.iter().any(|slot| slot.id == id))
         })
-        .map(|(key, row)| (key, row["threadId"].as_str().unwrap_or("").to_owned()))
+        .map(|(key, row)| {
+            let until = row["until"].as_i64().unwrap_or(i64::MIN);
+            (key, until, row["threadId"].as_str().unwrap_or("").to_owned())
+        })
         .collect();
-    for (key, thread) in ended {
-        forget(&key)?;
-        advance_operation(account, &thread, None)?;
+    for (key, until, thread) in ended {
+        if until <= at - KEEP_DUE {
+            // Magpie deletes a due label once it has kept it long enough after its thread came
+            // back, so another Magpie returned it.
+            advance_operation(account, &thread, None)?;
+            forget(&key)?;
+        } else if until <= at {
+            // A due label deleted sooner was deleted in Gmail; the wake returns the mail.
+        } else {
+            // A label deleted before its time does not end the snooze: the row returns by its
+            // messages, and the next tick labels them again.
+            change(|rows| {
+                if let Some(fields) = rows.get_mut(&key).and_then(Value::as_object_mut) {
+                    fields.remove("label");
+                    fields.remove("labelId");
+                }
+                Ok(())
+            })?;
+        }
     }
     let listed = marks["listed"].as_object().cloned().unwrap_or_default();
+    let empty = marks["empty"].as_object().cloned().unwrap_or_default();
     let last = |slot: &Slot| listed.get(&slot.id).and_then(Value::as_i64).unwrap_or(0);
+    // An emptied due label is listed again only once it may be deleted, so labels kept after their
+    // time never use up the listings that find snoozes made elsewhere.
     let mut chosen: Vec<&Slot> = known
         .iter()
         .filter(|slot| slot.until <= at)
+        .filter(|slot| !empty.contains_key(&slot.id) || slot.until <= at - KEEP_DUE)
         .take(LISTS_PER_RUN)
         .collect();
     let mut stale: Vec<&Slot> = known
@@ -649,42 +970,72 @@ async fn discover(
             .into_iter()
             .take(LISTS_PER_RUN.saturating_sub(chosen.len())),
     );
-    let mut fresh: Map<String, Value> = listed
-        .iter()
-        .filter(|(id, _)| known.iter().any(|slot| &slot.id == *id))
-        .map(|(id, time)| (id.clone(), time.clone()))
-        .collect();
+    let still = |id: &String| known.iter().any(|slot| &slot.id == id);
+    let mut fresh: Map<String, Value> = listed.into_iter().filter(|(id, _)| still(id)).collect();
+    let mut emptied: Map<String, Value> = empty.into_iter().filter(|(id, _)| still(id)).collect();
+    let mut lists = LISTS_PER_RUN;
     for slot in chosen {
-        if out_of_time() {
+        if out_of_time() || lists == 0 {
             break;
         }
-        let page = gmail.list(account, &slot.id).await?;
-        let ids = page["ids"].as_array().ok_or("gmail_invalid_response")?;
-        let threads = page["threadIds"]
-            .as_array()
-            .ok_or("gmail_invalid_response")?;
-        let complete = page["nextPageToken"].as_str().is_none_or(str::is_empty);
         let mut members: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for (id, thread) in ids.iter().zip(threads) {
-            if let (Some(id), Some(thread)) = (id.as_str(), thread.as_str())
-                && message_id(id)
-                && safe_id(thread)
-            {
-                members
-                    .entry(thread.to_owned())
-                    .or_default()
-                    .push(id.to_owned());
+        let (mut count, mut page) = (0, String::new());
+        let complete = loop {
+            lists -= 1;
+            let answer = gmail.list(account, &slot.id, &page).await?;
+            let ids = answer["ids"].as_array().ok_or("gmail_invalid_response")?;
+            let threads = answer["threadIds"]
+                .as_array()
+                .ok_or("gmail_invalid_response")?;
+            count += ids.len();
+            for (id, thread) in ids.iter().zip(threads) {
+                if let (Some(id), Some(thread)) = (id.as_str(), thread.as_str())
+                    && message_id(id)
+                    && safe_id(thread)
+                {
+                    members
+                        .entry(thread.to_owned())
+                        .or_default()
+                        .push(id.to_owned());
+                }
             }
-        }
-        if ids.is_empty() && slot.until <= at {
-            gmail.delete_label(account, &slot.id).await?;
-            fresh.remove(&slot.id);
+            page = answer["nextPageToken"].as_str().unwrap_or("").to_owned();
+            if page.is_empty() {
+                break true;
+            }
+            if lists == 0 || out_of_time() || page.len() > 512 {
+                break false;
+            }
+        };
+        if count == 0 && complete && slot.until <= at {
+            // Invariant: A due label is deleted only KEEP_DUE after its time, when it was empty on
+            // two listings at least a minute apart and no snooze on this device still names it.
+            // A label Gmail has not indexed yet is never taken off a sleeping thread, and a Magpie
+            // that was off can tell a label Magpie removed from one deleted in Gmail.
+            let named = rows()?
+                .values()
+                .any(|row| row["accountId"] == account && row["labelId"] == slot.id.as_str());
+            match emptied.get(&slot.id).and_then(Value::as_i64) {
+                Some(first)
+                    if first <= at - DISCOVER_EVERY && slot.until <= at - KEEP_DUE && !named =>
+                {
+                    gmail.delete_label(account, &slot.id).await?;
+                    fresh.remove(&slot.id);
+                    emptied.remove(&slot.id);
+                }
+                Some(_) => {}
+                None => {
+                    emptied.insert(slot.id.clone(), json!(at));
+                }
+            }
         } else {
+            emptied.remove(&slot.id);
             fresh.insert(slot.id.clone(), json!(at));
         }
-        reconcile(gmail, account, slot, &members, complete, reads).await?;
+        reconcile(gmail, account, slot, &members, complete, reads, out_of_time).await?;
     }
     marks["listed"] = Value::Object(fresh);
+    marks["empty"] = Value::Object(emptied);
     store::write(&marks_key, &marks)
 }
 
@@ -695,20 +1046,37 @@ async fn reconcile(
     members: &BTreeMap<String, Vec<String>>,
     complete: bool,
     reads: &mut usize,
+    out_of_time: &impl Fn() -> bool,
 ) -> Result<()> {
     let saved = rows()?;
     let mine = |row: &Value| row["accountId"] == account;
     if complete {
-        // A thread that no longer carries its slot was returned or snoozed again elsewhere.
+        // A thread missing from its slot's listing was returned or snoozed again elsewhere. The
+        // thread itself is read first, so a listing that lags a new label never ends a snooze.
         for (key, row) in &saved {
             let thread = row["threadId"].as_str().unwrap_or("");
-            if mine(row)
-                && row["state"] == "sleeping"
-                && row["labelId"] == slot.id.as_str()
-                && !members.contains_key(thread)
+            if !mine(row)
+                || row["state"] != "sleeping"
+                || row["labelId"] != slot.id.as_str()
+                || members.contains_key(thread)
             {
-                forget(key)?;
+                continue;
+            }
+            if *reads == 0 || out_of_time() || !safe_id(thread) {
+                break;
+            }
+            *reads -= 1;
+            // Mail in Trash or Spam keeps no snooze, so a thread Dave binned leaves the list.
+            let carried = match gmail.thread(account, thread).await {
+                Ok(messages) => messages
+                    .iter()
+                    .any(|message| !binned(message) && has(message, &slot.id)),
+                Err("gmail_not_found") => false,
+                Err(_) => continue,
+            };
+            if !carried {
                 advance_operation(account, thread, None)?;
+                forget(key)?;
             }
         }
     }
@@ -718,13 +1086,14 @@ async fn reconcile(
             .find(|(_, row)| mine(row) && row["threadId"] == thread.as_str());
         match existing {
             Some((key, row)) => {
-                // A pending row is this device's newer choice and wins when it lands.
+                // A pending row is settled by retry, which checks this slot against what Dave
+                // saw when he chose it.
                 if row["state"] == "sleeping" && row["labelId"] != slot.id.as_str() {
-                    readopt(key, slot)?;
-                    advance_operation(account, thread, None)?;
+                    let generation = advance_operation(account, thread, None)?;
+                    readopt(key, slot, &generation)?;
                 }
             }
-            None if *reads > 0 => {
+            None if *reads > 0 && !out_of_time() => {
                 *reads -= 1;
                 let first = &ids[0];
                 let subject = match gmail.read(account, first).await {
@@ -746,65 +1115,141 @@ async fn reconcile(
     Ok(())
 }
 
+/// Forgets the snoozes of accounts no longer signed in, with their bookkeeping; their labels stay
+/// in Gmail for any other Magpie still signed in to them.
+fn drop_accounts(accounts: &[String]) -> Result<()> {
+    let signed_in = |id: &str| accounts.iter().any(|account| account == id);
+    let registry = store::key(&["snooze-accounts"]);
+    let noted: Vec<String> = store::read(&registry)
+        .ok()
+        .flatten()
+        .unwrap_or_default()["accounts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    let mut gone: HashSet<String> = rows()?
+        .values()
+        .filter_map(|row| row["accountId"].as_str())
+        .filter(|id| !signed_in(id))
+        .map(str::to_owned)
+        .collect();
+    gone.extend(noted.iter().filter(|id| !signed_in(id)).cloned());
+    if gone.is_empty() {
+        return Ok(());
+    }
+    change(|rows| {
+        rows.retain(|_, row| row["accountId"].as_str().is_some_and(signed_in));
+        Ok(())
+    })?;
+    // Bookkeeping that cannot be removed now is tried again on the next tick; it never holds up
+    // due mail.
+    let mut cleared = true;
+    for account in &gone {
+        for kind in ["snooze-labels", "snooze-revisions"] {
+            cleared &= store::remove(&store::key(&[kind, account])).is_ok();
+        }
+    }
+    if cleared {
+        let kept: Vec<String> = noted.into_iter().filter(|id| signed_in(id)).collect();
+        let _ = store::replace(&registry, &json!({"accounts":kept}));
+    }
+    Ok(())
+}
+
+enum Work {
+    Wake,
+    Retry,
+    Upgrade,
+}
+
 async fn tick(gmail: &impl Mail, seconds: u64) -> Result<Value> {
     let started = Instant::now();
     let budget = Duration::from_secs(seconds);
     let out_of_time = || started.elapsed() >= budget;
     let accounts = gmail.accounts().await?;
-    // Snoozes of accounts no longer signed in are forgotten here; their labels stay in Gmail.
-    if rows()?.values().any(|row| {
-        !accounts
-            .iter()
-            .any(|account| row["accountId"] == account.as_str())
-    }) {
-        change(|rows| {
-            rows.retain(|_, row| {
-                accounts
-                    .iter()
-                    .any(|account| row["accountId"] == account.as_str())
-            });
-            Ok(())
-        })?;
-    }
-    let mut reads = READS_PER_RUN;
-    for account in &accounts {
-        if out_of_time() {
-            break;
-        }
-        // Discovery is retried on the next tick; a failure here never blocks due wakes.
-        let _ = discover(gmail, account, &mut reads, &out_of_time).await;
-    }
-    let mut waiting: Vec<(String, Value)> = rows()?.into_iter().collect();
+    drop_accounts(&accounts)?;
+    let is_due = |row: &Value| row["until"].as_i64().is_none_or(|until| until <= now());
+    // Invariant: An unresolved snooze whose time passed never reached Gmail, so it ends here.
+    change(|rows| {
+        rows.retain(|_, row| !(is_due(row) && row["ids"].as_array().is_some_and(Vec::is_empty)));
+        Ok(())
+    })?;
+    let mut waiting: Vec<(String, Value)> = rows()?
+        .into_iter()
+        .filter(|(_, row)| !row["retryAt"].as_i64().is_some_and(|at| at > now()))
+        .collect();
     waiting.sort_by_key(|(_, row)| row["until"].as_i64().unwrap_or(i64::MAX));
-    let (mut woke, mut failures, mut work) = (0, 0, 0);
+    let mut known: BTreeMap<String, Vec<Slot>> = BTreeMap::new();
+    let (mut woke, mut work) = (0, 0);
+    // Due mail comes back first; discovery uses the time left, so a short tick still returns it.
     for (key, row) in waiting {
         if work >= WORK_PER_RUN || out_of_time() {
             break;
         }
         let account = row["accountId"].as_str().ok_or("inbox_storage_invalid")?;
         let thread = row["threadId"].as_str().ok_or("inbox_storage_invalid")?;
-        if row["until"].as_i64().ok_or("inbox_storage_invalid")? <= now() {
-            work += 1;
-            match wake(gmail, account, &row, false).await {
-                Ok(Woke::Moved(slot)) => readopt(&key, &slot)?,
-                Ok(outcome) => {
-                    forget(&key)?;
-                    woke += matches!(outcome, Woke::Done) as u64;
+        let due = row["until"].as_i64().ok_or("inbox_storage_invalid")? <= now();
+        let job = if due {
+            Work::Wake
+        } else if row["state"] == "pending" {
+            Work::Retry
+        } else if row["label"].is_null() {
+            Work::Upgrade
+        } else {
+            continue;
+        };
+        work += 1;
+        if !known.contains_key(account) {
+            match listing(gmail.labels(account).await) {
+                Ok(slots) => {
+                    known.insert(account.to_owned(), slots);
                 }
-                Err(_) => {
-                    failures += 1;
+                Err(error) => {
+                    defer(&key, error)?;
                     continue;
                 }
             }
-            advance_operation(account, thread, None)?;
-        } else if row["state"] == "pending" {
-            work += 1;
-            // A failed retry stays pending for the next tick, or is dropped when Gmail shows
-            // the message can no longer be snoozed.
-            let _ = retry(gmail, account, &key, &row).await;
+        }
+        let slots = &known[account];
+        let outcome = match job {
+            Work::Wake => match wake(gmail, account, &row, false, slots).await {
+                Ok(Woke::Moved(slot)) => advance_operation(account, thread, None)
+                    .and_then(|generation| readopt(&key, &slot, &generation)),
+                Ok(outcome) => {
+                    woke += matches!(outcome, Woke::Done) as u64;
+                    advance_operation(account, thread, None).and_then(|_| forget(&key))
+                }
+                Err(error) => Err(error),
+            },
+            Work::Retry => retry(gmail, account, &key, &row, slots).await,
+            Work::Upgrade => upgrade(gmail, account, &key, &row, slots).await,
+        };
+        if !matches!(job, Work::Wake) {
+            // Either may have made a label, so the next row lists them again.
+            known.remove(account);
+        }
+        if let Err(error) = outcome {
+            defer(&key, error)?;
         }
     }
-    Ok(json!({"woke":woke,"failures":failures}))
+    let mut reads = READS_PER_RUN;
+    for account in accounts.iter().take(32) {
+        if out_of_time() {
+            break;
+        }
+        // Discovery is retried on the next tick; a failure here never blocks due wakes.
+        let _ = discover(gmail, account, &mut reads, &out_of_time).await;
+    }
+    // Invariant: `failures` counts due snoozes still held back after a failed attempt, including
+    // those waiting out a pause, so "could not return yet" stays shown until their mail is back.
+    let behind = rows()?
+        .values()
+        .filter(|row| is_due(row) && row["attempts"].as_u64().is_some_and(|n| n > 0))
+        .count();
+    Ok(json!({"woke":woke,"failures":behind}))
 }
 
 pub(super) async fn call(method: &str, p: &Value, gmail: &impl Mail) -> Result<Value> {

@@ -33,6 +33,11 @@ pub(super) struct Job {
     pub http: reqwest::Method,
     pub path: Vec<String>,
     pub body: Option<Value>,
+    /// Invariant: a withdrawable change is never sent once its caller stops waiting, unless it is
+    /// already on the wire, so it cannot land long after, when it may undo what happened since.
+    /// The sender's waits for a token, quota or retry and the queue's backoff end at once; one
+    /// waiting behind others is settled when it reaches the head.
+    pub withdrawable: bool,
 }
 
 pub(super) type Outcome = Result<Value, &'static str>;
@@ -153,6 +158,28 @@ impl Queue {
     }
 }
 
+/// Runs `work` unless the caller of a withdrawable change stops waiting first.
+async fn unless_withdrawn<T>(
+    entry: &mut Entry,
+    work: impl std::future::Future<Output = T>,
+) -> Result<T, &'static str> {
+    match (entry.job.withdrawable, entry.waiter.as_mut()) {
+        (true, Some(waiter)) => tokio::select! {
+            // A change that lands as its caller gives up is reported as landed.
+            biased;
+            done = work => Ok(done),
+            () = waiter.closed() => Err("gmail_queue_dropped"),
+        },
+        _ => Ok(work.await),
+    }
+}
+
+impl Entry {
+    fn withdrawn(&self) -> bool {
+        self.job.withdrawable && self.waiter.as_ref().is_none_or(|waiter| waiter.is_closed())
+    }
+}
+
 fn settle(inner: &Inner, account: &str, mut entry: Entry, outcome: Outcome) {
     let _ = inner.events.send(json!({
         "jsonrpc": "2.0",
@@ -187,23 +214,27 @@ async fn drain(inner: Arc<Inner>, account: String) {
                 }
             }
         };
-        let outcome = send(&inner, &account, &entry).await;
+        let mut entry = entry;
+        let outcome = send(&inner, &account, &mut entry).await;
         settle(&inner, &account, entry, outcome);
     }
 }
 
-async fn send(inner: &Inner, account: &str, entry: &Entry) -> Outcome {
+async fn send(inner: &Inner, account: &str, entry: &mut Entry) -> Outcome {
     for wait in BACKOFF.iter().map(Some).chain(std::iter::once(None)) {
         entry.session.check()?;
-        let answer = (inner.sender)(
+        if entry.withdrawn() {
+            return Err("gmail_queue_dropped");
+        }
+        let attempt = (inner.sender)(
             Arc::clone(&entry.session),
             account.to_owned(),
             Arc::clone(&entry.job),
-        )
-        .await;
+        );
+        let answer = unless_withdrawn(entry, attempt).await?;
         match (answer, wait) {
             (Err("gmail_request_deferred" | "gmail_server_rate_limited"), Some(wait)) => {
-                tokio::time::sleep(*wait).await
+                unless_withdrawn(entry, tokio::time::sleep(*wait)).await?
             }
             (answer, _) => return answer,
         }
@@ -241,6 +272,14 @@ mod tests {
             http: reqwest::Method::POST,
             path: vec!["messages".into(), id.into(), "trash".into()],
             body: None,
+            withdrawable: false,
+        }
+    }
+
+    fn withdrawable(id: &str) -> Job {
+        Job {
+            withdrawable: true,
+            ..job(id)
         }
     }
 
@@ -353,6 +392,77 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_withdrawable_change_is_not_sent_once_its_caller_stops_waiting() {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let queue = Queue::new(scripted(
+            vec![Err("gmail_server_rate_limited")],
+            Arc::clone(&sent),
+        ));
+        let mut events = queue.subscribe();
+        let session = Arc::new(AccountSession::new());
+        let (_, head) = queue
+            .enqueue("one", Arc::clone(&session), withdrawable("a"))
+            .unwrap();
+        let (_, behind) = queue
+            .enqueue("one", Arc::clone(&session), withdrawable("b"))
+            .unwrap();
+        let (_, kept) = queue.enqueue("one", session, job("c")).unwrap();
+        while sent.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        // The head waits out its backoff while every caller stops waiting.
+        let dropped = Instant::now();
+        drop((head, behind, kept));
+        let mut settled = Vec::new();
+        for _ in 0..3 {
+            let event = events.recv().await.unwrap()["params"].clone();
+            settled.push(event["error"].as_str().unwrap().to_owned());
+        }
+        assert!(
+            dropped.elapsed() < BACKOFF[0],
+            "the change behind is not held up by a withdrawn change's backoff"
+        );
+        assert_eq!(settled, ["gmail_queue_dropped", "gmail_queue_dropped", ""]);
+        assert_eq!(
+            sent.lock()
+                .unwrap()
+                .iter()
+                .map(|(p, _)| p.as_str())
+                .collect::<Vec<_>>(),
+            ["messages/a/trash", "messages/c/trash"],
+            "a ticket from the RPC surface is still sent"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_withdrawable_change_is_abandoned_while_the_sender_waits() {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&sent);
+        // The sender waits for quota before it sends, as Gmail's pacing makes it.
+        let sender: Sender = Arc::new(move |_, _, job: Arc<Job>| {
+            let sent = Arc::clone(&recorded);
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                sent.lock().unwrap().push(job.path.join("/"));
+                Ok(json!({}))
+            })
+        });
+        let queue = Queue::new(sender);
+        let mut events = queue.subscribe();
+        let session = Arc::new(AccountSession::new());
+        let (_, waiting) = queue
+            .enqueue("one", Arc::clone(&session), withdrawable("a"))
+            .unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        drop(waiting);
+        let settled = events.recv().await.unwrap()["params"].clone();
+        assert_eq!(settled["error"], "gmail_queue_dropped");
+        let (_, kept) = queue.enqueue("one", session, job("b")).unwrap();
+        assert_eq!(kept.await.unwrap(), Ok(json!({})));
+        assert_eq!(*sent.lock().unwrap(), ["messages/b/trash"]);
     }
 
     #[tokio::test]

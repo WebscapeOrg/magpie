@@ -841,6 +841,79 @@ async fn background_receive_preserves_pause_and_queued_edits_without_provider_wr
 
 #[cfg(feature = "mobile")]
 #[tokio::test]
+async fn background_receive_waits_for_a_foreground_request_instead_of_failing() {
+    if isolated() { return; }
+    let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        synchronize(&local, &gmail).await;
+        // A foreground request, as the snooze tick makes beside a background check, is in flight.
+        provider.world.lock().unwrap().pause = "/profile".into();
+        let profile = json!({"accountId":ACCOUNT});
+        let foreground = gmail.call("gmail.profile", &profile);
+        tokio::pin!(foreground);
+        tokio::select! {
+            result = &mut foreground => panic!("answered before the controlled pause: {result:?}"),
+            _ = provider.paused.notified() => {},
+            _ = tokio::time::sleep(Duration::from_secs(5)) => panic!("did not reach the profile request"),
+        }
+        let refresh = local.background_refresh(ACCOUNT, &gmail);
+        tokio::pin!(refresh);
+        tokio::select! {
+            result = &mut refresh => panic!("the background check ended while a foreground request held Gmail: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_millis(600)) => {},
+        }
+        provider.world.lock().unwrap().pause.clear();
+        let (result, answered) = tokio::join!(refresh, foreground);
+        answered.unwrap();
+        let result = result.unwrap();
+        assert_eq!(result["checked"], true, "{result}");
+        assert_eq!(result["error"], Value::Null, "{result}");
+        local.shutdown().await;
+    }).await;
+}
+
+#[tokio::test]
+async fn a_message_fetch_deferred_for_a_foreground_request_is_not_put_off() {
+    if isolated() { return; }
+    let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        synchronize(&local, &gmail).await;
+        let store = local.store(ACCOUNT).await.unwrap();
+        provider.world.lock().unwrap().messages.insert("three".into(), message("three", "Synthetic new body"));
+        let added = json!({"messagesAdded":[{"message":{"id":"three","threadId":"thread","labelIds":["INBOX","UNREAD"]}}]});
+        sync::apply_history(&store, &json!({"historyId":"300","history":[added]}), "").unwrap();
+        set(&store, "lastHistory", &chrono::Utc::now().timestamp_millis().to_string());
+        // A foreground request, such as the snooze tick's, holds Gmail when the new message is fetched.
+        provider.world.lock().unwrap().pause = "/profile".into();
+        let profile = json!({"accountId":ACCOUNT});
+        let foreground = gmail.call("gmail.profile", &profile);
+        tokio::pin!(foreground);
+        tokio::select! {
+            result = &mut foreground => panic!("answered before the controlled pause: {result:?}"),
+            _ = provider.paused.notified() => {},
+            _ = tokio::time::sleep(Duration::from_secs(5)) => panic!("did not reach the profile request"),
+        }
+        assert_eq!(sync::receive(&store, &gmail, ACCOUNT).await, Err("gmail_request_deferred"));
+        provider.world.lock().unwrap().pause.clear();
+        foreground.await.unwrap();
+        sync::receive(&store, &gmail, ACCOUNT).await.unwrap();
+        assert!(store.resource("three").unwrap().is_some(), "the message is fetched as soon as Gmail is free");
+        local.shutdown().await;
+    }).await;
+}
+
+#[cfg(feature = "mobile")]
+#[tokio::test]
 async fn cancelled_background_history_does_not_claim_a_completed_check_and_can_resume() {
     if isolated() { return; }
     let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));

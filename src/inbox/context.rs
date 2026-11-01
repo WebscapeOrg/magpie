@@ -288,7 +288,7 @@ async fn prepare(bytes: Vec<u8>, mime: &str) -> Result<Value, &'static str> {
         if !bytes.starts_with(b"%PDF-") {
             return Err("overview_media_invalid");
         }
-        return document(bytes, include_str!("pdf.py")).await;
+        return pdf(bytes).await;
     }
     if mime.starts_with("application/vnd.") {
         return document(bytes, include_str!("office.py")).await;
@@ -423,6 +423,27 @@ async fn document(_bytes: Vec<u8>, _script: &str) -> Result<Value, &'static str>
     Err("overview_media_unavailable")
 }
 
+#[cfg(target_os = "linux")]
+async fn pdf(bytes: Vec<u8>) -> Result<Value, &'static str> {
+    document(bytes, include_str!("pdf.py")).await
+}
+
+// Invariant: The iPhone cannot render PDF pages, so Claude reads the PDF itself; Claude's own check refuses a damaged one.
+#[cfg(all(feature = "mobile", not(target_os = "linux")))]
+async fn pdf(bytes: Vec<u8>) -> Result<Value, &'static str> {
+    Ok(native_pdf(&bytes))
+}
+
+#[cfg(not(any(target_os = "linux", feature = "mobile")))]
+async fn pdf(bytes: Vec<u8>) -> Result<Value, &'static str> {
+    document(bytes, "").await
+}
+
+#[cfg(any(all(feature = "mobile", not(target_os = "linux")), test))]
+fn native_pdf(bytes: &[u8]) -> Value {
+    json!([{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":STANDARD.encode(bytes)}}])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,6 +485,16 @@ mod tests {
         data.into_bytes()
     }
 
+    #[test]
+    fn iphone_pdfs_go_to_claude_as_one_document_block() {
+        let blocks = native_pdf(&pdf_fixture());
+        assert_eq!(blocks.as_array().unwrap().len(), 1);
+        assert_eq!(blocks[0]["type"], "document");
+        assert_eq!(blocks[0]["source"]["media_type"], "application/pdf");
+        assert_eq!(STANDARD.decode(blocks[0]["source"]["data"].as_str().unwrap()).unwrap(), pdf_fixture());
+    }
+
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     #[tokio::test]
     #[ignore = "uses the household AI router with synthetic PDF and image content"]
     async fn descriptions_read_visual_details_without_tools() {

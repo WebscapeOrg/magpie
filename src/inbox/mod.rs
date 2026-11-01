@@ -1,8 +1,12 @@
 mod avatars;
 #[cfg(test)]
 include!("readiness_tests.rs");
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 mod context;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod describe;
+#[cfg(any(feature = "mobile", test))]
+pub(crate) mod claude;
 #[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 mod overview_tests;
 #[cfg(target_os = "linux")]
@@ -12,6 +16,21 @@ mod store;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
+
+/// Desktop writes descriptions through the local AI agent; the iPhone through its own Claude API key.
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+mod writer {
+    pub(super) async fn ready() -> Result<(), &'static str> {
+        Ok(())
+    }
+    pub(super) async fn generate(messages: &serde_json::Value) -> Result<serde_json::Value, &'static str> {
+        crate::agent::overview::generate(messages).await
+    }
+}
+#[cfg(all(feature = "mobile", not(all(feature = "agent", unix, not(target_os = "ios")))))]
+mod writer {
+    pub(super) use super::claude::{generate, ready};
+}
 
 pub struct Inbox {
     overview_slots: Arc<Semaphore>,
@@ -90,6 +109,148 @@ impl Inbox {
         self.call("inbox.overviews", &json!({"accountId":account,"ids":ids,"allowRemoteImages":prefs["allowRemoteImages"] == true}), gmail, local_mail).await?;
         Ok(())
     }
+    /// Claims the requested messages and writes their descriptions in a background task.
+    /// With a limit the caller waits up to that long, as the iPhone's background refresh must.
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    #[allow(clippy::too_many_arguments)]
+    async fn request_overviews(
+        &self,
+        account: String,
+        ids: Vec<String>,
+        retry: bool,
+        remote: bool,
+        gmail: Arc<crate::providers::gmail::Session>,
+        local_mail: Arc<crate::local_mail::LocalMail>,
+        limit: Option<std::time::Duration>,
+    ) -> Result<Value, &'static str> {
+        // Invariant: a writer that cannot take requests now refuses before any mail is claimed, and says why.
+        if let Err(problem) = writer::ready().await {
+            return Ok(json!({"accepted":false,"problem":problem}));
+        }
+        let Ok(permit) = self.overview_slots.clone().try_acquire_owned() else {
+            return Ok(json!({"accepted":false}));
+        };
+        let name = store::key(&["overviews", &account]);
+        let settings = preferences(&account)?;
+        let remote = remote
+            && (settings["configured"] != true
+                || settings["allowRemoteImages"] == true);
+        if settings["paused"] == true {
+            return Ok(json!({"accepted":false}));
+        }
+        let claimed_at = now();
+        let (incarnation, chosen) = crate::account::with_incarnation(None, |token| {
+            crate::mail::resolve_account(&account)?;
+            let chosen = store::update(&name, |saved| {
+                claim_overviews(saved, &ids, retry, claimed_at)
+            })?;
+            Ok((token, chosen))
+        })?;
+        if chosen.is_empty() {
+            return Ok(json!({"accepted":true}));
+        }
+        let task = tokio::spawn(async move {
+            let _permit = permit;
+            let result =
+                overview_batch(&account, &chosen, &gmail, &local_mail, remote).await;
+            let Ok(protected) = local_mail.overview_candidates(&account).await else {
+                return;
+            };
+            let protected: std::collections::HashSet<_> =
+                protected.into_iter().collect();
+            let completed =
+                crate::account::with_incarnation(Some(&incarnation), |_| {
+                    crate::mail::resolve_account(&account)?;
+                    store::update(&name, |saved| {
+                        let current: Vec<_> = chosen
+                            .into_iter()
+                            .filter(|id| {
+                                overview_claimed(&saved[id], claimed_at)
+                            })
+                            .collect();
+                        finish_overviews_protected(saved, &current, &result, &protected)
+                    })
+                });
+            if completed == Err("overview_account_changed") {
+                let _ = crate::account::with_incarnation(None, |_| {
+                    crate::mail::resolve_account(&account)?;
+                    if store::read(&name)?.is_none() {
+                        return Ok(());
+                    }
+                    store::update(&name, |saved| {
+                        for id in &ids {
+                            if overview_claimed(&saved[id], claimed_at) {
+                                if overview_current(&saved[id], now()) {
+                                    saved[id]["rewriteState"] = json!("failed");
+                                    saved[id]["rewriteAt"] = json!(0);
+                                } else {
+                                    saved[id] = json!({"state":"failed","version":2,"updated":0,"reason":"Account settings changed; preparation will retry"});
+                                }
+                            }
+                        }
+                        Ok(())
+                    })
+                });
+            }
+        });
+        if let Some(limit) = limit {
+            let finished = tokio::time::timeout(limit, task).await.is_ok();
+            return Ok(json!({"accepted":true,"finished":finished}));
+        }
+        Ok(json!({"accepted":true}))
+    }
+    /// Retry on the phone: every failed message in the account may be asked about again, so ones
+    /// not asked in this batch are asked by the following ones instead of waiting for another Retry.
+    #[cfg(feature = "mobile")]
+    pub(crate) fn forgive_failed(&self, account: &str) -> Result<(), &'static str> {
+        crate::account::with_incarnation(None, |_| {
+            let account = crate::mail::resolve_account(account)?.id;
+            store::update(&store::key(&["overviews", &account]), forgive_attempts)
+        })
+    }
+    /// The saved descriptions for one page of the app's mail.
+    #[cfg(feature = "mobile")]
+    pub(crate) fn overview_page(&self, account: &str, ids: &[&str]) -> Result<Value, &'static str> {
+        let account = crate::mail::resolve_account(account)?.id;
+        let saved = store::read(&store::key(&["overviews", &account]))?.unwrap_or(json!({}));
+        let saved = saved.as_object().ok_or("inbox_storage_invalid")?;
+        let mut page = serde_json::Map::new();
+        for id in ids {
+            if let Some(row) = saved.get(*id) {
+                page.insert((*id).to_owned(), row.clone());
+            }
+        }
+        Ok(json!({"overviews":overview_snapshot(Value::Object(page), now())?,"preferences":preferences(&account)?}))
+    }
+    /// The iPhone's background refresh: describe the app's chosen Inbox mail still waiting, within a time limit.
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn describe_waiting(
+        &self,
+        account: &str,
+        ids: &[String],
+        gmail: Arc<crate::providers::gmail::Session>,
+        local_mail: Arc<crate::local_mail::LocalMail>,
+        limit: std::time::Duration,
+    ) -> Result<Value, &'static str> {
+        let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
+        // Invariant: the app names more messages than are described, so messages that failed or are
+        // still running never hold back the ones behind them.
+        let due: Vec<String> = ids.iter().filter(|id| overview_due(&saved[id.as_str()], false, now())).take(4).cloned().collect();
+        let mut finished = json!(true);
+        if !due.is_empty() {
+            let prefs = preferences(account)?;
+            let outcome = self
+                .request_overviews(account.to_owned(), due, false, prefs["allowRemoteImages"] == true, gmail, local_mail, Some(limit))
+                .await?;
+            finished = outcome["finished"].clone();
+        }
+        let saved = overview_snapshot(store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({})), now())?;
+        let rows: serde_json::Map<String, Value> = ids
+            .iter()
+            .filter_map(|id| saved.get(id).map(|row| (id.clone(), row.clone())))
+            .collect();
+        Ok(json!({"accountId":account,"finished":finished,"overviews":rows}))
+    }
     pub async fn call(
         &self,
         method: &str,
@@ -129,11 +290,11 @@ impl Inbox {
                     })?;
                     preferences(&account)
                 };
-                #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+                #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
                 {
                     crate::account::with_incarnation(None, |_| change())
                 }
-                #[cfg(not(all(feature = "agent", unix, not(target_os = "ios"))))]
+                #[cfg(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
                 {
                     change()
                 }
@@ -148,79 +309,14 @@ impl Inbox {
                 let remote = params["allowRemoteImages"] == true;
                 let account = account(params)?;
                 let ids = ids(params)?;
-                #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+                #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
                 {
-                    let Ok(permit) = self.overview_slots.clone().try_acquire_owned() else {
-                        return Ok(json!({"accepted":false}));
-                    };
-                    let name = store::key(&["overviews", &account]);
-                    let settings = preferences(&account)?;
-                    let remote = remote
-                        && (settings["configured"] != true
-                            || settings["allowRemoteImages"] == true);
-                    if settings["paused"] == true {
-                        return Ok(json!({"accepted":false}));
-                    }
-                    let claimed_at = now();
-                    let (incarnation, chosen) = crate::account::with_incarnation(None, |token| {
-                        crate::mail::resolve_account(&account)?;
-                        let chosen = store::update(&name, |saved| {
-                            claim_overviews(saved, &ids, params["retry"] == true, claimed_at)
-                        })?;
-                        Ok((token, chosen))
-                    })?;
-                    if chosen.is_empty() {
-                        return Ok(json!({"accepted":true}));
-                    }
-                    tokio::spawn(async move {
-                        let _permit = permit;
-                        let result =
-                            overview_batch(&account, &chosen, &gmail, &local_mail, remote).await;
-                        let Ok(protected) = local_mail.overview_candidates(&account).await else {
-                            return;
-                        };
-                        let protected: std::collections::HashSet<_> =
-                            protected.into_iter().collect();
-                        let completed =
-                            crate::account::with_incarnation(Some(&incarnation), |_| {
-                                crate::mail::resolve_account(&account)?;
-                                store::update(&name, |saved| {
-                                    let current: Vec<_> = chosen
-                                        .into_iter()
-                                        .filter(|id| {
-                                            overview_claimed(&saved[id], claimed_at)
-                                        })
-                                        .collect();
-                                    finish_overviews_protected(saved, &current, &result, &protected)
-                                })
-                            });
-                        if completed == Err("overview_account_changed") {
-                            let _ = crate::account::with_incarnation(None, |_| {
-                                crate::mail::resolve_account(&account)?;
-                                if store::read(&name)?.is_none() {
-                                    return Ok(());
-                                }
-                                store::update(&name, |saved| {
-                                    for id in &ids {
-                                        if overview_claimed(&saved[id], claimed_at) {
-                                            if overview_current(&saved[id], now()) {
-                                                saved[id]["rewriteState"] = json!("failed");
-                                                saved[id]["rewriteAt"] = json!(0);
-                                            } else {
-                                                saved[id] = json!({"state":"failed","version":2,"updated":0,"reason":"Account settings changed; preparation will retry"});
-                                            }
-                                        }
-                                    }
-                                    Ok(())
-                                })
-                            });
-                        }
-                    });
-                    Ok(json!({"accepted":true}))
+                    self.request_overviews(account, ids, params["retry"] == true, remote, gmail, local_mail, None)
+                        .await
                 }
-                #[cfg(not(all(feature = "agent", unix, not(target_os = "ios"))))]
+                #[cfg(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
                 {
-                    let _ = (account, ids, local_mail);
+                    let _ = (account, ids, local_mail, remote);
                     Err("overview_ai_unavailable")
                 }
             }
@@ -263,7 +359,7 @@ impl Inbox {
         }
     }
 }
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 fn claim_overviews(
     saved: &mut Value,
     ids: &[String],
@@ -289,14 +385,15 @@ fn claim_overviews(
             .as_i64()
             .filter(|value| *value > 0 && *value <= at)
             .unwrap_or(at);
+        let attempts = old["attempts"].as_u64().unwrap_or(0);
         saved[id] =
-            json!({"state":"running","updated":at,"pendingSince":pending_since,"version":2});
+            json!({"state":"running","updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts});
         chosen.push(id.clone());
     }
     Ok(chosen)
 }
 
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 fn finish_overviews_protected(
     saved: &mut Value,
     chosen: &[String],
@@ -316,6 +413,12 @@ fn finish_overviews_protected(
             .ok()
             .and_then(Value::as_array)
             .and_then(|rows| rows.iter().find(|v| v["id"] == *id));
+        let error = row.and_then(|row| row["error"].as_str()).or(result.as_ref().err().copied());
+        // Invariant: an attempt counts only when the writer answered for this message and the failure
+        // was its own; a batch-wide failure (tagged "batch" or the whole result) or one met while
+        // preparing the mail ("prepare") never counts.
+        let own = result.is_ok() && row.is_none_or(|row| row.get("stage").is_none()) && !error.is_some_and(service_failure);
+        let attempts = saved[id]["attempts"].as_u64().unwrap_or(0) + u64::from(own);
         saved[id] = match row.filter(|row| row["text"].as_str().is_some_and(valid_description)) {
             Some(row) => {
                 json!({"state":"ready","text":row["text"],"version":2,"promptRevision":1,"updated":now(),"expiresAt":if row["timeSensitive"] == false && !relative_words(row["text"].as_str().unwrap_or("")) { 0 } else { row["expiresAt"].as_i64().filter(|value| *value > 0).unwrap_or_else(|| next_day(now())) }})
@@ -327,7 +430,7 @@ fn finish_overviews_protected(
                 previous
             }
             None => {
-                json!({"state":"failed","reason":overview_failure(result.as_ref().err().copied()),"updated":now(),"pendingSince":pending_since,"version":2})
+                json!({"state":"failed","reason":overview_failure(error),"updated":now(),"pendingSince":pending_since,"version":2,"attempts":attempts})
             }
         };
     }
@@ -356,7 +459,7 @@ fn finish_overviews(
     finish_overviews_protected(saved, chosen, result, &std::collections::HashSet::new())
 }
 
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 async fn overview_batch(
     account: &str,
     ids: &[String],
@@ -364,21 +467,60 @@ async fn overview_batch(
     local_mail: &crate::local_mail::LocalMail,
     remote: bool,
 ) -> Result<Value, &'static str> {
-    overview_batch_with(account, ids, gmail, local_mail, |mut messages| async move {
-        for message in messages.as_array_mut().ok_or("overview_input_invalid")? {
+    overview_batch_with(account, ids, gmail, local_mail, |messages| async move {
+        let mut prepared = Vec::new();
+        let mut failed = Vec::new();
+        for mut message in messages.as_array().cloned().ok_or("overview_input_invalid")? {
             let id = message["id"]
                 .as_str()
                 .ok_or("overview_input_invalid")?
                 .to_owned();
-            let raw = local_mail.read(account, &id, gmail).await?;
-            context::enrich(account, &id, &raw, message, gmail, remote).await?;
+            let enriched = async {
+                let raw = local_mail.read(account, &id, gmail).await?;
+                context::enrich(account, &id, &raw, &mut message, gmail, remote).await
+            }
+            .await;
+            match enriched {
+                Ok(()) => prepared.push(message),
+                Err(error) if account_failure(error) => return Err(error),
+                Err(error) => failed.push(json!({"id":id,"error":error,"stage":"prepare"})),
+            }
         }
-        crate::agent::overview::generate(&messages).await
+        if prepared.is_empty() {
+            return Ok(json!(failed));
+        }
+        let prepared = json!(prepared);
+        let generated = writer::generate(&prepared).await;
+        merge_rows(generated, &prepared, failed)
     })
     .await
 }
 
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+/// Failures that concern the whole account, so the batch stops rather than marking each message.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn account_failure(error: &str) -> bool {
+    error.starts_with("accounts_")
+        || matches!(error, "local_account_unknown" | "gmail_account_unknown" | "gmail_auth_required" | "overview_account_changed")
+}
+
+/// Joins the writer's rows for the messages it was given with the rows of messages that could not be prepared.
+/// Invariant: a message that could not be prepared fails alone and never reaches the writer.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn merge_rows(generated: Result<Value, &'static str>, prepared: &Value, mut failed: Vec<Value>) -> Result<Value, &'static str> {
+    if failed.is_empty() {
+        return generated;
+    }
+    match generated {
+        Ok(Value::Array(rows)) => failed.extend(rows),
+        Ok(_) => {}
+        Err(error) => failed.extend(
+            prepared.as_array().into_iter().flatten().map(|message| json!({"id":message["id"],"error":error,"stage":"batch"})),
+        ),
+    }
+    Ok(json!(failed))
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 async fn overview_batch_with<F, Fut>(
     account: &str,
     ids: &[String],
@@ -391,24 +533,41 @@ where
     Fut: std::future::Future<Output = Result<Value, &'static str>>,
 {
     let mut messages = Vec::new();
+    let mut failed = Vec::new();
     for id in ids {
-        let raw = local_mail.read(account, id, gmail).await?;
-        let mut message = overview_message(id, &raw)?;
-        message["owner"] = json!(account);
-        messages.push(message);
+        let prepared = async {
+            let raw = local_mail.read(account, id, gmail).await?;
+            overview_message(id, &raw)
+        }
+        .await;
+        match prepared {
+            Ok(mut message) => {
+                message["owner"] = json!(account);
+                messages.push(message);
+            }
+            Err(error) if account_failure(error) => return Err(error),
+            Err(error) => failed.push(json!({"id":id,"error":error,"stage":"prepare"})),
+        }
     }
-    generate(json!(messages)).await
+    if messages.is_empty() {
+        return Ok(json!(failed));
+    }
+    let messages = json!(messages);
+    let generated = generate(messages.clone()).await;
+    merge_rows(generated, &messages, failed)
 }
 
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 fn overview_message(id: &str, raw: &Value) -> Result<Value, &'static str> {
     let prepared = crate::message::content::prepare(raw, now())?;
     let summary = &prepared["summary"];
     let body = prepared["body"]["text"].as_str().unwrap_or("");
     let current = chrono::Local::now();
     let valid_until = next_day(current.timestamp_millis());
+    // Invariant: recipient and attachment lists are bounded like the body, so no header can make a request unbounded.
+    let first = |list: &Value| json!(list.as_array().map(|items| &items[..items.len().min(50)]).unwrap_or_default());
     Ok(
-        json!({"id":id,"from":summary["from"],"to":summary["to"],"cc":summary["cc"],"bcc":summary["bcc"],"subject":summary["subject"],"date":summary["date"],"currentDate":current.format("%Y-%m-%d").to_string(),"currentTime":current.to_rfc3339(),"validUntil":valid_until,"sentByOwner":summary["isSent"],"body":context::bounded(body,48000),"attachments":prepared["attachments"]}),
+        json!({"id":id,"from":summary["from"],"to":first(&summary["to"]),"cc":first(&summary["cc"]),"bcc":first(&summary["bcc"]),"subject":summary["subject"],"date":summary["date"],"currentDate":current.format("%Y-%m-%d").to_string(),"currentTime":current.to_rfc3339(),"validUntil":valid_until,"sentByOwner":summary["isSent"],"body":context::bounded(body,48000),"attachments":first(&prepared["attachments"])}),
     )
 }
 
@@ -520,12 +679,17 @@ fn valid_description(text: &str) -> bool {
         })
 }
 
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 fn overview_due(value: &Value, retry: bool, at: i64) -> bool {
     if overview_current(value, at) {
         if value["promptRevision"] == 1 { return false; }
         let age = at.saturating_sub(value["rewriteAt"].as_i64().unwrap_or(0));
         return !(age >= 0 && age < 900_000 && (value["rewriteState"] == "running" || (!retry && value["rewriteState"] == "failed")));
+    }
+    // Invariant: the phone pays for each attempt, so a message that failed three times for its own
+    // content waits for Retry instead of being asked again every 15 minutes.
+    if cfg!(feature = "mobile") && !retry && value["state"] == "failed" && value["attempts"].as_u64().unwrap_or(0) >= RETRY_LIMIT {
+        return false;
     }
     let age = at.saturating_sub(value["updated"].as_i64().unwrap_or(0));
     !(age >= 0
@@ -533,7 +697,28 @@ fn overview_due(value: &Value, retry: bool, at: i64) -> bool {
         && (value["state"] == "running" || (!retry && value["state"] == "failed")))
 }
 
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+const RETRY_LIMIT: u64 = 3;
+
+#[cfg(feature = "mobile")]
+fn forgive_attempts(saved: &mut Value) -> Result<(), &'static str> {
+    for row in saved.as_object_mut().ok_or("inbox_storage_invalid")?.values_mut() {
+        if row["state"] == "failed" && row.get("attempts").is_some() {
+            row["attempts"] = json!(0);
+        }
+    }
+    Ok(())
+}
+
+/// Failures that say nothing about the message itself, so they never count as one of its attempts.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn service_failure(error: &str) -> bool {
+    ["ai_", "gmail_", "local_", "private_fs_", "inbox_storage_"].iter().any(|prefix| error.starts_with(prefix))
+        && error != "gmail_not_found"
+        || matches!(error, "overview_start_failed" | "overview_ai_unavailable" | "overview_account_changed")
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 fn overview_claimed(value: &Value, at: i64) -> bool {
     (value["state"] == "running" && value["updated"] == at)
         || (value["rewriteState"] == "running" && value["rewriteAt"] == at)
@@ -618,8 +803,91 @@ fn overview_failure(error: Option<&str>) -> &'static str {
         Some("overview_unsupported_claim") => {
             "AI response could not be verified against the mail; retry from Menu"
         }
+        Some("ai_key_invalid" | "ai_key_refused") => {
+            "Claude refused the API key; add a new key in Settings"
+        }
+        Some("ai_billing") => "Claude API billing needs attention in the Claude Console",
+        Some("ai_rate_limited" | "ai_unavailable" | "ai_unreachable" | "ai_daily_limit") => {
+            "Claude could not take more requests just now; Magpie will retry"
+        }
+        Some("overview_ai_refused") => "Claude declined to describe this message",
         None => "AI response omitted this message; retry from Menu",
         _ => "Mail could not be prepared for AI; retry from Menu",
+    }
+}
+
+#[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+mod overview_attempt_tests {
+    use super::*;
+
+    #[test]
+    fn each_message_keeps_its_own_failure_and_only_its_own_faults_count_as_attempts() {
+        let at = now();
+        let mut saved = json!({});
+        let ids: Vec<String> = ["a", "b", "c"].iter().map(|id| id.to_string()).collect();
+        claim_overviews(&mut saved, &ids, false, at).unwrap();
+        let result = Ok(json!([
+            {"id":"a","text":"Your invoice INV-520 was paid","timeSensitive":false,"expiresAt":0},
+            {"id":"b","error":"overview_ai_refused"},
+            {"id":"c","error":"ai_rate_limited"}
+        ]));
+        finish_overviews_protected(&mut saved, &ids, &result, &Default::default()).unwrap();
+        assert_eq!(saved["a"]["state"], "ready", "a neighbour's failure does not fail this message");
+        assert_eq!(saved["b"]["state"], "failed");
+        assert_eq!(saved["b"]["reason"], overview_failure(Some("overview_ai_refused")));
+        assert_eq!(saved["b"]["attempts"], 1);
+        assert_eq!(saved["c"]["reason"], overview_failure(Some("ai_rate_limited")));
+        assert_eq!(saved["c"]["attempts"], 0, "a busy service is not the message's fault");
+    }
+
+    #[test]
+    fn preparation_and_batch_failures_never_count_as_attempts() {
+        let at = now();
+        let ids: Vec<String> = ["a", "b", "c", "d"].iter().map(|id| id.to_string()).collect();
+        let mut saved = json!({});
+        claim_overviews(&mut saved, &ids, false, at).unwrap();
+        finish_overviews_protected(&mut saved, &ids, &Err("overview_unsupported_claim"), &Default::default()).unwrap();
+        assert!(ids.iter().all(|id| saved[id]["attempts"] == 0), "a batch-wide failure is no one message's fault");
+        claim_overviews(&mut saved, &ids, true, at + 1).unwrap();
+        let result = Ok(json!([
+            {"id":"a","error":"gmail_not_found","stage":"prepare"},
+            {"id":"b","error":"gmail_http_failed"},
+            {"id":"c","error":"overview_unsupported_claim"},
+            {"id":"d","error":"overview_unsupported_claim","stage":"batch"}
+        ]));
+        finish_overviews_protected(&mut saved, &ids, &result, &Default::default()).unwrap();
+        assert_eq!(saved["d"]["attempts"], 0, "a writer failure spread over the batch is no one message's fault");
+        assert_eq!(saved["a"]["attempts"], 0, "mail that could not be prepared cost nothing");
+        assert_eq!(saved["b"]["attempts"], 0, "a network failure is not the message's fault");
+        assert_eq!(saved["c"]["attempts"], 1);
+        assert!(service_failure("local_disk_full") && service_failure("inbox_storage_invalid") && !service_failure("gmail_not_found"));
+    }
+
+    #[cfg(feature = "mobile")]
+    #[test]
+    fn retry_forgives_every_failed_message() {
+        let later = now() + 3_600_000;
+        let mut saved = json!({
+            "capped": {"state":"failed","updated":now(),"version":2,"attempts":3},
+            "ready": {"state":"ready","text":"Receipt","version":2,"expiresAt":0}
+        });
+        forgive_attempts(&mut saved).unwrap();
+        assert_eq!(saved["capped"]["attempts"], 0);
+        assert!(overview_due(&saved["capped"], false, later), "the next poll asks again without another Retry");
+        assert!(saved["ready"].get("attempts").is_none());
+    }
+
+    #[test]
+    fn a_message_that_fails_three_times_waits_for_retry_on_the_phone() {
+        let later = now() + 3_600_000;
+        let row = |attempts: u64| json!({"state":"failed","updated":now(),"version":2,"attempts":attempts});
+        assert!(overview_due(&row(2), false, later));
+        assert_eq!(overview_due(&row(3), false, later), !cfg!(feature = "mobile"));
+        assert!(overview_due(&row(3), true, later), "Retry always asks again");
+        let mut saved = json!({"m": row(3)});
+        claim_overviews(&mut saved, &["m".to_string()], true, later).unwrap();
+        assert_eq!(saved["m"]["attempts"], 3, "a claim carries the count forward");
+        assert!(service_failure("ai_daily_limit") && !service_failure("overview_unsupported_claim"));
     }
 }
 
@@ -634,6 +902,9 @@ mod overview_failure_tests {
         assert!(overview_failure(Some("overview_ai_unavailable")).contains("respond"));
         assert!(!overview_failure(Some("secret mail or credential")).contains("secret"));
         assert!(overview_failure(None).contains("omitted"));
+        assert!(overview_failure(Some("ai_key_invalid")).contains("API key"));
+        assert!(overview_failure(Some("ai_billing")).contains("billing"));
+        assert!(overview_failure(Some("ai_rate_limited")).contains("retry"));
     }
 }
 

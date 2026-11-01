@@ -312,3 +312,30 @@ fn credentials_native_linux_retains_legacy_attribute_scopes() {
     );
     cleanup.0.delete().unwrap();
 }
+
+#[test]
+fn claude_api_key_slot_is_separate_from_gmail_credentials() {
+    let slot = CredentialKey {
+        provider: "anthropic".into(),
+        account_id: "default".into(),
+        kind: CredentialKind::ClaudeApiKey,
+    };
+    let attributes = slot.attributes().unwrap();
+    assert_eq!(attributes["kind"], "claude-api-key");
+    assert_eq!(attributes["account"], "default");
+    assert_eq!(attributes.len(), 3);
+    assert_ne!(
+        slot.native_id().unwrap(),
+        key("gmail", "default", CredentialKind::GoogleRefreshToken { client_id: "client".into() })
+            .native_id()
+            .unwrap()
+    );
+    for (provider, account) in [("gmail", "default"), ("anthropic", "dave@example.test"), ("anthropic", "")] {
+        let wrong = CredentialKey {
+            provider: provider.into(),
+            account_id: account.into(),
+            kind: CredentialKind::ClaudeApiKey,
+        };
+        assert!(wrong.attributes().is_err(), "accepted {provider}/{account}");
+    }
+}

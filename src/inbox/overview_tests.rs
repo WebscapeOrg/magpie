@@ -504,8 +504,52 @@ async fn overview_admission_allows_only_one_batch_and_failure_never_starts_ai() 
             panic!("incomplete batch reached AI")
         })
         .await;
-        assert_eq!(result, Err("gmail_not_found"));
+        assert_eq!(result, Ok(json!([{"id":"missing","error":"gmail_not_found","stage":"prepare"}])));
         assert_eq!(provider.requests().len(), 2);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_message_that_cannot_be_prepared_fails_alone_and_its_neighbours_reach_ai() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let _credentials =
+        credentials::tests::isolated_store(Credentials(Arc::new(Mutex::new(Vec::new()))));
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let gmail = gmail::Session::default();
+        let local = LocalMail::default();
+        for id in ["a", "c"] {
+            seed(&local, &gmail, ACCOUNT, &message(id, "Confirm the synthetic request.")).await;
+        }
+        let ids = ["a", "missing", "c"].map(str::to_owned);
+        let mut asked = Vec::new();
+        let result = overview_batch_with(ACCOUNT, &ids, &gmail, &local, |messages| {
+            asked = messages.as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap().to_owned()).collect();
+            validated_response(messages)
+        })
+        .await
+        .unwrap();
+        assert_eq!(asked, ["a", "c"], "only the messages that were prepared reach AI");
+        let rows = result.as_array().unwrap();
+        assert_eq!(rows.len(), 3);
+        let missing = rows.iter().find(|row| row["id"] == "missing").unwrap();
+        assert_eq!(missing["error"], "gmail_not_found");
+        assert_eq!(missing["stage"], "prepare");
+        assert!(rows.iter().filter(|row| row["id"] != "missing").all(|row| row["text"].is_string()));
+        let failed = overview_batch_with(ACCOUNT, &ids, &gmail, &local, |_| std::future::ready(Err("overview_ai_unavailable")))
+            .await
+            .unwrap();
+        let errors: BTreeMap<String, String> = failed.as_array().unwrap().iter()
+            .map(|row| (row["id"].as_str().unwrap().to_owned(), row["error"].as_str().unwrap().to_owned()))
+            .collect();
+        assert_eq!(errors["missing"], "gmail_not_found", "a writer failure does not replace a message's own failure");
+        assert_eq!(errors["a"], "overview_ai_unavailable");
+        assert_eq!(errors["c"], "overview_ai_unavailable");
     })
     .await;
 }

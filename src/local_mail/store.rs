@@ -254,7 +254,7 @@ impl Store {
     pub(super) fn directory(&self) -> &File {
         self.vfs.directory()
     }
-    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     pub(super) fn overview_candidates(&self) -> Result<Vec<String>> {
         self.read(|db| {
             let mut query = sql(db.prepare("SELECT m.id FROM messages m JOIN labels l ON m.id=l.message_id WHERE l.label='INBOX' AND m.text_complete=1 ORDER BY m.date DESC, m.id LIMIT 500001"))?;
@@ -302,7 +302,7 @@ impl Store {
         })
     }
     // Invariant: Read-only; alert decisions stay with the phone host, which knows what it has shown and described.
-    #[cfg(any(feature = "mobile", target_os = "linux"))]
+    #[cfg(any(feature = "mobile", test))]
     pub(super) fn alert_snapshot(&self) -> Result<Value> {
         self.read(|db| {
             let snapshot = sql(db.unchecked_transaction())?;

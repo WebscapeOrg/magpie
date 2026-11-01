@@ -87,7 +87,7 @@ impl LocalMail {
         .await
     }
 
-    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     pub(crate) async fn overview_candidates(
         &self,
         account: &str,
@@ -100,7 +100,7 @@ impl LocalMail {
         let store = self.store(account).await?;
         sync::disk(&store, |store| store.notification_snapshot()).await
     }
-    #[cfg(any(feature = "mobile", target_os = "linux"))]
+    #[cfg(feature = "mobile")]
     pub(crate) async fn alert_snapshot(&self, account: &str) -> Result<Value, &'static str> {
         let store = self.store(account).await?;
         sync::disk(&store, |store| store.alert_snapshot()).await

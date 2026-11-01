@@ -25,7 +25,7 @@ pub(crate) fn raw_registry_readonly() -> Result<Value> {
     };
     registry(&read_readonly(&dir)?)
 }
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) fn with_incarnation<T>(
     expected: Option<&str>,
     run: impl FnOnce(String) -> Result<T>,

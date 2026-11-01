@@ -76,6 +76,7 @@ pub fn serve() -> io::Result<()> {
         let maintenance = engine.clone();
         let scheduler = tokio::task::spawn_local(async move {
             let mut tick = tokio::time::interval(Duration::from_secs(30));
+            #[cfg(feature = "agent")]
             let mut preparation_turn = 0usize;
             loop {
                 tokio::select! { _ = tick.tick() => (), _ = maintenance_stop.changed() => break }

@@ -22,6 +22,114 @@ impl Engine {
         })).await;
         Ok(json!({"accounts":pages}))
     }
+    /// Describes the waiting Inbox mail the app names, while iOS keeps the app awake.
+    /// Invariant: the app names only unread Inbox mail with no saved description, at most 20 per account;
+    /// the engine describes the first four of them that are due.
+    pub async fn mobile_background_describe(&self, params: &Value) -> Result<Value, &'static str> {
+        let fields = params.as_object().ok_or("invalid_params")?;
+        let rows = params["accounts"].as_array().filter(|rows| fields.len() == 1 && rows.len() <= 32).ok_or("invalid_params")?;
+        let mut work: Vec<(String, Vec<String>)> = Vec::new();
+        for row in rows {
+            if row.as_object().is_none_or(|fields| fields.len() != 2) {
+                return Err("invalid_params");
+            }
+            let account = row["accountId"].as_str().filter(|id| !id.is_empty()).ok_or("invalid_params")?;
+            let ids = row["ids"].as_array().filter(|ids| !ids.is_empty() && ids.len() <= 20).ok_or("invalid_params")?;
+            let ids = ids
+                .iter()
+                .map(|id| {
+                    let id = id.as_str().ok_or("invalid_params")?;
+                    crate::mail::action::validate_message_id(crate::mail::Provider::Gmail, id)?;
+                    Ok(id.to_owned())
+                })
+                .collect::<Result<Vec<_>, &'static str>>()?;
+            if work.iter().any(|(seen, _)| seen == account) {
+                return Err("invalid_params");
+            }
+            work.push((account.to_owned(), ids));
+        }
+        for (account, _) in &work {
+            reader::registered(account).await?;
+        }
+        crate::inbox::claude::ready().await?;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(14);
+        let mut pages = Vec::new();
+        for (account, ids) in work {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if left < std::time::Duration::from_secs(3) {
+                break;
+            }
+            let page = self
+                .inbox
+                .describe_waiting(&account, &ids, self.gmail.clone(), self.local_mail.clone(), left)
+                .await
+                .unwrap_or_else(|error| json!({"accountId":account,"error":error}));
+            pages.push(page);
+        }
+        Ok(json!({"accounts":pages}))
+    }
+    /// The same page of descriptions the main machine served the phone, now written on the phone.
+    pub async fn mobile_overviews(&self, params: &Value) -> Result<Value, &'static str> {
+        let fields = params.as_object().ok_or("invalid_params")?;
+        if !fields.keys().all(|key| ["accountId", "ids", "request", "retry", "allowRemoteImages"].contains(&key.as_str())) {
+            return Err("invalid_params");
+        }
+        let account = params["accountId"].as_str().filter(|id| !id.is_empty()).ok_or("invalid_params")?;
+        let ids = params["ids"].as_array().filter(|ids| ids.len() <= 100).ok_or("invalid_params")?;
+        for id in ids {
+            crate::mail::action::validate_message_id(crate::mail::Provider::Gmail, id.as_str().ok_or("invalid_params")?)?;
+        }
+        for key in ["request", "retry", "allowRemoteImages"] {
+            if params.get(key).is_some_and(|value| !value.is_boolean()) {
+                return Err("invalid_params");
+            }
+        }
+        if params["retry"] == true {
+            self.inbox.forgive_failed(account)?;
+        }
+        let mut submitted = json!({"accepted":null});
+        if params["request"] == true {
+            if ids.is_empty() || ids.len() > 4 {
+                return Err("invalid_params");
+            }
+            submitted = self
+                .dispatch("inbox.overviews", &json!({"accountId":account,"ids":ids,"retry":params["retry"] == true,"allowRemoteImages":params["allowRemoteImages"] == true}))
+                .await?;
+        }
+        let ids: Vec<&str> = ids.iter().filter_map(Value::as_str).collect();
+        let page = self.inbox.overview_page(account, &ids)?;
+        let keys = ["text", "state", "updated", "version", "expiresAt", "reason", "pendingSince", "attempts"];
+        let rows: serde_json::Map<String, Value> = page["overviews"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(id, row)| (id.clone(), json!(keys.iter().filter_map(|key| row.get(*key).map(|value| (key.to_string(), value.clone()))).collect::<serde_json::Map<_, _>>())))
+            .collect();
+        let mut answer = json!({"overviews":rows,"accepted":submitted["accepted"],"preferences":page["preferences"]});
+        if let Some(problem) = submitted["problem"].as_str() {
+            answer["problem"] = json!(problem);
+        }
+        Ok(answer)
+    }
+    pub async fn mobile_overview_settings(&self, params: &Value) -> Result<Value, &'static str> {
+        self.dispatch("inbox.preferences", params).await
+    }
+    /// The Claude API key: set (checked with Anthropic first), removed or described. Never returned.
+    pub async fn mobile_ai_key(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        let fields = params.as_object().ok_or("invalid_params")?;
+        match method {
+            "ai.setKey" => {
+                if fields.len() != 1 {
+                    return Err("invalid_params");
+                }
+                let key = params["key"].as_str().filter(|key| key.len() <= 4096).ok_or("invalid_params")?;
+                crate::inbox::claude::set_key(key).await
+            }
+            "ai.removeKey" if fields.is_empty() => crate::inbox::claude::remove_key().await,
+            "ai.keyStatus" if fields.is_empty() => crate::inbox::claude::key_status().await,
+            _ => Err("invalid_params"),
+        }
+    }
     pub async fn mobile_mail_alerts(&self, params: &Value) -> Result<Value, &'static str> {
         if params.as_object().is_none_or(|p| !p.is_empty()) {
             return Err("invalid_params");

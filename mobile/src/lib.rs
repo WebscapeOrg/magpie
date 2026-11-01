@@ -177,13 +177,17 @@ pub unsafe extern "C" fn magpie_engine_request(
                 let removing=matches!(method.as_str(),"accounts.mobileRemove"|"engine.suspend"|"engine.copyAttachments"|"engine.clearDraft"|"engine.backgroundRefresh");
                 let _exclusive=if removing {Some(host.operations.write().await)}else{None};
                 let _shared=if !removing {Some(host.operations.read().await)}else{None};
-                if !host.active.load(Ordering::Acquire) && !matches!(method.as_str(), "engine.info" | "engine.events" | "engine.suspend" | "engine.resume" | "engine.backgroundRefresh") { return Err("mobile_suspended"); }
+                if !host.active.load(Ordering::Acquire) && !matches!(method.as_str(), "engine.info" | "engine.events" | "engine.suspend" | "engine.resume" | "engine.backgroundRefresh" | "engine.backgroundDescribe") { return Err("mobile_suspended"); }
                 host.engine.mobile_authorize(&params).await?;
                 match method.as_str() {
                     "engine.backgroundRefresh" => { if host.active.load(Ordering::Acquire) { return Err("mobile_refresh_foreground"); } host.engine.mobile_background_refresh(&params).await },
                     "accounts.mobileRemove"=>host.engine.mobile_remove_account(&params).await,
                     "engine.contacts"=>host.engine.mobile_contacts(&params).await,
                     "engine.mailAlerts"=>host.engine.mobile_mail_alerts(&params).await,
+                    "engine.backgroundDescribe" => { if host.active.load(Ordering::Acquire) { return Err("mobile_refresh_foreground"); } host.engine.mobile_background_describe(&params).await },
+                    "engine.overviews"=>host.engine.mobile_overviews(&params).await,
+                    "engine.overviewSettings"=>host.engine.mobile_overview_settings(&params).await,
+                    "ai.setKey" | "ai.removeKey" | "ai.keyStatus"=>host.engine.mobile_ai_key(&method,&params).await,
                     "engine.copyAttachments" | "engine.clearDraft"=>host.engine.mobile_draft_attachments(&method,&params).await,
                     "engine.conversation"=>host.engine.mobile_conversation(&params).await,
                     "engine.releaseSend"=>host.engine.mobile_release_send(&params).await,
@@ -220,7 +224,13 @@ pub unsafe extern "C" fn magpie_engine_request(
             let mut outcome = {
             let guarded = AssertUnwindSafe(dispatch).catch_unwind();
             tokio::pin!(guarded);
-            if method == "engine.backgroundRefresh" {
+            if method == "engine.backgroundDescribe" {
+                tokio::select! {
+                    biased;
+                    _ = cancelled => Ok(Err("mobile_cancelled")),
+                    result = tokio::time::timeout(Duration::from_secs(16), &mut guarded) => result.unwrap_or(Ok(Err("mobile_refresh_expired"))),
+                }
+            } else if method == "engine.backgroundRefresh" {
                 tokio::select! {
                     biased;
                     _ = cancelled => Ok(Err("mobile_cancelled")),
@@ -347,6 +357,7 @@ fn read_only(method: &str) -> bool {
         method,
         "engine.contacts"
             | "engine.mailAlerts"
+            | "ai.keyStatus"
             | "engine.conversation"
             | "engine.checkSend"
             | "engine.info"

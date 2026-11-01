@@ -98,15 +98,17 @@ impl Inbox {
                 return Ok(result);
             }
         }
+        // A snooze the main machine saved while Gmail was unreachable has no thread yet; the iPad can
+        // still return it, matched by its message.
         let thread = p["threadId"]
             .as_str()
-            .filter(|s| !s.is_empty() && s.len() <= 4096)
+            .filter(|s| (!s.is_empty() || path == "/v1/wake") && s.len() <= 4096)
             .ok_or("invalid_params")?;
         let target = current
             .as_array()
             .ok_or("inbox_storage_invalid")?
             .iter()
-            .find(|v| v["threadId"] == thread);
+            .find(|v| v["threadId"] == thread && (!thread.is_empty() || v["id"] == id));
         let versions = snooze::revisions(&account)?;
         let authority = versions[thread]["revision"]
             .as_str()
@@ -221,6 +223,45 @@ mod tests {
             store::read(&store::key(&["phone-snooze-requests", "test-device"]))
                 .unwrap()
                 .is_none()
+        );
+
+        // A snooze the main machine saved while Gmail was unreachable has no thread; the iPad can still
+        // return it, and nothing reaches Gmail or the credentials.
+        store::update("snoozes.json", |rows| {
+            rows[store::key(&["one@example.org", "b1"])] = json!({"generation":"g","operationId":null,"accountId":"one@example.org","id":"b1","ids":[],"until":now()+3_600_000,"state":"pending","subject":"S","threadId":"","label":"Magpie-snooze-2030-01-01-0000-UTC"});
+            Ok(())
+        })
+        .unwrap();
+        let shown = inbox.phone_snapshot("one@example.org").await.unwrap();
+        let revision = shown["entries"][0]["revision"].as_str().unwrap().to_owned();
+        let wake = json!({"accountId":"one@example.org","id":"b1","threadId":"","requestId":"wake-unresolved","issuedAt":now(),"revision":revision});
+        assert_eq!(
+            inbox
+                .phone_mutate(
+                    "/v1/wake",
+                    &wake,
+                    "test-device",
+                    &crate::providers::gmail::Session::default()
+                )
+                .await
+                .unwrap()["accepted"],
+            true
+        );
+        assert_eq!(snooze::snapshot("one@example.org").unwrap(), json!([]));
+        let mut snooze_without_thread = wake.clone();
+        snooze_without_thread["requestId"] = json!("snooze-unresolved");
+        snooze_without_thread["until"] = json!(now() + 60_000);
+        assert_eq!(
+            inbox
+                .phone_mutate(
+                    "/v1/snooze",
+                    &snooze_without_thread,
+                    "test-device",
+                    &crate::providers::gmail::Session::default()
+                )
+                .await,
+            Err("invalid_params"),
+            "a snooze still names its thread"
         );
     }
 }

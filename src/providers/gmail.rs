@@ -183,8 +183,25 @@ pub(crate) fn validate_message_id(id: &str) -> Result<(), &'static str> {
     super::gmail_http::validate_path_part(id).map_err(|_| "invalid_params")
 }
 
+/// Labels as Magpie shows them: snooze slot labels are Magpie's own bookkeeping and stay out of
+/// folder lists and label pickers on every device.
 pub(crate) fn normalize_labels(value: Value) -> Value {
-    resources::normalize("gmail.labels", value)
+    shown_labels(resources::normalize("gmail.labels", value))
+}
+fn shown_labels(labels: Value) -> Value {
+    match labels {
+        Value::Array(rows) => Value::Array(
+            rows.into_iter()
+                .filter(|label| {
+                    label["system"] == true
+                        || !label["rawName"]
+                            .as_str()
+                            .is_some_and(crate::inbox::is_snooze_label)
+                })
+                .collect(),
+        ),
+        other => other,
+    }
 }
 
 impl Session {
@@ -321,7 +338,9 @@ impl Session {
             .await?;
         let rows = answer["messages"]
             .as_array()
-            .filter(|rows| rows.len() <= 100)
+            // A label-only read stays small, so snooze can handle threads longer than the
+            // 100 messages a full read is limited to.
+            .filter(|rows| rows.len() <= if format == "minimal" { 1000 } else { 100 })
             .ok_or("agent_context_too_large")?;
         Ok(rows
             .iter()
@@ -412,16 +431,51 @@ impl Session {
     /// The RPC surface: a message mutation answers with a ticket at once.
     /// The in-process surface: a message mutation answers when it has landed.
     pub async fn call_settled(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        self.settled(method, params, false).await
+    }
+
+    /// As `call_settled`, but the change is abandoned if the caller stops waiting before it is on
+    /// the wire, so a cut-off snooze change never lands later over what Dave has done since.
+    pub async fn call_withdrawable(
+        &self,
+        method: &str,
+        params: &Value,
+    ) -> Result<Value, &'static str> {
+        self.settled(method, params, true).await
+    }
+
+    async fn settled(
+        &self,
+        method: &str,
+        params: &Value,
+        withdrawable: bool,
+    ) -> Result<Value, &'static str> {
         if !queue::queued(method) {
             return self.call(method, params).await;
         }
-        let (_, outcome) = self.enqueue_write(method, params).await?;
+        let (_, outcome) = self.enqueue_write(method, params, withdrawable).await?;
         outcome.await.map_err(|_| "gmail_queue_dropped")?
     }
 
     pub async fn call(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
-        self.call_in_lane(method, params, gmail_http::Lane::Interactive, false)
-            .await
+        let answer = self
+            .call_in_lane(method, params, gmail_http::Lane::Interactive, false)
+            .await?;
+        Ok(if method == "gmail.labels" {
+            shown_labels(answer)
+        } else {
+            answer
+        })
+    }
+    /// Every label of the account, snooze slot labels included, for snooze's own bookkeeping.
+    pub(crate) async fn all_labels(&self, account: &str) -> Result<Value, &'static str> {
+        self.call_in_lane(
+            "gmail.labels",
+            &json!({"accountId":account}),
+            gmail_http::Lane::Interactive,
+            false,
+        )
+        .await
     }
 
     pub(crate) async fn poll_call(
@@ -455,7 +509,7 @@ impl Session {
         metadata: bool,
     ) -> Result<Value, &'static str> {
         if queue::queued(method) {
-            let (ticket, _outcome) = self.enqueue_write(method, params).await?;
+            let (ticket, _outcome) = self.enqueue_write(method, params, false).await?;
             return Ok(json!({"queued":true,"ticket":ticket.to_string()}));
         }
         if writes::supports(method) {

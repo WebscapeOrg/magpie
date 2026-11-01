@@ -5,13 +5,17 @@ include!("readiness_tests.rs");
 mod context;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod describe;
-#[cfg(any(feature = "mobile", test))]
+#[cfg(any(
+    feature = "mobile",
+    all(test, feature = "agent", unix, not(target_os = "ios"))
+))]
 pub(crate) mod claude;
 #[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 mod overview_tests;
 #[cfg(target_os = "linux")]
 mod phone;
 mod snooze;
+pub(crate) use snooze::is_snooze_label;
 mod store;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -353,7 +357,12 @@ impl Inbox {
                     snooze::call(method, params, gmail.as_ref()),
                 )
                 .await
-                .map_err(|_| "snooze_pending_retry")?
+                // Invariant: a snooze that is cut off here has already saved its row, because
+                // reading its thread has its own shorter limit.
+                .map_err(|_| match method {
+                    "inbox.snooze" => "snooze_pending_retry",
+                    _ => "gmail_timeout",
+                })?
             }
             _ => Err("unknown_method"),
         }
@@ -805,6 +814,9 @@ fn overview_failure(error: Option<&str>) -> &'static str {
         }
         Some("ai_key_invalid" | "ai_key_refused") => {
             "Claude refused the API key; add a new key in Settings"
+        }
+        Some("ai_key_workspace") => {
+            "The API key is not tied to one workspace; add a key made for one workspace in Settings"
         }
         Some("ai_billing") => "Claude API billing needs attention in the Claude Console",
         Some("ai_rate_limited" | "ai_unavailable" | "ai_unreachable" | "ai_daily_limit") => {

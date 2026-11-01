@@ -1280,21 +1280,22 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
             response(grant.clone()),
             response(message.clone()),
             response(json!({"messages":[
-                {"id":"abc","threadId":"thread","labelIds":["INBOX","UNREAD"]},
-                {"id":"def","threadId":"thread","labelIds":["INBOX"]}]})),
+                {"id":"abc","threadId":"thread","labelIds":["INBOX","UNREAD"],"internalDate":"1700000000000"},
+                {"id":"def","threadId":"thread","labelIds":["INBOX"],"internalDate":"1700000060000"}]})),
             response(json!({"labels":[system]})),
             response(json!({"id":"Label_9","name":name})),
             ok(),
-            // After restart, tick: labels, list the slot (Trash is not listed), then wake.
+            // After restart, tick wakes first: labels, the thread, then the two changes.
             response(grant),
             response(labelled.clone()),
-            response(json!({"messages":[{"id":"abc","threadId":"thread"}]})),
             response(json!({"messages":[
-                {"id":"abc","threadId":"thread","labelIds":["UNREAD","Label_9"]},
-                {"id":"def","threadId":"thread","labelIds":["TRASH","Label_9"]}]})),
+                {"id":"abc","threadId":"thread","labelIds":["UNREAD","Label_9"],"internalDate":"1700000000000"},
+                {"id":"def","threadId":"thread","labelIds":["TRASH","Label_9"],"internalDate":"1700000060000"}]})),
+            ok(),
+            ok(),
+            // Then discovery with the time left: labels, and the now empty due slot is listed.
             response(labelled),
-            ok(),
-            ok(),
+            response(json!({"resultSizeEstimate":0})),
         ],
         Duration::ZERO,
     )

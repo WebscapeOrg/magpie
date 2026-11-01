@@ -24,7 +24,7 @@ const PAUSE: i64 = 5 * 60_000;
 const DOCUMENT_REFUSED: &str = "overview_document_refused";
 const INVALID: &str = "overview_invalid_response";
 // Problems that stop every request until Dave acts in Settings or the Claude Console.
-const BLOCKING: [&str; 3] = ["ai_key_invalid", "ai_key_refused", "ai_model_unavailable"];
+const BLOCKING: [&str; 4] = ["ai_key_invalid", "ai_key_refused", "ai_key_workspace", "ai_model_unavailable"];
 
 fn slot() -> CredentialKey {
     CredentialKey {
@@ -34,11 +34,16 @@ fn slot() -> CredentialKey {
     }
 }
 
-/// A standard Claude API key: `sk-ant-api…`, URL-safe characters only. Admin and
-/// subscription tokens are refused, so the phone never holds more than it needs.
+/// The Claude Console's API keys: personal (`sk-ant-usr…`), service account (`sk-ant-svc…`) and
+/// older (`sk-ant-api…`) keys. The two newer prefixes are known from third-party reports, not from
+/// Anthropic's documentation, which says only that keys start with `sk-ant-`.
+const KEY_PREFIXES: [&str; 3] = ["sk-ant-api", "sk-ant-usr", "sk-ant-svc"];
+
+/// A Claude API key, URL-safe characters only. Admin keys and subscription tokens are refused:
+/// the Messages API does not take them, and the phone never holds more than it needs.
 pub(crate) fn valid_key(key: &str) -> bool {
     (40..=256).contains(&key.len())
-        && key.starts_with("sk-ant-api")
+        && KEY_PREFIXES.iter().any(|prefix| key.starts_with(prefix))
         && key
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
@@ -199,7 +204,9 @@ async fn fit(client: &reqwest::Client, key: &Secret, mut batch: Value) -> Result
 /// old key cannot block a new one.
 async fn remember(error: &'static str, key: &Secret, at: i64) -> Result<(), &'static str> {
     let (problem, retry) = match error {
-        "ai_key_invalid" | "ai_key_refused" | "ai_model_unavailable" => (error, None),
+        "ai_key_invalid" | "ai_key_refused" | "ai_key_workspace" | "ai_model_unavailable" => {
+            (error, None)
+        }
         "ai_billing" => (error, Some(at + 12 * PAUSE)),
         "ai_unreachable" => (error, Some(at + PAUSE)),
         "ai_rate_limited" | "ai_unavailable" => ("ai_rate_limited", Some(at + PAUSE)),
@@ -226,7 +233,7 @@ pub(crate) async fn set_key(text: &str) -> Result<Value, &'static str> {
     }
     let secret = Secret::new(text.as_bytes().to_vec()).map_err(|_| "ai_key_format")?;
     let client = client()?;
-    let (status, _) = send(
+    let (status, reply) = send(
         &client,
         &secret,
         reqwest::Method::GET,
@@ -235,7 +242,7 @@ pub(crate) async fn set_key(text: &str) -> Result<Value, &'static str> {
     )
     .await?;
     if status != 200 {
-        return Err(failure(status));
+        return Err(refusal(status, &reply));
     }
     credentials::put(slot(), secret)
         .await
@@ -338,11 +345,18 @@ async fn call(
             return Err(error);
         }
     };
-    if status == 400 && without_documents(messages).is_some() {
+    // Invariant: describing stops for a key not scoped to a workspace only when a request that
+    // carries no mail is refused the same way, so text in a message can never stop it.
+    let workspace = status == 400 && unscoped(&reply) && unscoped_key(client, key).await;
+    if status == 400 && !workspace && without_documents(messages).is_some() {
         return Err(DOCUMENT_REFUSED);
     }
     if status != 200 {
-        let error = failure(status);
+        let error = if workspace {
+            "ai_key_workspace"
+        } else {
+            failure(status)
+        };
         // A failure to record the pause must not replace the error Claude gave.
         let _ = remember(error, key, now()).await;
         return Err(error);
@@ -423,6 +437,32 @@ async fn send(
     Ok((status, bytes))
 }
 
+/// True when Claude refused the request because the key is not scoped to one workspace, so every
+/// request would need a workspace the phone does not know.
+fn unscoped(reply: &[u8]) -> bool {
+    let value: Value = serde_json::from_slice(reply).unwrap_or(Value::Null);
+    value["error"]["type"] == "invalid_request_error"
+        && value["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("anthropic-workspace-id"))
+}
+
+/// Asks Claude about the model alone, a request with no mail in it, whether the key is refused
+/// for not being scoped to a workspace.
+async fn unscoped_key(client: &reqwest::Client, key: &Secret) -> bool {
+    let path = format!("/v1/models/{MODEL}");
+    let probe = send(client, key, reqwest::Method::GET, &path, None).await;
+    matches!(probe, Ok((400, reply)) if unscoped(&reply))
+}
+
+fn refusal(status: u16, reply: &[u8]) -> &'static str {
+    if status == 400 && unscoped(reply) {
+        "ai_key_workspace"
+    } else {
+        failure(status)
+    }
+}
+
 fn failure(status: u16) -> &'static str {
     match status {
         401 => "ai_key_invalid",
@@ -500,13 +540,18 @@ mod tests {
     }
 
     #[test]
-    fn only_standard_api_keys_are_accepted() {
+    fn console_api_keys_are_accepted_and_admin_keys_and_tokens_are_not() {
         assert!(valid_key(&synthetic_key()));
+        for kind in ["usr01", "svc01"] {
+            assert!(valid_key(&format!("sk-ant-{kind}-{}", "A1b2_C3d4-".repeat(8))), "{kind}");
+        }
         for refused in [
             String::new(),
             "sk-ant-api03-short".into(),
             format!("sk-ant-admin01-{}", "A".repeat(60)),
             format!("sk-ant-oat01-{}", "A".repeat(60)),
+            format!("sk-ant-user01-{}", "A".repeat(60)),
+            format!("sk-ant-{}", "A".repeat(60)),
             format!("{} ", synthetic_key()),
             format!("{}\n", synthetic_key()),
             format!("{}é", synthetic_key()),
@@ -560,8 +605,15 @@ mod tests {
         assert_eq!(failure(429), "ai_rate_limited");
         assert_eq!(failure(529), "ai_unavailable");
         assert_eq!(failure(500), "ai_unavailable");
+        // A key not scoped to one workspace is refused with this 400 on every request.
+        let unscoped = br#"{"type":"error","error":{"type":"invalid_request_error","message":"This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use."}}"#;
+        assert_eq!(refusal(400, unscoped), "ai_key_workspace");
+        assert_eq!(refusal(400, br#"{"type":"error","error":{"type":"invalid_request_error","message":"messages: too long"}}"#), "overview_input_invalid");
+        assert_eq!(refusal(400, b"<html>anthropic-workspace-id</html>"), "overview_input_invalid");
+        assert_eq!(refusal(401, unscoped), "ai_key_invalid");
         let at = 1_800_000_000_000;
         assert_eq!(blocking(&json!({"problem":"ai_key_invalid"})), Some("ai_key_invalid"));
+        assert_eq!(blocking(&json!({"problem":"ai_key_workspace"})), Some("ai_key_workspace"));
         assert_eq!(blocking(&json!({"problem":"anything else"})), None);
         assert_eq!(waiting(&json!({"retryAt":at + 1}), at), Some("ai_rate_limited"));
         assert_eq!(waiting(&json!({"retryAt":at + 1,"problem":"ai_billing"}), at), Some("ai_billing"));

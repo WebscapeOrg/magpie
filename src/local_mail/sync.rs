@@ -229,6 +229,9 @@ pub(super) async fn receive(
         Err("gmail_not_found") => {
             disk(store, move |s| s.delete(&id)).await?;
         }
+        // Invariant: a fetch deferred for a foreground request never left the device, so its
+        // message is not put off; the caller's own wait decides when it is asked again.
+        Err("gmail_request_deferred") => return Err("gmail_request_deferred"),
         Err(error) => {
             disk(store, move |s| {
                 s.write(|db| {

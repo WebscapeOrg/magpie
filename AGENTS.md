@@ -184,6 +184,8 @@ If a question comes up partway, ask it as an open question the Pickle way: follo
 
 **Performance work reports before/after numbers against the old build.** For any performance claim, measure the original build and the new build with the same fixtures and timing boundaries, and show the comparison, including any results that got worse. Timings for the new build alone do not show Dave whether anything got faster.
 
+**Every iPhone app tells Dave what an update changes for him before he takes it.** When a newer build of an iPhone app is ready, the app shows the friendly update notice in code/standards/mobile-app ("Updates: the notice"): one sentence on what the update changes for Dave, counted from the version he has to the one offered, with Details, Snooze, Skip and Update, and its notes in Resources/whats-new.json, one entry per version. Copy Caboodle for iPhone's files rather than building a variant, so every app tells him the same way and he can put an update off or skip it.
+
 Ask `folklore ask <topic>` for the rule behind any of these, and `folklore show F-NNN` for where it came from.
 
 <!-- END FOLKLORE -->

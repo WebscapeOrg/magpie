@@ -177,7 +177,9 @@ pub unsafe extern "C" fn magpie_engine_request(
                 let removing=matches!(method.as_str(),"accounts.mobileRemove"|"engine.suspend"|"engine.copyAttachments"|"engine.clearDraft"|"engine.backgroundRefresh");
                 let _exclusive=if removing {Some(host.operations.write().await)}else{None};
                 let _shared=if !removing {Some(host.operations.read().await)}else{None};
-                if !host.active.load(Ordering::Acquire) && !matches!(method.as_str(), "engine.info" | "engine.events" | "engine.suspend" | "engine.resume" | "engine.backgroundRefresh" | "engine.backgroundDescribe") { return Err("mobile_suspended"); }
+                // Invariant: in the background only a short snooze tick may write to Gmail, so iOS never suspends a long one.
+                let background_tick = method == "inbox.tick" && params.as_object().is_some_and(|p| p.len() == 1) && params["seconds"].as_u64().is_some_and(|seconds| (1..=5).contains(&seconds));
+                if !host.active.load(Ordering::Acquire) && !background_tick && !matches!(method.as_str(), "engine.info" | "engine.events" | "engine.suspend" | "engine.resume" | "engine.backgroundRefresh" | "engine.backgroundDescribe") { return Err("mobile_suspended"); }
                 host.engine.mobile_authorize(&params).await?;
                 match method.as_str() {
                     "engine.backgroundRefresh" => { if host.active.load(Ordering::Acquire) { return Err("mobile_refresh_foreground"); } host.engine.mobile_background_refresh(&params).await },
@@ -215,7 +217,7 @@ pub unsafe extern "C" fn magpie_engine_request(
                     "auth.mobileExchange" => omamail::auth::mobile_exchange(&params).await,
                     "engine.suspend" => { let _lock = host.lifecycle.lock().await; if !host.active.load(Ordering::Acquire) {host.engine.mobile_suspend().await?;} Ok(json!({"suspended":!host.active.load(Ordering::Acquire)})) },
                     "engine.resume" => { let _lock = host.lifecycle.lock().await; Ok(json!({"suspended":!host.active.load(Ordering::Acquire)})) },
-                    "mail.watch" | "mail.check" | "mail.unwatch" | "request.upload" | "system.quit" | "auth.begin" | "auth.poll" | "auth.cancel" | "inbox.snooze" | "inbox.wake" | "inbox.tick" | "inbox.overviews" => Err("mobile_service_required"),
+                    "mail.watch" | "mail.check" | "mail.unwatch" | "request.upload" | "system.quit" | "auth.begin" | "auth.poll" | "auth.cancel" | "inbox.overviews" => Err("mobile_service_required"),
                     "outbox.compose" if params["resumeUnsent"] != true => Err("mobile_resumable_send_required"),
                     "mail.send" | "gmail.send" | "outbox.enqueue" => Err("mobile_use_outbox"),
                     _ => host.engine.dispatch(&method, &params).await,
@@ -229,6 +231,12 @@ pub unsafe extern "C" fn magpie_engine_request(
                     biased;
                     _ = cancelled => Ok(Err("mobile_cancelled")),
                     result = tokio::time::timeout(Duration::from_secs(16), &mut guarded) => result.unwrap_or(Ok(Err("mobile_refresh_expired"))),
+                }
+            } else if method == "inbox.tick" && !host.active.load(Ordering::Acquire) {
+                tokio::select! {
+                    biased;
+                    _ = cancelled => Ok(Err("mobile_cancelled")),
+                    result = tokio::time::timeout(Duration::from_secs(8), &mut guarded) => result.unwrap_or(Ok(Err("mobile_refresh_expired"))),
                 }
             } else if method == "engine.backgroundRefresh" {
                 tokio::select! {

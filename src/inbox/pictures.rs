@@ -780,8 +780,8 @@ async fn paint_all(due: Vec<Due>, key: Arc<Secret>, key_generation: u64) -> Resu
 pub(crate) struct Painter {
     busy: Arc<tokio::sync::Semaphore>,
     turns: Mutex<HashMap<String, i64>>,
-    /// The account list the prepared painted avatars were last checked against.
-    listed: Mutex<Option<Vec<String>>>,
+    /// The account list the prepared painted avatars were last cleaned against.
+    listed: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 impl Default for Painter {
@@ -789,7 +789,7 @@ impl Default for Painter {
         Self {
             busy: Arc::new(tokio::sync::Semaphore::new(1)),
             turns: Mutex::new(HashMap::new()),
-            listed: Mutex::new(None),
+            listed: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -825,21 +825,21 @@ impl Painter {
         let Some(account) = account else {
             return;
         };
-        // When the account list changes, and once after the engine starts, drop the prepared painted
-        // avatars of accounts no longer listed.
+        // Until a cleaning succeeds for the current account list, and so once after the engine
+        // starts, drop the prepared painted avatars of accounts no longer listed.
         let mut sorted = accounts.clone();
         sorted.sort();
-        let changed = self.listed.lock().is_ok_and(|mut listed| {
-            let changed = listed.as_ref() != Some(&sorted);
-            if changed {
-                *listed = Some(sorted.clone());
-            }
-            changed
-        });
+        let listed = self.listed.clone();
+        let changed = listed.lock().is_ok_and(|listed| listed.as_ref() != Some(&sorted));
         tokio::spawn(async move {
             let _permit = permit;
             if changed {
-                let _ = blocking(move || avatars::forget_painted(&sorted)).await;
+                let cleaned = sorted.clone();
+                if blocking(move || avatars::forget_painted(&cleaned)).await.is_ok()
+                    && let Ok(mut listed) = listed.lock()
+                {
+                    *listed = Some(sorted);
+                }
             }
             let _ = if account.is_empty() {
                 forget_only().await
@@ -932,13 +932,14 @@ pub(crate) async fn status() -> Result<Value, &'static str> {
     }))
 }
 
-/// Clears the problem and moves to a new key generation, which stops runs holding the old key from
-/// sending further requests.
-fn key_changed() -> impl FnOnce() -> Result<u64, &'static str> + Send + 'static {
-    || {
+/// Moves to a new key generation, which stops runs holding the old key from sending further
+/// requests. Once the keyring has changed (`settled`), it also clears the problem that paused
+/// painting, since that problem belonged to the old key.
+fn key_changed(settled: bool) -> impl FnOnce() -> Result<u64, &'static str> + Send + 'static {
+    move || {
         change(|_, state| {
             let next = generation(state) + 1;
-            if let Some(fields) = state.as_object_mut() {
+            if settled && let Some(fields) = state.as_object_mut() {
                 fields.remove("problem");
                 fields.remove("retryAt");
             }
@@ -974,7 +975,7 @@ async fn around_key_change(
     update: impl std::future::Future<Output = Result<(), credentials::Error>>,
 ) -> Result<(), &'static str> {
     forget_cached_key();
-    blocking(key_changed()).await?;
+    blocking(key_changed(false)).await?;
     match update.await {
         Ok(()) | Err(credentials::Error::Missing) => {}
         Err(_) => return Err("pictures_key_storage"),
@@ -982,7 +983,7 @@ async fn around_key_change(
     forget_cached_key();
     let mut last = Ok(0);
     for _ in 0..3 {
-        last = blocking(key_changed()).await;
+        last = blocking(key_changed(true)).await;
         if last.is_ok() {
             break;
         }

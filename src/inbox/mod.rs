@@ -27,7 +27,7 @@ mod writer {
     pub(super) async fn ready() -> Result<(), &'static str> {
         Ok(())
     }
-    pub(super) async fn generate(messages: &serde_json::Value) -> Result<serde_json::Value, &'static str> {
+    pub(super) async fn generate(messages: &serde_json::Value, _left_before: u64) -> Result<serde_json::Value, &'static str> {
         crate::agent::overview::generate(messages).await
     }
 }
@@ -36,6 +36,18 @@ mod writer {
     pub(super) use super::claude::{generate, ready};
 }
 
+/// Invariant: the phone's own writer pays for each request and runs in an app iOS can freeze, so a
+/// message it could not describe for Claude's or the mail's reasons waits ("waiting") instead of
+/// failing, and a message's own failure is asked again after 1 and then 5 minutes rather than 15.
+/// The desktop writer keeps "failed" and the 15-minute wait.
+const PHONE_WRITER: bool = cfg!(all(feature = "mobile", not(all(feature = "agent", unix, not(target_os = "ios")))));
+/// When this engine started. A row still "running" from before then lost its writer when iOS ended
+/// the app, so it is asked again at once instead of after 15 minutes.
+static STARTED: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(i64::MIN);
+/// How long the phone waits before asking again about a message whose own description failed once, then twice.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+const OWN_WAITS: [i64; 2] = [60_000, 300_000];
+
 pub struct Inbox {
     overview_slots: Arc<Semaphore>,
     avatar_slots: Arc<Semaphore>,
@@ -43,6 +55,9 @@ pub struct Inbox {
 }
 impl Default for Inbox {
     fn default() -> Self {
+        if PHONE_WRITER {
+            STARTED.store(now(), std::sync::atomic::Ordering::Release);
+        }
         Self {
             overview_slots: Arc::new(Semaphore::new(1)),
             avatar_slots: Arc::new(Semaphore::new(3)),
@@ -127,6 +142,14 @@ impl Inbox {
         local_mail: Arc<crate::local_mail::LocalMail>,
         limit: Option<std::time::Duration>,
     ) -> Result<Value, &'static str> {
+        // Counted before anything else, so leaving the app at any point after the request arrived stops the batch.
+        let left_before = suspensions();
+        // A foreground request the app left before it got here is refused before any mail is claimed;
+        // background describing (with a limit) runs while the app is away by design.
+        #[cfg(feature = "mobile")]
+        if left_foreground(limit, claude::diagnostics::active) {
+            return Err("mobile_suspended");
+        }
         // Invariant: a writer that cannot take requests now refuses before any mail is claimed, and says why.
         if let Err(problem) = writer::ready().await {
             return Ok(json!({"accepted":false,"problem":problem}));
@@ -155,8 +178,9 @@ impl Inbox {
         }
         let task = tokio::spawn(async move {
             let _permit = permit;
+            let started = std::time::Instant::now();
             let result =
-                overview_batch(&account, &chosen, &gmail, &local_mail, remote).await;
+                overview_batch(&account, &chosen, &gmail, &local_mail, remote, left_before).await;
             let Ok(protected) = local_mail.overview_candidates(&account).await else {
                 return;
             };
@@ -175,7 +199,10 @@ impl Inbox {
                         finish_overviews_protected(saved, &current, &result, &protected)
                     })
                 });
-            if completed == Err("overview_account_changed") {
+            if let Ok(tally) = &completed {
+                note_batch(tally, &result, started.elapsed(), left_before);
+            }
+            if completed.as_ref().err() == Some(&"overview_account_changed") {
                 let _ = crate::account::with_incarnation(None, |_| {
                     crate::mail::resolve_account(&account)?;
                     if store::read(&name)?.is_none() {
@@ -202,6 +229,24 @@ impl Inbox {
             return Ok(json!({"accepted":true,"finished":finished}));
         }
         Ok(json!({"accepted":true}))
+    }
+    /// Waits until no description is being written, at most `limit` and only while the app stays
+    /// in the background, so leaving the app does not freeze a request half done.
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn settle(&self, limit: std::time::Duration) -> &'static str {
+        let deadline = tokio::time::Instant::now() + limit;
+        loop {
+            if self.overview_slots.try_acquire().is_ok() {
+                return "settled";
+            }
+            if claude::diagnostics::active() {
+                return "resumed";
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return "busy";
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
     }
     /// Retry on the phone: every failed message in the account may be asked about again, so ones
     /// not asked in this batch are asked by the following ones instead of waiting for another Retry.
@@ -395,8 +440,12 @@ fn claim_overviews(
             .filter(|value| *value > 0 && *value <= at)
             .unwrap_or(at);
         let attempts = old["attempts"].as_u64().unwrap_or(0);
+        let waits = old["waits"].as_u64();
         saved[id] =
             json!({"state":"running","updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts});
+        if let Some(waits) = waits {
+            saved[id]["waits"] = json!(waits);
+        }
         chosen.push(id.clone());
     }
     Ok(chosen)
@@ -408,10 +457,11 @@ fn finish_overviews_protected(
     chosen: &[String],
     result: &Result<Value, &'static str>,
     protected: &std::collections::HashSet<String>,
-) -> Result<(), &'static str> {
+) -> Result<Tally, &'static str> {
     if !saved.is_object() {
         return Err("inbox_storage_invalid");
     }
+    let mut tally = Tally::default();
     for id in chosen {
         let pending_since = saved[id]["pendingSince"]
             .as_i64()
@@ -426,7 +476,11 @@ fn finish_overviews_protected(
         // Invariant: an attempt counts only when the writer answered for this message and the failure
         // was its own; a batch-wide failure (tagged "batch" or the whole result) or one met while
         // preparing the mail ("prepare") never counts.
-        let own = result.is_ok() && row.is_none_or(|row| row.get("stage").is_none()) && !error.is_some_and(service_failure);
+        // On the phone a message that could not be prepared for its own reasons also counts, so it
+        // gives up after RETRY_LIMIT instead of waiting forever; preparing costs no Claude request.
+        let stage = row.and_then(|row| row.get("stage"));
+        let own = result.is_ok() && stage.is_none_or(|stage| PHONE_WRITER && stage == "prepare") && !error.is_some_and(service_failure);
+        let asked = result.is_ok() && stage.is_none();
         let attempts = saved[id]["attempts"].as_u64().unwrap_or(0) + u64::from(own);
         saved[id] = match row.filter(|row| row["text"].as_str().is_some_and(valid_description)) {
             Some(row) => {
@@ -438,10 +492,19 @@ fn finish_overviews_protected(
                 previous["rewriteAt"] = json!(now());
                 previous
             }
+            None if PHONE_WRITER => phone_unfinished(&saved[id], error, own, asked, attempts, pending_since, now()),
             None => {
                 json!({"state":"failed","reason":overview_failure(error),"updated":now(),"pendingSince":pending_since,"version":2,"attempts":attempts})
             }
         };
+        match saved[id]["state"].as_str() {
+            Some("ready") => tally.described += 1,
+            Some("waiting") => tally.waiting += 1,
+            _ => tally.failed += 1,
+        }
+        if tally.problem.is_none() {
+            tally.problem = error.map(str::to_owned);
+        }
     }
     if saved.as_object().unwrap().len() > 5000 {
         let mut keys: Vec<_> = saved
@@ -456,8 +519,88 @@ fn finish_overviews_protected(
             saved.as_object_mut().unwrap().remove(&key);
         }
     }
-    Ok(())
+    Ok(tally)
 }
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+/// How one batch ended, for the diagnostics record.
+#[derive(Default, Debug)]
+struct Tally {
+    described: u32,
+    waiting: u32,
+    failed: u32,
+    problem: Option<String>,
+}
+
+/// What a message the phone could not describe becomes.
+/// Invariant: its own failure counts and is asked again after OWN_WAITS, until RETRY_LIMIT. A message
+/// that was not asked because Claude or the key failed first (or the app left) waits only for
+/// claude::ready, which keeps the shared backoff. A message whose own request failed for Claude's
+/// reasons waits a minute, doubling to 15 minutes, so the messages it stopped go before it; any
+/// other failure of the service waits 15 seconds, doubling to 15 minutes, so it is not asked every poll.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn phone_unfinished(previous: &Value, error: Option<&str>, own: bool, asked: bool, attempts: u64, pending_since: i64, at: i64) -> Value {
+    let reason = overview_failure(error);
+    if own {
+        let mut row = json!({"state":"failed","reason":reason,"updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts});
+        if let Some(wait) = OWN_WAITS.get(attempts.saturating_sub(1) as usize).filter(|_| attempts < RETRY_LIMIT) {
+            row["retryAt"] = json!(at.saturating_add(*wait));
+        }
+        return row;
+    }
+    let mut row = json!({"state":"waiting","reason":reason,"updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts});
+    let claude = error.is_some_and(|error| error.starts_with("ai_") || error == INTERRUPTED);
+    let waited = previous["waits"].as_u64().unwrap_or(0).min(16);
+    if claude && !asked {
+        // Not asked this time, so its own wait does not grow, but it is kept for the next time it is.
+        if waited > 0 {
+            row["waits"] = json!(waited);
+        }
+        return row;
+    }
+    let first: i64 = if claude { 60_000 } else { 15_000 };
+    let waits = waited.saturating_add(1).min(16);
+    row["waits"] = json!(waits);
+    row["retryAt"] = json!(at.saturating_add((first << (waits - 1).min(6)).min(900_000)));
+    row
+}
+
+/// The batch stopped because the app left the foreground, so the messages after it were not asked.
+#[cfg_attr(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")), allow(dead_code))]
+const INTERRUPTED: &str = "overview_interrupted";
+
+#[cfg(feature = "mobile")]
+fn suspensions() -> u64 {
+    claude::diagnostics::suspensions()
+}
+
+/// True for a foreground request (no limit) once the app is no longer in the foreground.
+#[cfg(feature = "mobile")]
+fn left_foreground(limit: Option<std::time::Duration>, active: fn() -> bool) -> bool {
+    limit.is_none() && !active()
+}
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+#[cfg(not(feature = "mobile"))]
+fn suspensions() -> u64 {
+    0
+}
+
+#[cfg(feature = "mobile")]
+fn note_batch(tally: &Tally, result: &Result<Value, &'static str>, elapsed: std::time::Duration, suspensions: u64) {
+    let problem = result.as_ref().err().copied().or(tally.problem.as_deref());
+    claude::diagnostics::record(claude::diagnostics::Event {
+        outcome: problem.map_or_else(|| "ok".into(), claude::diagnostics::outcome),
+        elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+        suspended: claude::diagnostics::suspensions() != suspensions,
+        described: tally.described,
+        waiting: tally.waiting,
+        failed: tally.failed,
+        ..claude::diagnostics::event("batch")
+    });
+}
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+#[cfg(not(feature = "mobile"))]
+fn note_batch(_: &Tally, _: &Result<Value, &'static str>, _: std::time::Duration, _: u64) {}
 
 #[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 fn finish_overviews(
@@ -465,7 +608,7 @@ fn finish_overviews(
     chosen: &[String],
     result: &Result<Value, &'static str>,
 ) -> Result<(), &'static str> {
-    finish_overviews_protected(saved, chosen, result, &std::collections::HashSet::new())
+    finish_overviews_protected(saved, chosen, result, &std::collections::HashSet::new()).map(|_| ())
 }
 
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
@@ -475,6 +618,7 @@ async fn overview_batch(
     gmail: &crate::providers::gmail::Session,
     local_mail: &crate::local_mail::LocalMail,
     remote: bool,
+    left_before: u64,
 ) -> Result<Value, &'static str> {
     overview_batch_with(account, ids, gmail, local_mail, |messages| async move {
         let mut prepared = Vec::new();
@@ -499,7 +643,13 @@ async fn overview_batch(
             return Ok(json!(failed));
         }
         let prepared = json!(prepared);
-        let generated = writer::generate(&prepared).await;
+        // Invariant: when the app left while the mail was being prepared, nothing is sent; the
+        // messages are returned as not asked and are described when it returns.
+        let generated = if suspensions() != left_before {
+            Ok(json!(prepared.as_array().into_iter().flatten().map(|message| json!({"id":message["id"],"error":INTERRUPTED,"stage":"batch"})).collect::<Vec<_>>()))
+        } else {
+            writer::generate(&prepared, left_before).await
+        };
         merge_rows(generated, &prepared, failed)
     })
     .await
@@ -658,10 +808,18 @@ fn overview_due(value: &Value, retry: bool, at: i64) -> bool {
         let age = at.saturating_sub(value["rewriteAt"].as_i64().unwrap_or(0));
         return !(age >= 0 && age < 900_000 && (value["rewriteState"] == "running" || (!retry && value["rewriteState"] == "failed")));
     }
+    if orphaned(value) {
+        return true;
+    }
     // Invariant: the phone pays for each attempt, so a message that failed three times for its own
     // content waits for Retry instead of being asked again every 15 minutes.
     if cfg!(feature = "mobile") && !retry && value["state"] == "failed" && value["attempts"].as_u64().unwrap_or(0) >= RETRY_LIMIT {
         return false;
+    }
+    // A row that says when to ask again is due then, or at once on Retry; a waiting row without a
+    // time waits only for claude::ready.
+    if value["state"] == "waiting" || (value["state"] == "failed" && value.get("retryAt").is_some()) {
+        return retry || value["retryAt"].as_i64().is_none_or(|next| next <= at);
     }
     let age = at.saturating_sub(value["updated"].as_i64().unwrap_or(0));
     !(age >= 0
@@ -678,8 +836,20 @@ fn forgive_attempts(saved: &mut Value) -> Result<(), &'static str> {
         if row["state"] == "failed" && row.get("attempts").is_some() {
             row["attempts"] = json!(0);
         }
+        // Retry means now: a failed or waiting message is due on the next poll, not after its wait.
+        if matches!(row["state"].as_str(), Some("failed" | "waiting")) {
+            row["retryAt"] = json!(0);
+            row.as_object_mut().map(|fields| fields.remove("waits"));
+        }
     }
     Ok(())
+}
+
+/// A row still "running" from before this engine started, whose writer iOS ended with the app.
+fn orphaned(value: &Value) -> bool {
+    PHONE_WRITER
+        && value["state"] == "running"
+        && value["updated"].as_i64().is_some_and(|updated| updated < STARTED.load(std::sync::atomic::Ordering::Acquire))
 }
 
 /// Failures that say nothing about the message itself, so they never count as one of its attempts.
@@ -687,7 +857,7 @@ fn forgive_attempts(saved: &mut Value) -> Result<(), &'static str> {
 fn service_failure(error: &str) -> bool {
     ["ai_", "gmail_", "local_", "private_fs_", "inbox_storage_"].iter().any(|prefix| error.starts_with(prefix))
         && error != "gmail_not_found"
-        || matches!(error, "overview_start_failed" | "overview_ai_unavailable" | "overview_account_changed")
+        || matches!(error, "overview_start_failed" | "overview_ai_unavailable" | "overview_account_changed" | INTERRUPTED)
 }
 
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
@@ -714,6 +884,9 @@ fn overview_snapshot(mut saved: Value, at: i64) -> Result<Value, &'static str> {
         if !overview_current(value, at) && value["state"] == "ready" {
             value["state"] = json!("stale");
             value.as_object_mut().map(|fields| fields.remove("text"));
+        }
+        if orphaned(value) {
+            value["state"] = json!("waiting");
         }
     }
     Ok(saved)
@@ -786,6 +959,7 @@ fn overview_failure(error: Option<&str>) -> &'static str {
             "Claude could not take more requests just now; Magpie will retry"
         }
         Some("overview_ai_refused") => "Claude declined to describe this message",
+        Some(INTERRUPTED) => "Magpie left the foreground before this message; it will be described next",
         None => "AI response omitted this message; retry from Menu",
         _ => "Mail could not be prepared for AI; retry from Menu",
     }
@@ -832,7 +1006,8 @@ mod overview_attempt_tests {
         ]));
         finish_overviews_protected(&mut saved, &ids, &result, &Default::default()).unwrap();
         assert_eq!(saved["d"]["attempts"], 0, "a writer failure spread over the batch is no one message's fault");
-        assert_eq!(saved["a"]["attempts"], 0, "mail that could not be prepared cost nothing");
+        // The phone counts it, so mail that can never be prepared gives up instead of waiting forever.
+        assert_eq!(saved["a"]["attempts"], u64::from(PHONE_WRITER), "mail that could not be prepared cost nothing");
         assert_eq!(saved["b"]["attempts"], 0, "a network failure is not the message's fault");
         assert_eq!(saved["c"]["attempts"], 1);
         assert!(service_failure("local_disk_full") && service_failure("inbox_storage_invalid") && !service_failure("gmail_not_found"));
@@ -863,6 +1038,118 @@ mod overview_attempt_tests {
         claim_overviews(&mut saved, &["m".to_string()], true, later).unwrap();
         assert_eq!(saved["m"]["attempts"], 3, "a claim carries the count forward");
         assert!(service_failure("ai_daily_limit") && !service_failure("overview_unsupported_claim"));
+    }
+}
+
+#[cfg(all(test, feature = "mobile", not(all(feature = "agent", unix, not(target_os = "ios")))))]
+mod phone_writer_tests {
+    use super::*;
+
+    fn finish(saved: &mut Value, id: &str, result: Result<Value, &'static str>) {
+        finish_overviews_protected(saved, &[id.to_owned()], &result, &Default::default()).unwrap();
+    }
+
+    #[test]
+    fn a_message_claude_could_not_take_waits_for_the_shared_backoff_and_is_never_counted_as_failed() {
+        let at = now();
+        for (error, stage) in [("ai_unreachable", Some("batch")), (INTERRUPTED, Some("batch")), ("ai_daily_limit", Some("batch")), ("ai_unreachable", None)] {
+            let mut saved = json!({});
+            claim_overviews(&mut saved, &["m".to_owned()], false, at).unwrap();
+            let result = match stage {
+                Some(stage) => Ok(json!([{"id":"m","error":error,"stage":stage}])),
+                None => Err(error),
+            };
+            finish(&mut saved, "m", result);
+            let row = &saved["m"];
+            assert_eq!(row["state"], "waiting", "{error}");
+            assert_eq!(row["attempts"], 0, "{error}");
+            assert!(row.get("retryAt").is_none(), "{error}: claude::ready decides when to ask again");
+            assert!(overview_due(row, false, at), "{error}: due as soon as Claude can be asked");
+        }
+    }
+
+    #[test]
+    fn a_message_whose_own_request_claude_failed_waits_a_minute_doubling_so_the_others_go_first() {
+        let at = now();
+        let mut saved = json!({});
+        let id = "m".to_owned();
+        let mut waits = Vec::new();
+        for error in ["ai_unreachable", "ai_rate_limited", "ai_unavailable"] {
+            claim_overviews(&mut saved, std::slice::from_ref(&id), true, at).unwrap();
+            finish(&mut saved, "m", Ok(json!([{"id":"m","error":error}])));
+            assert_eq!((saved["m"]["state"].as_str(), saved["m"]["attempts"].as_u64()), (Some("waiting"), Some(0)), "{error}");
+            waits.push(saved["m"]["retryAt"].as_i64().unwrap() - saved["m"]["updated"].as_i64().unwrap());
+        }
+        assert_eq!(waits, [60_000, 120_000, 240_000]);
+        let next = saved["m"]["retryAt"].as_i64().unwrap();
+        assert!(!overview_due(&saved["m"], false, next - 1) && overview_due(&saved["m"], false, next));
+        assert!(overview_due(&saved["m"], true, next - 1), "Retry asks at once");
+        claim_overviews(&mut saved, std::slice::from_ref(&id), true, at).unwrap();
+        finish(&mut saved, "m", Ok(json!([{"id":"m","error":"ai_unreachable","stage":"batch"}])));
+        assert!(saved["m"].get("retryAt").is_none(), "not asked, so due when Claude can be asked");
+        assert_eq!(saved["m"]["waits"], 3, "a message that was not asked keeps its count");
+        claim_overviews(&mut saved, std::slice::from_ref(&id), true, at).unwrap();
+        finish(&mut saved, "m", Ok(json!([{"id":"m","error":"ai_unreachable"}])));
+        assert_eq!(saved["m"]["retryAt"].as_i64().unwrap() - saved["m"]["updated"].as_i64().unwrap(), 480_000);
+    }
+
+    #[test]
+    fn a_mail_problem_waits_15_seconds_doubling_and_a_messages_own_failure_after_1_then_5_minutes() {
+        let at = now();
+        let mut saved = json!({});
+        let id = "m".to_owned();
+        let mut waits = Vec::new();
+        for _ in 0..3 {
+            claim_overviews(&mut saved, std::slice::from_ref(&id), true, at).unwrap();
+            finish(&mut saved, "m", Ok(json!([{"id":"m","error":"gmail_timeout","stage":"prepare"}])));
+            assert_eq!(saved["m"]["state"], "waiting");
+            waits.push(saved["m"]["retryAt"].as_i64().unwrap() - saved["m"]["updated"].as_i64().unwrap());
+        }
+        assert_eq!(waits, [15_000, 30_000, 60_000]);
+        let next = saved["m"]["retryAt"].as_i64().unwrap();
+        assert!(!overview_due(&saved["m"], false, next - 1) && overview_due(&saved["m"], false, next));
+        assert!(overview_due(&saved["m"], true, next - 1), "Retry asks at once");
+        let mut saved = json!({});
+        let mut retries = Vec::new();
+        for attempt in 1..=3 {
+            claim_overviews(&mut saved, std::slice::from_ref(&id), true, at).unwrap();
+            finish(&mut saved, "m", Ok(json!([{"id":"m","error":"overview_invalid_response"}])));
+            assert_eq!((saved["m"]["state"].as_str(), saved["m"]["attempts"].as_u64()), (Some("failed"), Some(attempt)));
+            retries.push(saved["m"]["retryAt"].as_i64().map(|retry| retry - saved["m"]["updated"].as_i64().unwrap()));
+        }
+        assert_eq!(retries, [Some(60_000), Some(300_000), None]);
+        assert!(!overview_due(&saved["m"], false, at + 86_400_000), "after the third failure it waits for Retry");
+        forgive_attempts(&mut saved).unwrap();
+        assert_eq!((saved["m"]["attempts"].as_u64(), saved["m"]["retryAt"].as_i64()), (Some(0), Some(0)));
+        assert!(overview_due(&saved["m"], false, at), "Retry makes every unfinished message due at once");
+    }
+
+    #[test]
+    fn a_foreground_request_is_refused_once_the_app_has_left_but_background_describing_is_not() {
+        fn away() -> bool {
+            false
+        }
+        fn here() -> bool {
+            true
+        }
+        assert!(left_foreground(None, away));
+        assert!(!left_foreground(None, here));
+        assert!(!left_foreground(Some(std::time::Duration::from_secs(14)), away), "background describing runs while the app is away");
+    }
+
+    #[test]
+    fn a_description_left_running_by_an_ended_app_is_asked_again_at_once() {
+        STARTED.store(500, std::sync::atomic::Ordering::Release);
+        let orphan = json!({"state":"running","updated":100,"version":2,"attempts":1});
+        let current = json!({"state":"running","updated":900,"version":2});
+        assert!(overview_due(&orphan, false, 1_000));
+        assert!(!overview_due(&current, false, 1_000));
+        let snapshot = overview_snapshot(json!({"o":orphan,"c":current}), 1_000).unwrap();
+        STARTED.store(i64::MIN, std::sync::atomic::Ordering::Release);
+        assert_eq!((snapshot["o"]["state"].as_str(), snapshot["c"]["state"].as_str()), (Some("waiting"), Some("running")));
+        let mut saved = json!({"o":{"state":"running","updated":100,"version":2,"attempts":1,"waits":2}});
+        claim_overviews(&mut saved, &["o".to_owned()], true, 1_000).unwrap();
+        assert_eq!((saved["o"]["attempts"].as_u64(), saved["o"]["waits"].as_u64()), (Some(1), Some(2)), "a claim carries both counts forward");
     }
 }
 

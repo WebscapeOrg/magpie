@@ -82,6 +82,17 @@ Item {
       last("inbox.pictureStatus").done({present: true, problem: null, painted: 2, waiting: 0, spentTodayCents: 14, dailyLimitCents: 300}, null)
       compare(status.text, "2 sender pictures painted. About $0.14 spent today of the $3.00 daily limit.")
     }
+    function test_a_locked_keyring_is_explained_and_not_polled() {
+      var refresh = findChild(panel, "settings-picture-refresh")
+      last("inbox.pictureStatus").done({present: true, problem: null, painted: 2, waiting: 5, spentTodayCents: 14, dailyLimitCents: 300}, null)
+      verify(refresh.running)
+      panel.load()
+      last("inbox.pictureStatus").done({present: null, problem: "pictures_key_storage", painted: 2, waiting: 5, spentTodayCents: 14, dailyLimitCents: 300}, null)
+      var status = findChild(panel, "settings-picture-status")
+      compare(status.text, "The keyring could not be used. Unlock it, then open Settings again.")
+      verify(!refresh.running)
+      verify(!findChild(panel, "settings-picture-remove").visible)
+    }
     function test_remove_key_returns_to_the_invitation() {
       last("inbox.pictureStatus").done({present: true, problem: "pictures_billing", painted: 3, waiting: 1, spentTodayCents: 21, dailyLimitCents: 300}, null)
       var status = findChild(panel, "settings-picture-status")

@@ -64,6 +64,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/bar/BarPreview.qml
 QML_FILES += ui/tests/qml/tst_account_message_identity.qml
 QML_FILES += ui/tests/qml/tst_picture_settings.qml
+QML_FILES += ui/tests/qml/tst_settings_pictures.qml
 QML_FILES += ui/tests/qml/tst_compose_attachment_recovery.qml
 QML_FILES += ui/tests/qml/tst_compose_geometry.qml
 QML_FILES += ui/tests/qml/tst_event_suggestion_lifecycle.qml

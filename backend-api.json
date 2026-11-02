@@ -2194,6 +2194,18 @@
       "errorCode": -32602
     },
     {
+      "name": "Inbox picture status reports the counts Settings shows",
+      "method": "inbox.pictureStatus",
+      "params": {},
+      "types": {
+        "painted": "number",
+        "waiting": "number",
+        "failed": "number",
+        "spentTodayCents": "number",
+        "dailyLimitCents": "number"
+      }
+    },
+    {
       "name": "Inbox picture key removal takes no parameters",
       "method": "inbox.removePictureKey",
       "params": {
@@ -2322,6 +2334,7 @@
       "Inbox picture key refuses a malformed key before any request",
       "Inbox picture key rejects unknown fields",
       "Inbox picture status takes no parameters",
+      "Inbox picture status reports the counts Settings shows",
       "Inbox picture key removal takes no parameters",
       "Inbox snapshot reports the sender picture revision"
     ]

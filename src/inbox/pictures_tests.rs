@@ -201,6 +201,7 @@ fn a_changed_photo_is_checked_again_and_keeps_its_picture_until_then() {
     let painted = Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 6, reference: Some("abc".into()) };
     record(&dir, &mut state, &name, painted, AT, 0).unwrap();
     assert_eq!(state["subjects"][&name]["reference"], "abc");
+    assert_eq!(state["subjects"][&name]["model"], MODEL);
     assert_eq!(state["subjects"][&name]["photo"], "https://lh3.googleusercontent.com/a/old");
     let due = assign(&mut state, "one", &[("s1".into(), new.clone())], true, AT).unwrap();
     assert_eq!(due, vec![(new.clone(), Some("abc".into()))]);
@@ -208,6 +209,7 @@ fn a_changed_photo_is_checked_again_and_keeps_its_picture_until_then() {
     record(&dir, &mut state, &name, Outcome::Unchanged, AT, 0).unwrap();
     assert_eq!(state["subjects"][&name]["state"], "painted");
     assert_eq!(state["subjects"][&name]["painted"], AT);
+    assert_eq!(state["subjects"][&name]["model"], MODEL);
     // A photo that cannot be fetched three times leaves the current picture in place.
     state["subjects"][&name]["photo"] = json!("https://lh3.googleusercontent.com/a/older");
     assign(&mut state, "one", &[("s1".into(), new.clone())], true, AT).unwrap();
@@ -572,6 +574,57 @@ impl CredentialStore for Recording {
     fn delete(&self, _: &CredentialKey) -> Result<(), Error> {
         Err(Error::Missing)
     }
+}
+
+struct Locked;
+impl CredentialStore for Locked {
+    fn get(&self, _: &CredentialKey) -> Result<Secret, Error> {
+        Err(Error::Unavailable)
+    }
+    fn put(&self, _: &CredentialKey, _: &[u8]) -> Result<(), Error> {
+        Err(Error::Unavailable)
+    }
+    fn delete(&self, _: &CredentialKey) -> Result<(), Error> {
+        Err(Error::Unavailable)
+    }
+}
+
+#[tokio::test]
+async fn a_locked_keyring_is_reported_with_the_counts() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let _store = crate::credentials::tests::isolated_store(Locked);
+    change(|_, state| {
+        state["subjects"] = json!({
+            "a": {"state":"painted","attempts":0,"kind":"monogram"},
+            "b": {"state":"failed","attempts":3,"kind":"monogram"}
+        });
+        Ok(())
+    })
+    .unwrap();
+    let status = status().await.unwrap();
+    assert_eq!(status["present"], Value::Null);
+    assert_eq!(status["problem"], "pictures_key_storage");
+    assert_eq!((status["painted"].as_i64(), status["failed"].as_i64(), status["waiting"].as_i64()), (Some(1), Some(1), Some(0)));
+}
+
+#[test]
+fn a_keyring_that_failed_is_left_alone_by_painting_but_read_again_for_settings() {
+    let key = Arc::new(Secret::new(b"sk-synthetic-cache-key-0000000".to_vec()).unwrap());
+    let found = (4, Ok(Some(key.clone())));
+    assert!(matches!(cached_key(Some(&found), 4, Asker::Painting, AT), Some(Ok(Some(cached))) if Arc::ptr_eq(&cached, &key)));
+    assert!(matches!(cached_key(Some(&found), 4, Asker::Settings, AT), Some(Ok(Some(_)))));
+    assert!(cached_key(Some(&found), 5, Asker::Painting, AT).is_none(), "a new key generation reads the keyring");
+    assert!(matches!(cached_key(Some(&(4, Ok(None))), 4, Asker::Painting, AT), Some(Ok(None))));
+    assert!(cached_key(None, 4, Asker::Painting, AT).is_none());
+
+    let failed = (4, Err(AT));
+    assert_eq!(cached_key(Some(&failed), 4, Asker::Painting, AT + KEYRING_WAIT - 1).map(|answer| answer.err()), Some(Some("pictures_key_storage")));
+    assert!(cached_key(Some(&failed), 4, Asker::Painting, AT + KEYRING_WAIT).is_none(), "painting reads again after the wait");
+    assert!(cached_key(Some(&failed), 4, Asker::Settings, AT + 1).is_none(), "Settings reads again at once");
+    assert!(cached_key(Some(&failed), 5, Asker::Painting, AT + 1).is_none(), "a new key is read at once");
 }
 
 #[tokio::test]

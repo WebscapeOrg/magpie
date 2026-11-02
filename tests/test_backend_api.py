@@ -222,13 +222,22 @@ const selected = released ? (whole.releasedContract || {
 // Standalone Linux/macOS share the native assistant. Windows remains deferred
 // and must reject the unavailable methods without touching storage.
 const agentUnavailable = standalone && process.platform === 'win32';
+// Sender pictures are built with the assistant, so Windows has neither. Reading their status opens
+// the keyring, which the Linux fixture leaves unreachable (no session bus); macOS would open the
+// runner's real keychain.
+const picturesUnavailable = process.platform === 'win32';
+const pictureMethods = ['inbox.pictureStatus', 'inbox.setPictureKey', 'inbox.removePictureKey'];
 const methodUnavailable = method => (agentUnavailable && method.startsWith('agent.')) ||
+  (picturesUnavailable && pictureMethods.includes(method)) ||
   (process.platform !== 'linux' && method === 'backup.export');
+const caseUnavailable = fixture => methodUnavailable(fixture.method) ||
+  (picturesUnavailable && fixture.name === 'Inbox snapshot reports the sender picture revision') ||
+  (process.platform !== 'linux' && fixture.name === 'Inbox picture status reports the counts Settings shows');
 const unavailable = selected.methods.filter(methodUnavailable);
 const contract = {
   ...selected,
   methods: selected.methods.filter(m => !methodUnavailable(m)),
-  contractCases: selected.contractCases.filter(c => !methodUnavailable(c.method))
+  contractCases: selected.contractCases.filter(c => !caseUnavailable(c))
 };
 const child = spawn(process.env.CONTRACT_BINARY, ['serve'], {stdio:['pipe','pipe','pipe']});
 let buffer = '', state = null, serial = 0, finished = false;

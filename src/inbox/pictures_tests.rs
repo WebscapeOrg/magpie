@@ -302,8 +302,12 @@ fn outcomes_decide_retries_refunds_and_pauses() {
 
     setup(&mut state);
     assert!(!record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Refused), AT, 0).unwrap());
-    assert_eq!(state["subjects"][&name]["state"], "failed");
+    assert_eq!(state["subjects"][&name]["state"], "waiting");
     assert_eq!(state["subjects"][&name]["reason"], "pictures_refused");
+    assert_eq!(state["subjects"][&name]["retryAt"], AT + RETRY_WAITS[0]);
+    record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Refused), AT, 0).unwrap();
+    record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Refused), AT, 0).unwrap();
+    assert_eq!(state["subjects"][&name]["state"], "failed");
 
     setup(&mut state);
     assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Key("pictures_key_invalid")), AT, 0).unwrap());
@@ -320,6 +324,7 @@ fn outcomes_decide_retries_refunds_and_pauses() {
     assert_eq!(state["subjects"][&name]["attempts"], 1);
 
     setup(&mut state);
+    state.as_object_mut().unwrap().remove("problem");
     assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::RateLimited(Some(5))), AT, 0).unwrap());
     assert_eq!(state["retryAt"], AT + RATE_WAIT);
     setup(&mut state);
@@ -333,6 +338,75 @@ fn outcomes_decide_retries_refunds_and_pauses() {
     assert_eq!(state["subjects"][&name]["state"], "painted");
     assert_eq!(spent_today(&state, AT), 6);
     assert!(fs::regular_readonly(&dir, &format!("{name}.jpg")).unwrap().is_some());
+}
+
+#[test]
+fn rejected_settings_wait_and_a_run_of_them_pauses_painting() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let names: Vec<String> = ['A', 'B', 'C', 'D', 'E'].iter().map(|letter| Subject::Monogram { letter: *letter }.id()).collect();
+    let mut rows = serde_json::Map::new();
+    for name in &names {
+        rows.insert(name.clone(), json!({"state":"waiting","attempts":0,"kind":"monogram"}));
+    }
+    let dir = directory(true).unwrap().unwrap();
+    // Each of the twelve requests below reserved the estimate before it was sent.
+    let mut state = json!({"subjects": rows, "day": today(AT), "spentCents": 12 * openai::ESTIMATE_CENTS});
+    let rejected = || Outcome::Fault(openai::Fault::Rejected);
+    let waiting = |state: &Value, name: &str| state["subjects"][name]["state"] == "waiting";
+
+    // Safety refusals belong to their pictures however many come in a row, and never pause painting.
+    for name in &names[..3] {
+        assert!(!record(&dir, &mut state, name, Outcome::Fault(openai::Fault::Refused), AT, 0).unwrap());
+        assert!(waiting(&state, name));
+        assert_eq!(state["subjects"][name]["reason"], "pictures_refused");
+        assert_eq!(state["subjects"][name]["retryAt"], AT + RETRY_WAITS[0]);
+    }
+    assert!(blocking_problem(&state, AT).is_none());
+    assert!(state.get("refusedRun").is_none());
+
+    // A rejected setting never gives its picture up: it is asked for again a day later. A painted
+    // picture ends the run.
+    assert!(!record(&dir, &mut state, &names[0], rejected(), AT, 0).unwrap());
+    assert!(waiting(&state, &names[0]));
+    assert_eq!(state["subjects"][&names[0]]["retryAt"], AT + MODEL_WAIT);
+    assert_eq!(state["subjects"][&names[0]]["reason"], "pictures_request_rejected");
+    record(&dir, &mut state, &names[1], Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 2, reference: None }, AT, 0).unwrap();
+    assert!(state.get("refusedRun").is_none());
+
+    // An answer to a replaced key leaves the picture as it was and does not count.
+    let before = state["subjects"][&names[2]].clone();
+    assert!(!record(&dir, &mut state, &names[2], rejected(), AT, 7).unwrap());
+    assert_eq!(state["subjects"][&names[2]], before);
+    assert!(state.get("refusedRun").is_none());
+
+    // Three in a row pause painting for a day; every picture in the run is still waiting.
+    assert!(!record(&dir, &mut state, &names[2], rejected(), AT, 0).unwrap());
+    assert!(!record(&dir, &mut state, &names[3], rejected(), AT, 0).unwrap());
+    assert!(record(&dir, &mut state, &names[4], rejected(), AT, 0).unwrap());
+    assert_eq!(blocking_problem(&state, AT), Some("pictures_request_rejected"));
+    assert_eq!(blocking_problem(&state, AT + MODEL_WAIT), None);
+    for name in &names[2..] {
+        assert!(waiting(&state, name), "{name}");
+        assert_eq!(state["subjects"][name]["retryAt"], AT + MODEL_WAIT);
+    }
+    assert_eq!(state["refusedRun"], json!([]));
+
+    // A late answer from the other request in flight cannot shorten the pause.
+    assert!(record(&dir, &mut state, &names[0], Outcome::Fault(openai::Fault::Lost { charged: false }), AT + 1, 0).unwrap());
+    assert_eq!(state["problem"], "pictures_request_rejected");
+    assert_eq!(state["retryAt"], AT + MODEL_WAIT);
+    // A key refusal still replaces it, since it lasts until the key changes.
+    assert!(record(&dir, &mut state, &names[0], Outcome::Fault(openai::Fault::Key("pictures_key_invalid")), AT + 2, 0).unwrap());
+    assert_eq!(blocking_problem(&state, AT + 2 * MODEL_WAIT), Some("pictures_key_invalid"));
+    // And nothing temporary replaces a key refusal.
+    record(&dir, &mut state, &names[0], rejected(), AT + 3, 0).unwrap();
+    assert_eq!(blocking_problem(&state, AT + 2 * MODEL_WAIT), Some("pictures_key_invalid"));
+
+    // Refunded requests are not paid for; only the painted picture is.
+    assert_eq!(spent_today(&state, AT), 2);
 }
 
 /// A local stand-in for OpenAI that records each request and answers with the queued replies.
@@ -457,7 +531,7 @@ async fn a_logo_edit_sends_only_the_reference_and_the_domain() {
     assert_eq!(line, "POST /v1/images/edits HTTP/1.1");
     assert!(head.to_lowercase().contains("content-type: multipart/form-data; boundary=----magpieboundary"));
     let text = String::from_utf8_lossy(body);
-    assert!(text.contains("name=\"model\"\r\n\r\ngpt-image-2\r\n"));
+    assert!(text.contains("name=\"model\"\r\n\r\ngpt-image-2.5-sunburst\r\n"));
     assert!(text.contains("Subject: the acme.example brand mark."));
     assert!(text.contains("filename=\"reference.png\"\r\nContent-Type: image/png\r\n\r\n\u{FFFD}PNG-reference\r\n"));
 }
@@ -510,7 +584,7 @@ async fn a_key_is_saved_only_after_openai_accepts_it() {
     let _store = crate::credentials::tests::isolated_store(Recording(saved.clone()));
     assert_eq!(set_key("not-a-key").await.unwrap_err(), "pictures_key_format");
     assert_eq!(set_key("sk-has spaces-0000000000000000").await.unwrap_err(), "pictures_key_format");
-    let server = Server::new(vec![(401, "{}".into()), (200, r#"{"id":"gpt-image-2"}"#.into())]).await;
+    let server = Server::new(vec![(401, "{}".into()), (200, r#"{"id":"gpt-image-2.5-sunburst"}"#.into())]).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let origin = server.origin.clone();
     openai::with_test_transport(client, origin, async {
@@ -527,7 +601,7 @@ async fn a_key_is_saved_only_after_openai_accepts_it() {
     assert_eq!(read_state(&dir).unwrap()["keyGeneration"], 2);
     let requests = server.requests();
     assert_eq!(requests.len(), 2);
-    assert!(requests.iter().all(|(line, _, _)| line == "GET /v1/models/gpt-image-2 HTTP/1.1"));
+    assert!(requests.iter().all(|(line, _, _)| line == "GET /v1/models/gpt-image-2.5-sunburst HTTP/1.1"));
 }
 
 #[test]

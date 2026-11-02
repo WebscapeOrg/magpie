@@ -37,8 +37,8 @@ use std::{
     },
 };
 
-/// The model Marmalade paints its X avatars with (`OpenAI::ImageClient::DEFAULT_MODEL`).
-pub(crate) const MODEL: &str = "gpt-image-2";
+/// OpenAI's gpt-image-2.5 Sunburst, which Dave chose for both Magpie and Marmalade (Q-007).
+pub(crate) const MODEL: &str = "gpt-image-2.5-sunburst";
 pub(crate) const DAILY_LIMIT_CENTS: i64 = 300;
 /// Attempts for a picture that keeps failing for reasons that may pass, with the waits between them.
 const ATTEMPTS: i64 = 3;
@@ -51,6 +51,9 @@ const RATE_WAIT: i64 = 60_000;
 const LOST_WAIT: i64 = 5 * 60_000;
 const BILLING_WAIT: i64 = 3_600_000;
 const MODEL_WAIT: i64 = 24 * 3_600_000;
+/// Rejected request settings in a row, with no picture painted between them, after which Magpie
+/// stops painting for `MODEL_WAIT` instead of giving up each picture.
+const REFUSAL_RUN: usize = 3;
 /// How long a picture no sender uses is kept, in case its sender returns to it.
 const ORPHAN_KEEP: i64 = 30 * 86_400_000;
 /// How long a sender who is no longer in the Inbox is remembered.
@@ -478,7 +481,26 @@ fn failed_once(row: &mut Value, reason: &str, at: i64) {
     }
 }
 
+/// The pictures whose request settings were rejected since the last one painted, oldest first.
+fn refusal_run(state: &Value) -> Vec<String> {
+    let run = state["refusedRun"].as_array().into_iter().flatten();
+    let mut run: Vec<String> = run.filter_map(|id| id.as_str().map(str::to_owned)).collect();
+    let older = run.len().saturating_sub(REFUSAL_RUN - 1);
+    run.drain(..older);
+    run
+}
+
+/// Pauses painting. A pause already in force that lasts as long or longer, or until the key changes,
+/// is kept, so a late answer from the other request in flight cannot shorten it.
 fn stop(state: &mut Value, problem: &str, wait: Option<i64>, at: i64) {
+    let until = wait.map(|wait| at + wait);
+    if blocking_problem(state, at).is_some() {
+        match (state["retryAt"].as_i64(), until) {
+            (None, _) => return,
+            (Some(current), Some(until)) if current >= until => return,
+            _ => {}
+        }
+    }
     state["problem"] = json!(problem);
     state["retryAt"] = wait.map_or(Value::Null, |wait| json!(at + wait));
 }
@@ -515,6 +537,9 @@ fn record(
             }
             *row = painted;
             adjust(state, at, cents - openai::ESTIMATE_CENTS);
+            if let Some(fields) = state.as_object_mut() {
+                fields.remove("refusedRun");
+            }
             seed_revision();
             REVISION.fetch_add(1, Ordering::Relaxed);
             false
@@ -531,10 +556,34 @@ fn record(
             failed_once(row, "pictures_reference_unavailable", at);
             false
         }
+        // A rejected setting says nothing about the picture, so the picture is never given up for
+        // it: it is asked for again after `MODEL_WAIT`. A run of them, or one while painting is
+        // stopped for them, is taken as OpenAI rejecting Magpie's request, and pauses painting.
+        Outcome::Fault(openai::Fault::Rejected) if same_key => {
+            adjust(state, at, refund);
+            row["reason"] = json!("pictures_request_rejected");
+            row["retryAt"] = json!(at + MODEL_WAIT);
+            let mut run = refusal_run(state);
+            run.push(subject.to_owned());
+            if run.len() >= REFUSAL_RUN || blocking_problem(state, at) == Some("pictures_request_rejected") {
+                state["refusedRun"] = json!([]);
+                stop(state, "pictures_request_rejected", Some(MODEL_WAIT), at);
+                true
+            } else {
+                state["refusedRun"] = json!(run);
+                false
+            }
+        }
+        // An answer to a key that has since been replaced leaves the picture as it was.
+        Outcome::Fault(openai::Fault::Rejected) => {
+            adjust(state, at, refund);
+            false
+        }
+        // A refusal by the safety system does not always repeat, so the picture is asked for
+        // again before it is given up.
         Outcome::Fault(openai::Fault::Refused) => {
             adjust(state, at, refund);
-            row["reason"] = json!("pictures_refused");
-            give_up(row);
+            failed_once(row, "pictures_refused", at);
             false
         }
         // A fault answered to a key that has since been replaced or removed says nothing about the
@@ -942,6 +991,7 @@ fn key_changed(settled: bool) -> impl FnOnce() -> Result<u64, &'static str> + Se
             if settled && let Some(fields) = state.as_object_mut() {
                 fields.remove("problem");
                 fields.remove("retryAt");
+                fields.remove("refusedRun");
             }
             state["keyGeneration"] = json!(next);
             Ok(next)

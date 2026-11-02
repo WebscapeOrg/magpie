@@ -10,8 +10,21 @@ Item {
   property var avatars: ({})
   property string avatarRefreshId: ""
   property int avatarEpoch: 0
-  function refreshAvatars() { avatarEpoch++; avatarRefreshId = "images-" + Date.now(); avatars = ({}); avatarPending = ({}); drain() }
+  function refreshAvatars() { avatarEpoch++; avatarRefreshId = "images-" + Date.now(); avatars = ({}); avatarPending = ({}); avatarChecked = ({}); drain() }
   property var avatarPending: ({})
+  // Invariant: the engine's sender-picture revision; a change asks visible senders again, keeping
+  // their current picture until the new one arrives. -1 until a snapshot reports one.
+  property int pictureRevision: -1
+  property var avatarChecked: ({})
+  function notePictureRevision(revision) {
+    if (typeof revision !== "number" || !isFinite(revision) || revision === pictureRevision) return
+    if (pictureRevision === -1) {
+      var checked = ({})
+      for (var name in avatarChecked) checked[name] = revision
+      avatarChecked = checked
+    }
+    pictureRevision = revision
+  }
   property var snapshotsPending: ({})
   property bool descriptionsEnabled: true
   function setDescriptionsEnabled(value) { descriptionsEnabled = !!value; if (service && typeof service.saveWindowPrefs === "function") service.saveWindowPrefs(); if (descriptionsEnabled) refresh() }
@@ -152,6 +165,7 @@ Item {
       root.overviews = next
       var kept = root.snoozes.filter(function(snooze) { return snooze.accountId !== account })
       root.snoozes = kept.concat(result.snoozes || [])
+      root.notePictureRevision(result.pictures)
       root.flushNotifications(account)
       root.drain()
     })
@@ -253,14 +267,20 @@ Item {
     var email = String(row.from ? row.from.email || "" : "")
     if (!host || host.providerId !== "gmail" || email === "") return
     var cacheKey = key(host.accountId,email)
-    if (avatars[cacheKey] !== undefined || avatarPending[cacheKey]) return
+    var known = avatars[cacheKey] !== undefined
+    if ((known && avatarChecked[cacheKey] === pictureRevision) || avatarPending[cacheKey]) return
     if (Object.keys(avatarPending).length >= 3) return
     avatarPending[cacheKey] = true
     var epoch = avatarEpoch
-    service.backend.call("inbox.avatar", {accountId:host.accountId,email:email,refreshId:avatarRefreshId}, function(result,failure) {
+    var revision = pictureRevision
+    service.backend.call("inbox.avatar", {accountId:host.accountId,email:email,refreshId:known ? "" : avatarRefreshId}, function(result,failure) {
       if (epoch !== root.avatarEpoch) return
       delete root.avatarPending[cacheKey]
-      var next = Object.assign({},root.avatars); next[cacheKey] = !failure && result ? String(result.data || "") : ""; root.avatars = next
+      var next = Object.assign({},root.avatars)
+      if (!failure && result) next[cacheKey] = String(result.data || "")
+      else if (!known) next[cacheKey] = ""
+      root.avatars = next
+      var checked = Object.assign({},root.avatarChecked); checked[cacheKey] = revision; root.avatarChecked = checked
       root.drain()
     })
   }

@@ -314,6 +314,33 @@ fn credentials_native_linux_retains_legacy_attribute_scopes() {
 }
 
 #[test]
+fn openai_api_key_slot_is_separate_from_other_credentials() {
+    let slot = CredentialKey {
+        provider: "openai".into(),
+        account_id: "default".into(),
+        kind: CredentialKind::OpenAiApiKey,
+    };
+    let attributes = slot.attributes().unwrap();
+    assert_eq!(attributes["kind"], "openai-api-key");
+    assert_eq!(attributes["account"], "default");
+    assert_eq!(attributes.len(), 3);
+    let claude = CredentialKey {
+        provider: "anthropic".into(),
+        account_id: "default".into(),
+        kind: CredentialKind::ClaudeApiKey,
+    };
+    assert_ne!(slot.native_id().unwrap(), claude.native_id().unwrap());
+    for (provider, account) in [("anthropic", "default"), ("gmail", "default"), ("openai", "dave@example.test"), ("openai", "")] {
+        let wrong = CredentialKey {
+            provider: provider.into(),
+            account_id: account.into(),
+            kind: CredentialKind::OpenAiApiKey,
+        };
+        assert!(wrong.attributes().is_err(), "accepted {provider}/{account}");
+    }
+}
+
+#[test]
 fn claude_api_key_slot_is_separate_from_gmail_credentials() {
     let slot = CredentialKey {
         provider: "anthropic".into(),

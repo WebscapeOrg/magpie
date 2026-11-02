@@ -96,6 +96,11 @@ pub fn serve() -> io::Result<()> {
                             }
                         }
                         preparation_turn = (preparation_turn + 1) % accounts.len();
+                        let ids = accounts.iter().filter_map(|account| account["id"].as_str()).filter(|id| !id.is_empty()).map(str::to_owned).collect();
+                        maintenance.inbox.paint_pictures(ids, maintenance.gmail.clone(), maintenance.local_mail.clone());
+                    } else if accounts["accounts"].as_array().is_some() {
+                        // No account is signed in: the painter only forgets what signed-out accounts left.
+                        maintenance.inbox.paint_pictures(Vec::new(), maintenance.gmail.clone(), maintenance.local_mail.clone());
                     }
                 }
                 let _ = maintenance.dispatch("inbox.tick", &json!({})).await;

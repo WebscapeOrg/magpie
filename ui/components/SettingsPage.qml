@@ -239,7 +239,12 @@ Column {
       service.refreshDefaultMailClient()
   }
   onServiceChanged: refreshDefaultMailClient()
-  onVisibleChanged: refreshDefaultMailClient()
+  // The page is shown and hidden, not rebuilt, so the picture counts and any keyring problem are
+  // read again each time it opens.
+  onVisibleChanged: {
+    refreshDefaultMailClient()
+    if (visible) pictureSettings.load()
+  }
   Component.onCompleted: {
     refreshDefaultMailClient()
     renderSignaturePreview()
@@ -731,6 +736,17 @@ Column {
   AiSettings {
     objectName: "settings-ai"
     visible: !!root.service && root.service.hasAgent !== false
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  PictureSettings {
+    id: pictureSettings
+    objectName: "settings-pictures"
     width: parent.width
     service: root.service
     textColor: root.textColor

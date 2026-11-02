@@ -186,6 +186,8 @@ If a question comes up partway, ask it as an open question the Pickle way: follo
 
 **Every iPhone app tells Dave what an update changes for him before he takes it.** When a newer build of an iPhone app is ready, the app shows the friendly update notice in code/standards/mobile-app ("Updates: the notice"): one sentence on what the update changes for Dave, counted from the version he has to the one offered, with Details, Snooze, Skip and Update, and its notes in Resources/whats-new.json, one entry per version. Copy Caboodle for iPhone's files rather than building a variant, so every app tells him the same way and he can put an update off or skip it.
 
+**Tools and agents don't rely on ~/Downloads for ongoing work.** Keep anything an agent or tool needs on an ongoing basis, such as guides, patches and working data, in the tool's or repo's own folder and not in ~/Downloads. Downloads is for downloads, and its archiver moves files out of it, which once left every agent unable to read its guides.
+
 Ask `folklore ask <topic>` for the rule behind any of these, and `folklore show F-NNN` for where it came from.
 
 <!-- END FOLKLORE -->

@@ -55,7 +55,7 @@ const TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 const STATES: [&str; 5] = ["queued", "running", "done", "failed", "cancelled"];
 /// Failures the replayed history itself can cause; the failed turn's history is not replayed again.
 const HISTORY_FAILURES: [&str; 3] = ["ai_request_rejected", "ai_context_full", "agent_context_too_large"];
-/// Q-005 (open): $2 a day of its own, apart from what descriptions spend, until Dave chooses.
+/// Q-005: Dave chose $2 a day of its own, apart from what descriptions spend.
 /// Billionths of a dollar.
 const DAILY_SPEND: u64 = 2_000_000_000;
 const DAILY_CALLS: u64 = 400;

@@ -46,6 +46,17 @@ pub(super) fn consumer(domain: &str) -> bool {
     ]
     .contains(&domain)
 }
+/// The contacts' photos and whether that answer is complete. An incomplete answer (no token, or a
+/// failed or partial People reply) does not mean a contact has no photo.
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+pub(super) async fn contact_photos(
+    gmail: &crate::providers::gmail::Session,
+    account: &str,
+) -> Result<(Value, bool), &'static str> {
+    let photos = contacts(gmail, account, "").await?;
+    let complete = store::read(&store::key(&["contacts", account]))?.is_some_and(|saved| saved["state"] == "ready");
+    Ok((photos, complete))
+}
 pub(super) async fn contacts(
     gmail: &crate::providers::gmail::Session,
     account: &str,
@@ -136,7 +147,7 @@ pub async fn get(
 ) -> Result<Value, &'static str> {
     let domain = address.split_once('@').ok_or("invalid_params")?.1;
     #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
-    if let Some(value) = painted(account, address).await? {
+    if let Some(value) = painted(account, address).await {
         return Ok(value);
     }
     let name = format!("avatar-{}", store::key(&["avatar-v3", account, address]));
@@ -192,27 +203,33 @@ pub(super) async fn organization_image(domain: &str) -> Option<String> {
     crate::public_http::image(&url).await.ok()
 }
 /// The sender's painted picture cut to the circle, cached until it is painted again.
+/// The sender's painted picture, prepared for the avatar circle. Any problem with the pictures
+/// store means no painted picture, so the usual avatar is shown instead.
 #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
-async fn painted(account: &str, address: &str) -> Result<Option<Value>, &'static str> {
-    let Some((data, painted)) = super::pictures::painted(account, address)? else {
-        return Ok(None);
-    };
-    let name = format!("avatar-{}", store::key(&["avatar-painted", account, address]));
-    if let Some(saved) = store::read(&name)? {
-        if saved["source"] == "painted" && saved["painted"] == painted {
-            return Ok(Some(saved));
-        }
-    }
-    let Some(image) = tokio::task::spawn_blocking(move || artwork::prepare(&data, false))
+async fn painted(account: &str, address: &str) -> Option<Value> {
+    let (owner, sender) = (account.to_owned(), address.to_owned());
+    let (subject, painted) = tokio::task::spawn_blocking(move || super::pictures::painted(&owner, &sender))
         .await
-        .ok()
-        .and_then(Result::ok)
-    else {
-        return Ok(None);
-    };
+        .ok()?
+        .ok()??;
+    let name = format!("avatar-{}", store::key(&["avatar-painted", account, address]));
+    if let Ok(Some(saved)) = store::read(&name)
+        && saved["source"] == "painted"
+        && saved["painted"] == painted
+    {
+        return Some(saved);
+    }
+    let data = tokio::task::spawn_blocking(move || super::pictures::picture(&subject))
+        .await
+        .ok()?
+        .ok()??;
+    let image = tokio::task::spawn_blocking(move || artwork::prepare(&data, false))
+        .await
+        .ok()?
+        .ok()?;
     let value = json!({"data":image,"source":"painted","painted":painted,"updated":now(),"owner":account});
-    store::cache(&name, &value)?;
-    Ok(Some(value))
+    let _ = store::cache(&name, &value);
+    Some(value)
 }
 fn organization_artwork(domain: &str) -> Option<&'static str> {
     match domain {

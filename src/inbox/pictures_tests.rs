@@ -10,8 +10,15 @@ fn fixture() -> crate::mail::tests::AccountFixture {
     account_fixture(json!({"version":1,"accounts":[]}))
 }
 
-fn person(address: &str) -> Subject {
-    Subject::Person { address: address.into(), photo: "https://lh3.googleusercontent.com/a/photo".into() }
+fn person(address: &str, photo: &str) -> Subject {
+    Subject::Person { account: "me@example.org".into(), address: address.into(), photo: photo.into() }
+}
+
+fn png_data(width: u32, color: [u8; 4]) -> String {
+    use base64::Engine;
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(width, width, image::Rgba(color)).write_to(&mut png, image::ImageFormat::Png).unwrap();
+    format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png.into_inner()))
 }
 
 #[test]
@@ -42,16 +49,33 @@ fn senders_are_distinct_valid_addresses_with_a_safe_letter() {
 #[test]
 fn senders_get_their_photo_their_company_or_a_monogram() {
     let photos = json!({"ann@gmail.com":"https://lh3.googleusercontent.com/a/ann","bob@gmail.com":"http://insecure.test/bob"});
+    let me = "me@example.org";
     assert_eq!(
-        subject_for("ann@gmail.com", 'A', &photos),
-        Subject::Person { address: "ann@gmail.com".into(), photo: "https://lh3.googleusercontent.com/a/ann".into() }
+        subject_for(me, "ann@gmail.com", 'A', &photos),
+        person("ann@gmail.com", "https://lh3.googleusercontent.com/a/ann")
     );
-    assert_eq!(subject_for("bob@gmail.com", 'B', &photos), Subject::Monogram { letter: 'B' });
-    assert_eq!(subject_for("team@acme.example", 'T', &photos), Subject::Organization { domain: "acme.example".into() });
-    let one = subject_for("a@acme.example", 'A', &photos).id();
-    assert_eq!(one, subject_for("b@acme.example", 'B', &photos).id());
+    assert_eq!(subject_for(me, "bob@gmail.com", 'B', &photos), Subject::Monogram { letter: 'B' });
+    assert_eq!(subject_for(me, "team@acme.example", 'T', &photos), Subject::Organization { domain: "acme.example".into() });
+    let one = subject_for(me, "a@acme.example", 'A', &photos).id();
+    assert_eq!(one, subject_for(me, "b@acme.example", 'B', &photos).id());
     assert_eq!(one.len(), 64);
-    assert_ne!(person("ann@gmail.com").id(), Subject::Person { address: "ann@gmail.com".into(), photo: "https://lh3.googleusercontent.com/a/new".into() }.id());
+    // A contact keeps one picture whatever its photo address; each account has its own.
+    let ann = person("ann@gmail.com", "https://lh3.googleusercontent.com/a/ann");
+    assert_eq!(ann.id(), person("ann@gmail.com", "https://lh3.googleusercontent.com/a/new").id());
+    let elsewhere = Subject::Person { account: "other@example.org".into(), address: "ann@gmail.com".into(), photo: "https://lh3.googleusercontent.com/a/ann".into() };
+    assert_ne!(ann.id(), elsewhere.id());
+}
+
+#[test]
+fn a_company_is_one_picture_across_its_subdomains() {
+    let photos = json!({});
+    let me = "me@example.org";
+    let company = Subject::Organization { domain: "acme.co.uk".into() };
+    assert_eq!(subject_for(me, "news@em12.acme.co.uk", 'N', &photos), company);
+    assert_eq!(subject_for(me, "billing@acme.co.uk", 'B', &photos), company);
+    assert_eq!(subject_for(me, "a@mail.shop.example.com", 'A', &photos), Subject::Organization { domain: "example.com".into() });
+    assert_eq!(subject_for(me, "x@co.za", 'X', &photos), Subject::Organization { domain: "co.za".into() });
+    assert_eq!(subject_for(me, "x@gmail.com", 'X', &photos), Subject::Monogram { letter: 'X' });
 }
 
 #[test]
@@ -66,8 +90,8 @@ fn assignment_lists_each_due_picture_once_and_forgets_signed_out_accounts() {
         ("s2".to_owned(), company.clone()),
         ("s3".to_owned(), Subject::Monogram { letter: 'Q' }),
     ];
-    let due = change(|_, state| assign(state, "one", &assignments, AT)).unwrap();
-    assert_eq!(due, vec![company.clone(), Subject::Monogram { letter: 'Q' }]);
+    let due = change(|_, state| assign(state, "one", &assignments, true, AT)).unwrap();
+    assert_eq!(due, vec![(company.clone(), None), (Subject::Monogram { letter: 'Q' }, None)]);
     let gone = Subject::Monogram { letter: 'Q' }.id();
     change(|dir, state| {
         fs::atomic_replace(dir, &format!("{gone}.jpg"), b"jpeg")?;
@@ -78,34 +102,155 @@ fn assignment_lists_each_due_picture_once_and_forgets_signed_out_accounts() {
     })
     .unwrap();
     let other = vec![("s4".to_owned(), company.clone())];
-    change(|_, state| assign(state, "two", &other, AT)).unwrap();
-    change(|dir, state| forget(dir, state, &HashSet::from(["two".to_owned()]))).unwrap();
+    change(|_, state| assign(state, "two", &other, true, AT)).unwrap();
+    change(|dir, state| forget(dir, state, &HashSet::from(["two".to_owned()]), AT)).unwrap();
     let dir = directory(false).unwrap().unwrap();
     let state = read_state(&dir).unwrap();
     assert_eq!(state["senders"].as_object().unwrap().len(), 1);
-    assert!(state["subjects"].get(&company.id()).is_some());
+    assert!(state["subjects"].get(company.id()).is_some());
     assert!(state["subjects"].get(&gone).is_none());
     assert!(fs::regular_readonly(&dir, &format!("{gone}.jpg")).unwrap().is_none());
-    let again = change(|_, state| assign(state, "two", &other, AT)).unwrap();
-    assert_eq!(again, vec![company]);
+    let again = change(|_, state| assign(state, "two", &other, true, AT)).unwrap();
+    assert_eq!(again, vec![(company, None)]);
+}
+
+#[test]
+fn a_portrait_survives_unknown_contacts_and_an_unused_picture_waits_before_deletion() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let ann = person("ann@gmail.com", "https://lh3.googleusercontent.com/a/ann");
+    let portrait = ann.id();
+    let signed_in = HashSet::from(["one".to_owned()]);
+    let due = change(|_, state| assign(state, "one", &[("s1".into(), ann.clone())], true, AT)).unwrap();
+    assert_eq!(due, vec![(ann.clone(), None)]);
+    change(|dir, state| {
+        fs::atomic_replace(dir, &format!("{portrait}.jpg"), b"jpeg")?;
+        state["subjects"][&portrait]["state"] = json!("painted");
+        state["subjects"][&portrait]["painted"] = json!(AT);
+        Ok(())
+    })
+    .unwrap();
+    // Contacts could not be read: the sender keeps the portrait and nothing new is painted.
+    let monogram = Subject::Monogram { letter: 'A' };
+    let unknown = change(|_, state| assign(state, "one", &[("s1".into(), monogram.clone())], false, AT)).unwrap();
+    assert!(unknown.is_empty());
+    change(|dir, state| forget(dir, state, &signed_in, AT)).unwrap();
+    let dir = directory(false).unwrap().unwrap();
+    let state = read_state(&dir).unwrap();
+    assert_eq!(state["senders"]["s1"]["subject"], portrait.as_str());
+    assert!(state["subjects"].get(monogram.id()).is_none());
+    assert!(state["subjects"][&portrait].get("orphaned").is_none());
+    // Contacts say Ann has no photo now: she moves to her monogram, and the portrait waits.
+    let known = change(|_, state| assign(state, "one", &[("s1".into(), monogram.clone())], true, AT)).unwrap();
+    assert_eq!(known, vec![(monogram.clone(), None)]);
+    change(|dir, state| forget(dir, state, &signed_in, AT)).unwrap();
+    let state = read_state(&dir).unwrap();
+    assert_eq!(state["subjects"][&portrait]["orphaned"], AT);
+    assert!(fs::regular_readonly(&dir, &format!("{portrait}.jpg")).unwrap().is_some());
+    change(|dir, state| forget(dir, state, &signed_in, AT + ORPHAN_KEEP - 1)).unwrap();
+    assert!(fs::regular_readonly(&dir, &format!("{portrait}.jpg")).unwrap().is_some());
+    change(|dir, state| forget(dir, state, &signed_in, AT + ORPHAN_KEEP)).unwrap();
+    let state = read_state(&dir).unwrap();
+    assert!(state["subjects"].get(&portrait).is_none());
+    assert!(fs::regular_readonly(&dir, &format!("{portrait}.jpg")).unwrap().is_none());
+    // A sender missing from the Inbox for 90 days is forgotten.
+    change(|dir, state| forget(dir, state, &signed_in, AT + SENDER_KEEP + 86_400_000)).unwrap();
+    assert!(read_state(&dir).unwrap()["senders"].get("s1").is_none());
+}
+
+#[tokio::test]
+async fn a_new_photo_address_with_the_same_pixels_is_not_painted_again() {
+    let address = "https://lh3.googleusercontent.com/a/same-pixels";
+    let changed = "https://lh3.googleusercontent.com/a/new-pixels";
+    TEST_REFERENCES.lock().unwrap().push((address.into(), png_data(64, [200, 120, 80, 255])));
+    TEST_REFERENCES.lock().unwrap().push((changed.into(), png_data(64, [20, 120, 180, 255])));
+    let fingerprint = digest(&avatars::artwork::reference(&png_data(64, [200, 120, 80, 255])).unwrap());
+    let subject = person("pat@gmail.com", address);
+    // No local server is set, so any request would fail as lost: Unchanged proves none was made.
+    assert!(matches!(paint(&subject, Some(fingerprint.as_str()), &key()).await, Outcome::Unchanged));
+    let missing = person("pat@gmail.com", "https://lh3.googleusercontent.com/a/not-supplied");
+    assert!(matches!(paint(&missing, None, &key()).await, Outcome::NoReference));
+    let server = Server::new(vec![(200, picture_reply())]).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let repainted = person("pat@gmail.com", changed);
+    let outcome = openai::with_test_transport(client, server.origin.clone(), paint(&repainted, Some(fingerprint.as_str()), &key())).await;
+    let Outcome::Painted { reference: Some(new), .. } = outcome else { panic!("a changed photo is painted") };
+    assert_ne!(new, fingerprint);
+    assert_eq!(server.requests()[0].0, "POST /v1/images/edits HTTP/1.1");
+}
+
+#[test]
+fn a_changed_photo_is_checked_again_and_keeps_its_picture_until_then() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let old = person("pat@gmail.com", "https://lh3.googleusercontent.com/a/old");
+    let new = person("pat@gmail.com", "https://lh3.googleusercontent.com/a/new");
+    let name = old.id();
+    change(|_, state| assign(state, "one", &[("s1".into(), old.clone())], true, AT)).unwrap();
+    let dir = directory(true).unwrap().unwrap();
+    let mut state = read_state(&dir).unwrap();
+    let painted = Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 6, reference: Some("abc".into()) };
+    record(&dir, &mut state, &name, painted, AT, 0).unwrap();
+    assert_eq!(state["subjects"][&name]["reference"], "abc");
+    assert_eq!(state["subjects"][&name]["photo"], "https://lh3.googleusercontent.com/a/old");
+    let due = assign(&mut state, "one", &[("s1".into(), new.clone())], true, AT).unwrap();
+    assert_eq!(due, vec![(new.clone(), Some("abc".into()))]);
+    assert_eq!(state["subjects"][&name]["state"], "recheck");
+    record(&dir, &mut state, &name, Outcome::Unchanged, AT, 0).unwrap();
+    assert_eq!(state["subjects"][&name]["state"], "painted");
+    assert_eq!(state["subjects"][&name]["painted"], AT);
+    // A photo that cannot be fetched three times leaves the current picture in place.
+    state["subjects"][&name]["photo"] = json!("https://lh3.googleusercontent.com/a/older");
+    assign(&mut state, "one", &[("s1".into(), new.clone())], true, AT).unwrap();
+    for _ in 0..ATTEMPTS {
+        record(&dir, &mut state, &name, Outcome::NoReference, AT, 0).unwrap();
+    }
+    assert_eq!(state["subjects"][&name]["state"], "painted");
+}
+
+#[test]
+fn a_changed_key_stops_a_run_and_its_old_refusal_does_not_count() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let mut state = json!({"keyGeneration": 2});
+    assert!(!reserve(&mut state, AT, 1));
+    assert!(reserve(&mut state, AT, 2));
+    let subject = Subject::Monogram { letter: 'G' };
+    let name = subject.id();
+    state["subjects"] = json!({name.clone(): {"state":"waiting","attempts":0,"kind":"monogram"}});
+    let dir = directory(true).unwrap().unwrap();
+    let refusal = Outcome::Fault(openai::Fault::Key("pictures_key_invalid"));
+    assert!(record(&dir, &mut state, &name, refusal, AT, 1).unwrap());
+    assert!(state.get("problem").is_none());
+    assert_eq!(spent_today(&state, AT), 0);
+    assert_eq!(state["subjects"][&name]["state"], "waiting");
+    let generation = key_changed()().unwrap();
+    assert_eq!(generation, 1);
+    assert_eq!(key_changed()().unwrap(), 2);
 }
 
 #[test]
 fn spending_stops_at_the_daily_limit_and_starts_again_the_next_day() {
     let mut state = json!({});
     let mut reserved = 0;
-    while reserve(&mut state, AT) {
+    while reserve(&mut state, AT, 0) {
         reserved += 1;
     }
     assert_eq!(reserved, DAILY_LIMIT_CENTS / openai::ESTIMATE_CENTS);
     assert!(spent_today(&state, AT) <= DAILY_LIMIT_CENTS);
-    assert!(reserve(&mut state, AT + 86_400_000));
+    assert!(reserve(&mut state, AT + 86_400_000, 0));
     assert_eq!(spent_today(&state, AT + 86_400_000), openai::ESTIMATE_CENTS);
     let mut stopped = json!({"problem":"pictures_key_invalid"});
-    assert!(!reserve(&mut stopped, AT));
+    assert!(!reserve(&mut stopped, AT, 0));
     let mut waiting = json!({"problem":"pictures_rate_limited","retryAt":AT + 1});
-    assert!(!reserve(&mut waiting, AT));
-    assert!(reserve(&mut waiting, AT + 1));
+    assert!(!reserve(&mut waiting, AT, 0));
+    assert!(reserve(&mut waiting, AT + 1, 0));
 }
 
 #[test]
@@ -124,44 +269,44 @@ fn outcomes_decide_retries_refunds_and_pauses() {
     let dir = directory(true).unwrap().unwrap();
     let mut state = json!({});
     setup(&mut state);
-    assert!(!record(&dir, &mut state, &name, Outcome::NoReference, AT).unwrap());
+    assert!(!record(&dir, &mut state, &name, Outcome::NoReference, AT, 0).unwrap());
     assert_eq!(state["subjects"][&name]["retryAt"], AT + RETRY_WAITS[0]);
     assert_eq!(spent_today(&state, AT), 0);
-    record(&dir, &mut state, &name, Outcome::NoReference, AT).unwrap();
+    record(&dir, &mut state, &name, Outcome::NoReference, AT, 0).unwrap();
     assert_eq!(state["subjects"][&name]["retryAt"], AT + RETRY_WAITS[1]);
-    record(&dir, &mut state, &name, Outcome::NoReference, AT).unwrap();
+    record(&dir, &mut state, &name, Outcome::NoReference, AT, 0).unwrap();
     assert_eq!(state["subjects"][&name]["state"], "failed");
     assert!(state["subjects"][&name].get("retryAt").is_none());
 
     setup(&mut state);
-    assert!(!record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Refused), AT).unwrap());
+    assert!(!record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Refused), AT, 0).unwrap());
     assert_eq!(state["subjects"][&name]["state"], "failed");
     assert_eq!(state["subjects"][&name]["reason"], "pictures_refused");
 
     setup(&mut state);
-    assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Key("pictures_key_invalid")), AT).unwrap());
+    assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Key("pictures_key_invalid")), AT, 0).unwrap());
     assert_eq!(blocking_problem(&state, AT + 365 * 86_400_000), Some("pictures_key_invalid"));
     assert_eq!(state["subjects"][&name]["attempts"], 0);
     assert_eq!(spent_today(&state, AT), 0);
 
     setup(&mut state);
     state.as_object_mut().unwrap().remove("problem");
-    assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Lost { charged: true }), AT).unwrap());
+    assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Lost { charged: true }), AT, 0).unwrap());
     assert_eq!(spent_today(&state, AT), openai::ESTIMATE_CENTS);
     assert_eq!(blocking_problem(&state, AT), Some("pictures_unreachable"));
     assert_eq!(blocking_problem(&state, AT + LOST_WAIT), None);
     assert_eq!(state["subjects"][&name]["attempts"], 1);
 
     setup(&mut state);
-    assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::RateLimited(Some(5))), AT).unwrap());
+    assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::RateLimited(Some(5))), AT, 0).unwrap());
     assert_eq!(state["retryAt"], AT + RATE_WAIT);
     setup(&mut state);
-    assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Billing), AT).unwrap());
+    assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Billing), AT, 0).unwrap());
     assert_eq!(state["problem"], "pictures_billing");
 
     setup(&mut state);
     let before = revision();
-    assert!(!record(&dir, &mut state, &name, Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 6 }, AT).unwrap());
+    assert!(!record(&dir, &mut state, &name, Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 6, reference: None }, AT, 0).unwrap());
     assert_eq!(revision(), before + 1);
     assert_eq!(state["subjects"][&name]["state"], "painted");
     assert_eq!(spent_today(&state, AT), 6);
@@ -169,9 +314,12 @@ fn outcomes_decide_retries_refunds_and_pauses() {
 }
 
 /// A local stand-in for OpenAI that records each request and answers with the queued replies.
+/// A request line, its head and its body.
+type Seen = (String, String, Vec<u8>);
+
 struct Server {
     origin: String,
-    requests: Arc<StdMutex<Vec<(String, String, Vec<u8>)>>>,
+    requests: Arc<StdMutex<Vec<Seen>>>,
     _task: tokio::task::JoinHandle<()>,
 }
 
@@ -216,7 +364,7 @@ impl Server {
         });
         Self { origin, requests, _task: task }
     }
-    fn requests(&self) -> Vec<(String, String, Vec<u8>)> {
+    fn requests(&self) -> Vec<Seen> {
         self.requests.lock().unwrap().clone()
     }
 }
@@ -245,9 +393,9 @@ async fn a_monogram_is_painted_from_house_style_text_alone_and_served_in_the_cir
     let server = Server::new(vec![(200, picture_reply())]).await;
     let subject = Subject::Monogram { letter: 'K' };
     let assignments = vec![(id(&["picture-sender", "me@example.org", "kim@gmail.com"]), subject.clone())];
-    let due = change(|_, state| assign(state, &id(&["picture-account", "me@example.org"]), &assignments, now())).unwrap();
+    let due = change(|_, state| assign(state, &id(&["picture-account", "me@example.org"]), &assignments, true, now())).unwrap();
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    openai::with_test_transport(client, server.origin.clone(), paint_all(due, key())).await.unwrap();
+    openai::with_test_transport(client, server.origin.clone(), paint_all(due, key(), 0)).await.unwrap();
     let requests = server.requests();
     assert_eq!(requests.len(), 1);
     let (line, head, body) = &requests[0];
@@ -260,8 +408,11 @@ async fn a_monogram_is_painted_from_house_style_text_alone_and_served_in_the_cir
     assert_eq!(sent["prompt"], prompts::monogram('K'));
     let text = String::from_utf8_lossy(body);
     assert!(!text.contains("kim") && !text.contains("example.org"));
-    let (data, painted_at) = painted("me@example.org", "kim@gmail.com").unwrap().unwrap();
+    let (subject_name, painted_at) = painted("me@example.org", "kim@gmail.com").unwrap().unwrap();
+    assert_eq!(subject_name, subject.id());
+    let data = picture(&subject_name).unwrap().unwrap();
     assert!(data.starts_with("data:image/jpeg;base64,"));
+    assert!(picture("../state").unwrap().is_none());
     assert!(painted_at > 0);
     assert!(painted("me@example.org", "other@gmail.com").unwrap().is_none());
     let status = status().await.unwrap();
@@ -297,18 +448,18 @@ async fn a_refused_key_stops_painting_until_the_key_changes() {
     let _fixture = fixture();
     let refusal = r#"{"error":{"code":"invalid_api_key","message":"Incorrect API key provided: sk-synth***"}}"#;
     let server = Server::new(vec![(401, refusal.into()), (401, refusal.into())]).await;
-    let subjects = vec![Subject::Monogram { letter: 'A' }, Subject::Monogram { letter: 'B' }];
+    let subjects = [Subject::Monogram { letter: 'A' }, Subject::Monogram { letter: 'B' }];
     let assignments: Vec<_> = subjects.iter().enumerate().map(|(n, subject)| (format!("s{n}"), subject.clone())).collect();
-    let due = change(|_, state| assign(state, "owner", &assignments, now())).unwrap();
+    let due = change(|_, state| assign(state, "owner", &assignments, true, now())).unwrap();
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
-    openai::with_test_transport(client, server.origin.clone(), paint_all(due, key())).await.unwrap();
+    openai::with_test_transport(client, server.origin.clone(), paint_all(due, key(), 0)).await.unwrap();
     assert!(server.requests().len() <= 2);
     let dir = directory(false).unwrap().unwrap();
     let state = read_state(&dir).unwrap();
     assert_eq!(state["problem"], "pictures_key_invalid");
     assert!(state.to_string().find("Incorrect").is_none());
     assert_eq!(spent_today(&state, now()), 0);
-    let again = change(|_, state| Ok(reserve(state, now()))).unwrap();
+    let again = change(|_, state| Ok(reserve(state, now(), 0))).unwrap();
     assert!(!again);
 }
 

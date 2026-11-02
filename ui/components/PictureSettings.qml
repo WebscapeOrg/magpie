@@ -25,8 +25,11 @@ Column {
   function load() {
     if (!ready) return
     service.backend.call("inbox.pictureStatus", {}, function(result, failure) {
-      if (failure || !result) { if (failure && (failure.code === -32012 || failure.code === -32601)) root.status = null; return }
-      root.status = result
+      if (!failure && result) { root.status = result; root.error = ""; return }
+      if (failure && (failure.code === -32012 || failure.code === -32601)) { root.status = null; return }
+      // Keep the section visible and say why the status could not be read.
+      if (root.status === null) root.status = ({present: false})
+      root.error = Pictures.problem(failure ? failure.message : "unknown")
     })
   }
   function save() {

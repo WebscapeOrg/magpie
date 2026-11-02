@@ -18,6 +18,8 @@ function problem(code) {
   case "pictures_model_unavailable": return "OpenAI does not offer gpt-image-2 to this key. Magpie tries again tomorrow."
   case "pictures_unreachable": return "OpenAI could not be reached. Magpie tries again in a few minutes."
   case "pictures_key_storage": return "The keyring could not be used. Unlock it, then try again."
+  case "pictures_storage_full": return "Magpie's record of sender pictures is nearly full, so new pictures may stop. Older senders are forgotten after 90 days."
+  case "pictures_storage_unavailable": return "Magpie could not read its record of sender pictures. Senders keep their usual pictures."
   case "": return ""
   default: return "Sender pictures are not available right now."
   }
@@ -35,7 +37,7 @@ function summary(status) {
   var limit = Number(status.dailyLimitCents) || 0
   var text = painted + (painted === 1 ? " sender picture" : " sender pictures") + " painted"
   if (waiting > 0) text += ", " + waiting + " waiting"
-  text += ". " + money(spent) + " spent today of the " + money(limit) + " daily limit."
+  text += ". About " + money(spent) + " spent today of the " + money(limit) + " daily limit."
   if (waiting > 0 && limit > 0 && spent >= limit - 7) text += " The rest are painted tomorrow."
   return text
 }

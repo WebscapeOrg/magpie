@@ -13,7 +13,7 @@ const VERSION: &str = "2026-10-21";
 pub(crate) const MODEL: &str = "claude-haiku-5-5";
 const REPLY_LIMIT: usize = 8 * 1024 * 1024;
 pub(crate) const REQUEST_LIMIT: usize = 30 * 1024 * 1024;
-// Q-005 (open): the assistant is assumed to use Sonnet 5.5 until Dave chooses its model and daily limit.
+// Q-005: Dave chose Sonnet 5.5 for the assistant, with a daily limit of its own (assistant.rs).
 pub(crate) const ASSISTANT_MODEL: &str = "claude-sonnet-5-5";
 // Invariant: spending stops for the day at about $0.50. Each message is counted before it is sent and
 // stays below PROMPT_LIMIT tokens; with the rules and earlier answers a request stays below 100,000

@@ -111,7 +111,7 @@ fn all_inline_text_parts_are_indexed_and_missing_text_is_explicit() {
     let result = content::extract(&resource);
     assert!(result.body.contains("first") && result.body.contains("last"));
     assert!(!result.body.contains("private-file-text"));
-    assert!(!result.complete);
+    assert_eq!(result.completeness, content::Completeness::Missing);
 }
 #[test]
 fn attachment_disposition_uses_the_complete_trimmed_token() {
@@ -120,7 +120,7 @@ fn attachment_disposition_uses_the_complete_trimmed_token() {
         {"mimeType":"text/plain","headers":[{"name":"Content-Disposition","value":"attachment-extra"}],"body":{"data":URL_SAFE_NO_PAD.encode("inline body")}}
     ]}});
     let result = content::extract(&resource);
-    assert!(result.complete);
+    assert!(result.complete());
     assert_eq!(result.body, "inline body\n");
 }
 #[cfg(unix)]
@@ -429,7 +429,7 @@ fn attached_multipart_subtrees_do_not_supply_body_text_or_missing_body_jobs() {
     let extracted = content::extract(&resource);
     assert_eq!(extracted.body, "visible body\n");
     assert_eq!(extracted.filenames, "attached.eml\n");
-    assert!(extracted.complete);
+    assert!(extracted.complete());
 }
 
 #[test]
@@ -531,5 +531,287 @@ fn alert_snapshot_lists_inbox_ids_and_names_only_unread_senders() {
             .unwrap();
         assert_eq!(store.alert_snapshot().unwrap()["paused"], true);
     }
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+pub(super) fn part(content_type: &str, bytes: &[u8]) -> Value {
+    json!({"mimeType":"text/plain","headers":[{"name":"Content-Type","value":content_type}],
+        "body":{"data":URL_SAFE_NO_PAD.encode(bytes),"size":bytes.len()}})
+}
+
+pub(super) fn with_payload(id: &str, payload: Value) -> Value {
+    let mut resource = message(id, "");
+    resource["payload"] = payload;
+    resource
+}
+
+#[test]
+fn text_that_does_not_fit_its_character_set_is_complete_and_unreadable_text_is_not_fetchable() {
+    // Old mail in Japanese often declares ISO-2022-JP but carries a few bytes outside it.
+    let mixed = part("text/plain; charset=ISO-2022-JP", b"\x1b$B$3$s\x1b(B hello \xff\xfe there");
+    let text = content::extract(&json!({"payload": mixed}));
+    assert_eq!(text.completeness, content::Completeness::Complete);
+    assert!(text.body.contains("hello") && text.body.contains("there") && text.body.contains('\u{fffd}'));
+
+    let damaged = json!({"mimeType":"text/plain","body":{"data":"*not base64*","size":12}});
+    assert_eq!(content::extract(&json!({"payload": damaged})).completeness, content::Completeness::Unreadable);
+    let empty = json!({"mimeType":"text/html","body":{"size":12}});
+    assert_eq!(content::extract(&json!({"payload": empty})).completeness, content::Completeness::Unreadable);
+    // A part Gmail serves separately is fetched first, so it outranks a damaged one.
+    let separate = json!({"mimeType":"text/html","body":{"attachmentId":"later","size":12}});
+    for parts in [json!([damaged, separate]), json!([separate, damaged])] {
+        let resource = json!({"payload":{"mimeType":"multipart/alternative","parts":parts}});
+        assert_eq!(content::extract(&resource).completeness, content::Completeness::Missing);
+    }
+}
+
+#[test]
+fn unreadable_text_is_given_up_on_and_reported_while_missing_text_backs_off() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.write(|db| store::set_state(db, "inventoryComplete", "true")).unwrap();
+    store.put(&message("fine", "body"), 1).unwrap();
+    let damaged = with_payload("damaged", json!({"mimeType":"text/plain","body":{"data":"*","size":3}}));
+    store.put(&damaged, 1).unwrap();
+
+    let status = store.status().unwrap();
+    assert_eq!((status["stored"].as_i64(), status["textComplete"].as_i64(), status["pending"].as_i64()), (Some(2), Some(1), Some(0)));
+    assert_eq!(status["unsaved"], 1);
+    assert_eq!(status["unsavedReasons"], json!({"local_text_unreadable": 1}));
+    assert_eq!(status["failed"], 0);
+    assert_eq!(status["complete"], true, "a message that can never be saved is settled");
+    assert_eq!(status["health"]["missing"], 0);
+    assert!(store.resource("damaged").unwrap().is_some());
+
+    // Re-listing the Inbox checks its labels only; it never fetches its content again.
+    store.write(|db| {
+        store::sql(db.execute(&format!("INSERT INTO jobs(id,kind) VALUES(?1,{})", store::FETCH_KIND), ["damaged"]))?;
+        Ok(())
+    }).unwrap();
+    let kind: String = store.read(|db| store::sql(db.query_row("SELECT kind FROM jobs WHERE id='damaged'", [], |r| r.get(0)))).unwrap();
+    assert_eq!(kind, "metadata");
+    store.metadata(&json!({"id":"damaged","labelIds":["INBOX"]})).unwrap();
+    assert_eq!(store.status().unwrap()["pending"], 0);
+
+    // A text part Gmail serves separately is fetched again, later after each failure.
+    let mut separate = message("separate", "");
+    separate["payload"]["body"] = json!({"attachmentId":"later","size":40});
+    let before = chrono::Utc::now().timestamp_millis();
+    store.put(&separate, 1).unwrap();
+    store.put(&separate, 1).unwrap();
+    let (error, attempts, retry_at): (String, i64, i64) = store.read(|db| store::sql(db.query_row(
+        "SELECT error,attempts,retry_at FROM jobs WHERE id='separate'", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))))).unwrap();
+    assert_eq!((error.as_str(), attempts), ("local_text_incomplete", 2));
+    assert!(retry_at >= before + 5 * 60_000 && retry_at < before + 6 * 60_000);
+    let status = store.status().unwrap();
+    assert_eq!((status["failed"].as_i64(), status["unsaved"].as_i64(), status["complete"].as_bool()), (Some(1), Some(1), Some(false)));
+
+    // Deleting a message forgets that it could not be saved in full.
+    store.delete("damaged").unwrap();
+    assert_eq!(store.status().unwrap()["unsaved"], 0);
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn failed_fetches_wait_longer_each_time_and_too_large_mail_is_given_up_on() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.write(|db| {
+        store::sql(db.execute("INSERT INTO jobs(id,kind) VALUES('slow','content'),('huge','content'),('labels','metadata')", []))?;
+        for (attempt, wait) in [(1, 60_000), (2, 5 * 60_000), (3, 30 * 60_000), (4, 2 * 3_600_000), (5, 12 * 3_600_000), (6, 24 * 3_600_000), (7, 24 * 3_600_000)] {
+            store::retry_later(db, "slow", "gmail_http_failed", 1_000)?;
+            let (attempts, retry_at): (i64, i64) = store::sql(db.query_row("SELECT attempts,retry_at FROM jobs WHERE id='slow'", [], |r| Ok((r.get(0)?, r.get(1)?))))?;
+            assert_eq!((attempts, retry_at), (attempt, 1_000 + wait));
+        }
+        store::give_up(db, "huge", "gmail_response_too_large")?;
+        store::give_up(db, "labels", "local_content_too_large")?;
+        Ok(())
+    }).unwrap();
+    let jobs: Vec<(String, String)> = store.read(|db| {
+        let mut query = store::sql(db.prepare("SELECT id,kind FROM jobs ORDER BY id"))?;
+        let rows = store::sql(query.query_map([], |r| Ok((r.get(0)?, r.get(1)?))))?;
+        store::sql(rows.collect::<rusqlite::Result<Vec<_>>>())
+    }).unwrap();
+    let jobs: Vec<(&str, &str)> = jobs.iter().map(|(id, kind)| (id.as_str(), kind.as_str())).collect();
+    assert_eq!(jobs, [("huge", "metadata"), ("labels", "metadata"), ("slow", "content")],
+        "a content fetch given up on becomes a label check");
+    let status = store.status().unwrap();
+    assert_eq!(status["unsavedReasons"], json!({"gmail_response_too_large": 1, "local_content_too_large": 1}));
+    assert_eq!(status["health"]["missing"], 1, "only the message still being fetched is missing");
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+fn damaged_copy() -> Value {
+    with_payload("damaged", json!({"mimeType":"text/plain","body":{"data":"*","size":3}}))
+}
+
+#[test]
+fn stores_saved_under_the_old_rules_are_repaired_once_from_their_saved_copies() {
+    let path = directory();
+    {
+        let store = Store::open(open_directory(&path)).unwrap();
+        let mixed = with_payload("mixed", part("text/plain; charset=ISO-2022-JP", b"\x1b$B$3$s\x1b(B hello \xff"));
+        let damaged = damaged_copy();
+        let mut separate = message("separate", "");
+        separate["payload"]["body"] = json!({"attachmentId":"later","size":40});
+        for resource in [&mixed, &damaged, &separate] {
+            store.put(resource, 1).unwrap();
+        }
+        // What an older Magpie left behind: incomplete text, a five-minute content retry for each,
+        // no record of mail that cannot be saved, and no failure counts on jobs.
+        store.write(|db| {
+            store::sql(db.execute_batch("UPDATE messages SET text_complete=0;
+                DELETE FROM unsaved; DELETE FROM jobs; DELETE FROM state WHERE key='textRepair';
+                INSERT INTO jobs(id,kind,error,retry_at) SELECT id,'content','local_text_incomplete',1 FROM messages;
+                ALTER TABLE jobs DROP COLUMN attempts;"))
+        }).unwrap();
+    }
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.repair_text().unwrap();
+    let complete: Vec<String> = store.read(|db| {
+        let mut query = store::sql(db.prepare("SELECT id FROM messages WHERE text_complete=1 ORDER BY id"))?;
+        let rows = store::sql(query.query_map([], |r| r.get(0)))?;
+        store::sql(rows.collect::<rusqlite::Result<Vec<String>>>())
+    }).unwrap();
+    assert_eq!(complete, ["mixed"]);
+    let jobs = |store: &Store| -> Vec<(String, String, i64, i64)> { store.read(|db| {
+        let mut query = store::sql(db.prepare("SELECT id,kind,attempts,retry_at FROM jobs ORDER BY id"))?;
+        let rows = store::sql(query.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))))?;
+        store::sql(rows.collect::<rusqlite::Result<Vec<_>>>())
+    }).unwrap() };
+    // The repaired message keeps a label check at once, since a label change may have been waiting
+    // on its fetch. A saved copy cannot show that Gmail's copy is damaged, so that one is fetched.
+    assert_eq!(jobs(&store), [
+        ("damaged".to_string(), "content".to_string(), 0, 1),
+        ("mixed".to_string(), "metadata".to_string(), 0, 0),
+        ("separate".to_string(), "content".to_string(), 0, 1),
+    ]);
+    assert_eq!(store.status().unwrap()["unsaved"], 0);
+    assert!(store.complete_resource("mixed").unwrap().is_some());
+    assert_eq!(store.list("hello", 50, "").unwrap()["summaries"].as_array().unwrap().len(), 1);
+    store.put(&damaged_copy(), 1).unwrap();
+    assert_eq!(store.status().unwrap()["unsavedReasons"], json!({"local_text_unreadable": 1}), "Gmail's own copy decides");
+    // The repair runs once: a message marked incomplete later is left to the job queue.
+    store.write(|db| store::sql(db.execute("UPDATE messages SET text_complete=0 WHERE id='mixed'", []))).unwrap();
+    drop(store);
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.repair_text().unwrap();
+    assert!(store.complete_resource("mixed").unwrap().is_none());
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+fn job_kind(store: &Store, id: &str) -> Option<String> {
+    use rusqlite::OptionalExtension;
+    store.read(|db| store::sql(db.query_row("SELECT kind FROM jobs WHERE id=?1", [id], |r| r.get(0)).optional())).unwrap()
+}
+
+#[test]
+fn an_unreadable_local_copy_leaves_the_decision_to_gmails_copy() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    // A text part with a size but no bytes, as a field-masked or cached copy can carry.
+    let mut copy = message("masked", "");
+    copy["payload"]["body"] = json!({"size": 12});
+    store.put_cached(&copy, 1).unwrap();
+    assert_eq!(job_kind(&store, "masked").as_deref(), Some("content"));
+    assert_eq!(store.status().unwrap()["unsaved"], 0);
+    // Gmail's own copy with the same damage is given up on, and a cached copy afterwards keeps that.
+    store.put(&copy, 1).unwrap();
+    assert_eq!(store.status().unwrap()["unsavedReasons"], json!({"local_text_unreadable": 1}));
+    assert_eq!(job_kind(&store, "masked"), None);
+    store.put_cached(&copy, 1).unwrap();
+    assert_eq!(job_kind(&store, "masked").as_deref(), Some("metadata"));
+    assert_eq!(store.status().unwrap()["unsaved"], 1);
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn unsaved_mail_gmail_no_longer_lists_is_forgotten_after_inventory() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.put(&message("old", "body"), 1).unwrap();
+    store.write(|db| {
+        store::set_state(db, "generation", "1")?;
+        store::give_up(db, "listed", "gmail_response_too_large")?;
+        store::give_up(db, "gone", "gmail_response_too_large")?;
+        store::set_state(db, "generation", "2")?;
+        store::sql(db.execute("UPDATE unsaved SET generation=2 WHERE id='listed'", []))?;
+        store::set_state(db, "inventoryListed", "true")?;
+        store::set_state(db, "inventoryComplete", "false")?;
+        Ok(())
+    }).unwrap();
+    sync::apply_history(&store, &json!({"historyId":"9"}), "").unwrap();
+    let status = store.status().unwrap();
+    assert_eq!((status["inventoryComplete"].as_bool(), status["stored"].as_i64()), (Some(true), Some(0)));
+    assert_eq!(status["unsavedReasons"], json!({"gmail_response_too_large": 1}), "only the message Gmail still lists remains");
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn a_pending_label_change_survives_the_repair_and_unsaved_mail_is_never_fetched_in_full() {
+    let path = directory();
+    {
+        let store = Store::open(open_directory(&path)).unwrap();
+        let mut mixed = with_payload("mixed", part("text/plain; charset=ISO-2022-JP", b"\x1b$B$3$s\x1b(B hello \xff"));
+        mixed["labelIds"] = json!(["UNREAD"]);
+        store.put(&mixed, 1).unwrap();
+        // An older Magpie merged a label change into the content fetch and closed before it ran.
+        store.write(|db| store::sql(db.execute_batch(
+            "UPDATE messages SET text_complete=0; DELETE FROM jobs; DELETE FROM state WHERE key='textRepair';
+             INSERT INTO jobs(id,kind,priority,error,retry_at) VALUES('mixed','content',100,'local_text_incomplete',0);"))).unwrap();
+    }
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.repair_text().unwrap();
+    assert_eq!(job_kind(&store, "mixed").as_deref(), Some("metadata"));
+
+    store.write(|db| store::give_up(db, "huge", "gmail_response_too_large")).unwrap();
+    sync::apply_history(&store, &json!({"historyId":"9","history":[{"messagesAdded":[{"message":{"id":"huge"}}]}]}), "").unwrap();
+    assert_eq!(job_kind(&store, "huge").as_deref(), Some("metadata"));
+    store.write(|db| store::sql(db.execute("DELETE FROM jobs WHERE id='huge'", []))).unwrap();
+    store.edit("ticket-1", &["huge".to_string()], &["STARRED".to_string()], &[]).unwrap();
+    assert_eq!(job_kind(&store, "huge").as_deref(), Some("metadata"));
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn a_change_to_a_message_starts_its_waits_again() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.put(&message("slow", "body"), 1).unwrap();
+    store.write(|db| {
+        store::sql(db.execute("INSERT INTO jobs(id,kind) VALUES('slow','metadata')", []))?;
+        for _ in 0..5 { store::retry_later(db, "slow", "gmail_http_failed", 1_000)?; }
+        Ok(())
+    }).unwrap();
+    sync::apply_history(&store, &json!({"historyId":"9","history":[{"labelsAdded":[{"message":{"id":"slow"}}]}]}), "").unwrap();
+    store.write(|db| store::retry_later(db, "slow", "gmail_http_failed", 1_000)).unwrap();
+    let (attempts, retry_at): (i64, i64) = store.read(|db| store::sql(db.query_row(
+        "SELECT attempts,retry_at FROM jobs WHERE id='slow'", [], |r| Ok((r.get(0)?, r.get(1)?))))).unwrap();
+    assert_eq!((attempts, retry_at), (1, 1_000 + 60_000));
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn a_store_from_an_earlier_build_of_this_change_gains_the_unsaved_generation() {
+    let path = directory();
+    {
+        let store = Store::open(open_directory(&path)).unwrap();
+        store.write(|db| store::sql(db.execute_batch("ALTER TABLE unsaved DROP COLUMN generation;"))).unwrap();
+    }
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.write(|db| store::give_up(db, "huge", "gmail_response_too_large")).unwrap();
+    assert_eq!(store.status().unwrap()["unsaved"], 1);
+    // A message whose text is saved is never recorded as unsaved.
+    store.put(&message("saved", "body"), 1).unwrap();
+    store.write(|db| store::give_up(db, "saved", "gmail_response_too_large")).unwrap();
+    assert_eq!(store.status().unwrap()["unsaved"], 1);
+    drop(store);
     std::fs::remove_dir_all(path).unwrap();
 }

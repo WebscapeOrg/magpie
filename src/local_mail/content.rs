@@ -4,7 +4,36 @@ use serde_json::Value;
 pub(super) struct Text {
     pub body: String,
     pub filenames: String,
-    pub complete: bool,
+    pub completeness: Completeness,
+}
+
+/// Whether a copy of a message holds all of its text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Completeness {
+    /// Every text part is present. Bytes that are not valid in the part's declared character set
+    /// are kept as replacement characters: Gmail serves the same bytes again, so fetching cannot
+    /// improve them.
+    Complete,
+    /// A text part's body was left out of this copy, as Gmail does for large parts; fetching the
+    /// message's content brings it in.
+    Missing,
+    /// A text part's body cannot be read from Gmail's copy: it is not valid base64, or Gmail gave
+    /// neither the body nor a way to fetch it. Gmail never changes a message's content, so fetching
+    /// again cannot help.
+    Unreadable,
+}
+
+impl Text {
+    pub fn complete(&self) -> bool {
+        self.completeness == Completeness::Complete
+    }
+    /// A missing part outranks an unreadable one: fetching fills the missing part, and only then is
+    /// the message given up on.
+    fn note(&mut self, problem: Completeness) {
+        if self.completeness != Completeness::Missing {
+            self.completeness = problem;
+        }
+    }
 }
 pub(super) fn is_attachment(part: &Value) -> bool {
     if !part["filename"].as_str().unwrap_or("").is_empty() {
@@ -33,7 +62,7 @@ pub(super) fn extract(resource: &Value) -> Text {
     let mut output = Text {
         body: String::new(),
         filenames: String::new(),
-        complete: true,
+        completeness: Completeness::Complete,
     };
     let mut pending = vec![&resource["payload"]];
     while let Some(part) = pending.pop() {
@@ -53,15 +82,15 @@ pub(super) fn extract(resource: &Value) -> Text {
             continue;
         }
         let Some(data) = part["body"]["data"].as_str() else {
-            if part["body"]["size"].as_u64().unwrap_or(0) > 0
-                || part["body"]["attachmentId"].is_string()
-            {
-                output.complete = false;
+            if part["body"]["attachmentId"].is_string() {
+                output.note(Completeness::Missing);
+            } else if part["body"]["size"].as_u64().unwrap_or(0) > 0 {
+                output.note(Completeness::Unreadable);
             }
             continue;
         };
         let Ok(bytes) = URL_SAFE_NO_PAD.decode(data.trim_end_matches('=')) else {
-            output.complete = false;
+            output.note(Completeness::Unreadable);
             continue;
         };
         let charset = part["headers"]
@@ -79,10 +108,7 @@ pub(super) fn extract(resource: &Value) -> Text {
             .as_deref()
             .and_then(|s| encoding_rs::Encoding::for_label(s.as_bytes()))
             .unwrap_or(encoding_rs::UTF_8);
-        let (text, _, errors) = encoding.decode(&bytes);
-        if errors {
-            output.complete = false;
-        }
+        let (text, _, _) = encoding.decode(&bytes);
         let text = if mime == "text/html" {
             crate::message::content::html_to_text(&text)
         } else {

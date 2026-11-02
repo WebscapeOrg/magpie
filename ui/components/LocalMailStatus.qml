@@ -1,6 +1,7 @@
 import QtQuick
 import "../controls" as Widgets
 import "../settings"
+import "../account/Unsaved.js" as Unsaved
 
 Column {
   id: root
@@ -10,13 +11,15 @@ Column {
   required property string panelFontFamily
   property bool searchActive: false
   readonly property var status: mailbox ? mailbox.status : ({})
+  readonly property string unsaved: Unsaved.summary(status)
+  readonly property bool syncing: !!mailbox && (mailbox.error !== "" || !!status.error || status.paused === true || !status.complete
+    || Number(status.pendingEdits || 0) > 0 || Number(status.editConflicts || 0) > 0)
   readonly property bool searchNeedsAttention: !!mailbox && (mailbox.error !== ""
     || (!!status.error && ["gmail_request_deferred", "gmail_rate_limited", "gmail_server_rate_limited"].indexOf(status.error) < 0)
     || Number(status.pendingEdits || 0) > 0 || Number(status.editConflicts || 0) > 0)
   visible: !!mailbox && mailbox.available
     && (!searchActive || searchNeedsAttention)
-    && (mailbox.error !== "" || !!status.error || status.paused === true || !status.complete || Number(status.pendingEdits || 0) > 0
-      || Number(status.editConflicts || 0) > 0)
+    && (syncing || unsaved !== "")
   height: visible ? implicitHeight : 0
   spacing: MailStyle.space(4)
 
@@ -50,11 +53,13 @@ Column {
         return root.status.pendingEdits + " mailbox changes saved, waiting to sync."
       if (Number(root.status.failed || 0) > 0)
         return root.status.failed + " messages could not finish downloading. Sync will retry automatically."
-      if (root.status.complete) return ""
+          + (root.unsaved !== "" ? " " + root.unsaved : "")
+      if (root.status.complete) return root.unsaved
       var saved = Number(root.status.textComplete || 0)
       var total = Number(root.status.estimatedTotal || 0)
-      return total > 0 ? saved + " of about " + total + " messages saved for offline use."
-        : saved + " messages saved for offline use. Checking the rest..."
+      return (total > 0 ? saved + " of about " + total + " messages saved for offline use."
+        : saved + " messages saved for offline use. Checking the rest...")
+        + (root.unsaved !== "" ? " " + root.unsaved : "")
     }
   }
   Text {
@@ -71,6 +76,7 @@ Column {
   }
   Flow {
     width: parent.width
+    visible: root.syncing
     spacing: MailStyle.space(6)
     Widgets.Button {
       readonly property string ticket: {

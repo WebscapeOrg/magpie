@@ -1733,6 +1733,24 @@
       }
     },
     {
+      "name": "Local status counts mail that cannot be saved",
+      "method": "local.status",
+      "params": {
+        "accountId": "unsaved-status@example.org"
+      },
+      "equals": {
+        "error": "",
+        "pending": 0,
+        "failed": 0,
+        "unsaved": 1,
+        "unsavedReasons.local_text_unreadable": 1,
+        "health.missing": 0
+      },
+      "types": {
+        "unsavedReasons": "object"
+      }
+    },
+    {
       "name": "Gmail search advertises its operator catalogue",
       "method": "providers.snapshot",
       "params": {},
@@ -2336,7 +2354,8 @@
       "Inbox picture status takes no parameters",
       "Inbox picture status reports the counts Settings shows",
       "Inbox picture key removal takes no parameters",
-      "Inbox snapshot reports the sender picture revision"
+      "Inbox snapshot reports the sender picture revision",
+      "Local status counts mail that cannot be saved"
     ]
   },
   "releasedContract": {

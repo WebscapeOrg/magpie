@@ -60,6 +60,16 @@ const HISTORY_FAILURES: [&str; 3] = ["ai_request_rejected", "ai_context_full", "
 const DAILY_SPEND: u64 = 2_000_000_000;
 const DAILY_CALLS: u64 = 400;
 const CANCELLED_KEEP: i64 = 31 * 86_400_000;
+/// Records waiting to be removed, kept in the index until a removal succeeds.
+const STALE_LIMIT: usize = 4096;
+/// The most `reservation` can count for one request.
+const MAX_RESERVATION: u64 = reservation(claude::REQUEST_LIMIT, MAX_TOKENS);
+/// How long a request counted in the ledger stays open for its reply; past the 600 s client
+/// timeout, it is dropped and its reservation stays counted.
+const OPEN_KEEP: i64 = 15 * 60_000;
+/// The assistant's index, records and ledger change under their own lock, not the inbox's `.lock`,
+/// so a long assistant write never holds up descriptions, snoozes or overviews.
+const LOCK: &str = ".assistant-lock";
 const CANCELLED_LIMIT: usize = 4096;
 const VIEW: [&str; 20] = [
     "id",
@@ -153,6 +163,14 @@ struct Finished {
     events: Option<Vec<Value>>,
 }
 
+/// What `start` found before reading any mail.
+enum Prelude {
+    /// This exact question was accepted before.
+    Known(Value),
+    /// A new question: the index as read, and the parent's context for a follow-up.
+    New { index: Value, previous: Option<Value> },
+}
+
 /// The history a new turn starts from.
 struct Inherited {
     messages: Vec<Value>,
@@ -176,21 +194,59 @@ impl Assistant {
         active_state(job) && self.is_live(job["id"].as_str().unwrap_or(""))
     }
 
-    /// The job as the app sees it: a queued or running turn with no task was interrupted.
+    /// The job as the app sees it, read under the index lock: a queued or running turn with no task
+    /// was interrupted. Its task's last write needs the lock, so the task cannot end in between.
     fn effective(&self, job: &Value) -> Value {
         let mut job = job.clone();
         if active_state(&job) && !self.is_live(job["id"].as_str().unwrap_or("")) {
-            job["state"] = json!("failed");
-            job["error"] = json!("ai_interrupted");
-            job["progress"] = json!("Stopped");
-            job["resultReady"] = json!(false);
-            job["canContinue"] = json!(job["kind"] != "events");
+            interrupt(&mut job);
         }
         job
     }
 
     fn view(&self, job: &Value) -> Value {
         project(&self.effective(job), &VIEW)
+    }
+
+    /// The index for a reader that does not take the lock, with every queued or running job whose
+    /// task has ended shown as interrupted. A task writes its last state before it leaves the live
+    /// set, so the live set is checked after the read, and a job whose task had already left it is
+    /// read again; a turn that finished between the read and the check then shows its answer.
+    fn current(&self) -> Result<Value> {
+        self.resolved(read_index)
+    }
+
+    /// `current` with the read supplied, so a test can end a turn between the read and the check.
+    fn resolved(&self, mut read: impl FnMut() -> Result<Value>) -> Result<Value> {
+        let mut index = read()?;
+        let live: std::collections::HashSet<String> = self
+            .live
+            .lock()
+            .map(|live| live.keys().cloned().collect())
+            .unwrap_or_default();
+        let ended: Vec<String> = index["jobs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|job| active_state(job))
+            .filter_map(|job| job["id"].as_str())
+            .filter(|id| !live.contains(*id))
+            .map(str::to_owned)
+            .collect();
+        if !ended.is_empty() {
+            let again = read()?;
+            for id in &ended {
+                if let (Some(job), Some(later)) = (find_mut(&mut index, id), find(&again, id)) {
+                    *job = later.clone();
+                }
+            }
+        }
+        for job in jobs_mut(&mut index)? {
+            if active_state(job) && !live.contains(job["id"].as_str().unwrap_or("")) {
+                interrupt(job);
+            }
+        }
+        Ok(index)
     }
 
     /// Stops every running turn when the engine shuts down; each then reads as interrupted.
@@ -202,9 +258,31 @@ impl Assistant {
         }
     }
 
+    /// Runs store work on a blocking thread. It may wait for the assistant's lock, which must never
+    /// hold up the engine's request thread or a runtime worker.
+    pub(crate) async fn blocking<T: Send + 'static>(
+        self: &Arc<Self>,
+        work: impl FnOnce(&Arc<Self>) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let assistant = self.clone();
+        tokio::task::spawn_blocking(move || work(&assistant))
+            .await
+            .map_err(|_| "agent_worker_failed")?
+    }
+
+    /// Forgets a removed account's questions, trying again while the store is briefly busy. A second
+    /// try finds nothing left of the account, so trying again is safe.
+    pub(crate) async fn forget(self: &Arc<Self>, account: String) -> Result<()> {
+        recorded(self, move |assistant| assistant.forget_account(&account)).await
+    }
+
     /// Forgets every question and answer about a removed account, and stops its running turns.
+    /// Records that could not be removed earlier are tried again too. A record that still cannot be
+    /// removed is kept in the index for a later try and never stops the account's removal.
     pub(crate) fn forget_account(&self, account: &str) -> Result<()> {
-        let removed = store::update(&index_name(), |index| {
+        let mut decided = None;
+        let mut doomed = Vec::new();
+        let changed = change(&index_name(), |index| {
             normalize(index)?;
             let mut removed = Vec::new();
             jobs_mut(index)?.retain(|job| {
@@ -215,22 +293,60 @@ impl Assistant {
                     true
                 }
             });
+            removed.extend(take_stale(index)?);
+            doomed = self.unlisted(index);
+            decided = Some(removed.clone());
             Ok(removed)
-        })?;
+        });
+        let removed = match changed {
+            Ok(removed) => removed,
+            Err(error) => match decided {
+                // A write kept although it reported a failure removed the account's questions.
+                Some(removed)
+                    if read_index().is_ok_and(|index| {
+                        index["jobs"].as_array().is_some_and(|jobs| {
+                            jobs.iter().all(|job| job["accountId"] != account)
+                        })
+                    }) =>
+                {
+                    removed
+                }
+                _ => return Err(error),
+            },
+        };
+        // The turns of forgotten questions stop once the index no longer names them; they would write
+        // nothing more, but would still ask Claude.
+        self.stop(&doomed);
         // Invariant: a record goes only after the index no longer names it, so a failed write never
-        // leaves a listed question without its record. A turn still running finds its job gone and
-        // writes nothing more.
+        // leaves a listed question without its record.
+        let _ = remove_records(removed);
+        Ok(())
+    }
+
+    /// The running turns whose job `index` no longer names. Read under the index lock, where every turn
+    /// `admit` started is named, so only turns of forgotten questions are listed.
+    fn unlisted(&self, index: &Value) -> Vec<String> {
+        let named: std::collections::HashSet<&str> = index["jobs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|job| job["id"].as_str())
+            .collect();
+        self.live
+            .lock()
+            .map(|live| live.keys().filter(|id| !named.contains(id.as_str())).cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Stops these turns' tasks. Each then leaves the live set.
+    fn stop(&self, ids: &[String]) {
         if let Ok(mut live) = self.live.lock() {
-            for id in &removed {
+            for id in ids {
                 if let Some(task) = live.remove(id) {
                     task.abort();
                 }
             }
         }
-        for id in removed {
-            store::remove(&record_name(&id))?;
-        }
-        Ok(())
     }
 
     /// The job a question already started, when this exact request was accepted before. A different
@@ -240,7 +356,7 @@ impl Assistant {
         else {
             return Ok(None);
         };
-        let index = read_index()?;
+        let index = self.current()?;
         let Some(existing) = find(&index, &job_id(&account, &request)) else {
             return Ok(None);
         };
@@ -248,7 +364,7 @@ impl Assistant {
         if existing["accountId"] != account || existing["submissionDigest"] != digest {
             return Err("agent_submission_conflict");
         }
-        Ok(Some(self.view(existing)))
+        Ok(Some(project(existing, &VIEW)))
     }
 
     /// Accepts a question and starts its turn. `build` reads the named messages from Gmail into a
@@ -305,23 +421,20 @@ impl Assistant {
             .ok_or("ai_request_expired")?;
         let id = job_id(&account, &request);
         let digest = hex(&serde_json::to_vec(p).map_err(|_| "invalid_params")?);
-        let index = read_index()?;
-        if index["cancelled"].get(&id).is_some() {
-            return Err("agent_cancelled");
-        }
-        if let Some(existing) = find(&index, &id) {
-            if existing["accountId"] != account || existing["submissionDigest"] != digest {
-                return Err("agent_submission_conflict");
-            }
-            return Ok(self.view(existing));
-        }
-        spend_left(at)?;
+        let (index, previous) = match self
+            .blocking({
+                let (id, digest, account, parent) =
+                    (id.clone(), digest.clone(), account.clone(), parent.clone());
+                move |assistant| assistant.prelude(&id, &digest, &account, parent.as_deref(), at)
+            })
+            .await?
+        {
+            Prelude::Known(view) => return Ok(view),
+            Prelude::New { index, previous } => (index, previous),
+        };
         let draft = p["draft"].as_object().map(draft_fields).transpose()?;
         let context = if let Some(parent) = &parent {
             let job = find(&index, parent).ok_or("agent_job_missing")?;
-            if job["accountId"] != account {
-                return Err("agent_context_owner_mismatch");
-            }
             let mut continuation = json!({"parent":parent,"prompt":ask});
             if let Some(draft) = &draft {
                 let mut fields = json!({});
@@ -357,8 +470,7 @@ impl Assistant {
                 }
             }
             payload::validate_payload(&continuation)?;
-            let previous = read_record(parent)?["context"].clone();
-            payload::continue_context(previous, &continuation, parent)?
+            payload::continue_context(previous.ok_or("agent_job_missing")?, &continuation, parent)?
         } else if let Some(draft) = draft {
             payload::draft_payload(&json!({"draftFields":draft,"ask":ask,"account":address(&account),"accountId":account}))?
         } else {
@@ -391,11 +503,63 @@ impl Assistant {
         {
             return Err("agent_context_too_large");
         }
-        self.admit(&id, &account, &digest, parent.as_deref(), context, ask)
+        let ask = ask.to_owned();
+        self.blocking(move |assistant| {
+            // The history is gathered before the lock, which only checks it is still current.
+            let prepared = match &parent {
+                Some(parent) => {
+                    let index = read_index()?;
+                    match find(&index, parent) {
+                        Some(job) => Some((job.clone(), assistant.inherit(&index, parent)?)),
+                        None => None,
+                    }
+                }
+                None => None,
+            };
+            assistant.admit(&id, &account, &digest, parent.as_deref(), context, &ask, prepared)
+        })
+        .await
+    }
+
+    /// What `start` checks before it reads any mail: a question already accepted or cancelled, the
+    /// day's limits, and the parent's account and context.
+    fn prelude(
+        &self,
+        id: &str,
+        digest: &str,
+        account: &str,
+        parent: Option<&str>,
+        at: i64,
+    ) -> Result<Prelude> {
+        let index = self.current()?;
+        if index["cancelled"].get(id).is_some() {
+            return Err("agent_cancelled");
+        }
+        if let Some(existing) = find(&index, id) {
+            if existing["accountId"] != account || existing["submissionDigest"] != digest {
+                return Err("agent_submission_conflict");
+            }
+            return Ok(Prelude::Known(project(existing, &VIEW)));
+        }
+        spend_left(at)?;
+        let previous = match parent {
+            Some(parent) => {
+                let job = find(&index, parent).ok_or("agent_job_missing")?;
+                if job["accountId"] != account {
+                    return Err("agent_context_owner_mismatch");
+                }
+                Some(read_record(parent)?["context"].clone())
+            }
+            None => None,
+        };
+        Ok(Prelude::New { index, previous })
     }
 
     /// Records the job and starts its task under the index lock, so no reader ever sees the
-    /// queued job without its task, and a cancel that came first wins.
+    /// queued job without its task, and a cancel that came first wins. `prepared` is the parent
+    /// as it was read before the lock with the history gathered from it, used while the parent is
+    /// unchanged.
+    #[allow(clippy::too_many_arguments)]
     fn admit(
         self: &Arc<Self>,
         id: &str,
@@ -404,121 +568,154 @@ impl Assistant {
         parent: Option<&str>,
         context: Value,
         ask: &str,
+        prepared: Option<(Value, Inherited)>,
     ) -> Result<Value> {
-        let (view, trimmed) = store::update(&index_name(), |index| {
-            normalize(index)?;
-            if index["cancelled"].get(id).is_some() {
-                return Err("agent_cancelled");
-            }
-            if let Some(existing) = find(index, id) {
-                if existing["accountId"] != account || existing["submissionDigest"] != digest {
-                    return Err("agent_submission_conflict");
+        let mut wrote = false;
+        let mut decided = None;
+        let admitted = change(&index_name(), |index| {
+            let entered = (|| {
+                normalize(index)?;
+                if index["cancelled"].get(id).is_some() {
+                    return Err("agent_cancelled");
                 }
-                return Ok((self.view(existing), Vec::new()));
-            }
-            let jobs = index["jobs"].as_array().ok_or("inbox_storage_invalid")?;
-            if jobs.iter().filter(|job| self.active(job)).count() >= ACTIVE_LIMIT {
-                return Err("agent_active_limit");
-            }
-            let (conversation, inherited) = match parent {
-                Some(parent) => {
-                    let job = find(index, parent).ok_or("agent_job_missing")?;
-                    if job["accountId"] != account {
-                        return Err("agent_context_owner_mismatch");
+                if let Some(existing) = find(index, id) {
+                    if existing["accountId"] != account || existing["submissionDigest"] != digest {
+                        return Err("agent_submission_conflict");
                     }
-                    let conversation = job["conversationId"].as_str().unwrap_or(parent);
-                    let mut turns = jobs
-                        .iter()
-                        .filter(|job| job["conversationId"].as_str() == Some(conversation));
-                    if jobs.iter().any(|job| {
-                        job["conversationId"].as_str() == Some(conversation) && self.active(job)
-                    }) {
-                        return Err("agent_conversation_busy");
-                    }
-                    if turns.next().is_none_or(|head| head["id"] != parent) {
-                        return Err("agent_parent_not_latest");
-                    }
-                    if self.effective(job)["canContinue"] != true {
-                        return Err("agent_parent_not_ready");
-                    }
-                    (conversation.to_owned(), self.inherit(index, parent)?)
+                    return Ok((self.view(existing), Vec::new()));
                 }
-                None => (
-                    id.to_owned(),
-                    Inherited {
-                        messages: Vec::new(),
-                        seen: Value::Null,
-                        unseen: Vec::new(),
-                    },
-                ),
-            };
-            let preview: String = ask
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .chars()
-                .take(120)
-                .collect();
-            let mut job = json!({
-                "id": id,
-                "conversationId": conversation,
-                "parentId": parent.unwrap_or(""),
-                "requestPreview": preview.trim_end(),
-                "kind": payload::context_kind(&context),
-                "messageIds": payload::context_message_ids(&context),
-                "state": "queued",
-                "created": payload::now(),
-                "updated": payload::now(),
-                "resultReady": false,
-                "canContinue": false,
-                "provider": "claude",
-                "model": MODEL,
-                "progress": "Starting...",
-                "submissionDigest": digest,
-            });
-            for key in [
-                "accountId",
-                "subject",
-                "messageId",
-                "draftKey",
-                "draftFingerprint",
-            ] {
-                job[key] = context.get(key).cloned().unwrap_or(json!(""));
-            }
-            let record = json!({
-                "context": context,
-                "messages": inherited.messages,
-                "promptVersion": version(),
-                "seen": inherited.seen,
-                "unseen": inherited.unseen,
-                "transcript": [{"role":"user","text":ask}],
-                "proposals": [],
-                "output": "",
-            });
-            job["bytes"] = json!(write_record(id, &record)?);
-            let jobs = jobs_mut(index)?;
-            jobs.insert(0, job.clone());
-            // The oldest finished questions make room, never the one just asked or a running one.
-            let mut trimmed = Vec::new();
-            while jobs.len() > KEEP || kept_bytes(jobs) > TOTAL_BYTES {
-                let Some(oldest) = (1..jobs.len()).rev().find(|at| !self.active(&jobs[*at])) else {
-                    break;
+                let jobs = index["jobs"].as_array().ok_or("inbox_storage_invalid")?;
+                if jobs.iter().filter(|job| self.active(job)).count() >= ACTIVE_LIMIT {
+                    return Err("agent_active_limit");
+                }
+                let (conversation, inherited) = match parent {
+                    Some(parent) => {
+                        let job = find(index, parent).ok_or("agent_job_missing")?;
+                        if job["accountId"] != account {
+                            return Err("agent_context_owner_mismatch");
+                        }
+                        let conversation = job["conversationId"].as_str().unwrap_or(parent);
+                        let mut turns = jobs
+                            .iter()
+                            .filter(|job| job["conversationId"].as_str() == Some(conversation));
+                        if jobs.iter().any(|job| {
+                            job["conversationId"].as_str() == Some(conversation) && self.active(job)
+                        }) {
+                            return Err("agent_conversation_busy");
+                        }
+                        if turns.next().is_none_or(|head| head["id"] != parent) {
+                            return Err("agent_parent_not_latest");
+                        }
+                        if self.effective(job)["canContinue"] != true {
+                            return Err("agent_parent_not_ready");
+                        }
+                        let inherited = match prepared {
+                            Some((seen, inherited)) if &seen == job => inherited,
+                            _ => self.inherit(index, parent)?,
+                        };
+                        (conversation.to_owned(), inherited)
+                    }
+                    None => (
+                        id.to_owned(),
+                        Inherited {
+                            messages: Vec::new(),
+                            seen: Value::Null,
+                            unseen: Vec::new(),
+                        },
+                    ),
                 };
-                let gone = jobs.remove(oldest);
-                trimmed.push(gone["id"].as_str().unwrap_or("").to_owned());
+                let preview: String = ask
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .chars()
+                    .take(120)
+                    .collect();
+                let mut job = json!({
+                    "id": id,
+                    "conversationId": conversation,
+                    "parentId": parent.unwrap_or(""),
+                    "requestPreview": preview.trim_end(),
+                    "kind": payload::context_kind(&context),
+                    "messageIds": payload::context_message_ids(&context),
+                    "state": "queued",
+                    "created": payload::now(),
+                    "updated": payload::now(),
+                    "resultReady": false,
+                    "canContinue": false,
+                    "provider": "claude",
+                    "model": MODEL,
+                    "progress": "Starting...",
+                    "submissionDigest": digest,
+                });
+                for key in [
+                    "accountId",
+                    "subject",
+                    "messageId",
+                    "draftKey",
+                    "draftFingerprint",
+                ] {
+                    job[key] = context.get(key).cloned().unwrap_or(json!(""));
+                }
+                let record = json!({
+                    "context": context,
+                    "messages": inherited.messages,
+                    "promptVersion": version(),
+                    "seen": inherited.seen,
+                    "unseen": inherited.unseen,
+                    "transcript": [{"role":"user","text":ask}],
+                    "proposals": [],
+                    "output": "",
+                });
+                job["bytes"] = json!(write_record(id, &record)?);
+                wrote = true;
+                let jobs = jobs_mut(index)?;
+                jobs.insert(0, job.clone());
+                // The oldest finished questions make room, never the one just asked or a running one.
+                let mut trimmed = Vec::new();
+                while jobs.len() > KEEP || kept_bytes(jobs) > TOTAL_BYTES {
+                    let Some(oldest) = (1..jobs.len()).rev().find(|at| !self.active(&jobs[*at])) else {
+                        break;
+                    };
+                    let gone = jobs.remove(oldest);
+                    trimmed.push(gone["id"].as_str().unwrap_or("").to_owned());
+                }
+                trimmed.extend(take_stale(index)?);
+                // The task is in the live set before the index is written, so no reader sees the queued
+                // job without it. The turn waits for this write before it begins.
+                let mut live = self.live.lock().map_err(|_| "agent_worker_failed")?;
+                let task = tokio::spawn(run(self.clone(), id.to_owned()));
+                live.insert(id.to_owned(), task.abort_handle());
+                Ok((project(&job, &VIEW), trimmed))
+            })()?;
+            decided = Some(entered.clone());
+            Ok(entered)
+        });
+        let (view, trimmed) = match admitted {
+            Ok(admitted) => admitted,
+            Err(error) if decided.is_none() && !wrote => return Err(error),
+            Err(error) => {
+                // A write kept although it reported a failure admitted the job. Otherwise a record
+                // written for a job the index did not take is removed again, under the lock.
+                let landed = change(&index_name(), |index| {
+                    normalize(index)?;
+                    if find(index, id).is_some() {
+                        return Ok(true);
+                    }
+                    if wrote {
+                        store::remove(&record_name(id))?;
+                    }
+                    Ok(false)
+                });
+                match (landed, decided) {
+                    (Ok(true), Some(decided)) => decided,
+                    _ => return Err(error),
+                }
             }
-            // The task is in the live set before the index is written, so no reader sees the queued
-            // job without it. The turn waits for this write before it begins.
-            let mut live = self.live.lock().map_err(|_| "agent_worker_failed")?;
-            let task = tokio::spawn(run(self.clone(), id.to_owned()));
-            live.insert(id.to_owned(), task.abort_handle());
-            Ok((project(&job, &VIEW), trimmed))
-        })?;
-        // Invariant: a record goes only after the index no longer names it. One left behind by a
-        // failed removal is unreachable and costs only space.
-        for gone in trimmed {
-            let _ = store::remove(&record_name(&gone));
-        }
+        };
+        // Invariant: a record goes only after the index no longer names it. One whose removal
+        // fails is kept in the index and tried again later.
+        let _ = remove_records(trimmed);
         Ok(view)
     }
 
@@ -563,16 +760,23 @@ impl Assistant {
         }
         // Claude has seen none of this conversation, or saw it under other rules or another
         // model: start again with the whole conversation supplied as text.
+        // Newest first; the walk stops once the newer turns fill what `newest` keeps.
         let mut turns = Vec::new();
+        let (mut items, mut bytes) = (0usize, 0usize);
         let mut cursor = parent.to_owned();
-        while turns.len() < KEEP {
+        while turns.len() < KEEP && items < TRANSCRIPT_ITEMS && bytes < TRANSCRIPT_BYTES {
             let Some(turn) = find(index, &cursor) else {
                 break;
             };
             let Some(record) = store::read(&record_name(&cursor))? else {
                 break;
             };
-            turns.push(record["transcript"].as_array().cloned().unwrap_or_default());
+            let transcript = record["transcript"].as_array().cloned().unwrap_or_default();
+            items = items.saturating_add(transcript.len());
+            for item in &transcript {
+                bytes = bytes.saturating_add(encoded_len(item)?);
+            }
+            turns.push(transcript);
             cursor = turn["parentId"].as_str().unwrap_or("").to_owned();
             if cursor.is_empty() {
                 break;
@@ -588,7 +792,7 @@ impl Assistant {
     /// The job, its latest answer, and up to eight turns of its conversation, ending at `before`
     /// when given; `previous` names the turn before them.
     pub(crate) fn show(&self, p: &Value) -> Result<Value> {
-        let index = read_index()?;
+        let index = self.current()?;
         let id = self.named(p, &["id", "before", "requestId", "accountId"])?;
         let job = find(&index, &id).ok_or("agent_job_missing")?;
         if p.get("accountId").is_some_and(|account| account != &job["accountId"]) {
@@ -621,7 +825,7 @@ impl Assistant {
                 return Err("agent_context_owner_mismatch");
             }
             let record = read_record(&cursor)?;
-            let ready = self.effective(turn)["state"] == "done";
+            let ready = turn["state"] == "done";
             let (said, cards) = checked_turn(&record, turn, ready)?;
             let chunk = json!({"transcript":said,"proposals":cards});
             let size = serde_json::to_vec(&chunk)
@@ -651,7 +855,7 @@ impl Assistant {
             .as_str()
             .ok_or("agent_invalid_record")?
             .to_owned();
-        Ok(json!({"job":self.view(job),"output":output,"transcript":transcript,"proposals":cards,"previous":cursor}))
+        Ok(json!({"job":project(job, &VIEW),"output":output,"transcript":transcript,"proposals":cards,"previous":cursor}))
     }
 
     /// One page of questions, newest first.
@@ -665,9 +869,9 @@ impl Assistant {
             .map(|value| value.as_u64().ok_or("invalid_params"))
             .transpose()?
             .unwrap_or(0) as usize;
-        let index = read_index()?;
+        let index = self.current()?;
         let all = index["jobs"].as_array().map(Vec::as_slice).unwrap_or(&[]);
-        let page: Vec<_> = all.iter().skip(offset).take(PAGE).map(|job| self.view(job)).collect();
+        let page: Vec<_> = all.iter().skip(offset).take(PAGE).map(|job| project(job, &VIEW)).collect();
         let more = offset.saturating_add(page.len()) < all.len();
         Ok(json!({"jobs":page,"hasMore":more}))
     }
@@ -677,7 +881,8 @@ impl Assistant {
         let id = self.named(p, &["id", "requestId", "accountId"])?;
         let by_request = p["id"].as_str().is_none_or(str::is_empty);
         let at = now();
-        store::update(&index_name(), |index| {
+        let mut stopping = false;
+        let cancelled = change(&index_name(), |index| {
             normalize(index)?;
             if by_request {
                 let cancelled = index["cancelled"]
@@ -704,14 +909,29 @@ impl Assistant {
                 job["progress"] = json!("Stopped");
                 job["canContinue"] = json!(!events);
                 job["updated"] = json!(payload::now());
-                if let Ok(mut live) = self.live.lock() {
-                    if let Some(task) = live.remove(&id) {
-                        task.abort();
-                    }
-                }
+                stopping = true;
             }
             Ok(self.view(find(index, &id).ok_or("agent_job_missing")?))
-        })
+        });
+        // The task stops only once the cancellation is on disk, so a reader never sees the job still
+        // running without its task. A cancellation that was not kept leaves the turn running.
+        match cancelled {
+            Ok(view) => {
+                if stopping {
+                    self.stop(&[id]);
+                }
+                Ok(view)
+            }
+            Err(error) if stopping => match read_index().ok().and_then(|index| find(&index, &id).cloned()) {
+                // A write kept although it reported a failure cancelled the job.
+                Some(job) if job["state"] == "cancelled" => {
+                    self.stop(&[id]);
+                    Ok(project(&job, &VIEW))
+                }
+                _ => Err(error),
+            },
+            Err(error) => Err(error),
+        }
     }
 
     /// The job a show or cancel names: by `id`, or by the account and request that started it.
@@ -732,12 +952,14 @@ impl Assistant {
 
     /// Marks the job running, or returns None when it was cancelled or forgotten first.
     fn begin(&self, id: &str) -> Result<Option<Value>> {
-        store::update(&index_name(), |index| {
+        change(&index_name(), |index| {
             normalize(index)?;
             let Some(job) = find_mut(index, id) else {
                 return Ok(None);
             };
-            if job["state"] != "queued" {
+            // Only this job's own task begins it, so one already running was begun by a try whose
+            // write was kept although it reported a failure.
+            if !active_state(job) {
                 return Ok(None);
             }
             job["state"] = json!("running");
@@ -756,7 +978,7 @@ impl Assistant {
         output: &str,
         label: &str,
     ) -> Result<()> {
-        store::update(&index_name(), |index| {
+        change(&index_name(), |index| {
             normalize(index)?;
             let Some(job) = find_mut(index, id) else {
                 return Ok(());
@@ -776,7 +998,7 @@ impl Assistant {
     }
 
     fn finish(&self, id: &str, finished: &Finished) -> Result<()> {
-        store::update(&index_name(), |index| {
+        change(&index_name(), |index| {
             normalize(index)?;
             let Some(job) = find_mut(index, id) else {
                 return Ok(());
@@ -816,7 +1038,7 @@ impl Assistant {
     }
 
     fn fail(&self, id: &str, error: &'static str) -> Result<()> {
-        store::update(&index_name(), |index| {
+        change(&index_name(), |index| {
             normalize(index)?;
             let Some(job) = find_mut(index, id) else {
                 return Ok(());
@@ -847,11 +1069,21 @@ impl Assistant {
 
     /// Asks Claude until it answers, at most ROUNDS requests. A proposal is recorded and its
     /// result returned to Claude, which then goes on.
-    async fn turn(&self, id: &str) -> Result<Option<Finished>> {
-        let Some(job) = self.begin(id)? else {
+    async fn turn(self: &Arc<Self>, id: &str) -> Result<Option<Finished>> {
+        let Some(job) = recorded(self, {
+            let id = id.to_owned();
+            move |assistant| assistant.begin(&id)
+        })
+        .await?
+        else {
             return Ok(None);
         };
-        let record = read_record(id)?;
+        let record = self
+            .blocking({
+                let id = id.to_owned();
+                move |_| read_record(&id)
+            })
+            .await?;
         let context = &record["context"];
         let looking = job["kind"] == "events";
         let mut transcript = record["transcript"]
@@ -877,25 +1109,29 @@ impl Assistant {
         };
         let mut cards: Vec<Value> = Vec::new();
         let mut output = String::new();
-        for _ in 0..ROUNDS {
+        for round in 0..ROUNDS {
             let bytes = serde_json::to_vec(&body).map_err(|_| "ai_request_rejected")?;
             if bytes.len() > claude::REQUEST_LIMIT {
                 return Err("agent_context_too_large");
             }
             let reserved = reservation(bytes.len(), max_tokens);
-            admit_call(reserved, now())?;
-            let reply = match (self.sender)(bytes).await {
-                Ok(reply) => reply,
-                Err(error) => {
-                    // A request Claude refused costs nothing. One cut off on the way back may
-                    // have been charged, so its reservation stays counted.
-                    if !matches!(error, "ai_unreachable" | "ai_invalid_response") {
-                        let _ = settle(reserved, 0, now());
-                    }
-                    return Err(error);
-                }
+            let call = format!("{id}-{round}");
+            recorded(self, {
+                let call = call.clone();
+                move |_| admit_call(&call, reserved, now())
+            })
+            .await?;
+            let reply = (self.sender)(bytes).await;
+            // A request Claude refused costs nothing. One cut off on the way back may have been
+            // charged, so its reservation stays counted. A settlement that cannot be written
+            // leaves the reservation counted.
+            let actual = match &reply {
+                Ok(reply) => cost(reply),
+                Err("ai_unreachable" | "ai_invalid_response") => reserved,
+                Err(_) => 0,
             };
-            let _ = settle(reserved, cost(&reply), now());
+            let _ = recorded(self, move |_| settle(&call, actual, now())).await;
+            let reply = reply?;
             let content = reply["content"]
                 .as_array()
                 .filter(|blocks| blocks.iter().all(Value::is_object))
@@ -983,7 +1219,14 @@ impl Assistant {
                         .as_array_mut()
                         .ok_or("ai_request_rejected")?
                         .push(json!({"role":"user","content":results}));
-                    self.progress(id, &transcript, &cards, &output, "Creating draft")?;
+                    recorded(self, {
+                        let (id, transcript, cards, output) =
+                            (id.to_owned(), transcript.clone(), cards.clone(), output.clone());
+                        move |assistant| {
+                            assistant.progress(&id, &transcript, &cards, &output, "Creating draft")
+                        }
+                    })
+                    .await?;
                 }
                 "refusal" => return Err("ai_refused"),
                 "max_tokens" => return Err("ai_answer_cut"),
@@ -1003,28 +1246,44 @@ async fn run(assistant: Arc<Assistant>, id: String) {
     // Invariant: an answer Claude was paid for is kept whenever the phone can write it. A brief
     // storage problem is tried again; an answer that still cannot be kept fails the job with the
     // reason. Only a store that takes no write at all leaves the job to read as interrupted.
+    let failed = |error| {
+        let id = id.clone();
+        move |assistant: &Arc<Assistant>| assistant.fail(&id, error)
+    };
     let _ = match assistant.turn(&id).await {
-        Ok(Some(finished)) => match recorded(|| assistant.finish(&id, &finished)).await {
-            Err(error) => recorded(|| assistant.fail(&id, error)).await,
-            done => done,
-        },
+        Ok(Some(finished)) => {
+            let finished = Arc::new(finished);
+            let finish = {
+                let id = id.clone();
+                move |assistant: &Arc<Assistant>| assistant.finish(&id, &finished)
+            };
+            match recorded(&assistant, finish).await {
+                Err(error) => recorded(&assistant, failed(error)).await,
+                done => done,
+            }
+        }
         Ok(None) => Ok(()),
-        Err(error) => recorded(|| assistant.fail(&id, error)).await,
+        Err(error) => recorded(&assistant, failed(error)).await,
     };
 }
 
-/// Runs a store change, trying again a few times after a pause when the store was briefly busy
-/// or unavailable.
-async fn recorded(change: impl Fn() -> Result<()>) -> Result<()> {
+/// Runs a store change on a blocking thread, trying again a few times after a pause when the store
+/// was briefly busy or unavailable. Every change passed here can be repeated safely.
+async fn recorded<T: Send + 'static>(
+    assistant: &Arc<Assistant>,
+    change: impl Fn(&Arc<Assistant>) -> Result<T> + Clone + Send + 'static,
+) -> Result<T> {
     for _ in 0..3 {
-        match change() {
+        match assistant.blocking(change.clone()).await {
             Err("private_fs_busy" | "inbox_storage_unavailable") => {
+                #[cfg(test)]
+                tests::RETRIES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
             done => return done,
         }
     }
-    change()
+    assistant.blocking(change).await
 }
 
 /// The owner's message for a new turn: the rules and the whole context to start a conversation,
@@ -1159,16 +1418,24 @@ fn clean(text: &str) -> String {
         .collect()
 }
 
-/// The newest entries that fit the transcript limits.
+/// The newest entries that fit the transcript limits, counted from the end: the array's brackets,
+/// each entry and the commas between them.
 fn newest(mut items: Vec<Value>) -> Vec<Value> {
-    while !items.is_empty()
-        && (items.len() > TRANSCRIPT_ITEMS
-            || serde_json::to_vec(&items).map_or(usize::MAX, |bytes| bytes.len())
-                > TRANSCRIPT_BYTES)
-    {
-        items.remove(0);
+    let mut total = 2usize;
+    let mut keep = 0;
+    for item in items.iter().rev() {
+        if keep == TRANSCRIPT_ITEMS {
+            break;
+        }
+        let size = encoded_len(item).unwrap_or(usize::MAX);
+        let added = size.saturating_add(usize::from(keep > 0));
+        if total.saturating_add(added) > TRANSCRIPT_BYTES {
+            break;
+        }
+        total += added;
+        keep += 1;
     }
-    items
+    items.split_off(items.len() - keep)
 }
 
 fn active_state(job: &Value) -> bool {
@@ -1187,6 +1454,57 @@ fn ledger_name() -> String {
     store::key(&["assistant-spend"])
 }
 
+/// Changes one of the assistant's files under its own lock.
+fn change<T>(name: &str, run: impl FnOnce(&mut Value) -> Result<T>) -> Result<T> {
+    store::update_waiting(LOCK, name, run)
+}
+
+/// Adds records to remove later, newest last; past the limit the oldest are forgotten.
+fn add_stale(index: &mut Value, ids: &[String]) -> Result<()> {
+    let stale = index["stale"].as_array_mut().ok_or("inbox_storage_invalid")?;
+    for id in ids {
+        if !stale.iter().any(|known| known == id.as_str()) {
+            stale.push(json!(id));
+        }
+    }
+    let over = stale.len().saturating_sub(STALE_LIMIT);
+    stale.drain(..over);
+    Ok(())
+}
+
+/// Takes the records waiting to be removed, leaving any the index names again.
+fn take_stale(index: &mut Value) -> Result<Vec<String>> {
+    let stale = std::mem::take(index["stale"].as_array_mut().ok_or("inbox_storage_invalid")?);
+    let mut taken = Vec::new();
+    for id in stale.iter().filter_map(Value::as_str) {
+        if find(index, id).is_none() {
+            taken.push(id.to_owned());
+        }
+    }
+    Ok(taken)
+}
+
+/// Removes records the index no longer names. One that cannot be removed is kept in the index for
+/// a later try, and the first error is returned.
+fn remove_records(ids: Vec<String>) -> Result<()> {
+    let mut failed = Vec::new();
+    let mut first = None;
+    for id in ids {
+        if let Err(error) = store::remove(&record_name(&id)) {
+            first.get_or_insert(error);
+            failed.push(id);
+        }
+    }
+    let Some(error) = first else {
+        return Ok(());
+    };
+    change(&index_name(), |index| {
+        normalize(index)?;
+        add_stale(index, &failed)
+    })?;
+    Err(error)
+}
+
 fn normalize(index: &mut Value) -> Result<()> {
     if !index.is_object() {
         return Err("inbox_storage_invalid");
@@ -1200,9 +1518,28 @@ fn normalize(index: &mut Value) -> Result<()> {
     if !index["jobs"].is_array() || !index["cancelled"].is_object() {
         return Err("inbox_storage_invalid");
     }
+    let stale: Vec<Value> = index["stale"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|id| id.as_str().is_some_and(|id| payload::check_id(id).is_ok()))
+        .cloned()
+        .collect();
+    index["stale"] = json!(stale);
     // Invariant: the index is read back from disk, so an entry unlike what this code writes is
-    // dropped, never shown or acted on, and the next write leaves it out.
-    jobs_mut(index)?.retain(valid_job);
+    // dropped, never shown or acted on, and the next write leaves it out. Its record, if it has a
+    // well-formed id, is removed later.
+    let mut dropped = Vec::new();
+    jobs_mut(index)?.retain(|job| {
+        let keep = valid_job(job);
+        if !keep {
+            if let Some(id) = job["id"].as_str().filter(|id| payload::check_id(id).is_ok()) {
+                dropped.push(id.to_owned());
+            }
+        }
+        keep
+    });
+    add_stale(index, &dropped)?;
     index["cancelled"]
         .as_object_mut()
         .ok_or("inbox_storage_invalid")?
@@ -1333,6 +1670,15 @@ fn checked_turn(record: &Value, turn: &Value, ready: bool) -> Result<(Vec<Value>
     Ok((said.clone(), cards))
 }
 
+/// Marks a queued or running job whose task has ended as interrupted, as the app sees it.
+fn interrupt(job: &mut Value) {
+    job["state"] = json!("failed");
+    job["error"] = json!("ai_interrupted");
+    job["progress"] = json!("Stopped");
+    job["resultReady"] = json!(false);
+    job["canContinue"] = json!(job["kind"] != "events");
+}
+
 fn read_index() -> Result<Value> {
     let mut index = store::read(&index_name())?.unwrap_or(json!({}));
     normalize(&mut index)?;
@@ -1386,14 +1732,37 @@ fn today(at: i64) -> String {
         .unwrap_or_default()
 }
 
+/// Starts a new day's counts when the day changed, and keeps only well-formed requests that are
+/// still open. A request in flight at midnight counts its reservation on the new day until it is
+/// settled; one open past `OPEN_KEEP` is dropped and its reservation stays counted. The ledger is
+/// read back from disk, so an entry timed in the future (a clock that jumped back, or damage) or
+/// reserving more than any request can is dropped too.
 fn same_day(saved: &mut Value, at: i64) -> Result<()> {
     if !saved.is_object() {
         *saved = json!({});
     }
+    let open: serde_json::Map<String, Value> = saved["open"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(call, entry)| {
+            call.len() <= 128
+                && entry["reserved"].as_u64().is_some_and(|reserved| reserved <= MAX_RESERVATION)
+                && entry["at"]
+                    .as_i64()
+                    .is_some_and(|time| time > at - OPEN_KEEP && time <= at + 60_000)
+        })
+        .map(|(call, entry)| (call.clone(), entry.clone()))
+        .collect();
     let day = today(at);
     if saved["day"].as_str() != Some(day.as_str()) {
-        *saved = json!({"day":day,"calls":0,"spent":0});
+        let carried = open
+            .values()
+            .filter_map(|entry| entry["reserved"].as_u64())
+            .fold(0, u64::saturating_add);
+        *saved = json!({"day":day,"calls":0,"spent":carried});
     }
+    saved["open"] = Value::Object(open);
     Ok(())
 }
 
@@ -1410,11 +1779,14 @@ fn spend_left(at: i64) -> Result<()> {
     Ok(())
 }
 
-/// Counts a request before it is sent, with the most it could cost; `settle` corrects it to what
-/// Claude reports. A request cut off before its reply keeps the reservation.
-fn admit_call(reserved: u64, at: i64) -> Result<()> {
-    store::update(&ledger_name(), |saved| {
+/// Counts request `call` before it is sent, with the most it could cost; `settle` corrects it to
+/// what Claude reports. A request counted already is not counted again, so a retry is safe.
+fn admit_call(call: &str, reserved: u64, at: i64) -> Result<()> {
+    change(&ledger_name(), |saved| {
         same_day(saved, at)?;
+        if saved["open"].get(call).is_some() {
+            return Ok(());
+        }
         let calls = saved["calls"].as_u64().unwrap_or(0);
         let spent = saved["spent"].as_u64().unwrap_or(0);
         // Invariant: after the day's first request, a request is sent only if the most it could
@@ -1427,19 +1799,24 @@ fn admit_call(reserved: u64, at: i64) -> Result<()> {
         }
         saved["calls"] = json!(calls.saturating_add(1));
         saved["spent"] = json!(spent.saturating_add(reserved));
+        saved["open"][call] = json!({"reserved":reserved,"at":at});
         Ok(())
     })
 }
 
-fn settle(reserved: u64, actual: u64, at: i64) -> Result<()> {
-    store::update(&ledger_name(), |saved| {
-        let day = today(at);
-        let spent = if saved["day"].as_str() == Some(day.as_str()) {
-            saved["spent"].as_u64().unwrap_or(0).saturating_sub(reserved)
-        } else {
-            same_day(saved, at)?;
-            0
+/// Replaces open request `call`'s reservation with what it cost. Only an open request is settled,
+/// so a retry after a write that was kept changes nothing.
+fn settle(call: &str, actual: u64, at: i64) -> Result<()> {
+    change(&ledger_name(), |saved| {
+        same_day(saved, at)?;
+        let Some(entry) = saved["open"]
+            .as_object_mut()
+            .and_then(|open| open.remove(call))
+        else {
+            return Ok(());
         };
+        let reserved = entry["reserved"].as_u64().unwrap_or(0);
+        let spent = saved["spent"].as_u64().unwrap_or(0).saturating_sub(reserved);
         saved["spent"] = json!(spent.saturating_add(actual));
         Ok(())
     })
@@ -1447,7 +1824,7 @@ fn settle(reserved: u64, actual: u64, at: i64) -> Result<()> {
 
 /// The most a request can cost: every input token at the cache-write price (about three bytes of
 /// JSON make a token, and usually more) and every output token.
-fn reservation(bytes: usize, max_tokens: u64) -> u64 {
+const fn reservation(bytes: usize, max_tokens: u64) -> u64 {
     (bytes as u64 / 3) * 2_500 + max_tokens * 10_000
 }
 

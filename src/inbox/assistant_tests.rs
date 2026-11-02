@@ -9,6 +9,10 @@ const MAIL: &str = "18c0a1b2c3d4e5f6";
 const OTHER_MAIL: &str = "18c0a1b2c3d4e5f7";
 /// A script entry that never answers, for a turn that must stay running.
 const PENDING: &str = "test_pending";
+/// A script entry that waits for `gate` before the next entry answers.
+const GATED: &str = "test_gated";
+/// How often `recorded` tried a store change again. Each test runs in its own process.
+pub(super) static RETRIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn fixture() -> crate::mail::tests::AccountFixture {
     crate::mail::tests::account_fixture(json!({"version":1,"accounts":[
@@ -20,6 +24,7 @@ fn fixture() -> crate::mail::tests::AccountFixture {
 struct Script {
     replies: Mutex<VecDeque<Result<Value>>>,
     bodies: Mutex<Vec<Value>>,
+    gate: tokio::sync::Notify,
 }
 
 impl Script {
@@ -42,12 +47,21 @@ fn scripted() -> (Arc<Assistant>, Arc<Script>) {
                 .lock()
                 .unwrap()
                 .push(serde_json::from_slice(&body).unwrap());
-            let next = script
+            let mut next = script
                 .replies
                 .lock()
                 .unwrap()
                 .pop_front()
                 .unwrap_or(Err("ai_unavailable"));
+            if next == Err(GATED) {
+                script.gate.notified().await;
+                next = script
+                    .replies
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .unwrap_or(Err("ai_unavailable"));
+            }
             if next == Err(PENDING) {
                 std::future::pending::<()>().await;
             }
@@ -100,7 +114,7 @@ async fn invoice(request: Value) -> Result<Value> {
 }
 
 async fn settled(assistant: &Assistant, id: &str) -> Value {
-    for _ in 0..400 {
+    for _ in 0..2000 {
         let shown = assistant.show(&json!({"id":id})).unwrap();
         if !matches!(shown["job"]["state"].as_str(), Some("queued" | "running")) {
             return shown;
@@ -111,13 +125,24 @@ async fn settled(assistant: &Assistant, id: &str) -> Value {
 }
 
 async fn running(assistant: &Assistant, id: &str) {
-    for _ in 0..400 {
+    for _ in 0..2000 {
         if assistant.show(&json!({"id":id})).unwrap()["job"]["state"] == "running" {
             return;
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     panic!("the turn did not start");
+}
+
+/// Waits until Claude has been asked `count` times in all.
+async fn sent(script: &Script, count: usize) {
+    for _ in 0..2000 {
+        if script.bodies().len() >= count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("the request was not sent");
 }
 
 fn id(view: &Value) -> String {
@@ -449,6 +474,7 @@ async fn a_request_is_accepted_once_and_a_cancel_that_came_first_wins() {
     );
     let job = id(&first);
     running(&assistant, &job).await;
+    sent(&script, 1).await;
     assert_eq!(script.bodies().len(), 1);
 
     let cancelled = assistant.cancel(&json!({"id":job})).unwrap();
@@ -573,6 +599,8 @@ async fn turns_without_a_task_read_as_interrupted_and_limits_hold() {
         Err("agent_active_limit")
     );
 
+    // Every turn has taken its reply, so none is left for the turn asked after the stop.
+    sent(&script, 5).await;
     // The engine stopped: every running turn now reads as interrupted, and can be asked again.
     assistant.stop_all();
     let shown = assistant.show(&json!({"id":child})).unwrap();
@@ -930,4 +958,331 @@ async fn turns_started_from_outside_the_runtime_wait_for_their_admission() {
         let shown = settled(&assistant, &job).await;
         assert_eq!(shown["job"]["state"], "done", "{shown}");
     }
+}
+
+#[test]
+fn the_ledger_counts_each_request_once_however_often_it_is_written() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let ledger = || store::read(&ledger_name()).unwrap().unwrap();
+    // Four minutes before midnight UTC, the day the ledger counts.
+    let at = chrono::NaiveDate::from_ymd_opt(2026, 11, 2)
+        .unwrap()
+        .and_hms_opt(23, 56, 0)
+        .unwrap()
+        .and_utc()
+        .timestamp_millis();
+    admit_call("a-0", 500, at).unwrap();
+    admit_call("a-0", 500, at).unwrap();
+    assert_eq!((ledger()["calls"].as_u64(), ledger()["spent"].as_u64()), (Some(1), Some(500)));
+    settle("a-0", 120, at).unwrap();
+    settle("a-0", 120, at).unwrap();
+    assert_eq!(ledger()["spent"], 120);
+    assert_eq!(ledger()["open"], json!({}));
+
+    // A request open at midnight counts its reservation on the new day until it is settled.
+    admit_call("b-0", 700, at).unwrap();
+    let after = at + 8 * 60_000;
+    admit_call("c-0", 300, after).unwrap();
+    assert_eq!(ledger()["day"], today(after));
+    assert_eq!((ledger()["calls"].as_u64(), ledger()["spent"].as_u64()), (Some(1), Some(1000)));
+    settle("b-0", 50, after).unwrap();
+    assert_eq!(ledger()["spent"], 350);
+
+    // A request open past OPEN_KEEP is dropped, and its reservation stays counted.
+    let late = after + OPEN_KEEP + 1;
+    settle("c-0", 10, late).unwrap();
+    assert_eq!(ledger()["spent"], 350);
+    assert_eq!(ledger()["open"], json!({}));
+
+    // Entries unlike what the ledger writes are dropped.
+    store::write(
+        &ledger_name(),
+        &json!({"day":today(late),"calls":1,"spent":350,"open":{"bad":{"reserved":"9"},"x".repeat(200):{"reserved":1,"at":late}}}),
+    )
+    .unwrap();
+    admit_call("d-0", 5, late).unwrap();
+    assert_eq!(ledger()["open"].as_object().unwrap().len(), 1);
+    assert_eq!(ledger()["spent"], 355);
+
+    // An entry timed in the future, or reserving more than any request can, is dropped and never
+    // carried into a new day.
+    let next = late + 86_400_000;
+    store::write(
+        &ledger_name(),
+        &json!({"day":today(late),"calls":1,"spent":0,"open":{
+            "ahead":{"reserved":5,"at":late + 3_600_000},
+            "huge":{"reserved":MAX_RESERVATION + 1,"at":late}}}),
+    )
+    .unwrap();
+    admit_call("e-0", 7, late).unwrap();
+    assert_eq!(ledger()["open"].as_object().unwrap().keys().collect::<Vec<_>>(), ["e-0"]);
+    store::write(
+        &ledger_name(),
+        &json!({"day":today(late),"calls":1,"spent":DAILY_SPEND,"open":{"ahead":{"reserved":DAILY_SPEND,"at":next + 3_600_000}}}),
+    )
+    .unwrap();
+    admit_call("f-0", 7, next).unwrap();
+    assert_eq!((ledger()["calls"].as_u64(), ledger()["spent"].as_u64()), (Some(1), Some(7)));
+}
+
+#[test]
+fn the_newest_entries_kept_are_the_longest_ending_that_fits() {
+    fn by_removing(mut items: Vec<Value>) -> Vec<Value> {
+        while !items.is_empty()
+            && (items.len() > TRANSCRIPT_ITEMS
+                || serde_json::to_vec(&items).unwrap().len() > TRANSCRIPT_BYTES)
+        {
+            items.remove(0);
+        }
+        items
+    }
+    let entry = |n: usize| json!({"role":"user","text":"x".repeat(n)});
+    let cases = [
+        vec![],
+        (0..300).map(|n| entry(n % 7)).collect::<Vec<_>>(),
+        (0..12).map(|_| entry(100 * 1024)).collect(),
+        vec![entry(TRANSCRIPT_BYTES)],
+        (0..40).map(|n| entry((n * 9_973) % 60_000)).collect(),
+    ];
+    for items in cases {
+        assert_eq!(newest(items.clone()), by_removing(items));
+    }
+    // An ending that fills the limit exactly is kept whole.
+    let one = entry(0);
+    let size = serde_json::to_vec(&one).unwrap().len();
+    let exact = TRANSCRIPT_BYTES - 2 - size;
+    let fits = vec![entry(5), entry(exact - 1 - 25), one.clone()];
+    assert_eq!(newest(fits.clone()), by_removing(fits));
+}
+
+#[tokio::test]
+async fn a_history_too_long_to_replay_is_supplied_again_as_text() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (assistant, script) = scripted();
+    script.push(reply("end_turn", json!([text("First answer.")])));
+    let first = id(&assistant.start(&draft("one", "Help"), unread).await.unwrap());
+    settled(&assistant, &first).await;
+    let mut record = read_record(&first).unwrap();
+    let opening = record["messages"][0]["content"].as_str().unwrap().to_owned();
+    record["messages"][0]["content"] = json!(format!("{opening}{}", " ".repeat(REPLAY_LIMIT)));
+    write_record(&first, &record).unwrap();
+    script.push(reply("end_turn", json!([text("Second answer.")])));
+    let second = id(&assistant
+        .start(&follow(draft("two", "And now?"), &first), unread)
+        .await
+        .unwrap());
+    assert_eq!(settled(&assistant, &second).await["job"]["state"], "done");
+    let messages = script.bodies()[1]["messages"].clone();
+    assert_eq!(messages.as_array().unwrap().len(), 1);
+    let opening = messages[0]["content"].as_str().unwrap();
+    assert!(opening.starts_with(prompt::INSTRUCTIONS));
+    assert!(opening.contains("First answer.") && opening.contains("And now?"));
+}
+
+#[tokio::test]
+async fn a_turn_shows_its_proposal_while_it_is_still_running() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (assistant, script) = scripted();
+    script.push(reply(
+        "tool_use",
+        json!([propose("call-1", json!({"subject":"Lunch","body":"Thursday at one."}))]),
+    ));
+    script.push(Err(PENDING));
+    let job = id(&assistant.start(&draft("one", "Help"), unread).await.unwrap());
+    sent(&script, 2).await;
+    let shown = assistant.show(&json!({"id":job})).unwrap();
+    assert_eq!(shown["job"]["state"], "running");
+    assert_eq!(shown["job"]["progress"], "Creating draft");
+    assert_eq!(shown["proposals"].as_array().unwrap().len(), 1);
+    assert_eq!(shown["proposals"][0]["applicable"], false);
+    assert_eq!(shown["transcript"][1], json!({"role":"status","text":"Creating draft"}));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_that_finishes_while_it_is_read_shows_its_answer() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (assistant, script) = scripted();
+    script.push(Err(GATED));
+    script.push(reply("end_turn", json!([text("Done.")])));
+    let job = id(&assistant.start(&draft("one", "Help"), unread).await.unwrap());
+    sent(&script, 1).await;
+    let mut reads = 0;
+    let index = tokio::task::block_in_place(|| {
+        assistant.resolved(|| {
+            reads += 1;
+            let index = read_index()?;
+            if reads == 1 {
+                // The turn finishes after this read and before the live set is checked.
+                assert_eq!(find(&index, &job).unwrap()["state"], "running");
+                script.gate.notify_one();
+                for _ in 0..2000 {
+                    if !assistant.is_live(&job) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                assert!(!assistant.is_live(&job), "the turn did not finish");
+            }
+            Ok(index)
+        })
+    })
+    .unwrap();
+    assert_eq!(reads, 2);
+    assert_eq!(find(&index, &job).unwrap()["state"], "done");
+}
+
+#[tokio::test]
+async fn a_cancellation_that_was_not_kept_leaves_the_turn_running() {
+    use std::sync::atomic::Ordering::SeqCst;
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (assistant, script) = scripted();
+    script.push(Err(GATED));
+    script.push(reply("end_turn", json!([text("Kept.")])));
+    let job = id(&assistant.start(&draft("one", "Help"), unread).await.unwrap());
+    sent(&script, 1).await;
+    store::REFUSE_WRITES.store(true, SeqCst);
+    let cancelled = assistant.cancel(&json!({"id":job}));
+    store::REFUSE_WRITES.store(false, SeqCst);
+    assert_eq!(cancelled, Err("inbox_storage_unavailable"));
+    assert_eq!(assistant.show(&json!({"id":job})).unwrap()["job"]["state"], "running");
+    script.gate.notify_one();
+    assert_eq!(settled(&assistant, &job).await["job"]["state"], "done");
+}
+
+#[tokio::test]
+async fn a_store_held_past_one_wait_is_tried_again_and_the_answer_kept() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let fixture = fixture();
+    let (assistant, script) = scripted();
+    script.push(Err(GATED));
+    script.push(reply("end_turn", json!([text("Kept.")])));
+    let job = id(&assistant.start(&draft("one", "Help"), unread).await.unwrap());
+    sent(&script, 1).await;
+    let inbox = std::fs::File::open(fixture.root.join("state/omamail/inbox"))
+        .or_else(|_| {
+            let dirs = crate::platform::dirs::AppDirs::discover().unwrap();
+            std::fs::File::open(dirs.state.join("omamail/inbox"))
+        })
+        .unwrap();
+    let held = crate::platform::private_fs::lock_exclusive(&inbox, LOCK).unwrap();
+    script.gate.notify_one();
+    // The lock is held until a store change has waited it out and been tried again.
+    for _ in 0..200 {
+        if RETRIES.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(RETRIES.load(std::sync::atomic::Ordering::SeqCst) > 0, "no change was tried again");
+    drop(held);
+    let shown = settled(&assistant, &job).await;
+    assert_eq!(shown["job"]["state"], "done", "{shown}");
+    assert_eq!(shown["output"], "Kept.");
+    let ledger = store::read(&ledger_name()).unwrap().unwrap();
+    assert_eq!(ledger["spent"], 1000 * 2_000 + 100 * 10_000);
+}
+
+#[tokio::test]
+async fn a_turn_whose_record_vanished_fails_with_the_reason() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (assistant, script) = scripted();
+    script.push(Err(GATED));
+    script.push(reply("end_turn", json!([text("Lost.")])));
+    let job = id(&assistant.start(&draft("one", "Help"), unread).await.unwrap());
+    sent(&script, 1).await;
+    store::remove(&record_name(&job)).unwrap();
+    script.gate.notify_one();
+    for _ in 0..400 {
+        let index = store::read(&index_name()).unwrap().unwrap();
+        if !active_state(find(&index, &job).unwrap()) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let index = store::read(&index_name()).unwrap().unwrap();
+    let saved = find(&index, &job).unwrap();
+    assert_eq!(saved["state"], "failed");
+    assert_eq!(saved["error"], "agent_context_missing");
+}
+
+#[tokio::test]
+async fn a_record_too_large_to_replay_keeps_its_answer_without_the_history() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (assistant, script) = scripted();
+    script.push(Err(GATED));
+    script.push(reply("end_turn", json!([text("Short.")])));
+    let job = id(&assistant.start(&draft("one", "Help"), unread).await.unwrap());
+    sent(&script, 1).await;
+    let mut record = read_record(&job).unwrap();
+    record["padding"] = json!("");
+    let size = encoded_len(&record).unwrap();
+    record["padding"] = json!("x".repeat(RECORD_LIMIT - size - 1_000));
+    write_record(&job, &record).unwrap();
+    script.gate.notify_one();
+    let shown = settled(&assistant, &job).await;
+    assert_eq!(shown["job"]["state"], "done", "{shown}");
+    assert_eq!(shown["output"], "Short.");
+    let kept = read_record(&job).unwrap();
+    assert_eq!(kept["messages"], json!([]));
+    assert_eq!(kept["promptVersion"], "");
+    assert!(encoded_len(&kept).unwrap() <= RECORD_LIMIT);
+}
+
+#[tokio::test]
+async fn records_that_could_not_be_removed_are_tried_again() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (assistant, script) = scripted();
+    script.push(reply("end_turn", json!([text("Done.")])));
+    let mine = id(&assistant.start(&draft("one", "Help"), unread).await.unwrap());
+    settled(&assistant, &mine).await;
+    let dirs = crate::platform::dirs::AppDirs::discover().unwrap();
+    let path = dirs.state.join("omamail/inbox").join(record_name(&mine));
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    // A record that cannot be removed is kept for later and never stops an account's removal.
+    assistant.forget_account(ONE).unwrap();
+    assert!(assistant.list(&json!({})).unwrap()["jobs"].as_array().unwrap().is_empty());
+    let index = store::read(&index_name()).unwrap().unwrap();
+    assert_eq!(index["stale"], json!([mine]));
+    assistant.forget_account(TWO).unwrap();
+    assert_eq!(store::read(&index_name()).unwrap().unwrap()["stale"], json!([mine]));
+
+    // An entry unlike what the assistant writes is dropped and its record removed too.
+    std::fs::remove_dir(&path).unwrap();
+    store::write(&record_name(&mine), &json!({"left":"behind"})).unwrap();
+    let forged = "d".repeat(32);
+    store::write(&record_name(&forged), &json!({"forged":true})).unwrap();
+    let mut index = store::read(&index_name()).unwrap().unwrap();
+    index["jobs"] = json!([{"id":forged,"state":"sending","accountId":TWO}]);
+    store::write(&index_name(), &index).unwrap();
+    assistant.forget_account(TWO).unwrap();
+    assert!(store::read(&record_name(&mine)).unwrap().is_none());
+    assert!(store::read(&record_name(&forged)).unwrap().is_none());
+    assert_eq!(store::read(&index_name()).unwrap().unwrap()["stale"], json!([]));
 }

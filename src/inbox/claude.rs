@@ -12,7 +12,9 @@ const VERSION: &str = "2026-10-21";
 // Haiku is used because descriptions are short and its cost is low; DAILY_SPEND caps what a day can cost.
 pub(crate) const MODEL: &str = "claude-haiku-5-5";
 const REPLY_LIMIT: usize = 8 * 1024 * 1024;
-const REQUEST_LIMIT: usize = 30 * 1024 * 1024;
+pub(crate) const REQUEST_LIMIT: usize = 30 * 1024 * 1024;
+// Q-005 (open): the assistant is assumed to use Sonnet 5.5 until Dave chooses its model and daily limit.
+pub(crate) const ASSISTANT_MODEL: &str = "claude-sonnet-5-5";
 // Invariant: spending stops for the day at about $0.50. Each message is counted before it is sent and
 // stays below PROMPT_LIMIT tokens; with the rules and earlier answers a request stays below 100,000
 // tokens, where Haiku 5.5 bills $0.10 per million input and $0.50 per million output tokens.
@@ -25,6 +27,10 @@ const DOCUMENT_REFUSED: &str = "overview_document_refused";
 const INVALID: &str = "overview_invalid_response";
 // Problems that stop every request until Dave acts in Settings or the Claude Console.
 const BLOCKING: [&str; 4] = ["ai_key_invalid", "ai_key_refused", "ai_key_workspace", "ai_model_unavailable"];
+// The key's own problems. Unlike BLOCKING, they leave out the description model being unavailable.
+/// Key problems that hold for every model: a key Claude does not know, and one a mail-free probe
+/// confirmed is not tied to one workspace. A refusal (403) can be for one model only.
+const KEY_PROBLEMS: [&str; 2] = ["ai_key_invalid", "ai_key_workspace"];
 
 fn slot() -> CredentialKey {
     CredentialKey {
@@ -291,14 +297,75 @@ fn clear() -> Result<(), &'static str> {
 }
 
 fn client() -> Result<reqwest::Client, &'static str> {
+    client_for(Duration::from_secs(90))
+}
+
+fn client_for(timeout: Duration) -> Result<reqwest::Client, &'static str> {
     crate::platform::http_client()
         .no_proxy()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(90))
+        .timeout(timeout)
         .build()
         .map_err(|_| "ai_unavailable")
+}
+
+/// The problem that stops every assistant request now, if any.
+/// Invariant: the assistant shares the key, the key problems that hold for every model and a
+/// billing pause with descriptions, and nothing else. Claude allows and limits each model
+/// separately, so a description's refusal, rate limit or unavailable Haiku model never stops a
+/// question Dave asks, and the assistant's own refusal, rate limits, unavailable model or lost
+/// connection stay on its job instead of pausing descriptions.
+fn conversation_problem(saved: &Value, at: i64) -> Option<&'static str> {
+    if let Some(problem) = saved["problem"].as_str() {
+        if let Some(known) = KEY_PROBLEMS.into_iter().find(|known| *known == problem) {
+            return Some(known);
+        }
+    }
+    (saved["problem"] == "ai_billing" && saved["retryAt"].as_i64().is_some_and(|retry| retry > at))
+        .then_some("ai_billing")
+}
+
+/// Fails before a question is accepted when no assistant request could succeed.
+pub(crate) async fn conversation_ready() -> Result<(), &'static str> {
+    if let Some(problem) = conversation_problem(&state()?, now()) {
+        return Err(problem);
+    }
+    key().await.map(|_| ())
+}
+
+/// Sends one Messages API request for the assistant and returns Claude's reply.
+pub(crate) async fn converse(body: Vec<u8>) -> Result<Value, &'static str> {
+    if body.len() > REQUEST_LIMIT {
+        return Err("ai_request_rejected");
+    }
+    if let Some(problem) = conversation_problem(&state()?, now()) {
+        return Err(problem);
+    }
+    let key = key().await?;
+    // An answer of up to 16,000 tokens, written without streaming, can take several minutes.
+    let client = client_for(Duration::from_secs(600))?;
+    let (status, reply) = match send(&client, &key, reqwest::Method::POST, "/v1/messages", Some(body)).await {
+        Ok(sent) => sent,
+        Err(INVALID) => return Err("ai_invalid_response"),
+        Err(error) => return Err(error),
+    };
+    if status == 200 {
+        return serde_json::from_slice(&reply).map_err(|_| "ai_invalid_response");
+    }
+    // Invariant: as for descriptions, a key is called unscoped only when a request with no mail in
+    // it is refused the same way, so text in a message can never stop the key.
+    let error = match status {
+        400 if unscoped(&reply) && unscoped_key(&client, &key).await => "ai_key_workspace",
+        400 | 413 => "ai_request_rejected",
+        _ => failure(status),
+    };
+    if KEY_PROBLEMS.contains(&error) || error == "ai_billing" {
+        // A failure to record the problem must not replace the error Claude gave.
+        let _ = remember(error, &key, now()).await;
+    }
+    Err(error)
 }
 
 async fn complete(

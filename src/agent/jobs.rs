@@ -13,7 +13,7 @@ use std::{
 };
 type Result<T> = std::result::Result<T, &'static str>;
 pub use super::payload::{INPUT_LIMIT, now, session, text, validate_payload};
-use super::payload::{context_kind, context_message_ids, draft_fingerprint, draft_payload};
+use super::payload::{context_kind, context_message_ids, draft_payload};
 pub fn read_job(store: &Store, id: &str) -> Result<Value> {
     check_id(id)?;
     let v = store
@@ -359,10 +359,6 @@ async fn default_provider() -> Result<Provider> {
     Provider::parse(std::str::from_utf8(&out.stdout).unwrap_or("").trim())
         .ok_or("agent_choose_claude")
 }
-#[cfg(test)]
-fn new_job(context: Value, provider: Provider, model: String) -> Result<Value> {
-    new_job_with_submission(context, provider, model, None)
-}
 fn new_job_with_submission(
     context: Value,
     mut provider: Provider,
@@ -441,60 +437,8 @@ fn new_job_with_submission(
             bootstrap.extend(display["transcript"].as_array().unwrap().iter().cloned());
             super::stream::transcript_check(&bootstrap)?;
         }
-        let mut previous = read_context(&store, &job)?;
-        previous
-            .as_object_mut()
-            .ok_or("agent_invalid_context")?
-            .remove("parent");
-        if let Some(update) = context.get("mailUpdate") {
-            if previous["accountId"] != update["accountId"]
-                || previous["messageId"] != update["messageId"]
-                || previous.get("messages").is_some()
-            {
-                return Err("agent_continuation_override");
-            }
-            for key in ["message", "threadMessages", "threadContext"] {
-                previous
-                    .as_object_mut()
-                    .ok_or("agent_invalid_context")?
-                    .remove(key);
-                if let Some(value) = update.get(key) {
-                    previous[key] = value.clone();
-                }
-            }
-        }
-        if let Some(update) = context.get("draftUpdate") {
-            // Invariant: A follow-up can refresh content, never redirect its ownership.
-            let attaching = previous["messageId"]
-                .as_str()
-                .is_some_and(|s| !s.is_empty())
-                && update["messageId"] == previous["messageId"]
-                && previous.get("messages").is_none()
-                && !previous["draft"].is_object()
-                && previous["draftKey"].as_str().unwrap_or("").is_empty();
-            if update["accountId"] != previous["accountId"]
-                || (!attaching
-                    && (update["draftKey"] != previous["draftKey"]
-                        || !previous["draft"].is_object()))
-            {
-                return Err("agent_continuation_override");
-            }
-            if attaching {
-                previous["draftKey"] = update["draftKey"].clone();
-            }
-            previous["draft"] = update["draft"].clone();
-            previous
-                .as_object_mut()
-                .ok_or("agent_invalid_context")?
-                .remove("envelope");
-            if let Some(envelope) = update.get("envelope") {
-                previous["envelope"] = envelope.clone();
-            }
-            previous["draftFingerprint"] = draft_fingerprint(&previous["draft"])?.into();
-        }
-        previous["parent"] = json!(parent);
-        previous["prompt"] = context["prompt"].clone();
-        context = previous;
+        let previous = read_context(&store, &job)?;
+        context = super::payload::continue_context(previous, &context, &parent)?;
     }
     if context["messageId"].as_str().unwrap_or("").is_empty()
         && context.get("messages").is_none()

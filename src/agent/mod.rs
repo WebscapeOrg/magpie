@@ -26,5 +26,5 @@ desktop! {
     pub mod overview;
     mod vision;
 }
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "agent"))]
 mod control;

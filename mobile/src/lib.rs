@@ -202,6 +202,7 @@ pub unsafe extern "C" fn magpie_engine_request(
                     "engine.overviews"=>host.engine.mobile_overviews(&params).await,
                     "engine.overviewSettings"=>host.engine.mobile_overview_settings(&params).await,
                     "ai.setKey" | "ai.removeKey" | "ai.keyStatus"=>host.engine.mobile_ai_key(&method,&params).await,
+                    "ai.start" | "ai.show" | "ai.cancel" | "ai.list"=>host.engine.mobile_ai(&method,&params).await,
                     "engine.copyAttachments" | "engine.clearDraft"=>host.engine.mobile_draft_attachments(&method,&params).await,
                     "engine.conversation"=>host.engine.mobile_conversation(&params).await,
                     "engine.releaseSend"=>host.engine.mobile_release_send(&params).await,
@@ -372,6 +373,8 @@ fn read_only(method: &str) -> bool {
         "engine.contacts"
             | "engine.mailAlerts"
             | "ai.keyStatus"
+            | "ai.show"
+            | "ai.list"
             | "engine.conversation"
             | "engine.checkSend"
             | "engine.info"

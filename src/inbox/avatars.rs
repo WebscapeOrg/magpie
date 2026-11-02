@@ -231,33 +231,44 @@ async fn painted(account: &str, address: &str) -> Option<Value> {
     let _ = store::cache(&name, &value);
     Some(value)
 }
-/// Deletes the prepared painted pictures of accounts that are not in `accounts`. Blocks: call it off
-/// the async threads.
+/// Deletes the prepared painted pictures of accounts that are not in `accounts`. The rows are read
+/// without the cache lock, so avatar requests keep working during the scan; the lock is taken,
+/// waiting up to two seconds, only to delete. Blocks: call it off the async threads.
 #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 pub(super) fn forget_painted(accounts: &[String]) -> Result<(), &'static str> {
     use crate::platform::{dirs::AppDirs, private_fs};
     let Some(dir) = private_fs::directories(&AppDirs::discover()?.state, &["omamail", "inbox"], false)? else {
         return Ok(());
     };
-    let _lock = private_fs::lock_exclusive(&dir, ".cache-lock")?;
-    let mut removed = false;
-    for name in private_fs::names(&dir)? {
-        if !name.starts_with("avatar-") {
-            continue;
-        }
-        let Ok(Some(row)) = store::read(&name) else {
-            continue;
-        };
+    let unlisted = |row: &Value| {
         let owner = row["owner"].as_str().unwrap_or("");
-        if row["source"] == "painted" && !accounts.iter().any(|account| account == owner) {
+        row["source"] == "painted" && !accounts.iter().any(|account| account == owner)
+    };
+    let gone: Vec<String> = private_fs::names(&dir)?
+        .into_iter()
+        .filter(|name| name.starts_with("avatar-"))
+        .filter(|name| matches!(store::read(name), Ok(Some(row)) if unlisted(&row)))
+        .collect();
+    if gone.is_empty() {
+        return Ok(());
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let _lock = loop {
+        match private_fs::lock_exclusive(&dir, ".cache-lock") {
+            Err("private_fs_busy") if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            other => break other?,
+        }
+    };
+    // A row's name is bound to one account and address, so a row rewritten since the scan still
+    // belongs to the same unlisted account; it is checked again all the same.
+    for name in gone {
+        if matches!(store::read(&name), Ok(Some(row)) if unlisted(&row)) {
             private_fs::remove_owned(&dir, &name)?;
-            removed = true;
         }
     }
-    if removed {
-        private_fs::sync_dir(&dir)?;
-    }
-    Ok(())
+    private_fs::sync_dir(&dir)
 }
 fn organization_artwork(domain: &str) -> Option<&'static str> {
     match domain {

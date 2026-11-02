@@ -244,9 +244,17 @@ fn a_changed_key_stops_a_run_and_its_old_refusal_does_not_count() {
     assert_eq!(state["subjects"][&name]["attempts"], 1);
     assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Billing), AT, 2).unwrap());
     assert_eq!(state["problem"], "pictures_billing");
-    let generation = key_changed()().unwrap();
-    assert_eq!(generation, 1);
-    assert_eq!(key_changed()().unwrap(), 2);
+    // Before the keyring changes, a new generation keeps the pause; afterwards it clears it.
+    change(|_, saved| {
+        saved["problem"] = json!("pictures_billing");
+        saved["retryAt"] = json!(AT + BILLING_WAIT);
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(key_changed(false)().unwrap(), 1);
+    assert_eq!(read_state(&dir).unwrap()["problem"], "pictures_billing");
+    assert_eq!(key_changed(true)().unwrap(), 2);
+    assert!(read_state(&dir).unwrap().get("problem").is_none());
 }
 
 #[test]

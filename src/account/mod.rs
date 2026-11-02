@@ -115,3 +115,6 @@ pub fn summarize(bytes: &[u8]) -> Result<Value, &'static str> {
         .unwrap_or(json!(""));
     Ok(json!({"accounts": accounts, "activeId": active}))
 }
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) use storage::with_incarnation;

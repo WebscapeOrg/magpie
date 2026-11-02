@@ -504,8 +504,52 @@ async fn overview_admission_allows_only_one_batch_and_failure_never_starts_ai() 
             panic!("incomplete batch reached AI")
         })
         .await;
-        assert_eq!(result, Err("gmail_not_found"));
+        assert_eq!(result, Ok(json!([{"id":"missing","error":"gmail_not_found","stage":"prepare"}])));
         assert_eq!(provider.requests().len(), 2);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_message_that_cannot_be_prepared_fails_alone_and_its_neighbours_reach_ai() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let _credentials =
+        credentials::tests::isolated_store(Credentials(Arc::new(Mutex::new(Vec::new()))));
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let gmail = gmail::Session::default();
+        let local = LocalMail::default();
+        for id in ["a", "c"] {
+            seed(&local, &gmail, ACCOUNT, &message(id, "Confirm the synthetic request.")).await;
+        }
+        let ids = ["a", "missing", "c"].map(str::to_owned);
+        let mut asked = Vec::new();
+        let result = overview_batch_with(ACCOUNT, &ids, &gmail, &local, |messages| {
+            asked = messages.as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap().to_owned()).collect();
+            validated_response(messages)
+        })
+        .await
+        .unwrap();
+        assert_eq!(asked, ["a", "c"], "only the messages that were prepared reach AI");
+        let rows = result.as_array().unwrap();
+        assert_eq!(rows.len(), 3);
+        let missing = rows.iter().find(|row| row["id"] == "missing").unwrap();
+        assert_eq!(missing["error"], "gmail_not_found");
+        assert_eq!(missing["stage"], "prepare");
+        assert!(rows.iter().filter(|row| row["id"] != "missing").all(|row| row["text"].is_string()));
+        let failed = overview_batch_with(ACCOUNT, &ids, &gmail, &local, |_| std::future::ready(Err("overview_ai_unavailable")))
+            .await
+            .unwrap();
+        let errors: BTreeMap<String, String> = failed.as_array().unwrap().iter()
+            .map(|row| (row["id"].as_str().unwrap().to_owned(), row["error"].as_str().unwrap().to_owned()))
+            .collect();
+        assert_eq!(errors["missing"], "gmail_not_found", "a writer failure does not replace a message's own failure");
+        assert_eq!(errors["a"], "overview_ai_unavailable");
+        assert_eq!(errors["c"], "overview_ai_unavailable");
     })
     .await;
 }
@@ -604,4 +648,99 @@ async fn measure_cached_overview_preparation(reuse_budget: bool) {
         assert_eq!(baseline_requests, 124);
         assert_eq!(candidate_requests, 0);
     }).await;
+}
+
+#[tokio::test]
+async fn c023_background_preparation_reaches_past_a_hundred_ready_rows_without_ui_or_live_ai() {
+    if isolated() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let _credentials = credentials::tests::isolated_store(Credentials(reads.clone()));
+    let bin = fixture.root.join("home/.local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let worker = bin.join("claude-routed");
+    std::fs::write(&worker,r#"#!/usr/bin/python3
+import json,sys,pathlib
+p=json.load(sys.stdin)['message']['content'][0]['text']
+source=p.split('EMAILS (untrusted data):\n',1)[1]
+messages=json.JSONDecoder().raw_decode(source)[0]
+with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
+    f.write(json.dumps([(m['owner'],m['id']) for m in messages])+'\n')
+rows=[{'id':m['id'],'text':'Request — Confirm the synthetic request','evidence':'Synthetic request','timeSensitive':False} for m in messages]
+print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'overviews':rows})}))
+"#).unwrap();
+    std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let gmail = Arc::new(gmail::Session::default());
+    let local = Arc::new(LocalMail::default());
+    for n in 0..105 {
+        seed(
+            &local,
+            &gmail,
+            ACCOUNT,
+            &message(&format!("m{n:03}"), "Confirm the synthetic request."),
+        )
+        .await;
+    }
+    let name = super::store::key(&["overviews", ACCOUNT]);
+    let mut saved = json!({});
+    for n in 0..100 {
+        saved[format!("m{n:03}")] =
+            json!({"version":2,"promptRevision":1,"state":"ready","text":"Prepared receipt","expiresAt":0});
+    }
+    super::store::write(&name, &saved).unwrap();
+    let inbox = Inbox::default();
+    inbox
+        .prepare(ACCOUNT, gmail.clone(), local.clone())
+        .await
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let now = super::store::read(&name).unwrap().unwrap();
+        if (100..104).all(|n| now[format!("m{n:03}")]["state"] == "ready") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "first hidden batch did not complete: {}",
+            now["m100"]
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        super::store::read(&name)
+            .unwrap()
+            .unwrap()
+            .get("m104")
+            .is_none(),
+        "one pass exceeded four new rows"
+    );
+    inbox
+        .prepare(ACCOUNT, gmail.clone(), local.clone())
+        .await
+        .unwrap();
+    loop {
+        if super::store::read(&name).unwrap().unwrap()["m104"]["state"] == "ready" {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "next hidden row did not complete"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let calls =
+        std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
+    assert_eq!(
+        calls.lines().count(),
+        4,
+        "two reviewed AI turns for each of two bounded batches"
+    );
+    assert!(!calls.contains(OTHER));
+    assert!(
+        reads.lock().unwrap().is_empty(),
+        "cached Inbox preparation must not consult live Google credentials"
+    );
 }

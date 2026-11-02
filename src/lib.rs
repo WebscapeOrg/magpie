@@ -1,6 +1,6 @@
 pub mod account;
-// Invariant: Detached assistant workers currently rely on Linux pidfds and private storage.
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+// Invariant: Detached assistant workers rely on Linux pidfds and private storage, so agent/mod.rs builds them only for the desktop; the phone gets the pure context and safety rules.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub mod agent;
 pub mod attachment;
 pub mod auth;

@@ -29,8 +29,10 @@ pub struct Engine {
     inbox: std::sync::Arc<crate::inbox::Inbox>,
     uploads: std::sync::Mutex<upload::Uploads>,
     reader: std::sync::Arc<std::sync::Mutex<reader::ReaderStore>>,
-    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     agent_context: crate::agent::context::Contexts,
+    #[cfg(feature = "mobile")]
+    assistant: std::sync::Arc<crate::inbox::assistant::Assistant>,
     upload_jobs: tokio::sync::Semaphore,
     pub(crate) gmail: std::sync::Arc<crate::providers::gmail::Session>,
     mail: crate::sync::Sync,
@@ -72,8 +74,10 @@ impl Default for Engine {
             inbox: Default::default(),
             uploads: Default::default(),
             reader: Default::default(),
-            #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
             agent_context: Default::default(),
+            #[cfg(feature = "mobile")]
+            assistant: Default::default(),
             upload_jobs: tokio::sync::Semaphore::new(2),
             mail: crate::sync::Sync::new(gmail.clone()),
             gmail,
@@ -97,8 +101,10 @@ impl Engine {
             inbox: self.inbox.clone(),
             uploads: Default::default(),
             reader: Default::default(),
-            #[cfg(feature = "agent")]
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
             agent_context: Default::default(),
+            #[cfg(feature = "mobile")]
+            assistant: self.assistant.clone(),
             upload_jobs: tokio::sync::Semaphore::new(2),
             gmail: self.gmail.clone(),
             mail: crate::sync::Sync::new(self.gmail.clone()),
@@ -125,6 +131,9 @@ impl Engine {
     }
 
     pub async fn shutdown(&self) -> Result<(), &'static str> {
+        // Invariant: an assistant turn never outlives its engine; a stopped turn reads as interrupted.
+        #[cfg(feature = "mobile")]
+        self.assistant.stop_all();
         self.auth.shutdown().await;
         self.local_mail.shutdown().await;
         #[cfg(feature = "mobile")]

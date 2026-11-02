@@ -174,14 +174,35 @@ pub unsafe extern "C" fn magpie_engine_request(
         if submit(Box::new(move || Box::pin(async move {
             let cancellable = read_only(&method);
             let dispatch = async {
-                let removing=matches!(method.as_str(),"accounts.mobileRemove"|"engine.suspend"|"engine.copyAttachments"|"engine.clearDraft");
+                let removing=matches!(method.as_str(),"accounts.mobileRemove"|"engine.suspend"|"engine.copyAttachments"|"engine.clearDraft"|"engine.backgroundRefresh");
                 let _exclusive=if removing {Some(host.operations.write().await)}else{None};
                 let _shared=if !removing {Some(host.operations.read().await)}else{None};
-                if !host.active.load(Ordering::Acquire) && !matches!(method.as_str(), "engine.info" | "engine.events" | "engine.suspend" | "engine.resume") { return Err("mobile_suspended"); }
+                if !host.active.load(Ordering::Acquire) && !matches!(method.as_str(), "engine.info" | "engine.events" | "engine.suspend" | "engine.resume" | "engine.backgroundRefresh" | "engine.backgroundDescribe") { return Err("mobile_suspended"); }
                 host.engine.mobile_authorize(&params).await?;
                 match method.as_str() {
+                    "engine.backgroundRefresh" => {
+                        if host.active.load(Ordering::Acquire) { return Err("mobile_refresh_foreground"); }
+                        if !params.as_object().is_some_and(|p| p.is_empty()) { return Err("invalid_params"); }
+                        // Invariant: due snoozes return beside the mail check inside this one exclusive background operation. The tick's
+                        // requests come first and the receive's background requests wait for them. This short tick is the only Gmail write
+                        // a background run makes, and it is cut off after 8 seconds.
+                        let short = json!({"seconds":5});
+                        let tick = tokio::time::timeout(Duration::from_secs(8), host.engine.dispatch("inbox.tick", &short));
+                        let (refreshed, ticked) = tokio::join!(host.engine.mobile_background_refresh(&params), tick);
+                        let mut reply = refreshed?;
+                        if let Some(fields) = reply.as_object_mut() {
+                            fields.insert("snoozes".into(), match ticked { Ok(Ok(result)) => result, Ok(Err(code)) => json!({"error":code}), Err(_) => json!({"error":"mobile_refresh_expired"}) });
+                        }
+                        Ok(reply)
+                    },
                     "accounts.mobileRemove"=>host.engine.mobile_remove_account(&params).await,
                     "engine.contacts"=>host.engine.mobile_contacts(&params).await,
+                    "engine.mailAlerts"=>host.engine.mobile_mail_alerts(&params).await,
+                    "engine.backgroundDescribe" => { if host.active.load(Ordering::Acquire) { return Err("mobile_refresh_foreground"); } host.engine.mobile_background_describe(&params).await },
+                    "engine.overviews"=>host.engine.mobile_overviews(&params).await,
+                    "engine.overviewSettings"=>host.engine.mobile_overview_settings(&params).await,
+                    "ai.setKey" | "ai.removeKey" | "ai.keyStatus"=>host.engine.mobile_ai_key(&method,&params).await,
+                    "ai.start" | "ai.show" | "ai.cancel" | "ai.list"=>host.engine.mobile_ai(&method,&params).await,
                     "engine.copyAttachments" | "engine.clearDraft"=>host.engine.mobile_draft_attachments(&method,&params).await,
                     "engine.conversation"=>host.engine.mobile_conversation(&params).await,
                     "engine.releaseSend"=>host.engine.mobile_release_send(&params).await,
@@ -209,20 +230,35 @@ pub unsafe extern "C" fn magpie_engine_request(
                     "auth.mobileExchange" => omamail::auth::mobile_exchange(&params).await,
                     "engine.suspend" => { let _lock = host.lifecycle.lock().await; if !host.active.load(Ordering::Acquire) {host.engine.mobile_suspend().await?;} Ok(json!({"suspended":!host.active.load(Ordering::Acquire)})) },
                     "engine.resume" => { let _lock = host.lifecycle.lock().await; Ok(json!({"suspended":!host.active.load(Ordering::Acquire)})) },
-                    "mail.watch" | "mail.check" | "mail.unwatch" | "request.upload" | "system.quit" | "auth.begin" | "auth.poll" | "auth.cancel" | "inbox.snooze" | "inbox.wake" | "inbox.tick" | "inbox.overviews" => Err("mobile_service_required"),
+                    "mail.watch" | "mail.check" | "mail.unwatch" | "request.upload" | "system.quit" | "auth.begin" | "auth.poll" | "auth.cancel" | "inbox.overviews" => Err("mobile_service_required"),
                     "outbox.compose" if params["resumeUnsent"] != true => Err("mobile_resumable_send_required"),
                     "mail.send" | "gmail.send" | "outbox.enqueue" => Err("mobile_use_outbox"),
                     _ => host.engine.dispatch(&method, &params).await,
                 }
             };
+            let mut outcome = {
             let guarded = AssertUnwindSafe(dispatch).catch_unwind();
             tokio::pin!(guarded);
-            let outcome = if cancellable {
+            if method == "engine.backgroundDescribe" {
+                tokio::select! {
+                    biased;
+                    _ = cancelled => Ok(Err("mobile_cancelled")),
+                    result = tokio::time::timeout(Duration::from_secs(16), &mut guarded) => result.unwrap_or(Ok(Err("mobile_refresh_expired"))),
+                }
+            } else if method == "engine.backgroundRefresh" {
+                tokio::select! {
+                    biased;
+                    _ = cancelled => Ok(Err("mobile_cancelled")),
+                    result = tokio::time::timeout(Duration::from_secs(20), &mut guarded) => result.unwrap_or(Ok(Err("mobile_refresh_expired"))),
+                }
+            } else if cancellable {
                 tokio::select! {
                     _ = cancelled => { let _=guarded.await; Ok(Err("mobile_cancelled")) },
                     result = tokio::time::timeout(Duration::from_secs(90), &mut guarded) => match result { Ok(value)=>value, Err(_)=>{let _=guarded.await; Ok(Err("mobile_timeout"))} },
                 }
-            } else { guarded.await };
+            } else { guarded.await }
+            };
+            if method == "engine.backgroundRefresh" && !host.active.load(Ordering::Acquire) { if let Err(error) = host.engine.mobile_background_drain().await { outcome = Ok(Err(error)); } }
             let answer = match outcome {
                 Ok(Ok(result)) => json!({"result":result}),
                 Ok(Err(code)) => error(code),
@@ -335,6 +371,10 @@ fn read_only(method: &str) -> bool {
     matches!(
         method,
         "engine.contacts"
+            | "engine.mailAlerts"
+            | "ai.keyStatus"
+            | "ai.show"
+            | "ai.list"
             | "engine.conversation"
             | "engine.checkSend"
             | "engine.info"

@@ -3,8 +3,8 @@ import QtTest
 import "../../inbox" as Inbox
 Item {
   width: 400; height: 300
-  QtObject { id: first; property string accountId: "one@example.org"; property string providerId: "gmail" }
-  QtObject { id: second; property string accountId: "two@example.org"; property string providerId: "gmail" }
+  QtObject { id: first; property string accountId: "one@example.org"; property string providerId: "gmail"; property var delivered: []; function deliverNotification(rows) { delivered = delivered.concat(rows) } }
+  QtObject { id: second; property string accountId: "two@example.org"; property string providerId: "gmail"; property var delivered: []; function deliverNotification(rows) { delivered = delivered.concat(rows) } }
   QtObject {
     id: backend
     property bool ready: false
@@ -17,7 +17,11 @@ Item {
     property var backend: backend
     property bool windowOpen: true
     property bool alwaysShowImages: false
+    property bool notifyNewMail: true
+    function findAccount(account) { return account === first.accountId ? first : account === second.accountId ? second : null }
     property var accountSummaries: [{id:"one@example.org"},{id:"two@example.org"}]
+    property bool curatedInbox: false
+    property var rawMessages: messages
     property var messages: [{id:"one-message",sourceId:"shared-id",from:{email:"alex@example.com"}},{id:"two-message",sourceId:"shared-id",from:{email:"alex@example.com"}}]
     function hostForId(id) { return String(id).indexOf("two-")===0 ? second : first }
   }
@@ -25,8 +29,35 @@ Item {
   TestCase {
     name: "InboxTools"
     when: windowShown
-    function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.descriptionsEnabled=true;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.snapshotsPending=({});tools.requesting=false;service.windowOpen=true;tools.visibleRows=service.messages }
+    function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.descriptionsEnabled=true;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.snapshotsPending=({});tools.requesting=false;tools.notificationRows=({});tools.notificationsPending=({});first.delivered=[];second.delivered=[];service.windowOpen=true;service.curatedInbox=false;tools.visibleRows=service.messages }
     function cleanup() { backend.ready=false }
+    function test_notifications_wait_for_owned_ready_unread_inbox_members() {
+      backend.apiVersion=8;backend.ready=true
+      tools.queueNotifications(first.accountId,[{id:"pending"},{id:"read"},{id:"gone"},{id:"ready"},{id:"unknown"}])
+      compare(first.delivered.length,0)
+      var values=({})
+      for (var id of ["read","gone","ready","unknown"]) values[first.accountId+"\n"+id]={state:"ready",version:2,text:"Prepared notification",expiresAt:0}
+      tools.overviews=values;tools.flushNotifications(first.accountId)
+      var request=backend.calls.filter(function(row){return row.method==="local.summaries"})[0]
+      verify(request);compare(request.params.accountId,first.accountId)
+      verify(request.params.ids.indexOf("pending")<0)
+      request.done({summaries:[{id:"read",matchesQuery:false},{id:"ready",matchesQuery:true},{id:"unknown"}]},null)
+      compare(first.delivered.length,1);compare(first.delivered[0].id,"ready");compare(first.delivered[0].subject,"Prepared notification")
+      compare(second.delivered.length,0)
+      compare(Object.keys(tools.notificationRows[first.accountId]).join(","),"pending")
+    }
+    function test_hidden_inbox_rows_are_prepared_and_only_current_owned_rows_are_admitted() {
+      service.curatedInbox=true;tools.visibleRows=[]
+      backend.apiVersion=8;backend.ready=true
+      verify(backend.calls.some(function(request){return request.method==="inbox.overviews"}))
+      compare(tools.inboxRows(service.rawMessages).length,0)
+      tools.overviews={"one@example.org\nshared-id":{state:"ready",version:2,text:"Prepared mail",expiresAt:0},"two@example.org\nshared-id":{state:"failed",version:2,text:"Unverified text",expiresAt:0}}
+      compare(tools.inboxRows(service.rawMessages).length,1)
+      compare(tools.inboxRows(service.rawMessages)[0].id,"one-message")
+      tools.descriptionsEnabled=false;tools.paused=true
+      compare(tools.inboxRows(service.rawMessages).length,1)
+      compare(tools.admitted(second.accountId,[{id:"shared-id"}]).length,0)
+    }
     function test_cached_relative_words_expire_while_disconnected() {
       wait(400)
       tools.overviewClock=Date.now()
@@ -43,10 +74,10 @@ Item {
       verify(job)
       compare(job.params.allowRemoteImages,false)
     }
-    function test_original_subject_mode_stops_admission_but_keeps_avatars() {
+    function test_original_subject_mode_keeps_preparation_and_avatars() {
       tools.descriptionsEnabled=false
       backend.apiVersion=8;backend.ready=true;tools.refresh()
-      verify(!backend.calls.some(function(request){return request.method==="inbox.overviews"}))
+      verify(backend.calls.some(function(request){return request.method==="inbox.overviews"}))
       verify(backend.calls.some(function(request){return request.method==="inbox.avatar"}))
     }
     function test_admission_failure_explains_each_affected_row_without_leaking_error() {

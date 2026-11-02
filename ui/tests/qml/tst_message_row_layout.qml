@@ -1,10 +1,12 @@
 import QtQuick
 import QtTest
 import "../../components" as Omamail
+import "../../settings" as Settings
 
 Item {
   width: 640
   height: 160
+  Component { id: fontMetrics; FontMetrics {} }
   Omamail.MessageRow {
     id: row
     width: 600
@@ -28,6 +30,32 @@ Item {
     function test_attachment_indicator_keeps_line_height_and_text_gap_data() {
       return [{tag:"wide",width:600,actions:false},{tag:"narrow-actions",width:360,actions:true}]
     }
+    function test_avatar_stays_inside_short_rows_at_independent_text_sizes_data() {
+      var cases = []
+      for (var interfaceSize of [11, 17, 26]) {
+        for (var listSize of [8, 10, 12, 14, 17, 26, 36]) {
+          cases.push({tag: interfaceSize + "-" + listSize, interfaceSize: interfaceSize, listSize: listSize})
+        }
+      }
+      return cases
+    }
+    function test_avatar_stays_inside_short_rows_at_independent_text_sizes(data) {
+      var previous = Settings.MailStyle.preferences
+      try {
+        Settings.MailStyle.preferences = {interfaceSize: data.interfaceSize, listSize: data.listSize}
+        row.overview = "Ready"
+        waitForRendering(row)
+        var avatar = findChild(row, "message-avatar")
+        var sender = findChild(row, "message-sender")
+        var metrics = createTemporaryObject(fontMetrics, row, {font: sender.font})
+        var capitalTop = sender.mapToItem(row, 0, sender.baselineOffset + metrics.tightBoundingRect("H").y).y
+        verify(Math.abs(avatar.y-capitalTop)<0.01,"avatar follows sender capitals after text size changes")
+        verify(avatar.y >= 0, "avatar starts inside the row")
+        verify(avatar.y + avatar.height <= row.height, "avatar ends inside the row")
+      } finally {
+        Settings.MailStyle.preferences = previous
+      }
+    }
     function test_attachment_indicator_keeps_line_height_and_text_gap(data) {
       row.width=data.width;row.hasCursor=data.actions;row.checked=false
       row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",unread:false,starred:false,hasAttachments:false}
@@ -46,8 +74,9 @@ Item {
       compare(description.height,lineHeightPixels)
       compare(description.mapToItem(row,0,0).y,before.y)
       compare(findChild(row,"message-subject").mapToItem(row,0,0).y,subject.y)
-      verify(glyph.height<=description.height)
-      verify(glyph.height<=description.font.pixelSize)
+      var sender=findChild(row,"message-sender")
+      verify(glyph.height<=sender.height)
+      verify(glyph.height<=sender.font.pixelSize)
       var time=findChild(row,"message-time")
       verify(time.x-glyph.x-glyph.width>=8,"the paperclip has right-hand breathing room")
       verify(Math.abs(glyph.mapToItem(row,0,glyph.height/2).y
@@ -156,7 +185,8 @@ Item {
       var timePoint=time.mapToItem(row,0,0)
       var subjectPoint=subject.mapToItem(row,0,0)
       var descriptionPoint=description.mapToItem(row,0,0)
-      compare(Math.round(senderPoint.y+sender.baselineOffset),Math.round(timePoint.y+time.baselineOffset))
+      verify(Math.abs(senderPoint.y+sender.height/2-timePoint.y-time.height/2)<=0.5,"sender and date centres align within pixel rounding")
+      compare(time.font.pixelSize,subject.font.pixelSize)
       verify(subjectPoint.y>=senderPoint.y+sender.height,"title occupies the second line")
       verify(descriptionPoint.y>=subjectPoint.y+subject.height,"description occupies the third line")
       var actions=findChild(row,"message-actions")
@@ -171,7 +201,9 @@ Item {
       }
       verify(sender.width>0)
       verify(senderPoint.x+sender.width<=timePoint.x)
-      compare(subject.font.bold,true,"unread emphasis survives reordering")
+      compare(subject.font.bold,false,"unread text uses the regular weight")
+      compare(subject.marked,true,"the marker identifies unread mail")
+      verify(subject.bands.length > 0,"the marker follows the laid-out text")
       compare(subject.textFormat,Text.PlainText)
       compare(subject.effectiveHorizontalAlignment,data.rtl?Text.AlignRight:Text.AlignLeft)
       compare(findChild(row,"message-source"),null)

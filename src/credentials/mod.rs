@@ -24,6 +24,8 @@ use windows as platform;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CredentialKind {
     GoogleRefreshToken { client_id: String },
+    /// The phone's own Claude API key. One per installation: provider "anthropic", account "default".
+    ClaudeApiKey,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -144,6 +146,19 @@ impl CredentialKey {
             Ok(())
         }
         metadata(&self.account_id)?;
+        let client_id = match &self.kind {
+            CredentialKind::ClaudeApiKey => {
+                if self.provider != "anthropic" || self.account_id != "default" {
+                    return Err(Error::InvalidKey);
+                }
+                return Ok(BTreeMap::from([
+                    ("service".into(), "omamail".into()),
+                    ("kind".into(), "claude-api-key".into()),
+                    ("account".into(), "default".into()),
+                ]));
+            }
+            CredentialKind::GoogleRefreshToken { client_id } => client_id,
+        };
         if self.provider != "gmail"
             || self.account_id.chars().any(char::is_whitespace)
             || (self.account_id != "default"
@@ -151,7 +166,6 @@ impl CredentialKey {
         {
             return Err(Error::InvalidKey);
         }
-        let CredentialKind::GoogleRefreshToken { client_id } = &self.kind;
         metadata(client_id)?;
         let attributes = BTreeMap::from([
             ("service".into(), "omamail".into()),

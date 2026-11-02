@@ -7,6 +7,7 @@ pub const ALL: &[&str] = &[
     "phone.revoke",
     "inbox.snapshot",
     "inbox.overviews",
+    "inbox.preferences",
     "inbox.avatar",
     "inbox.snooze",
     "inbox.wake",

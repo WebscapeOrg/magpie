@@ -7,8 +7,6 @@ import "../message/Direction.js" as Direction
 import "../account/Model.js" as Model
 import "../keys/Keymap.js" as Keymap
 
-// Invariant: unread state uses weight and a dot because theme accent alone may be
-// indistinguishable.
 Rectangle {
   id: root
 
@@ -27,6 +25,7 @@ Rectangle {
   property bool selectionActive: false
   property bool ctrlHeld: false
   readonly property bool selectionMode: selectionActive || checked || ctrlHeld
+  readonly property color secondaryTextColor: selected || hasCursor || checked ? textColor : dimColor
   property string contentDirection: Direction.MODE_DEFAULT
 
   signal activated()
@@ -52,6 +51,7 @@ Rectangle {
   HoverHandler { id: rowHover }
 
   readonly property int threadCount: Model.badgeCount(root.summary)
+  readonly property real avatarTopInset: Math.max(0, sender.baselineOffset + senderMetrics.tightBoundingRect.y)
 
   // Invariant: Latin reply prefixes must not determine subject direction; sender and snippet still
   // use their own first strong character.
@@ -67,7 +67,7 @@ Rectangle {
   }
 
   width: parent ? parent.width : 0
-  implicitHeight: Math.max(body.implicitHeight, actions.visible ? actions.height : 0, avatar.height) + MailStyle.space(14)
+  implicitHeight: Math.max(body.implicitHeight, actions.visible ? actions.height : 0, avatar.height + avatarTopInset) + MailStyle.space(14)
   radius: Style.cornerRadius
   color: selected || hasCursor || checked
     ? Style.selectedFillFor(textColor, accentColor)
@@ -102,7 +102,7 @@ Rectangle {
     objectName: "message-avatar"
     anchors.left: parent.left
     anchors.leftMargin: MailStyle.space(14)
-    y: body.y
+    y: body.y + root.avatarTopInset
     width: MailStyle.space(36)
     height: width
     sender: root.summary.from || ({})
@@ -112,13 +112,19 @@ Rectangle {
     fontFamily: root.panelFontFamily
   }
 
+  TextMetrics {
+    id: senderMetrics
+    font: sender.font
+    text: "H"
+  }
+
   Column {
     id: body
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.leftMargin: MailStyle.space(14) + avatar.width + MailStyle.space(10)
     anchors.rightMargin: MailStyle.space(6) + (MailStyle.space(24) - Style.font.iconSmall) / 2
-    anchors.verticalCenter: parent.verticalCenter
+    y: MailStyle.space(7)
     spacing: MailStyle.space(2)
 
     Item {
@@ -136,7 +142,7 @@ Rectangle {
         color: root.textColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
-        font.bold: root.summary.unread === true
+        font.bold: false
         elide: Text.ElideRight
         horizontalAlignment: root.textAlignment
       }
@@ -150,10 +156,10 @@ Rectangle {
         visible: root.conversations && root.threadCount > 0
         textFormat: Text.PlainText
         text: root.threadCount
-        color: root.dimColor
+        color: root.secondaryTextColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.listSize
-        font.bold: root.summary.unread === true
+        font.bold: false
       }
 
       ActionIcon {
@@ -165,7 +171,7 @@ Rectangle {
         y: (sender.height - height) / 2
         name: "attachment"
         iconSize: MailStyle.listSize
-        color: root.dimColor
+        color: root.secondaryTextColor
         Accessible.role: Accessible.Graphic
         Accessible.name: "Has attachments"
       }
@@ -174,17 +180,19 @@ Rectangle {
         id: time
         objectName: "message-time"
         anchors.right: parent.right
-        anchors.baseline: sender.baseline
+        anchors.verticalCenter: sender.verticalCenter
         textFormat: Text.PlainText
         text: String(root.summary.time || "")
-        color: root.dimColor
+        color: root.secondaryTextColor
         font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.listSize
+        font.pixelSize: subject.font.pixelSize
       }
     }
 
-    Text {
+    MarkedText {
       id: subject
+      marked: root.summary.unread === true
+      markerColor: Qt.rgba(0.73,0.48,0.20,0.144)
       objectName: "message-subject"
       width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
       // Invariant: sender-controlled labels must never activate Qt’s rich-text loader.
@@ -192,13 +200,13 @@ Rectangle {
       text: root.overview || String(root.summary.subject || "")
       color: root.textColor
       font.family: root.panelFontFamily
-      font.pixelSize: MailStyle.listSize
-      font.bold: root.summary.unread === true
+      font.pixelSize: Math.max(8, MailStyle.preferences.listSize - 3) * 96 / 72
+      font.bold: false
       elide: Text.ElideRight
       horizontalAlignment: root.overview ? root.textAlignment : root.subjectAlignment
       wrapMode: Text.Wrap
       maximumLineCount: 3
-      Accessible.name: root.overview ? "AI description: " + root.overview : text
+      Accessible.name: (root.summary.unread === true ? "Unread. " : "") + (root.overview ? "AI description: " + root.overview : text)
       Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && (subject.truncated || root.overviewState === "failed"); text: root.overview || (root.overviewReason ? "Original subject shown. " + root.overviewReason : subject.text); fontFamily: root.panelFontFamily }
       HoverHandler { id: overviewHover }
     }
@@ -217,9 +225,9 @@ Rectangle {
         visible: true
         textFormat: Text.PlainText
         text: String(root.summary.snippet || "")
-        color: root.dimColor
+        color: root.secondaryTextColor
         font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.listSize
+        font.pixelSize: Math.max(8, MailStyle.preferences.listSize - 3) * 96 / 72
         elide: Text.ElideRight
         maximumLineCount: 2
         wrapMode: Text.Wrap

@@ -3,6 +3,15 @@ use image::{ImageFormat, ImageReader, imageops::FilterType};
 use serde_json::{Value, json};
 use std::io::Cursor;
 
+fn remote_allowed(account: &str, requested: bool) -> bool {
+    if !requested || crate::mail::resolve_account(account).is_err() {
+        return false;
+    }
+    super::preferences(account).is_ok_and(|settings| {
+        settings["configured"] != true || settings["allowRemoteImages"] == true
+    })
+}
+
 const MAX_FILE: usize = 2 * 1024 * 1024;
 const MAX_MEDIA: usize = 2 * 1024 * 1024;
 const MAX_FILES: usize = 16;
@@ -15,6 +24,31 @@ pub(super) async fn enrich(
     gmail: &crate::providers::gmail::Session,
     remote: bool,
 ) -> Result<(), &'static str> {
+    enrich_with(
+        account,
+        id,
+        raw,
+        message,
+        gmail,
+        remote,
+        |url: String| async move { crate::public_http::image(&url).await },
+    )
+    .await
+}
+
+async fn enrich_with<F, Fut>(
+    account: &str,
+    id: &str,
+    raw: &Value,
+    message: &mut Value,
+    gmail: &crate::providers::gmail::Session,
+    remote: bool,
+    fetch: F,
+) -> Result<(), &'static str>
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = Result<String, &'static str>>,
+{
     let mut pending = vec![&raw["payload"]];
     let mut files = Vec::new();
     let mut remaining = MAX_MEDIA;
@@ -115,10 +149,10 @@ pub(super) async fn enrich(
             break;
         }
         let mut file = json!({"name":"Remote image","status":"Remote images are blocked by the reader's preference"});
-        if remote && remaining > 0 {
+        if remaining > 0 && remote_allowed(account, remote) {
             if let Some(url) = source.as_str() {
                 let result = async {
-                    let data = crate::public_http::image(url).await?;
+                    let data = fetch(url.to_owned()).await?;
                     let encoded = data.split_once(',').ok_or("overview_media_invalid")?.1;
                     let bytes = crate::attachment::decode(encoded)?;
                     if bytes.len() > remaining || bytes.len() > MAX_FILE {
@@ -254,7 +288,7 @@ async fn prepare(bytes: Vec<u8>, mime: &str) -> Result<Value, &'static str> {
         if !bytes.starts_with(b"%PDF-") {
             return Err("overview_media_invalid");
         }
-        return document(bytes, include_str!("pdf.py")).await;
+        return pdf(bytes).await;
     }
     if mime.starts_with("application/vnd.") {
         return document(bytes, include_str!("office.py")).await;
@@ -389,6 +423,27 @@ async fn document(_bytes: Vec<u8>, _script: &str) -> Result<Value, &'static str>
     Err("overview_media_unavailable")
 }
 
+#[cfg(target_os = "linux")]
+async fn pdf(bytes: Vec<u8>) -> Result<Value, &'static str> {
+    document(bytes, include_str!("pdf.py")).await
+}
+
+// Invariant: The iPhone cannot render PDF pages, so Claude reads the PDF itself; Claude's own check refuses a damaged one.
+#[cfg(all(feature = "mobile", not(target_os = "linux")))]
+async fn pdf(bytes: Vec<u8>) -> Result<Value, &'static str> {
+    Ok(native_pdf(&bytes))
+}
+
+#[cfg(not(any(target_os = "linux", feature = "mobile")))]
+async fn pdf(bytes: Vec<u8>) -> Result<Value, &'static str> {
+    document(bytes, "").await
+}
+
+#[cfg(any(all(feature = "mobile", not(target_os = "linux")), test))]
+fn native_pdf(bytes: &[u8]) -> Value {
+    json!([{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":STANDARD.encode(bytes)}}])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,6 +485,16 @@ mod tests {
         data.into_bytes()
     }
 
+    #[test]
+    fn iphone_pdfs_go_to_claude_as_one_document_block() {
+        let blocks = native_pdf(&pdf_fixture());
+        assert_eq!(blocks.as_array().unwrap().len(), 1);
+        assert_eq!(blocks[0]["type"], "document");
+        assert_eq!(blocks[0]["source"]["media_type"], "application/pdf");
+        assert_eq!(STANDARD.decode(blocks[0]["source"]["data"].as_str().unwrap()).unwrap(), pdf_fixture());
+    }
+
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     #[tokio::test]
     #[ignore = "uses the household AI router with synthetic PDF and image content"]
     async fn descriptions_read_visual_details_without_tools() {
@@ -556,6 +621,76 @@ mod tests {
             "Remote images are blocked by the reader's preference"
         );
         assert!(message["files"][1].get("content").is_none());
+    }
+
+    #[tokio::test]
+    async fn c023_image_revocation_blocks_later_requests_in_the_same_message() {
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let account = "images@example.test";
+        let _fixture = crate::mail::tests::account_fixture(
+            json!({"version":1,"accounts":[{"email":account}]}),
+        );
+        let name = super::super::store::key(&["preferences", account]);
+        super::super::store::write(&name, &json!({"allowRemoteImages":true})).unwrap();
+        let html =
+            "<img src='https://example.org/first.png'><img src='https://example.org/second.png'>";
+        let raw = json!({"id":"synthetic","payload":{"mimeType":"text/html","body":{"data":STANDARD.encode(html)}}});
+        assert!(
+            remote_allowed(account, true),
+            "configured remote permission must be a positive control"
+        );
+        let calls = std::cell::RefCell::new(Vec::new());
+        let mut message = json!({});
+        enrich_with(
+            account,
+            "synthetic",
+            &raw,
+            &mut message,
+            &crate::providers::gmail::Session::default(),
+            true,
+            |url| {
+                calls.borrow_mut().push(url);
+                super::super::store::write(&name, &json!({"allowRemoteImages":false})).unwrap();
+                std::future::ready(Ok(format!(
+                    "data:image/png;base64,{}",
+                    STANDARD.encode(png())
+                )))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            calls.borrow().len(),
+            1,
+            "revocation must prevent the second transport call"
+        );
+        assert_eq!(
+            message["files"][1]["status"],
+            "Remote images are blocked by the reader's preference"
+        );
+        calls.borrow_mut().clear();
+        enrich_with(
+            account,
+            "synthetic",
+            &raw,
+            &mut message,
+            &crate::providers::gmail::Session::default(),
+            true,
+            |url| {
+                calls.borrow_mut().push(url);
+                std::future::ready(Err("overview_media_invalid"))
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            calls.borrow().is_empty(),
+            "a stale true request must not override the saved revocation"
+        );
+        assert!(!remote_allowed(account, false));
+        assert!(!remote_allowed("absent@example.test", true));
     }
 
     #[tokio::test]

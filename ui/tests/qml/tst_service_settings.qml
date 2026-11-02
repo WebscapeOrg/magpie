@@ -168,6 +168,16 @@ Item {
       compare(service.agentShownTranscript, [])
     }
 
+    function test_curated_inbox_depends_on_platform_capability_not_provider_availability() {
+      var service = inactiveService()
+      compare(service.mailboxKey, "inbox")
+      compare(service.curatedInbox, false)
+      compare(mailService.mailboxKey, "inbox")
+      compare(mailService.hasAgent, true)
+      compare(mailService.agentAvailable, false)
+      compare(mailService.curatedInbox, true)
+    }
+
     function test_disabled_agent_has_no_proposals() {
       compare(inactiveService().agentShownProposals, [])
     }

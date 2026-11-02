@@ -3,8 +3,11 @@ use crate::credentials::{
     CredentialKey, CredentialKind, CredentialStore, Error as StoreError, NativeStore, Secret,
 };
 use serde_json::Value;
+// The desktop reads its OAuth client from a file; the phone reads it from the account registry.
+#[cfg(any(not(target_os = "ios"), test))]
 use std::{fs::File, io::Read, path::Path};
 
+#[cfg(any(not(target_os = "ios"), test))]
 const MAX_CLIENT_BYTES: u64 = 1024 * 1024;
 
 pub struct Client {
@@ -59,6 +62,7 @@ fn client(raw: &Value) -> Option<Client> {
         client_secret: secret.into(),
     })
 }
+#[cfg(any(not(target_os = "ios"), test))]
 fn validate_client_provider(raw: &Value) -> Result<(), &'static str> {
     crate::account::provider(raw)?;
     for block in ["installed", "web"] {
@@ -68,6 +72,7 @@ fn validate_client_provider(raw: &Value) -> Result<(), &'static str> {
     }
     Ok(())
 }
+#[cfg(any(not(target_os = "ios"), test))]
 fn parse_client(bytes: &[u8], account: &str) -> Result<Client, &'static str> {
     let raw: Value = serde_json::from_slice(bytes).map_err(|_| "gmail_client_invalid")?;
     validate_client_provider(&raw)?;
@@ -97,6 +102,7 @@ fn parse_client(bytes: &[u8], account: &str) -> Result<Client, &'static str> {
         client(&raw).ok_or("gmail_client_missing")
     }
 }
+#[cfg(any(not(target_os = "ios"), test))]
 fn storage_error(error: &'static str) -> &'static str {
     match error {
         "cache_unsafe_path" => "gmail_client_permissions",
@@ -104,6 +110,7 @@ fn storage_error(error: &'static str) -> &'static str {
         _ => "gmail_client_unreadable",
     }
 }
+#[cfg(any(not(target_os = "ios"), test))]
 fn read_file(file: File, account: &str) -> Result<Client, &'static str> {
     let metadata = file.metadata().map_err(|_| "gmail_client_unreadable")?;
     if metadata.len() > MAX_CLIENT_BYTES {
@@ -118,6 +125,7 @@ fn read_file(file: File, account: &str) -> Result<Client, &'static str> {
     }
     parse_client(&bytes, account)
 }
+#[cfg(any(not(target_os = "ios"), test))]
 fn read_at(config: &Path, account: &str) -> Result<Client, &'static str> {
     let dir = crate::platform::private_fs::directories_readonly(
         config,

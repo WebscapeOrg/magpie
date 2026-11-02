@@ -60,6 +60,11 @@ Item {
 
   Omamail.Service {
     id: mailService
+    onRawMessagesChanged: {
+      var prepared = Object.assign({},inboxTools.overviews)
+      eachHost(function(host) { for (var i=0;i<host.messages.length;i++) prepared[host.accountId+"\n"+host.messages[i].id] = {state:"ready",version:2,text:"Prepared fixture",expiresAt:0} })
+      inboxTools.overviews = prepared
+    }
     shell: shellStore
     manifest: ({ id: "omamail", __sourceDir: "/tmp/omamail-test" })
   }

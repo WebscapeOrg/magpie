@@ -2,6 +2,11 @@ use crate::platform::{dirs::AppDirs, private_fs as fs};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{fs::File, io::Read};
+#[cfg(feature = "mobile")]
+use std::time::{Duration, Instant};
+/// How long a change under a waiting lock waits for another holder before reporting it busy.
+#[cfg(feature = "mobile")]
+const LOCK_WAIT: Duration = Duration::from_secs(2);
 pub fn key(parts: &[&str]) -> String {
     let mut hash = Sha256::new();
     for part in parts {
@@ -9,6 +14,21 @@ pub fn key(parts: &[&str]) -> String {
         hash.update(part.as_bytes());
     }
     format!("{:x}.json", hash.finalize())
+}
+/// Takes the lock `name`, waiting for another holder up to `LOCK_WAIT`; one still held then is
+/// reported as `private_fs_busy`. The wait blocks the calling thread, so callers run it on a
+/// blocking thread, never on the engine's request thread.
+#[cfg(feature = "mobile")]
+fn wait_for(dir: &File, name: &str) -> Result<impl Sized, &'static str> {
+    let deadline = Instant::now() + LOCK_WAIT;
+    loop {
+        match fs::lock_exclusive(dir, name) {
+            Err("private_fs_busy") if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            other => return other,
+        }
+    }
 }
 fn directory() -> Result<File, &'static str> {
     fs::directories(&AppDirs::discover()?.state, &["omamail", "inbox"], true)?
@@ -37,10 +57,29 @@ fn encode(value: &Value) -> Result<Vec<u8>, &'static str> {
     }
     Ok(bytes)
 }
+/// Makes every write fail, for tests of a write that is refused. Each test runs in its own process.
+#[cfg(test)]
+pub(crate) static REFUSE_WRITES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn write(name: &str, value: &Value) -> Result<(), &'static str> {
+    #[cfg(test)]
+    if REFUSE_WRITES.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("inbox_storage_unavailable");
+    }
     let bytes = encode(value)?;
     let dir = directory()?;
     fs::atomic_replace(&dir, name, &bytes)?;
+    fs::sync_dir(&dir)
+}
+/// Writes `value` under the lock `update` takes, for a file `update` cannot read.
+pub fn replace(name: &str, value: &Value) -> Result<(), &'static str> {
+    let dir = directory()?;
+    let _lock = fs::lock_exclusive(&dir, ".lock")?;
+    write(name, value)
+}
+pub fn remove(name: &str) -> Result<(), &'static str> {
+    let dir = directory()?;
+    fs::remove_owned(&dir, name)?;
     fs::sync_dir(&dir)
 }
 pub fn update<T>(
@@ -49,6 +88,27 @@ pub fn update<T>(
 ) -> Result<T, &'static str> {
     let dir = directory()?;
     let _lock = fs::lock_exclusive(&dir, ".lock")?;
+    change(name, run)
+}
+
+/// Changes `name` under its own lock `lock` instead of `.lock`, waiting briefly for another
+/// holder. Invariant: only files changed under `lock` alone use it, so a long write there never
+/// holds up the changes made under `.lock`, and those never wait.
+#[cfg(feature = "mobile")]
+pub(crate) fn update_waiting<T>(
+    lock: &str,
+    name: &str,
+    run: impl FnOnce(&mut Value) -> Result<T, &'static str>,
+) -> Result<T, &'static str> {
+    let dir = directory()?;
+    let _lock = wait_for(&dir, lock)?;
+    change(name, run)
+}
+
+fn change<T>(
+    name: &str,
+    run: impl FnOnce(&mut Value) -> Result<T, &'static str>,
+) -> Result<T, &'static str> {
     let mut value = read(name)?.unwrap_or(serde_json::json!({}));
     let result = run(&mut value)?;
     write(name, &value)?;

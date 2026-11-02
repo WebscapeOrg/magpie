@@ -2053,7 +2053,11 @@ Item {
     }
   }
 
-  function notify(arrivals) { newMailNotification.notify(arrivals) }
+  function notify(arrivals) {
+    if (platform && platform.inboxTools && typeof platform.inboxTools.queueNotifications === "function") platform.inboxTools.queueNotifications(accountId,arrivals)
+    else deliverNotification(arrivals)
+  }
+  function deliverNotification(arrivals) { newMailNotification.notify(arrivals) }
   readonly property alias labelActions: labelActions
 
   signal monitoredMigrated(var ids)

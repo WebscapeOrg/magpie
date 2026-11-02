@@ -9,8 +9,6 @@ pub(crate) mod mail;
 mod methods;
 #[cfg(feature = "mobile")]
 mod mobile;
-#[cfg(target_os = "linux")]
-pub mod phone;
 pub mod protocol;
 mod reader;
 mod rpc;
@@ -21,8 +19,6 @@ use crate::{account, message};
 pub type Session = Engine;
 
 pub struct Engine {
-    #[cfg(target_os = "linux")]
-    phone: std::sync::Arc<phone::Service>,
     frontend: bool,
     local_mail: std::sync::Arc<crate::local_mail::LocalMail>,
     reader_prefetch: tokio::sync::Semaphore,
@@ -67,8 +63,6 @@ impl Default for Engine {
         let queries = std::sync::Arc::new(crate::cache::query::QueryCache::default());
         Self {
             frontend: false,
-            #[cfg(target_os = "linux")]
-            phone: Default::default(),
             local_mail: Default::default(),
             reader_prefetch: tokio::sync::Semaphore::new(1),
             inbox: Default::default(),
@@ -95,7 +89,6 @@ impl Engine {
     pub(super) fn frontend(&self) -> Self {
         Self {
             frontend: true,
-            phone: self.phone.clone(),
             local_mail: self.local_mail.clone(),
             reader_prefetch: tokio::sync::Semaphore::new(1),
             inbox: self.inbox.clone(),
@@ -153,10 +146,6 @@ impl Engine {
     }
 
     pub async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
-        #[cfg(target_os = "linux")]
-        if matches!(method, "phone.pairBegin" | "phone.devices" | "phone.revoke") {
-            return self.phone.desktop(method, params).await;
-        }
         if !methods::ALL.contains(&method) {
             return Err("unknown_method");
         }
@@ -701,9 +690,6 @@ mod api_contract_tests {
             .filter(|method| {
                 cfg!(all(feature = "agent", unix, not(target_os = "ios")))
                     || !method.as_str().unwrap().starts_with("agent.")
-            })
-            .filter(|method| {
-                cfg!(target_os = "linux") || !method.as_str().unwrap().starts_with("phone.")
             })
             .filter(|method| cfg!(target_os = "linux") || method.as_str() != Some("backup.export"))
             .collect();

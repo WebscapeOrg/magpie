@@ -511,6 +511,7 @@ async fn tick_wakes_due_threads_and_leaves_threads_returned_or_moved_elsewhere()
     for id in ["c1", "d1", "e1"] {
         edit(id, "until", json!(now() - 1));
     }
+    let before = row("e1").unwrap()["generation"].clone();
     fake.writes();
     skip_discovery();
     let result = call("inbox.tick", &json!({}), &fake).await.unwrap();
@@ -531,10 +532,10 @@ async fn tick_wakes_due_threads_and_leaves_threads_returned_or_moved_elsewhere()
     assert!(row("c1").is_none() && row("d1").is_none() && row("f1").is_none());
     let moved = row("e1").unwrap();
     assert_eq!(moved["labelId"], later.as_str());
-    assert_eq!(
-        moved["generation"],
-        revisions(ACCOUNT).unwrap()["t5"]["revision"],
-        "a phone holding the revision from before the move cannot act on it"
+    assert!(moved["generation"].is_string());
+    assert_ne!(
+        moved["generation"], before,
+        "the move gives the row a new generation"
     );
     assert_eq!(
         moved["until"],
@@ -1058,7 +1059,8 @@ async fn accounts_signed_out_lose_their_snoozes_and_bookkeeping() {
     call("inbox.tick", &json!({}), &fake).await.unwrap();
     assert!(row("ee1").is_none());
     assert!(store::read(&store::key(&["snooze-labels", ACCOUNT])).unwrap().is_some());
-    assert!(store::read(&store::key(&["snooze-revisions", ACCOUNT])).unwrap().is_some());
+    // Revisions an older Magpie kept for paired phones go with the account too.
+    store::replace(&store::key(&["snooze-revisions", ACCOUNT]), &json!({"te":{"revision":"r"}})).unwrap();
     fake.with(|mailbox| mailbox.accounts = Some(vec![]));
     call("inbox.tick", &json!({}), &fake).await.unwrap();
     assert!(store::read(&store::key(&["snooze-labels", ACCOUNT])).unwrap().is_none());
@@ -1076,12 +1078,12 @@ async fn damaged_bookkeeping_is_started_again_and_never_stops_snooze() {
     snooze_at(&fake, "kk2", now() + HOUR).await.unwrap();
     let files = [
         store::key(&["snooze-accounts"]),
-        store::key(&["snooze-revisions", ACCOUNT]),
         store::key(&["snooze-labels", ACCOUNT]),
     ];
     for file in &files {
         let path = fixture.state.join("omamail/inbox").join(file);
         std::fs::write(&path, b"{damaged").unwrap();
+        #[cfg(unix)]
         std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
         assert_eq!(store::read(file), Err("inbox_storage_invalid"));
     }
@@ -1090,7 +1092,7 @@ async fn damaged_bookkeeping_is_started_again_and_never_stops_snooze() {
     let ticked = call("inbox.tick", &json!({}), &fake).await.unwrap();
     assert_eq!(ticked, json!({"woke":2,"failures":0}));
     assert!(
-        store::read(&files[2]).unwrap().unwrap()["checked"].is_i64(),
+        store::read(&files[1]).unwrap().unwrap()["checked"].is_i64(),
         "discovery runs again"
     );
     snooze_at(&fake, "kk1", now() + HOUR).await.unwrap();
@@ -1098,7 +1100,6 @@ async fn damaged_bookkeeping_is_started_again_and_never_stops_snooze() {
         store::read(&files[0]).unwrap().unwrap()["accounts"],
         json!([ACCOUNT])
     );
-    assert!(store::read(&files[1]).unwrap().unwrap()["tk"]["revision"].is_string());
 }
 
 #[tokio::test]

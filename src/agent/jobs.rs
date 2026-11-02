@@ -546,19 +546,6 @@ fn new_job_with_submission(
     }
     Ok(job)
 }
-pub(crate) async fn identity(id: &str) -> Result<Value> {
-    check_id(id)?;
-    let id = id.to_owned();
-    tokio::task::spawn_blocking(move || {
-        let store = Store::open()?;
-        if !store.contains(&id)? {
-            return Err("agent_job_missing");
-        }
-        read_job(&store, &id)
-    })
-    .await
-    .map_err(|_| "agent_worker_failed")?
-}
 pub async fn call(method: &str, params: &Value) -> Result<Value> {
     if method == "agent.providerStatus" {
         let selected = params

@@ -1,7 +1,13 @@
 use crate::platform::{dirs::AppDirs, private_fs as fs};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{fs::File, io::Read};
+use std::{
+    fs::File,
+    io::Read,
+    time::{Duration, Instant},
+};
+/// How long a change waits for another writer in the inbox directory before reporting it busy.
+const LOCK_WAIT: Duration = Duration::from_secs(2);
 pub fn key(parts: &[&str]) -> String {
     let mut hash = Sha256::new();
     for part in parts {
@@ -9,6 +15,20 @@ pub fn key(parts: &[&str]) -> String {
         hash.update(part.as_bytes());
     }
     format!("{:x}.json", hash.finalize())
+}
+/// Takes one of the inbox directory's locks. Every holder only reads, changes and writes a few small
+/// files, so another writer is waited for briefly instead of failing the change at once; a lock
+/// still held after `LOCK_WAIT` is reported as `private_fs_busy`.
+pub(crate) fn lock(dir: &File, name: &str) -> Result<impl Sized, &'static str> {
+    let deadline = Instant::now() + LOCK_WAIT;
+    loop {
+        match fs::lock_exclusive(dir, name) {
+            Err("private_fs_busy") if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            other => return other,
+        }
+    }
 }
 fn directory() -> Result<File, &'static str> {
     fs::directories(&AppDirs::discover()?.state, &["omamail", "inbox"], true)?
@@ -46,7 +66,7 @@ pub fn write(name: &str, value: &Value) -> Result<(), &'static str> {
 /// Writes `value` under the lock `update` takes, for a file `update` cannot read.
 pub fn replace(name: &str, value: &Value) -> Result<(), &'static str> {
     let dir = directory()?;
-    let _lock = fs::lock_exclusive(&dir, ".lock")?;
+    let _lock = lock(&dir, ".lock")?;
     write(name, value)
 }
 pub fn remove(name: &str) -> Result<(), &'static str> {
@@ -59,7 +79,7 @@ pub fn update<T>(
     run: impl FnOnce(&mut Value) -> Result<T, &'static str>,
 ) -> Result<T, &'static str> {
     let dir = directory()?;
-    let _lock = fs::lock_exclusive(&dir, ".lock")?;
+    let _lock = lock(&dir, ".lock")?;
     let mut value = read(name)?.unwrap_or(serde_json::json!({}));
     let result = run(&mut value)?;
     write(name, &value)?;
@@ -69,7 +89,7 @@ pub fn update<T>(
 pub fn cache(name: &str, value: &Value) -> Result<(), &'static str> {
     let bytes = encode(value)?;
     let dir = directory()?;
-    let _lock = fs::lock_exclusive(&dir, ".cache-lock")?;
+    let _lock = lock(&dir, ".cache-lock")?;
     fs::regular_readonly(&dir, name)?;
     let mut entries = Vec::new();
     let mut total = bytes.len() as u64;

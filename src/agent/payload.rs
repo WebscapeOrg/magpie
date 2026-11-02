@@ -274,3 +274,60 @@ pub fn context_message_ids(context: &Value) -> Value {
         json!([])
     }
 }
+
+/// The context a follow-up turn runs with: the previous turn's context refreshed by the follow-up's
+/// mail or draft update, with the follow-up's prompt.
+pub fn continue_context(mut previous: Value, continuation: &Value, parent: &str) -> Result<Value> {
+    previous
+        .as_object_mut()
+        .ok_or("agent_invalid_context")?
+        .remove("parent");
+    if let Some(update) = continuation.get("mailUpdate") {
+        if previous["accountId"] != update["accountId"]
+            || previous["messageId"] != update["messageId"]
+            || previous.get("messages").is_some()
+        {
+            return Err("agent_continuation_override");
+        }
+        for key in ["message", "threadMessages", "threadContext"] {
+            previous
+                .as_object_mut()
+                .ok_or("agent_invalid_context")?
+                .remove(key);
+            if let Some(value) = update.get(key) {
+                previous[key] = value.clone();
+            }
+        }
+    }
+    if let Some(update) = continuation.get("draftUpdate") {
+        // Invariant: A follow-up can refresh content, never redirect its ownership.
+        let attaching = previous["messageId"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty())
+            && update["messageId"] == previous["messageId"]
+            && previous.get("messages").is_none()
+            && !previous["draft"].is_object()
+            && previous["draftKey"].as_str().unwrap_or("").is_empty();
+        if update["accountId"] != previous["accountId"]
+            || (!attaching
+                && (update["draftKey"] != previous["draftKey"] || !previous["draft"].is_object()))
+        {
+            return Err("agent_continuation_override");
+        }
+        if attaching {
+            previous["draftKey"] = update["draftKey"].clone();
+        }
+        previous["draft"] = update["draft"].clone();
+        previous
+            .as_object_mut()
+            .ok_or("agent_invalid_context")?
+            .remove("envelope");
+        if let Some(envelope) = update.get("envelope") {
+            previous["envelope"] = envelope.clone();
+        }
+        previous["draftFingerprint"] = draft_fingerprint(&previous["draft"])?.into();
+    }
+    previous["parent"] = json!(parent);
+    previous["prompt"] = continuation["prompt"].clone();
+    Ok(previous)
+}

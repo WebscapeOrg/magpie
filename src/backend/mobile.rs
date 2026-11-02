@@ -130,6 +130,49 @@ impl Engine {
             _ => Err("invalid_params"),
         }
     }
+    /// The phone's own assistant: start, show, cancel and list questions about mail and drafts.
+    /// Invariant: a question is accepted only for a signed-in account and only while the key could
+    /// be used; the turn itself runs in its own task, never inside this call.
+    pub async fn mobile_ai(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        match method {
+            "ai.start" => {
+                let account = params["accountId"].as_str().ok_or("invalid_params")?;
+                reader::registered(account).await?;
+                // A retry of a question already accepted gets its job back, whatever the key's state now.
+                if let Some(accepted) = self.assistant.accepted(params)? {
+                    return Ok(accepted);
+                }
+                crate::inbox::claude::conversation_ready().await?;
+                self.assistant
+                    .start(params, |request| async move {
+                        self.agent_context.call("agent.context", &request, self).await
+                    })
+                    .await
+            }
+            "ai.show" => self.assistant.show(params),
+            "ai.list" => self.assistant.list(params),
+            "ai.cancel" => {
+                let cancelled = self.assistant.cancel(params)?;
+                // A question cancelled while its mail is still being read stops that reading too.
+                if params["id"].as_str().is_none_or(str::is_empty) {
+                    if let (Some(account), Some(request)) =
+                        (params["accountId"].as_str(), params["requestId"].as_str())
+                    {
+                        let _ = self
+                            .agent_context
+                            .call(
+                                "agent.contextCancel",
+                                &json!({"accountId":account,"requestId":request}),
+                                self,
+                            )
+                            .await;
+                    }
+                }
+                Ok(cancelled)
+            }
+            _ => Err("invalid_params"),
+        }
+    }
     pub async fn mobile_mail_alerts(&self, params: &Value) -> Result<Value, &'static str> {
         if params.as_object().is_none_or(|p| !p.is_empty()) {
             return Err("invalid_params");
@@ -206,6 +249,7 @@ impl Engine {
         let account = params["accountId"].as_str().ok_or("invalid_params")?;
         reader::registered(account).await?;
         self.outbox.remove_account(account).await?;
+        self.assistant.forget_account(account)?;
         self.local_mail.retire(account).await?;
         self.gmail.call("gmail.invalidate", params).await?;
         self.queries.forget_account(account).await;

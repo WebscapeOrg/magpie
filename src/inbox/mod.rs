@@ -10,6 +10,8 @@ pub(crate) mod describe;
     all(test, feature = "agent", unix, not(target_os = "ios"))
 ))]
 pub(crate) mod claude;
+#[cfg(feature = "mobile")]
+pub(crate) mod assistant;
 #[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 mod overview_tests;
 #[cfg(target_os = "linux")]
@@ -1049,7 +1051,7 @@ pub(crate) fn forget_phone_account(account: &str) -> Result<(), &'static str> {
     else {
         return Ok(());
     };
-    let _lock = private_fs::lock_exclusive(&dir, ".cache-lock")?;
+    let _lock = store::lock(&dir, ".cache-lock")?;
     let contacts = store::key(&["contacts", account]);
     private_fs::remove_owned(&dir, &contacts)?;
     for name in private_fs::names(&dir)? {

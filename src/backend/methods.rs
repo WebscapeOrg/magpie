@@ -2,9 +2,6 @@
 pub const ALL: &[&str] = &[
     "system.info",
     "backup.export",
-    "phone.pairBegin",
-    "phone.devices",
-    "phone.revoke",
     "inbox.snapshot",
     "inbox.overviews",
     "inbox.preferences",
@@ -152,7 +149,6 @@ pub fn available() -> Vec<&'static str> {
             !method.starts_with("agent.")
                 || cfg!(all(feature = "agent", unix, not(target_os = "ios")))
         })
-        .filter(|method| !method.starts_with("phone.") || cfg!(target_os = "linux"))
         .filter(|method| *method != "backup.export" || cfg!(target_os = "linux"))
         .collect()
 }

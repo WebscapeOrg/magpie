@@ -263,6 +263,15 @@ impl Store {
             Ok(ids)
         })
     }
+    /// The From headers of the Inbox's messages, newest first, one row per distinct header.
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    pub(super) fn inbox_senders(&self, limit: usize) -> Result<Vec<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT m.sender FROM messages m JOIN labels l ON m.id=l.message_id WHERE l.label='INBOX' GROUP BY m.sender ORDER BY max(m.date) DESC LIMIT ?1"))?;
+            let senders = sql(query.query_map([limit as i64], |r| r.get(0)))?.map(sql).collect::<Result<_>>()?;
+            Ok(senders)
+        })
+    }
     pub(super) fn status(&self) -> Result<Value> {
         self.read(|db| {
             let snapshot = sql(db.unchecked_transaction())?;

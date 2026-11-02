@@ -145,6 +145,10 @@ Desktop platforms without native AI capability, including Windows, retain ordina
 
 On desktops with native AI capability and on iPhone, alerts wait for ready descriptions and recheck unread Inbox membership. A newly pending arrival remains eligible when preparation finishes; previously seen mail does not alert again after description expiry. The initial Inbox is a silent baseline. Missing membership information defers alerts, and removed accounts invalidate pending payloads.
 
+## Sender pictures (unreleased API 8)
+
+`inbox.pictureStatus`, `inbox.setPictureKey` and `inbox.removePictureKey` manage the OpenAI key that paints sender pictures and report `present`, `model`, `problem`, the painted, waiting and failed counts, and the day's spending against its limit; the key is never returned. `inbox.setPictureKey` takes only `key`, refuses anything but an `sk-` key with URL-safe characters before any request, and saves it in the platform keyring only after OpenAI accepts it for the model. `inbox.snapshot` adds `pictures`, a number that changes whenever the engine paints a picture, so QML asks the visible senders' avatars again while keeping the current ones until the replies arrive. `inbox.avatar` returns `source: "painted"` for a painted sender. Painting runs only from the managed daemon's scheduler (`magpie-engine.service`) in desktop builds with the `agent` feature; a standalone frontend of such a build serves pictures already painted without painting, and the phone engine has neither the methods' implementation nor the pictures. QML gates the Settings section on these methods being advertised. See [the Magpie guide](../MAGPIE.md#sender-pictures).
+
 ## Attachment indicators and thumbnails (API 8)
 
 `message.summarize`, `message.summaries` and reader summaries carry `hasAttachments`. Gmail list reads request MIME metadata through a partial response without body data. The shared classifier excludes inline/CID sender images. The list indicator requires a connected API 8 backend.

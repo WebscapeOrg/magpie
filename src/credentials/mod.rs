@@ -26,6 +26,9 @@ pub enum CredentialKind {
     GoogleRefreshToken { client_id: String },
     /// The phone's own Claude API key. One per installation: provider "anthropic", account "default".
     ClaudeApiKey,
+    /// The OpenAI API key that paints sender pictures. One per installation: provider "openai",
+    /// account "default".
+    OpenAiApiKey,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -154,6 +157,16 @@ impl CredentialKey {
                 return Ok(BTreeMap::from([
                     ("service".into(), "omamail".into()),
                     ("kind".into(), "claude-api-key".into()),
+                    ("account".into(), "default".into()),
+                ]));
+            }
+            CredentialKind::OpenAiApiKey => {
+                if self.provider != "openai" || self.account_id != "default" {
+                    return Err(Error::InvalidKey);
+                }
+                return Ok(BTreeMap::from([
+                    ("service".into(), "omamail".into()),
+                    ("kind".into(), "openai-api-key".into()),
                     ("account".into(), "default".into()),
                 ]));
             }

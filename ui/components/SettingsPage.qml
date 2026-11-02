@@ -739,6 +739,16 @@ Column {
     panelFontFamily: root.panelFontFamily
   }
 
+  PictureSettings {
+    objectName: "settings-pictures"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
   // Invariant: event suggestions send message text to the selected AI, so they require explicit
   // opt-in.
   Rectangle {

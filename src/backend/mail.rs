@@ -174,6 +174,7 @@ fn summaries(messages: &[Value]) -> Result<Vec<Value>, &'static str> {
 }
 
 impl Session {
+    #[cfg(not(target_os = "ios"))]
     pub(crate) async fn finish_cli_send(&self, result: &mut Value) -> Result<(), &'static str> {
         result["outbox"] = self
             .outbox

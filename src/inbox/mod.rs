@@ -1051,7 +1051,7 @@ pub(crate) fn forget_phone_account(account: &str) -> Result<(), &'static str> {
     else {
         return Ok(());
     };
-    let _lock = store::lock(&dir, ".cache-lock")?;
+    let _lock = private_fs::lock_exclusive(&dir, ".cache-lock")?;
     let contacts = store::key(&["contacts", account]);
     private_fs::remove_owned(&dir, &contacts)?;
     for name in private_fs::names(&dir)? {

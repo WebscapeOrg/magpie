@@ -74,7 +74,11 @@ pub fn parse(output: &str) -> Vec<Value> {
             continue;
         }
         let mut all_day = item.get("allDay") == Some(&Value::Bool(true));
-        let Some((start_ms, day_only)) = parse_when(item.get("start"), all_day) else {
+        // Invariant: what `parse` keeps passes `validate`, which refuses a start at or before
+        // 1970 began, so a job never writes events it would drop when read back.
+        let Some((start_ms, day_only)) = parse_when(item.get("start"), all_day)
+            .filter(|(start_ms, _)| *start_ms > 0)
+        else {
             continue;
         };
         all_day = all_day || day_only;
@@ -381,6 +385,15 @@ mod tests {
             NOTES_MAX
         );
         assert_eq!(events[0]["confidence"], 1.0);
+        validate(&json!(events)).unwrap();
+    }
+
+    #[test]
+    fn an_event_at_or_before_1970_began_is_left_out_so_the_job_reads_back() {
+        let answer = r#"[{"title":"Epoch","start":"1970-01-01T00:00:00Z"},{"title":"Before","start":"1969-12-31T23:00:00Z"},{"title":"Later","start":"1970-01-02T00:00:00Z"}]"#;
+        let events = parse(answer);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["title"], "Later");
         validate(&json!(events)).unwrap();
     }
 

@@ -225,6 +225,7 @@ impl Outbox {
     }
     /// Algorithm: Keep the owning runtime alive through the worker's durable terminal transition.
     /// Subscribe before inspecting state to avoid a lost wakeup.
+    #[cfg(any(not(target_os = "ios"), test))]
     pub(crate) async fn wait_for_send(
         &self,
         account: &str,

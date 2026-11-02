@@ -11,7 +11,7 @@ publish = false
 
 [features]
 default = ["agent"]
-agent = []
+agent = ["dep:psl"]
 standalone = ["agent"]
 integration-test-credentials = []
 mobile = []
@@ -62,6 +62,10 @@ opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
+
+# Sender pictures group a company's subdomains under its registrable domain (agent builds only).
+[target.'cfg(all(unix, not(target_os = "ios")))'.dependencies]
+psl = { version = "2.1", optional = true }
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "rustls-tls-native-roots", "hickory-dns"] }

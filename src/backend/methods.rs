@@ -153,5 +153,9 @@ pub fn available() -> Vec<&'static str> {
                 || cfg!(all(feature = "agent", unix, not(target_os = "ios")))
         })
         .filter(|method| *method != "backup.export" || cfg!(target_os = "linux"))
+        .filter(|method| {
+            !matches!(*method, "inbox.pictureStatus" | "inbox.setPictureKey" | "inbox.removePictureKey")
+                || cfg!(all(feature = "agent", unix, not(target_os = "ios")))
+        })
         .collect()
 }

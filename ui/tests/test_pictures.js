@@ -12,10 +12,10 @@ assert.ok(pictures.summary({ present: false }).startsWith("Add an OpenAI API key
 assert.ok(pictures.summary({ present: false }).includes("company domains are sent to OpenAI; names, email addresses and mail are not"))
 assert.strictEqual(
   pictures.summary({ present: true, painted: 38, waiting: 3, spentTodayCents: 184, dailyLimitCents: 300 }),
-  "38 sender pictures painted, 3 waiting. $1.84 spent today of the $3.00 daily limit.")
+  "38 sender pictures painted, 3 waiting. About $1.84 spent today of the $3.00 daily limit.")
 assert.strictEqual(
   pictures.summary({ present: true, painted: 1, waiting: 0, spentTodayCents: 7, dailyLimitCents: 300 }),
-  "1 sender picture painted. $0.07 spent today of the $3.00 daily limit.")
+  "1 sender picture painted. About $0.07 spent today of the $3.00 daily limit.")
 assert.ok(pictures.summary({ present: true, painted: 40, waiting: 2, spentTodayCents: 294, dailyLimitCents: 300 })
   .endsWith("The rest are painted tomorrow."))
 assert.strictEqual(

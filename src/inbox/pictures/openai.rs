@@ -11,9 +11,11 @@ const ORIGIN: &str = "https://api.openai.com";
 const SIZE: &str = "1024x1024";
 const QUALITY: &str = "medium";
 const REPLY_LIMIT: usize = 24 * 1024 * 1024;
-/// gpt-image-2 can take more than two minutes for one picture; Marmalade waits 300 seconds.
+/// One picture can take more than two minutes; Marmalade waits 300 seconds.
 const TIMEOUT: Duration = Duration::from_secs(300);
-/// Charged when a reply gives no usage: Marmalade's estimate for one medium 1024 picture, rounded up.
+/// Reserved before each request, and charged when a reply gives no usage. A generous bound:
+/// Marmalade estimated 7 cents for one medium 1024 picture with gpt-image-2, and Sunburst's
+/// reported usage came to 1.4 cents for a monogram and 2.3 cents for a logo on 2 November 2026.
 pub(super) const ESTIMATE_CENTS: i64 = 7;
 
 pub(super) enum Request {
@@ -39,6 +41,10 @@ pub(super) enum Fault {
     /// OpenAI refused this picture, for example by its safety system, or could not read its
     /// reference. Asking again would get the same answer.
     Refused,
+    /// OpenAI rejected the shape of the request (an unknown or missing parameter) or a setting
+    /// every picture shares, such as the model, size or quality. Every picture would get the same
+    /// answer.
+    Rejected,
     /// No answer: lost connection, timeout or a server error. `charged` is true when the request
     /// may have been billed before the answer was lost.
     Lost { charged: bool },
@@ -226,6 +232,15 @@ fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<i64> {
     (millis.is_finite() && millis > 0.0).then(|| millis.min(3_600_000.0) as i64)
 }
 
+/// Whether a refusal is about the request's shape (an unknown or missing parameter, whichever
+/// field it names) or a setting every picture shares, rather than this picture's prompt or
+/// reference, or no setting at all as with the safety system's refusals.
+fn setting(reply: &Value) -> bool {
+    let error = &reply["error"];
+    matches!(error["code"].as_str(), Some("unknown_parameter" | "missing_required_parameter"))
+        || matches!(error["param"].as_str(), Some("model" | "size" | "quality" | "n"))
+}
+
 /// What a refused request means for the painter. Only OpenAI's error code and type are read; the
 /// message text is never shown or stored.
 fn classify(status: u16, body: &[u8], retry: Option<i64>) -> Fault {
@@ -240,13 +255,14 @@ fn classify(status: u16, body: &[u8], retry: Option<i64>) -> Fault {
         403 => Fault::Key("pictures_key_refused"),
         404 => Fault::Model,
         429 => Fault::RateLimited(retry),
+        400 | 413 | 415 | 422 if setting(&reply) && code != "moderation_blocked" => Fault::Rejected,
         400 | 413 | 415 | 422 => Fault::Refused,
         _ => Fault::Lost { charged: false },
     }
 }
 
-/// The first picture of a 200 reply and what it cost, from the reply's usage at gpt-image-2's
-/// list prices (text in $5, image in $8, image out $30 per million tokens), or the estimate.
+/// The first picture of a 200 reply and what it cost, from the reply's usage at gpt-image-2.5
+/// Sunburst's list prices (text in $5, image in $8, image out $30 per million tokens), or the estimate.
 fn parse(body: &[u8]) -> Result<Painted, Fault> {
     let reply: Value = serde_json::from_slice(body).map_err(|_| Fault::Lost { charged: true })?;
     let encoded = reply["data"][0]["b64_json"]
@@ -282,8 +298,8 @@ mod tests {
     async fn tests_without_a_local_server_send_nothing() {
         let key = Secret::new(b"sk-synthetic-test-key-0000000000".to_vec()).unwrap();
         let request = Request::Generate { prompt: "x".into() };
-        assert!(matches!(paint(&key, "gpt-image-2", &request).await, Err(Fault::Lost { charged: false })));
-        assert_eq!(check(&key, "gpt-image-2").await.unwrap_err(), Fault::Lost { charged: false });
+        assert!(matches!(paint(&key, "gpt-image-2.5-sunburst", &request).await, Err(Fault::Lost { charged: false })));
+        assert_eq!(check(&key, "gpt-image-2.5-sunburst").await.unwrap_err(), Fault::Lost { charged: false });
     }
 
     #[test]
@@ -295,6 +311,22 @@ mod tests {
         assert_eq!(classify(400, &body("billing_hard_limit_reached"), None), Fault::Billing);
         assert_eq!(classify(429, &body("rate_limit_exceeded"), Some(2000)), Fault::RateLimited(Some(2000)));
         assert_eq!(classify(400, &body("moderation_blocked"), None), Fault::Refused);
+        let named = |code: &str, param: &str| {
+            format!(r#"{{"error":{{"code":"{code}","type":"invalid_request_error","param":"{param}","message":"secret"}}}}"#).into_bytes()
+        };
+        assert_eq!(classify(400, &named("invalid_value", "quality"), None), Fault::Rejected);
+        assert_eq!(classify(400, &named("unknown_parameter", "n"), None), Fault::Rejected);
+        assert_eq!(classify(400, &named("unknown_parameter", "image"), None), Fault::Rejected);
+        assert_eq!(classify(422, &named("missing_required_parameter", "prompt"), None), Fault::Rejected);
+        assert_eq!(classify(400, &named("moderation_blocked", "prompt"), None), Fault::Refused);
+        assert_eq!(classify(400, &named("moderation_blocked", "quality"), None), Fault::Refused);
+        assert_eq!(classify(400, &named("content_policy_violation", "prompt"), None), Fault::Refused);
+        assert_eq!(classify(400, &named("invalid_image_file", "image"), None), Fault::Refused);
+        assert_eq!(classify(400, &named("invalid_value", "prompt"), None), Fault::Refused);
+        assert_eq!(classify(400, &named("x", ""), None), Fault::Refused);
+        // A safety refusal that names no parameter.
+        let safety = br#"{"error":{"message":"Your request was rejected by the safety system.","type":"image_generation_user_error","param":null,"code":"moderation_blocked"}}"#;
+        assert_eq!(classify(400, safety, None), Fault::Refused);
         assert_eq!(classify(404, &body("model_not_found"), None), Fault::Model);
         assert_eq!(classify(500, b"<html>", None), Fault::Lost { charged: false });
         assert_eq!(classify(503, b"", None), Fault::Lost { charged: false });
@@ -322,9 +354,9 @@ mod tests {
 
     #[test]
     fn edits_send_fields_then_one_png() {
-        let body = multipart("--b", &[("model", "gpt-image-2"), ("prompt", "line one\nline two")], b"\x89PNG");
+        let body = multipart("--b", &[("model", "gpt-image-2.5-sunburst"), ("prompt", "line one\nline two")], b"\x89PNG");
         let text = String::from_utf8_lossy(&body);
-        assert!(text.starts_with("----b\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-2\r\n"));
+        assert!(text.starts_with("----b\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-2.5-sunburst\r\n"));
         assert!(text.contains("name=\"prompt\"\r\n\r\nline one\nline two\r\n"));
         assert!(text.contains("name=\"image\"; filename=\"reference.png\"\r\nContent-Type: image/png\r\n\r\n\u{FFFD}PNG\r\n----b--\r\n"));
         assert_ne!(boundary(), boundary());
@@ -337,5 +369,12 @@ mod tests {
         let painted = parse(br#"{"data":[{"b64_json":"iVBORw=="}],"usage":{"output_tokens":2000,"input_tokens":10}}"#).unwrap();
         assert_eq!(painted.png, b"\x89PNG");
         assert_eq!(painted.cents, 7);
+        // Sunburst's reply shape from a test request on 2026-11-02, with a stand-in picture. The
+        // output details split the same output tokens and are not counted again.
+        let sunburst = br#"{"background":"opaque","created":1,"data":[{"b64_json":"iVBORw==","generation_id":"g"}],"output_format":"png","quality":"medium","size":"1024x1024","usage":{"input_tokens":1246,"input_tokens_details":{"image_tokens":1024,"text_tokens":222},"output_tokens":439,"output_tokens_details":{"image_tokens":439,"text_tokens":0},"total_tokens":1685}}"#;
+        let painted = parse(sunburst).unwrap();
+        assert_eq!(painted.png, b"\x89PNG");
+        // 222 x $5 + 1,024 x $8 + 439 x $30 per million tokens is 2.25 cents, rounded up.
+        assert_eq!(painted.cents, 3);
     }
 }

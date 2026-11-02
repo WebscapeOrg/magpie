@@ -16,12 +16,16 @@ assert.strictEqual(
 assert.strictEqual(
   pictures.summary({ present: true, painted: 1, waiting: 0, spentTodayCents: 7, dailyLimitCents: 300 }),
   "1 sender picture painted. About $0.07 spent today of the $3.00 daily limit.")
+assert.strictEqual(
+  pictures.summary({ present: true, painted: 38, waiting: 0, failed: 2, spentTodayCents: 90, dailyLimitCents: 300 }),
+  "38 sender pictures painted, 2 could not be painted. About $0.90 spent today of the $3.00 daily limit.")
 assert.ok(pictures.summary({ present: true, painted: 40, waiting: 2, spentTodayCents: 294, dailyLimitCents: 300 })
   .endsWith("The rest are painted tomorrow."))
 assert.strictEqual(
   pictures.summary({ present: true, problem: "pictures_key_invalid" }),
   "OpenAI did not accept this key. Paste a current key.")
 assert.strictEqual(pictures.problem("pictures_key_format"), "That is not an OpenAI API key. OpenAI keys start with sk-.")
+assert.strictEqual(pictures.problem("pictures_request_rejected"), "OpenAI rejected Magpie's picture requests several times in a row, so painting has stopped. Magpie tries again tomorrow.")
 assert.strictEqual(pictures.problem("<b>untrusted</b>"), "Sender pictures are not available right now.")
 assert.strictEqual(pictures.problem(""), "")
 console.log("pictures ok")

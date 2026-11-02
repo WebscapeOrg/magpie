@@ -191,10 +191,10 @@ pub async fn get(
 }
 /// The company's own artwork for a domain, or its favicon, as a data URL.
 pub(super) async fn organization_image(domain: &str) -> Option<String> {
-    if let Some(url) = organization_artwork(domain) {
-        if let Ok(data) = crate::public_http::image(url).await {
-            return Some(data);
-        }
+    if let Some(url) = organization_artwork(domain)
+        && let Ok(data) = crate::public_http::image(url).await
+    {
+        return Some(data);
     }
     // Invariant: Query only a domain, never a mailbox address or sender-controlled image URL.
     let url = format!(

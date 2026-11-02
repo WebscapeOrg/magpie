@@ -51,6 +51,9 @@ const RATE_WAIT: i64 = 60_000;
 const LOST_WAIT: i64 = 5 * 60_000;
 const BILLING_WAIT: i64 = 3_600_000;
 const MODEL_WAIT: i64 = 24 * 3_600_000;
+/// How long painting leaves a keyring it could not read before reading it again. Reading a locked
+/// keyring asks the desktop to unlock it, so painting must not ask on every turn.
+const KEYRING_WAIT: i64 = 5 * 60_000;
 /// Rejected request settings in a row, with no picture painted between them, after which Magpie
 /// stops painting for `MODEL_WAIT` instead of giving up each picture.
 const REFUSAL_RUN: usize = 3;
@@ -528,7 +531,8 @@ fn record(
                 state["subjects"] = Value::Object(subjects);
                 return Err(error);
             }
-            let mut painted = json!({"state":"painted","painted":at,"attempts":0,"kind":row["kind"]});
+            // The model is kept so a later change of model can tell which pictures it painted.
+            let mut painted = json!({"state":"painted","painted":at,"attempts":0,"kind":row["kind"],"model":MODEL});
             if let Some(photo) = row.get("photo") {
                 painted["photo"] = photo.clone();
             }
@@ -682,8 +686,12 @@ async fn paint(subject: &Subject, previous: Option<&str>, key: &Secret) -> Outco
     }
 }
 
-/// The key this process last read from the keyring, with the key generation it was read under.
-static KEY: Mutex<Option<(u64, Option<Arc<Secret>>)>> = Mutex::new(None);
+/// What this process last read from the keyring: the key (or that none is saved), or the time the
+/// read failed.
+type KeyRead = Result<Option<Arc<Secret>>, i64>;
+
+/// The last keyring read, with the key generation it was read under.
+static KEY: Mutex<Option<(u64, KeyRead)>> = Mutex::new(None);
 
 fn forget_cached_key() {
     if let Ok(mut cache) = KEY.lock() {
@@ -691,24 +699,53 @@ fn forget_cached_key() {
     }
 }
 
-/// The saved key for this key generation. The keyring is read again only after the key changes.
-async fn saved_key(key_generation: u64) -> Result<Option<Arc<Secret>>, &'static str> {
+/// Who asks for the key. Settings reads a keyring that failed again at once, because the user may
+/// just have unlocked it; painting waits `KEYRING_WAIT`.
+#[derive(Clone, Copy, PartialEq)]
+enum Asker {
+    Painting,
+    Settings,
+}
+
+/// The answer an earlier read gives for this key generation, or None when the keyring must be read.
+fn cached_key(
+    cache: Option<&(u64, KeyRead)>,
+    key_generation: u64,
+    asker: Asker,
+    at: i64,
+) -> Option<Result<Option<Arc<Secret>>, &'static str>> {
+    let (read_under, read) = cache?;
+    if *read_under != key_generation {
+        return None;
+    }
+    match read {
+        Ok(key) => Some(Ok(key.clone())),
+        Err(failed) if asker == Asker::Painting && at.saturating_sub(*failed) < KEYRING_WAIT => {
+            Some(Err("pictures_key_storage"))
+        }
+        Err(_) => None,
+    }
+}
+
+/// The saved key for this key generation. The keyring is read again only after the key changes,
+/// or after a failed read (see `Asker`).
+async fn saved_key(key_generation: u64, asker: Asker) -> Result<Option<Arc<Secret>>, &'static str> {
     // Tests each use their own keyring, so they always read it.
     if !cfg!(test)
         && let Ok(cache) = KEY.lock()
-        && let Some((_, key)) = cache.as_ref().filter(|(cached, _)| *cached == key_generation)
+        && let Some(answer) = cached_key(cache.as_ref(), key_generation, asker, now())
     {
-        return Ok(key.clone());
+        return answer;
     }
-    let key = match credentials::get(slot()).await {
-        Ok(key) => Some(Arc::new(key)),
-        Err(credentials::Error::Missing) => None,
-        Err(_) => return Err("pictures_key_storage"),
+    let read: KeyRead = match credentials::get(slot()).await {
+        Ok(key) => Ok(Some(Arc::new(key))),
+        Err(credentials::Error::Missing) => Ok(None),
+        Err(_) => Err(now()),
     };
     if let Ok(mut cache) = KEY.lock() {
-        *cache = Some((key_generation, key.clone()));
+        *cache = Some((key_generation, read.clone()));
     }
-    Ok(key)
+    read.map_err(|_| "pictures_key_storage")
 }
 
 /// Forgets what belongs to removed accounts when no account is left.
@@ -740,7 +777,7 @@ async fn run(
     if stopped {
         return Ok(());
     }
-    let Some(key) = saved_key(key_generation).await? else {
+    let Some(key) = saved_key(key_generation, Asker::Painting).await? else {
         return Ok(());
     };
     let headers = local_mail.inbox_senders(&account, MAX_SENDERS).await?;
@@ -951,14 +988,18 @@ pub(crate) fn picture(subject: &str) -> Result<Option<String>, &'static str> {
 }
 
 /// What Settings shows: whether a key is saved, what stops painting, and the counts. Spending is
-/// estimated from OpenAI's reported usage at list prices; it is not OpenAI's bill.
+/// estimated from OpenAI's reported usage at list prices; it is not OpenAI's bill. When the keyring
+/// cannot be read, `present` is null and the keyring is the problem; the counts are still given.
 pub(crate) async fn status() -> Result<Value, &'static str> {
     let (state, size) = blocking(|| match directory(false)? {
         Some(dir) => Ok((read_state(&dir)?, state_size(&dir)?)),
         None => Ok((json!({}), 0)),
     })
     .await?;
-    let present = saved_key(generation(&state)).await?.is_some();
+    let (present, keyring) = match saved_key(generation(&state), Asker::Settings).await {
+        Ok(key) => (json!(key.is_some()), None),
+        Err(problem) => (Value::Null, Some(problem)),
+    };
     let at = now();
     let mut counts: HashMap<&str, i64> = HashMap::new();
     for row in state["subjects"].as_object().into_iter().flatten().map(|(_, row)| row) {
@@ -972,7 +1013,7 @@ pub(crate) async fn status() -> Result<Value, &'static str> {
     Ok(json!({
         "present": present,
         "model": MODEL,
-        "problem": blocking_problem(&state, at).or(full),
+        "problem": keyring.or(blocking_problem(&state, at)).or(full),
         "painted": counts.get("painted").copied().unwrap_or(0),
         "waiting": counts.get("waiting").copied().unwrap_or(0),
         "failed": counts.get("failed").copied().unwrap_or(0),

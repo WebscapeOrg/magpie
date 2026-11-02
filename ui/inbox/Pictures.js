@@ -28,6 +28,11 @@ function problem(code) {
 
 function summary(status) {
   if (!status || typeof status !== "object") return ""
+  // present is null when the keyring could not be read, so whether a key is saved is unknown.
+  // Settings reads it again when it is next opened.
+  if (status.present === null && status.problem === "pictures_key_storage")
+    return "The keyring could not be used. Unlock it, then open Settings again."
+  if (status.present === null && status.problem) return problem(status.problem)
   if (status.present !== true)
     return "Add an OpenAI API key to paint each Inbox sender's picture in Marmalade's style. "
       + "Contact photos, company logos and company domains are sent to OpenAI; names, email addresses and mail are not."

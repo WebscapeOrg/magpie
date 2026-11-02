@@ -8,7 +8,10 @@ assert.strictEqual(pictures.money(-3), "$0.00")
 assert.strictEqual(pictures.money("x"), "$0.00")
 
 assert.strictEqual(pictures.summary(null), "")
+assert.strictEqual(pictures.summary({ present: null, problem: "pictures_key_storage", painted: 4 }),
+  "The keyring could not be used. Unlock it, then open Settings again.")
 assert.ok(pictures.summary({ present: false }).startsWith("Add an OpenAI API key"))
+assert.ok(pictures.summary({ present: false, problem: "pictures_key_invalid" }).startsWith("Add an OpenAI API key"))
 assert.ok(pictures.summary({ present: false }).includes("company domains are sent to OpenAI; names, email addresses and mail are not"))
 assert.strictEqual(
   pictures.summary({ present: true, painted: 38, waiting: 3, spentTodayCents: 184, dailyLimitCents: 300 }),

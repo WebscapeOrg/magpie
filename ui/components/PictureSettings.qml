@@ -57,9 +57,12 @@ Column {
   onReadyChanged: load()
   Component.onCompleted: load()
   Timer {
+    objectName: "settings-picture-refresh"
     interval: 30000
     repeat: true
-    running: root.ready && !!root.status && Number(root.status.waiting) > 0
+    // A keyring that could not be read is asked again only when Settings opens again: reading a
+    // locked keyring asks the desktop to unlock it.
+    running: root.ready && !!root.status && root.status.present !== null && Number(root.status.waiting) > 0
     onTriggered: root.load()
   }
 
@@ -89,7 +92,9 @@ Column {
     width: parent.width
     textFormat: Text.PlainText
     text: root.busy ? "Checking the key with OpenAI" : (root.error || Pictures.summary(root.status))
-    color: root.error !== "" || (root.status && root.status.problem) ? root.accentColor : root.dimColor
+    // Without a saved key the invitation is shown instead of a leftover problem, in the plain colour.
+    color: root.error !== "" || (!!root.status && !!root.status.problem && root.status.present !== false)
+      ? root.accentColor : root.dimColor
     font.family: root.panelFontFamily
     font.pixelSize: MailStyle.caption
     wrapMode: Text.WordWrap

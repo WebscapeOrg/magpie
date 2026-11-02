@@ -14,10 +14,12 @@
 //!   three times, and a day's spending stops at `DAILY_LIMIT_CENTS`, counted before each request.
 //! - A paid picture outlives a passing gap in the contacts answer: senders keep their portraits
 //!   while contacts are unknown, and a picture no sender uses is kept for `ORPHAN_KEEP` before it is
-//!   deleted. Pictures of a signed-out account's senders are deleted at the next run.
+//!   deleted. Pictures of the senders of an account removed from Magpie are deleted at the next run;
+//!   signing out keeps them, so signing in again does not pay for them again.
 //! - The key lives in the platform keyring and is never returned, logged or written elsewhere.
-//!   Saving or removing it changes `keyGeneration` in the state, which stops any run that still
-//!   holds the old key, in whichever process it runs.
+//!   Saving or removing it changes `keyGeneration` in the state before and after the keyring
+//!   changes, which stops any run that still holds the old key, in whichever process it runs, from
+//!   sending further requests.
 mod openai;
 mod prompts;
 
@@ -157,9 +159,23 @@ fn letter(name: &str, address: &str) -> char {
 }
 
 /// The domain a company registers, so `news.acme.co.uk` and `em12.acme.co.uk` share `acme.co.uk`'s
-/// picture. Invariant: the result is a suffix of a domain `avatars::email` accepted.
+/// picture. Only the ICANN section of the public suffix list counts: names under a hosting suffix
+/// such as `github.io` are free to make, so they share their host's picture. Without a known
+/// suffix, the last two labels. Invariant: the result is a suffix of a domain `avatars::email`
+/// accepted.
 fn registrable(domain: &str) -> &str {
-    psl::domain_str(domain).unwrap_or(domain)
+    let starts: Vec<usize> = std::iter::once(0)
+        .chain(domain.match_indices('.').map(|(index, _)| index + 1))
+        .collect();
+    for (position, start) in starts.iter().enumerate() {
+        let candidate = &domain[*start..];
+        let icann = psl::suffix(candidate.as_bytes())
+            .is_some_and(|suffix| suffix.typ() == Some(psl::Type::Icann) && suffix.as_bytes() == candidate.as_bytes());
+        if icann {
+            return position.checked_sub(1).map_or(domain, |label| &domain[starts[label]..]);
+        }
+    }
+    starts.len().checked_sub(2).map_or(domain, |label| &domain[starts[label]..])
 }
 
 fn subject_for(account: &str, address: &str, letter: char, photos: &Value) -> Subject {
@@ -287,9 +303,10 @@ fn blocking_problem(state: &Value, at: i64) -> Option<&str> {
     }
 }
 
-/// Forgets the senders of accounts that are no longer signed in and senders not seen in an Inbox
-/// for `SENDER_KEEP`. A picture of a signed-out account's senders is deleted with its file at once;
-/// any other picture no sender uses is deleted once it has been unused for `ORPHAN_KEEP`.
+/// Forgets the senders of accounts no longer in Magpie's account list and senders not seen in an
+/// Inbox for `SENDER_KEEP`. A picture whose senders belonged to a removed account is deleted with
+/// its file at once; any other picture no sender uses is deleted once it has been unused for
+/// `ORPHAN_KEEP`.
 fn forget(dir: &File, state: &mut Value, accounts: &HashSet<String>, at: i64) -> Result<(), &'static str> {
     let mut senders = object(state, "senders")?;
     let mut signed_out = HashSet::new();
@@ -520,24 +537,29 @@ fn record(
             give_up(row);
             false
         }
+        // A fault answered to a key that has since been replaced or removed says nothing about the
+        // saved key, so it does not pause painting.
         Outcome::Fault(openai::Fault::Lost { charged }) => {
             if !charged {
                 adjust(state, at, refund);
             }
             failed_once(row, "pictures_unreachable", at);
-            stop(state, "pictures_unreachable", Some(LOST_WAIT), at);
+            if same_key {
+                stop(state, "pictures_unreachable", Some(LOST_WAIT), at);
+            }
             true
         }
         Outcome::Fault(fault) => {
             adjust(state, at, refund);
-            match fault {
-                openai::Fault::Key(problem) if same_key => stop(state, problem, None, at),
-                openai::Fault::Key(_) => {}
-                openai::Fault::Billing => stop(state, "pictures_billing", Some(BILLING_WAIT), at),
-                openai::Fault::RateLimited(wait) => {
-                    stop(state, "pictures_rate_limited", Some(wait.unwrap_or(0).max(RATE_WAIT)), at)
+            if same_key {
+                match fault {
+                    openai::Fault::Key(problem) => stop(state, problem, None, at),
+                    openai::Fault::Billing => stop(state, "pictures_billing", Some(BILLING_WAIT), at),
+                    openai::Fault::RateLimited(wait) => {
+                        stop(state, "pictures_rate_limited", Some(wait.unwrap_or(0).max(RATE_WAIT)), at)
+                    }
+                    _ => stop(state, "pictures_model_unavailable", Some(MODEL_WAIT), at),
                 }
-                _ => stop(state, "pictures_model_unavailable", Some(MODEL_WAIT), at),
             }
             true
         }
@@ -611,9 +633,17 @@ async fn paint(subject: &Subject, previous: Option<&str>, key: &Secret) -> Outco
     }
 }
 
+/// The key this process last read from the keyring, with the key generation it was read under.
+static KEY: Mutex<Option<(u64, Option<Arc<Secret>>)>> = Mutex::new(None);
+
+fn forget_cached_key() {
+    if let Ok(mut cache) = KEY.lock() {
+        *cache = None;
+    }
+}
+
 /// The saved key for this key generation. The keyring is read again only after the key changes.
 async fn saved_key(key_generation: u64) -> Result<Option<Arc<Secret>>, &'static str> {
-    static KEY: Mutex<Option<(u64, Option<Arc<Secret>>)>> = Mutex::new(None);
     // Tests each use their own keyring, so they always read it.
     if !cfg!(test)
         && let Ok(cache) = KEY.lock()
@@ -632,7 +662,7 @@ async fn saved_key(key_generation: u64) -> Result<Option<Arc<Secret>>, &'static 
     Ok(key)
 }
 
-/// Forgets what belongs to signed-out accounts when no account is signed in.
+/// Forgets what belongs to removed accounts when no account is left.
 async fn forget_only() -> Result<(), &'static str> {
     blocking(|| {
         if directory(false)?.is_none() {
@@ -693,14 +723,24 @@ async fn paint_all(due: Vec<Due>, key: Arc<Secret>, key_generation: u64) -> Resu
     let mut tasks = tokio::task::JoinSet::new();
     let mut running = HashMap::new();
     let mut stopped = false;
+    // A storage failure stops new requests, but the requests already sent are still recorded.
+    let mut failure = None;
     loop {
         while !stopped && tasks.len() < IN_FLIGHT {
             let Some((subject, previous)) = queue.next() else {
                 break;
             };
-            if !blocking(move || change(|_, state| Ok(reserve(state, now(), key_generation)))).await? {
-                stopped = true;
-                break;
+            match blocking(move || change(|_, state| Ok(reserve(state, now(), key_generation)))).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    stopped = true;
+                    break;
+                }
+                Err(error) => {
+                    failure.get_or_insert(error);
+                    stopped = true;
+                    break;
+                }
             }
             let key = key.clone();
             let name = subject.id();
@@ -711,7 +751,7 @@ async fn paint_all(due: Vec<Due>, key: Arc<Secret>, key_generation: u64) -> Resu
             running.insert(task.id(), name);
         }
         let Some(finished) = tasks.join_next_with_id().await else {
-            return Ok(());
+            return failure.map_or(Ok(()), Err);
         };
         // A task that panicked may have been charged: count it as a lost, charged attempt.
         let (subject, outcome) = match finished {
@@ -724,17 +764,24 @@ async fn paint_all(due: Vec<Due>, key: Arc<Secret>, key_generation: u64) -> Resu
                 None => continue,
             },
         };
-        if blocking(move || change(|dir, state| record(dir, state, &subject, outcome, now(), key_generation))).await? {
-            stopped = true;
+        match blocking(move || change(|dir, state| record(dir, state, &subject, outcome, now(), key_generation))).await {
+            Ok(false) => {}
+            Ok(true) => stopped = true,
+            Err(error) => {
+                failure.get_or_insert(error);
+                stopped = true;
+            }
         }
     }
 }
 
 /// Starts painting for the account whose turn it is, unless a run is under way. Never waits. With
-/// no account signed in it only forgets what the signed-out accounts left behind.
+/// no account left it only forgets what the removed accounts left behind.
 pub(crate) struct Painter {
     busy: Arc<tokio::sync::Semaphore>,
     turns: Mutex<HashMap<String, i64>>,
+    /// The account list the prepared painted avatars were last checked against.
+    listed: Mutex<Option<Vec<String>>>,
 }
 
 impl Default for Painter {
@@ -742,6 +789,7 @@ impl Default for Painter {
         Self {
             busy: Arc::new(tokio::sync::Semaphore::new(1)),
             turns: Mutex::new(HashMap::new()),
+            listed: Mutex::new(None),
         }
     }
 }
@@ -777,8 +825,22 @@ impl Painter {
         let Some(account) = account else {
             return;
         };
+        // When the account list changes, and once after the engine starts, drop the prepared painted
+        // avatars of accounts no longer listed.
+        let mut sorted = accounts.clone();
+        sorted.sort();
+        let changed = self.listed.lock().is_ok_and(|mut listed| {
+            let changed = listed.as_ref() != Some(&sorted);
+            if changed {
+                *listed = Some(sorted.clone());
+            }
+            changed
+        });
         tokio::spawn(async move {
             let _permit = permit;
+            if changed {
+                let _ = blocking(move || avatars::forget_painted(&sorted)).await;
+            }
             let _ = if account.is_empty() {
                 forget_only().await
             } else {
@@ -870,7 +932,8 @@ pub(crate) async fn status() -> Result<Value, &'static str> {
     }))
 }
 
-/// Clears the problem and moves to a new key generation, which stops runs holding the old key.
+/// Clears the problem and moves to a new key generation, which stops runs holding the old key from
+/// sending further requests.
 fn key_changed() -> impl FnOnce() -> Result<u64, &'static str> + Send + 'static {
     || {
         change(|_, state| {
@@ -901,19 +964,34 @@ pub(crate) async fn set_key(text: &str) -> Result<Value, &'static str> {
             _ => "pictures_unreachable",
         });
     }
-    credentials::put(slot(), secret)
-        .await
-        .map_err(|_| "pictures_key_storage")?;
-    blocking(key_changed()).await?;
+    around_key_change(credentials::put(slot(), secret)).await?;
     status().await
 }
 
-pub(crate) async fn remove_key() -> Result<Value, &'static str> {
-    match credentials::delete(slot()).await {
+/// Changes the key generation before the keyring changes, so runs holding the old key stop, and
+/// again after it, so a run that read the keyring during the change does not keep what it read.
+async fn around_key_change(
+    update: impl std::future::Future<Output = Result<(), credentials::Error>>,
+) -> Result<(), &'static str> {
+    forget_cached_key();
+    blocking(key_changed()).await?;
+    match update.await {
         Ok(()) | Err(credentials::Error::Missing) => {}
         Err(_) => return Err("pictures_key_storage"),
     }
-    blocking(key_changed()).await?;
+    forget_cached_key();
+    let mut last = Ok(0);
+    for _ in 0..3 {
+        last = blocking(key_changed()).await;
+        if last.is_ok() {
+            break;
+        }
+    }
+    last.map(|_| ())
+}
+
+pub(crate) async fn remove_key() -> Result<Value, &'static str> {
+    around_key_change(credentials::delete(slot())).await?;
     status().await
 }
 

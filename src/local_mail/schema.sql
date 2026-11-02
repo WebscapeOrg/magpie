@@ -29,9 +29,19 @@ CREATE TABLE IF NOT EXISTS jobs (
   priority INTEGER NOT NULL DEFAULT 0,
   error TEXT NOT NULL DEFAULT '',
   retry_at INTEGER NOT NULL DEFAULT 0,
-  generation INTEGER NOT NULL DEFAULT 0
+  generation INTEGER NOT NULL DEFAULT 0,
+  attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS job_priority ON jobs(priority DESC, retry_at);
+-- Messages whose content can never be saved in full, with the reason. Gmail never changes a
+-- message's content, so they are not fetched in full again; their labels still follow Gmail.
+-- generation is the inventory that last listed a message with no saved row, so a message Gmail no
+-- longer has is forgotten when a new inventory finishes.
+CREATE TABLE IF NOT EXISTS unsaved (
+  id TEXT PRIMARY KEY,
+  reason TEXT NOT NULL,
+  generation INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS edits (
   sequence INTEGER PRIMARY KEY AUTOINCREMENT,
   ticket TEXT NOT NULL,

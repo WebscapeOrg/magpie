@@ -25,6 +25,10 @@ struct World {
     pause: String,
     paginated_history: bool,
     expired_history: bool,
+    /// Requests containing this text are answered with a length larger than any accepted reply.
+    oversized: String,
+    /// Requests containing this text are answered with another message's id.
+    mismatched: String,
 }
 
 struct Provider {
@@ -49,6 +53,8 @@ impl Provider {
             pause: String::new(),
             paginated_history: false,
             expired_history: false,
+            oversized: String::new(),
+            mismatched: String::new(),
         }));
         let state = world.clone();
         let paused = Arc::new(tokio::sync::Notify::new());
@@ -76,13 +82,16 @@ impl Provider {
                     let mut body = vec![0; length];
                     socket.read_exact(&mut body).await.unwrap();
                     let request = serde_json::from_slice(&body).unwrap_or(Value::Null);
-                    let (status, response, pause) = {
+                    let (status, response, pause, oversized) = {
                         let mut world = state.lock().unwrap();
                         world.requests.push(line.clone());
                         let url = reqwest::Url::parse(&format!("http://fixture{}", line.split_whitespace().nth(1).unwrap())).unwrap();
                         let pause = !world.pause.is_empty() && line.contains(&world.pause);
-                        let (status, response) = answer(&mut world, &line, &url, request);
-                        (status, response.to_string(), pause)
+                        let oversized = !world.oversized.is_empty() && line.contains(&world.oversized);
+                        let mismatched = !world.mismatched.is_empty() && line.contains(&world.mismatched);
+                        let (status, mut response) = answer(&mut world, &line, &url, request);
+                        if mismatched { response["id"] = json!("another-message"); }
+                        (status, response.to_string(), pause, oversized)
                     };
                     if pause {
                         ready.notify_one();
@@ -90,7 +99,8 @@ impl Provider {
                             tokio::time::sleep(Duration::from_millis(5)).await;
                         }
                     }
-                    let reply = format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len());
+                    let length = if oversized { 512 * 1024 * 1024 } else { response.len() };
+                    let reply = format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n{response}");
                     let _ = socket.write_all(reply.as_bytes()).await;
                 });
             }
@@ -969,4 +979,109 @@ async fn background_drain_tracks_cancelled_opens_before_the_store_exists_without
     local.drain(Duration::from_secs(2)).await.unwrap();
     assert!(local.stores.lock().unwrap().contains_key(ACCOUNT));
     assert_eq!(Arc::strong_count(&local.stores), 1);
+}
+
+#[tokio::test]
+async fn mail_that_can_never_be_saved_is_reported_and_never_fetched_in_full_again() {
+    if isolated() { return; }
+    let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    {
+        let mut world = provider.world.lock().unwrap();
+        let mut damaged = message("damaged", "");
+        damaged["payload"]["body"] = json!({"data":"*not base64*","size":12});
+        world.messages.insert("damaged".into(), damaged);
+        world.messages.insert("huge".into(), message("huge", "Synthetic body Gmail reports as too large"));
+        world.oversized = "/messages/huge?format=full".into();
+    }
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        let store = local.store(ACCOUNT).await.unwrap();
+        for _ in 0..20 {
+            set(&store, "lastHistory", "0");
+            sync::step(&store, &gmail, ACCOUNT).await.unwrap();
+        }
+        let status = store.status().unwrap();
+        assert_eq!(status["unsavedReasons"], json!({"gmail_response_too_large": 1, "local_text_unreadable": 1}), "{status}");
+        assert_eq!((status["complete"].as_bool(), status["health"]["missing"].as_i64()), (Some(true), Some(0)), "{status}");
+        // Listing the Inbox again queues both, but only for their labels.
+        provider.world.lock().unwrap().requests.clear();
+        set(&store, "inboxListed", "");
+        set(&store, "inboxPage", "");
+        for _ in 0..10 {
+            set(&store, "lastHistory", "0");
+            let _ = sync::step(&store, &gmail, ACCOUNT).await;
+        }
+        let requests = provider.world.lock().unwrap().requests.clone();
+        assert!(requests.iter().any(|line| line.contains("/messages/damaged?format=minimal")), "{requests:?}");
+        assert!(!requests.iter().any(|line| line.contains("format=full") && (line.contains("/messages/damaged") || line.contains("/messages/huge"))), "{requests:?}");
+        local.shutdown().await;
+    }).await;
+}
+
+#[tokio::test]
+async fn a_failing_message_waits_longer_after_each_failed_fetch() {
+    if isolated() { return; }
+    let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    {
+        let mut world = provider.world.lock().unwrap();
+        world.messages.insert("flaky".into(), message("flaky", "Synthetic body that never arrives intact"));
+        world.mismatched = "/messages/flaky?format=full".into();
+    }
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        let store = local.store(ACCOUNT).await.unwrap();
+        let job = || -> Option<(i64, i64, String)> {
+            use rusqlite::OptionalExtension;
+            store.read(|db| store::sql(db.query_row("SELECT attempts,retry_at,error FROM jobs WHERE id='flaky' AND kind='content'", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional())).unwrap()
+        };
+        let mut waits = Vec::new();
+        for _ in 0..30 {
+            if waits.len() == 2 { break; }
+            set(&store, "lastHistory", "0");
+            let before = chrono::Utc::now().timestamp_millis();
+            let _ = sync::step(&store, &gmail, ACCOUNT).await;
+            let after = chrono::Utc::now().timestamp_millis();
+            if let Some((attempts, retry_at, error)) = job()
+                && attempts as usize == waits.len() + 1
+            {
+                assert_eq!(error, "gmail_invalid_response");
+                waits.push((retry_at - after, retry_at - before));
+                // Make it due again at once, as if the wait had passed.
+                store.write(|db| store::sql(db.execute("UPDATE jobs SET retry_at=0 WHERE id='flaky'", []))).unwrap();
+            }
+        }
+        assert_eq!(waits.len(), 2, "{:?}", provider.world.lock().unwrap().requests);
+        for ((shortest, longest), wait) in waits.into_iter().zip([60_000, 5 * 60_000]) {
+            assert!(shortest <= wait && wait <= longest, "{shortest}..{longest} should hold {wait}");
+        }
+        local.shutdown().await;
+    }).await;
+}
+
+#[tokio::test]
+async fn opening_an_account_repairs_text_saved_under_the_old_rules() {
+    if isolated() { return; }
+    let _fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    {
+        let local = LocalMail::default();
+        let store = local.store(ACCOUNT).await.unwrap();
+        let mixed = super::tests::with_payload("mixed", super::tests::part("text/plain; charset=ISO-2022-JP", b"\x1b$B$3$s\x1b(B hello \xff"));
+        store.put(&mixed, 1).unwrap();
+        store.write(|db| store::sql(db.execute_batch("UPDATE messages SET text_complete=0; DELETE FROM state WHERE key='textRepair';"))).unwrap();
+        assert!(store.complete_resource("mixed").unwrap().is_none());
+        drop(store);
+        local.shutdown().await;
+    }
+    let local = LocalMail::default();
+    let store = local.store(ACCOUNT).await.unwrap();
+    assert!(store.complete_resource("mixed").unwrap().is_some(), "the account's store repairs itself when it opens");
+    local.shutdown().await;
 }

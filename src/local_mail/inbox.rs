@@ -92,7 +92,7 @@ fn queue(db: &Connection, id: &str, generation: i64) -> Result<()> {
         "UPDATE messages SET generation=max(generation,?2) WHERE id=?1",
         params![id, generation],
     ))?;
-    sql(db.execute("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=?1 AND text_complete=1) THEN 'metadata' ELSE 'content' END,2000,?2) ON CONFLICT(id) DO UPDATE SET priority=max(priority,2000),retry_at=0,generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;
+    sql(db.execute(&format!("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,{},2000,?2) ON CONFLICT(id) DO UPDATE SET priority=max(priority,2000),retry_at=0,attempts=0,generation=max(jobs.generation,excluded.generation)", super::store::FETCH_KIND),params![id,generation]))?;
     Ok(())
 }
 
@@ -131,11 +131,12 @@ pub(super) fn health(db: &Connection) -> Result<Value> {
     let inbox_known = state(db, "inboxReady")? == "true";
     let all_known = state(db, "inventoryComplete")? == "true";
     let count = |query| sql(db.query_row(query, [], |r| r.get::<_, i64>(0)));
+    // Messages that can never be saved in full are settled, not missing; the status reports them.
     let missing = count(
-        "SELECT count(*) FROM (SELECT id FROM jobs WHERE id NOT IN (SELECT id FROM messages WHERE text_complete=1) UNION SELECT id FROM messages WHERE text_complete=0)",
+        "SELECT count(*) FROM (SELECT id FROM jobs WHERE id NOT IN (SELECT id FROM messages WHERE text_complete=1) UNION SELECT id FROM messages WHERE text_complete=0) WHERE id NOT IN (SELECT id FROM unsaved)",
     )?;
     let inbox_missing = count(
-        "SELECT count(*) FROM inbox_members WHERE id NOT IN (SELECT id FROM messages WHERE text_complete=1)",
+        "SELECT count(*) FROM inbox_members WHERE id NOT IN (SELECT id FROM messages WHERE text_complete=1) AND id NOT IN (SELECT id FROM unsaved)",
     )?;
     let dirty = count("SELECT count(*) FROM inbox_dirty")?;
     let inbox_pending = count(
@@ -146,7 +147,7 @@ pub(super) fn health(db: &Connection) -> Result<Value> {
     )?;
     let edits = count("SELECT count(*) FROM edits WHERE state IN ('queued','sending','conflict')")?;
     let metadata = count(
-        "SELECT count(*) FROM jobs WHERE id IN (SELECT id FROM messages WHERE text_complete=1)",
+        "SELECT count(*) FROM jobs WHERE id IN (SELECT id FROM messages WHERE text_complete=1) OR id IN (SELECT id FROM unsaved)",
     )?;
     Ok(json!({
         "lastChecked":state(db,"lastChecked")?.parse::<i64>().ok(),

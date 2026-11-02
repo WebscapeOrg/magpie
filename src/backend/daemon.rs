@@ -96,6 +96,8 @@ pub fn serve() -> io::Result<()> {
                             }
                         }
                         preparation_turn = (preparation_turn + 1) % accounts.len();
+                        let ids = accounts.iter().filter_map(|account| account["id"].as_str()).filter(|id| !id.is_empty()).map(str::to_owned).collect();
+                        maintenance.inbox.paint_pictures(ids, maintenance.gmail.clone(), maintenance.local_mail.clone());
                     }
                 }
                 let _ = maintenance.dispatch("inbox.tick", &json!({})).await;

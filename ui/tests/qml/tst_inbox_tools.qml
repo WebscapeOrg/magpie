@@ -29,8 +29,36 @@ Item {
   TestCase {
     name: "InboxTools"
     when: windowShown
-    function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.descriptionsEnabled=true;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.snapshotsPending=({});tools.requesting=false;tools.notificationRows=({});tools.notificationsPending=({});first.delivered=[];second.delivered=[];service.windowOpen=true;service.curatedInbox=false;tools.visibleRows=service.messages }
+    function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.descriptionsEnabled=true;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.avatarChecked=({});tools.pictureRevision=-1;tools.snapshotsPending=({});tools.requesting=false;tools.notificationRows=({});tools.notificationsPending=({});first.delivered=[];second.delivered=[];service.windowOpen=true;service.curatedInbox=false;tools.visibleRows=service.messages }
     function cleanup() { backend.ready=false }
+    function test_painted_pictures_replace_avatars_without_blanking_them() {
+      backend.apiVersion=8;backend.ready=true
+      var first=backend.calls.filter(function(request){return request.method==="inbox.avatar"})[0]
+      verify(first)
+      first.done({data:"data:image/png;base64,b2xk",source:"organization"},null)
+      compare(tools.avatarFor(service.messages[0]),"data:image/png;base64,b2xk")
+      var snapshot=backend.calls.filter(function(request){return request.method==="inbox.snapshot" && request.params.accountId===first.params.accountId})[0]
+      verify(snapshot)
+      snapshot.done({overviews:{},snoozes:[],preferences:{paused:false},pictures:4},null)
+      compare(tools.pictureRevision,4)
+      var asked=backend.calls.filter(function(request){return request.method==="inbox.avatar"}).length
+      tools.drain()
+      compare(backend.calls.filter(function(request){return request.method==="inbox.avatar"}).length,asked)
+      tools.notePictureRevision(5)
+      tools.drain()
+      var again=backend.calls.filter(function(request){return request.method==="inbox.avatar" && request.params.email===first.params.email && request.params.accountId===first.params.accountId})
+      compare(again.length,2)
+      compare(again[1].params.refreshId,"")
+      compare(tools.avatarFor(service.messages[0]),"data:image/png;base64,b2xk")
+      again[1].done(null,{code:-32000,message:"inbox_unavailable"})
+      compare(tools.avatarFor(service.messages[0]),"data:image/png;base64,b2xk")
+      tools.notePictureRevision(6)
+      tools.drain()
+      var third=backend.calls.filter(function(request){return request.method==="inbox.avatar" && request.params.email===first.params.email && request.params.accountId===first.params.accountId})
+      compare(third.length,3)
+      third[2].done({data:"data:image/png;base64,cGFpbnRlZA==",source:"painted"},null)
+      compare(tools.avatarFor(service.messages[0]),"data:image/png;base64,cGFpbnRlZA==")
+    }
     function test_notifications_wait_for_owned_ready_unread_inbox_members() {
       backend.apiVersion=8;backend.ready=true
       tools.queueNotifications(first.accountId,[{id:"pending"},{id:"read"},{id:"gone"},{id:"ready"},{id:"unknown"}])

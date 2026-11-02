@@ -1,4 +1,4 @@
-mod artwork;
+pub(super) mod artwork;
 use super::{now, store};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -29,7 +29,7 @@ pub fn email(raw: &str) -> Result<String, &'static str> {
     }
     Ok(text)
 }
-fn consumer(domain: &str) -> bool {
+pub(super) fn consumer(domain: &str) -> bool {
     [
         "gmail.com",
         "googlemail.com",
@@ -46,7 +46,7 @@ fn consumer(domain: &str) -> bool {
     ]
     .contains(&domain)
 }
-async fn contacts(
+pub(super) async fn contacts(
     gmail: &crate::providers::gmail::Session,
     account: &str,
     refresh_id: &str,
@@ -135,6 +135,10 @@ pub async fn get(
     refresh_id: &str,
 ) -> Result<Value, &'static str> {
     let domain = address.split_once('@').ok_or("invalid_params")?.1;
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    if let Some(value) = painted(account, address).await? {
+        return Ok(value);
+    }
     let name = format!("avatar-{}", store::key(&["avatar-v3", account, address]));
     if let Some(saved) = store::read(&name)? {
         if refresh_id.is_empty() && now() - saved["updated"].as_i64().unwrap_or(0) < 7 * 86_400_000
@@ -154,19 +158,7 @@ pub async fn get(
         }
     }
     if image.is_empty() && !consumer(domain) {
-        if let Some(url) = organization_artwork(domain) {
-            if let Ok(data) = crate::public_http::image(url).await {
-                image = data;
-                source = "organization";
-            }
-        }
-    }
-    if image.is_empty() && !consumer(domain) {
-        // Invariant: Query only a domain, never a mailbox address or sender-controlled image URL.
-        let url = format!(
-            "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https%3A%2F%2F{domain}&size=256"
-        );
-        if let Ok(data) = crate::public_http::image(&url).await {
+        if let Some(data) = organization_image(domain).await {
             image = data;
             source = "organization";
         }
@@ -185,6 +177,42 @@ pub async fn get(
     let value = json!({"data":image,"source":source,"updated":now(),"owner":account});
     store::cache(&name, &value)?;
     Ok(value)
+}
+/// The company's own artwork for a domain, or its favicon, as a data URL.
+pub(super) async fn organization_image(domain: &str) -> Option<String> {
+    if let Some(url) = organization_artwork(domain) {
+        if let Ok(data) = crate::public_http::image(url).await {
+            return Some(data);
+        }
+    }
+    // Invariant: Query only a domain, never a mailbox address or sender-controlled image URL.
+    let url = format!(
+        "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https%3A%2F%2F{domain}&size=256"
+    );
+    crate::public_http::image(&url).await.ok()
+}
+/// The sender's painted picture cut to the circle, cached until it is painted again.
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+async fn painted(account: &str, address: &str) -> Result<Option<Value>, &'static str> {
+    let Some((data, painted)) = super::pictures::painted(account, address)? else {
+        return Ok(None);
+    };
+    let name = format!("avatar-{}", store::key(&["avatar-painted", account, address]));
+    if let Some(saved) = store::read(&name)? {
+        if saved["source"] == "painted" && saved["painted"] == painted {
+            return Ok(Some(saved));
+        }
+    }
+    let Some(image) = tokio::task::spawn_blocking(move || artwork::prepare(&data, false))
+        .await
+        .ok()
+        .and_then(Result::ok)
+    else {
+        return Ok(None);
+    };
+    let value = json!({"data":image,"source":"painted","painted":painted,"updated":now(),"owner":account});
+    store::cache(&name, &value)?;
+    Ok(Some(value))
 }
 fn organization_artwork(domain: &str) -> Option<&'static str> {
     match domain {

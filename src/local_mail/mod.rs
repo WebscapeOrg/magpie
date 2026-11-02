@@ -95,6 +95,16 @@ impl LocalMail {
         let store = self.store(account).await?;
         sync::disk(&store, |store| store.overview_candidates()).await
     }
+    /// The From headers of the account's Inbox, newest first, for its sender pictures.
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    pub(crate) async fn inbox_senders(
+        &self,
+        account: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, &'static str> {
+        let store = self.store(account).await?;
+        sync::disk(&store, move |store| store.inbox_senders(limit)).await
+    }
     #[cfg(feature = "mobile")]
     pub(crate) async fn alert_snapshot(&self, account: &str) -> Result<Value, &'static str> {
         let store = self.store(account).await?;

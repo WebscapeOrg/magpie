@@ -40,9 +40,9 @@ fn configuration() -> Result<String> {
     let exe = std::env::current_exe().map_err(|_| "agent_worker_unavailable")?;
     let mut configuration = super::config::opencode()?;
     let restricted = json!({"agents":{
-        "omamail":{"mode":"primary","system":super::worker::MAIL_ROLE,
+        "omamail":{"mode":"primary","system":super::prompt::MAIL_ROLE,
             "permissions":[{"action":"*","resource":"*","effect":"deny"},{"action":"omamail_propose_draft","resource":"*","effect":"allow"}]},
-        "omamail-events":{"mode":"primary","system":super::worker::MAIL_ROLE,
+        "omamail-events":{"mode":"primary","system":super::prompt::MAIL_ROLE,
             "permissions":[{"action":"*","resource":"*","effect":"deny"}]}},
         "snapshots":false,"warming":false,"mcp":{"servers":{"omamail":{"type":"local","command":[exe,"agent-mcp","workspace"],"codemode":false}}}});
     for (key, value) in restricted.as_object().unwrap() {

@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 
 pub const MAX_PROPOSALS: usize = 16;
 pub const MAX_BYTES: usize = 256 * 1024;
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 const MAX_HISTORY_BYTES: usize = 8 * 1024 * 1024;
 
 pub fn envelope(value: &Value, account: &Value, draft: &Value) -> Result<(), &'static str> {
@@ -23,7 +24,7 @@ pub fn envelope(value: &Value, account: &Value, draft: &Value) -> Result<(), &'s
         "draftId",
         "accountId",
     ] {
-        super::jobs::text(value.get(key).ok_or("agent_invalid_envelope")?)?;
+        super::payload::text(value.get(key).ok_or("agent_invalid_envelope")?)?;
     }
     for (key, value) in object {
         if key == "attachments" {
@@ -51,7 +52,7 @@ pub fn envelope(value: &Value, account: &Value, draft: &Value) -> Result<(), &'s
         ]
         .contains(&key.as_str())
         {
-            super::jobs::text(value)?;
+            super::payload::text(value)?;
         } else {
             return Err("agent_invalid_envelope");
         }
@@ -62,14 +63,17 @@ pub fn envelope(value: &Value, account: &Value, draft: &Value) -> Result<(), &'s
     Ok(())
 }
 
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 pub fn history(store: &super::storage::Store, id: &str) -> Result<Value, &'static str> {
     collect(store, id, true)
 }
 
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 pub fn turn(store: &super::storage::Store, id: &str) -> Result<Value, &'static str> {
     collect(store, id, false)
 }
 
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 fn collect(store: &super::storage::Store, id: &str, history: bool) -> Result<Value, &'static str> {
     let owner = super::jobs::read_job(store, id)?;
     let mut current = id.to_owned();
@@ -144,8 +148,8 @@ pub fn validate(arguments: &Value) -> Result<Value, &'static str> {
     if object.len() != 2 || !object.contains_key("subject") || !object.contains_key("body") {
         return Err("agent_invalid_proposal");
     }
-    let subject = super::jobs::text(&arguments["subject"])?;
-    let body = super::jobs::text(&arguments["body"])?;
+    let subject = super::payload::text(&arguments["subject"])?;
+    let body = super::payload::text(&arguments["body"])?;
     if subject.len() > 4096
         || subject.chars().any(char::is_control)
         || body.len() > 65536
@@ -160,6 +164,7 @@ pub fn validate(arguments: &Value) -> Result<Value, &'static str> {
 mod tests {
     use super::*;
 
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     #[test]
     fn round2_proposal_history_cannot_cross_account_or_conversation() {
         let path = std::env::temp_dir().canonicalize().unwrap().join(format!(

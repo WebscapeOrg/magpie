@@ -232,14 +232,15 @@ pub(super) async fn receive(
         // Invariant: a fetch deferred for a foreground request never left the device, so its
         // message is not put off; the caller's own wait decides when it is asked again.
         Err("gmail_request_deferred") => return Err("gmail_request_deferred"),
+        // Invariant: Gmail never changes a message's content, so a message too large to fetch or
+        // save is given up on and sync moves on; every other failure is tried again, later each time.
+        Err(error) if kind == "content" && super::store::UNSAVABLE.contains(&error) => {
+            disk(store, move |s| s.write(|db| super::store::give_up(db, &id, error))).await?;
+        }
         Err(error) => {
             disk(store, move |s| {
                 s.write(|db| {
-                    sql(db.execute(
-                        "UPDATE jobs SET error=?2,retry_at=?3 WHERE id=?1",
-                        params![id, error, chrono::Utc::now().timestamp_millis() + 60_000],
-                    ))?;
-                    Ok(())
+                    super::store::retry_later(db, &id, error, chrono::Utc::now().timestamp_millis())
                 })
             })
             .await?;
@@ -315,10 +316,14 @@ pub(super) fn apply_inventory(
                 params![id, generation],
             ))?;
             sql(db.execute(
-                "INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,
-                    CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=?1 AND text_complete=1) THEN 'metadata' ELSE 'content' END,
+                "UPDATE unsaved SET generation=?2 WHERE id=?1",
+                params![id, generation],
+            ))?;
+            sql(db.execute(
+                &format!("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,
+                    {},
                     CASE WHEN EXISTS(SELECT 1 FROM labels WHERE message_id=?1 AND label='INBOX') THEN 50 ELSE 0 END,?2)
-                 ON CONFLICT(id) DO UPDATE SET generation=excluded.generation,priority=max(jobs.priority,excluded.priority)",
+                 ON CONFLICT(id) DO UPDATE SET generation=excluded.generation,priority=max(jobs.priority,excluded.priority)", super::store::FETCH_KIND),
                 params![id, generation],
             ))?;
         }
@@ -410,7 +415,7 @@ fn apply_history_checked(
             }
             for added in event["messagesAdded"].as_array().into_iter().flatten() {
                 let id = valid_id(&added["message"]["id"])?;
-                    sql(db.execute("INSERT INTO jobs(id,priority,generation) VALUES(?1,1000,?2) ON CONFLICT(id) DO UPDATE SET priority=1000,generation=excluded.generation",params![id,generation]))?;
+                    sql(db.execute(&format!("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,{},1000,?2) ON CONFLICT(id) DO UPDATE SET priority=1000,generation=excluded.generation", super::store::FETCH_KIND),params![id,generation]))?;
                 sql(db.execute("UPDATE messages SET generation=?2 WHERE id=?1",params![id,generation]))?;
                 super::inbox::changed(db,id)?;
             }
@@ -418,7 +423,7 @@ fn apply_history_checked(
                 for changed in event[kind].as_array().into_iter().flatten() {
                     let id = valid_id(&changed["message"]["id"])?;
                     sql(db.execute("UPDATE messages SET generation=?2 WHERE id=?1",params![id,generation]))?;
-                    sql(db.execute("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=?1) THEN 'metadata' ELSE 'content' END,100,?2) ON CONFLICT(id) DO UPDATE SET priority=max(priority,100),retry_at=0,generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;
+                    sql(db.execute("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=?1) OR EXISTS(SELECT 1 FROM unsaved WHERE id=?1) THEN 'metadata' ELSE 'content' END,100,?2) ON CONFLICT(id) DO UPDATE SET priority=max(priority,100),retry_at=0,attempts=0,generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;
                     super::inbox::changed(db,id)?;
                 }
             }
@@ -440,6 +445,8 @@ fn apply_history_checked(
                 let mut statement=sql(db.prepare("SELECT id FROM messages WHERE generation<?1 UNION SELECT id FROM jobs WHERE generation<?1 AND NOT EXISTS(SELECT 1 FROM messages WHERE messages.id=jobs.id AND messages.generation>=?1)"))?;
                 let missing=sql(sql(statement.query_map([generation],|r|r.get::<_,String>(0)))?.collect::<rusqlite::Result<Vec<_>>>())?;
                 for id in missing {delete(db,&id)?;}
+                // Mail that could not be saved and has no saved row is forgotten once Gmail stops listing it.
+                sql(db.execute("DELETE FROM unsaved WHERE generation<?1 AND NOT EXISTS(SELECT 1 FROM messages WHERE messages.id=unsaved.id) AND NOT EXISTS(SELECT 1 FROM jobs WHERE jobs.id=unsaved.id AND jobs.generation>=?1)",[generation]))?;
                 set_state(db,"inventoryComplete","true")?;
                 changed = true;
                 sql(db.execute("DELETE FROM inventory_pages",[]))?;

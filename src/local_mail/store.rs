@@ -1,4 +1,7 @@
-use super::{content, search, vfs};
+use super::{
+    content::{self, Completeness},
+    search, vfs,
+};
 use crate::{message::content::header, platform::private_fs as fs};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde_json::{Value, json};
@@ -61,6 +64,65 @@ pub(super) fn set_state(db: &Connection, key: &str, value: &str) -> Result<()> {
     sql(db.execute("INSERT INTO state VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE state.value!=excluded.value", [key, value]))?;
     Ok(())
 }
+/// How long a message waits after its first, second, ... failed fetch. Later failures wait a day.
+const RETRY_WAITS: [i64; 6] = [
+    60_000,
+    5 * 60_000,
+    30 * 60_000,
+    2 * 3_600_000,
+    12 * 3_600_000,
+    24 * 3_600_000,
+];
+/// Failures that the same message will always give again: Gmail never changes a message's content.
+pub(super) const UNSAVABLE: [&str; 3] = [
+    "local_text_unreadable",
+    "local_content_too_large",
+    "gmail_response_too_large",
+];
+/// What a queued message needs fetched: its labels when its text is saved or can never be saved,
+/// otherwise its content. The message id is ?1.
+pub(super) const FETCH_KIND: &str = "CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=?1 AND text_complete=1) OR EXISTS(SELECT 1 FROM unsaved WHERE id=?1) THEN 'metadata' ELSE 'content' END";
+
+/// Records a failed fetch of a queued message and puts its next try off, longer after each failure.
+pub(super) fn retry_later(db: &Connection, id: &str, error: &str, at: i64) -> Result<()> {
+    let attempts = sql(db
+        .query_row("SELECT attempts FROM jobs WHERE id=?1", [id], |r| r.get::<_, i64>(0))
+        .optional())?
+    .unwrap_or(0)
+    .saturating_add(1);
+    let wait = RETRY_WAITS[(attempts.max(1) as usize - 1).min(RETRY_WAITS.len() - 1)];
+    sql(db.execute(
+        "UPDATE jobs SET error=?2,attempts=?3,retry_at=?4 WHERE id=?1",
+        params![id, error, attempts, at.saturating_add(wait)],
+    ))?;
+    Ok(())
+}
+
+/// Stops fetching a message whose content can never be saved, and says why. Its labels are still
+/// fetched when they change.
+pub(super) fn give_up(db: &Connection, id: &str, reason: &str) -> Result<()> {
+    // A message whose text was saved meanwhile, for example by the repair, is not given up on.
+    if sql(db.query_row("SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1 AND text_complete=1)", [id], |r| r.get::<_, bool>(0)))? {
+        return labels_only(db, id);
+    }
+    let generation = state(db, "generation")?.parse::<i64>().unwrap_or(1);
+    sql(db.execute(
+        "INSERT INTO unsaved(id,reason,generation) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET reason=excluded.reason,generation=max(unsaved.generation,excluded.generation)",
+        params![id, reason, generation],
+    ))?;
+    labels_only(db, id)
+}
+
+/// Turns a queued content fetch into a label check. A label change from Gmail's history that was
+/// merged into the fetch would otherwise be lost with it.
+fn labels_only(db: &Connection, id: &str) -> Result<()> {
+    sql(db.execute(
+        "UPDATE jobs SET kind='metadata',error='',attempts=0,retry_at=0 WHERE id=?1 AND kind='content'",
+        [id],
+    ))?;
+    Ok(())
+}
+
 fn decode(value: &str) -> Result<Value> {
     serde_json::from_str(value).map_err(|_| "local_storage_corrupt")
 }
@@ -188,6 +250,28 @@ impl Store {
         }
         let transaction = sql(writer.connection.transaction())?;
         sql(transaction.execute_batch(include_str!("schema.sql")))?;
+        // Stores made before jobs counted their failures. The column is added rather than the schema
+        // version raised, so an older Magpie can still open the store.
+        let counted: bool = sql(transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('jobs') WHERE name='attempts')",
+            [],
+            |r| r.get(0),
+        ))?;
+        if !counted {
+            sql(transaction.execute_batch(
+                "ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
+            ))?;
+        }
+        let listed: bool = sql(transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('unsaved') WHERE name='generation')",
+            [],
+            |r| r.get(0),
+        ))?;
+        if !listed {
+            sql(transaction.execute_batch(
+                "ALTER TABLE unsaved ADD COLUMN generation INTEGER NOT NULL DEFAULT 0",
+            ))?;
+        }
         super::inbox::reset(&transaction)?;
         sql(transaction.commit())?;
         let readers = (0..2)
@@ -201,6 +285,46 @@ impl Store {
             listener: Mutex::new(None),
             fetches: Mutex::new(Default::default()),
         }))
+    }
+    /// Brings messages saved under older rules up to the current ones from their saved copies,
+    /// without fetching them again. Text holding bytes that are not valid in its declared character
+    /// set used to count as incomplete and was fetched again every few minutes, forever; it is now
+    /// complete. Text that cannot be read is left to its next fetch, because only Gmail's own copy
+    /// can show that it will never be readable. Runs once per store; a repair that fails is tried
+    /// again the next time the store opens, and the mail stays usable meanwhile.
+    pub(super) fn repair_text(&self) -> Result<()> {
+        const DONE: &str = "1";
+        if self.read(|db| state(db, "textRepair"))? == DONE {
+            return Ok(());
+        }
+        let rows: Vec<(String, String)> = self.read(|db| {
+            let mut query = sql(db.prepare("SELECT id,blob FROM messages WHERE text_complete=0 AND id NOT IN (SELECT id FROM unsaved)"))?;
+            let rows = sql(query.query_map([], |r| Ok((r.get(0)?, r.get(1)?))))?;
+            sql(rows.collect::<rusqlite::Result<Vec<_>>>())
+        })?;
+        for (id, blob) in rows {
+            let Ok(Some(resource)) = self.resource(&id) else {
+                continue;
+            };
+            if content::extract(&resource).completeness != Completeness::Complete {
+                continue;
+            }
+            self.write(|db| {
+                // The search index already holds this text; only the verdict on it changes. A copy
+                // replaced since it was read is left to the rules it was saved under.
+                let repaired = sql(db.execute(
+                    "UPDATE messages SET text_complete=1 WHERE id=?1 AND blob=?2 AND text_complete=0",
+                    params![id, blob],
+                ))?;
+                if repaired > 0 {
+                    // A fetch that gave up on it after it was read here is outdated now.
+                    sql(db.execute("DELETE FROM unsaved WHERE id=?1", [&id]))?;
+                    labels_only(db, &id)?;
+                }
+                Ok(())
+            })?;
+        }
+        self.write(|db| set_state(db, "textRepair", DONE))
     }
     pub(super) fn fetch_gate(&self, id: &str) -> Result<Arc<tokio::sync::Mutex<()>>> {
         let mut fetches = self
@@ -277,13 +401,24 @@ impl Store {
             let snapshot = sql(db.unchecked_transaction())?;
             let db = &snapshot;
             let (stored, complete): (i64,i64) = sql(db.query_row("SELECT (SELECT count(*) FROM messages),(SELECT count(*) FROM messages WHERE text_complete=1)", [], |r| Ok((r.get(0)?,r.get(1)?))))?;
+            // Messages that can never be saved in full count as settled, and are reported by reason.
+            let stored_unsaved: i64 = sql(db.query_row("SELECT count(*) FROM messages WHERE text_complete=0 AND id IN (SELECT id FROM unsaved)", [], |r| r.get(0)))?;
+            let mut reasons = serde_json::Map::new();
+            let mut unsaved = 0;
+            let mut query = sql(db.prepare("SELECT reason,count(*) FROM unsaved GROUP BY reason ORDER BY reason"))?;
+            for row in sql(query.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))))? {
+                let (reason, count) = sql(row)?;
+                unsaved += count;
+                reasons.insert(reason, json!(count));
+            }
             let pending: i64 = sql(db.query_row("SELECT count(*) FROM jobs", [], |r| r.get(0)))?;
             let failed: i64 = sql(db.query_row("SELECT count(*) FROM jobs WHERE error NOT IN ('','gmail_request_deferred')", [], |r| r.get(0)))?;
             let edits: i64 = sql(db.query_row("SELECT count(DISTINCT ticket) FROM edits WHERE state IN ('queued','sending')", [], |r| r.get(0)))?;
             let conflicts: i64 = sql(db.query_row("SELECT count(DISTINCT ticket) FROM edits WHERE state='conflict'",[],|r|r.get(0)))?;
             let inventory = state(db,"inventoryComplete")? == "true";
             Ok(json!({"stored":stored,"textComplete":complete,"pending":pending,"failed":failed,
-                "pendingEdits":edits,"editConflicts":conflicts,"inventoryComplete":inventory,"complete":inventory && pending==0 && stored==complete,
+                "unsaved":unsaved,"unsavedReasons":reasons,
+                "pendingEdits":edits,"editConflicts":conflicts,"inventoryComplete":inventory,"complete":inventory && pending==0 && stored==complete+stored_unsaved,
                 "paused":state(db,"paused")?=="true","error":state(db,"error")?,"updated":state(db,"updated")?,
                 "estimatedTotal":state(db,"estimate")?.parse::<u64>().unwrap_or(0),"health":super::inbox::health(db)?}))
         })
@@ -616,6 +751,7 @@ impl Store {
                 return Err("gmail_not_found");
             }
             let previously_complete: bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1 AND text_complete=1)", [id], |r| r.get(0)))?;
+            let given_up: bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM unsaved WHERE id=?1)", [id], |r| r.get(0)))?;
             let mut base = json!(server_labels(resource)?);
             if !authoritative {
                 let previous: Option<String> = sql(db.query_row("SELECT server_labels FROM messages WHERE id=?1", [id], |row| row.get(0)).optional())?;
@@ -623,18 +759,38 @@ impl Store {
             }
             sql(db.execute("INSERT INTO messages(id,thread_id,date,summary,blob,server_labels,sender,recipients,copied,subject,filenames,has_attachment,text_complete,generation) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id,date=excluded.date,summary=excluded.summary,blob=excluded.blob,server_labels=excluded.server_labels,sender=excluded.sender,recipients=excluded.recipients,copied=excluded.copied,subject=excluded.subject,filenames=excluded.filenames,has_attachment=excluded.has_attachment,text_complete=excluded.text_complete,generation=max(messages.generation,excluded.generation)",
                 params![id,resource["threadId"].as_str().unwrap_or(""),resource["internalDate"].as_str().and_then(|v|v.parse::<i64>().ok()).unwrap_or(0),
-                    summary.to_string(),hash,base.to_string(),sender.to_lowercase(),recipients.to_lowercase(),copied.to_lowercase(),subject,text.filenames.to_lowercase(),summary["hasAttachments"]==true,text.complete,generation]))?;
+                    summary.to_string(),hash,base.to_string(),sender.to_lowercase(),recipients.to_lowercase(),copied.to_lowercase(),subject,text.filenames.to_lowercase(),summary["hasAttachments"]==true,text.complete(),generation]))?;
             replace_labels(db,id,&base)?;
             if authoritative {
                 super::inbox::resource(db,id,&base)?;
-                if text.complete && !previously_complete {super::inbox::downloaded(db,id)?;}
+                if text.complete() && !previously_complete {super::inbox::downloaded(db,id)?;}
             }
             sql(db.execute("DELETE FROM search WHERE rowid=(SELECT rowid FROM messages WHERE id=?1)",[id]))?;
             sql(db.execute("INSERT INTO search(rowid,id,subject,sender,recipients,copied,filenames,body) VALUES((SELECT rowid FROM messages WHERE id=?1),?1,?2,?3,?4,?5,?6,?7)",
                 params![id,subject,sender,recipients,copied,text.filenames,text.body]))?;
-            if text.complete && authoritative {sql(db.execute("DELETE FROM jobs WHERE id=?1",[id]))?;}
-            else if text.complete {sql(db.execute("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,'metadata',50,?2) ON CONFLICT(id) DO UPDATE SET kind='metadata',retry_at=0,generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;}
-            else {sql(db.execute("INSERT INTO jobs(id,error,retry_at,generation) VALUES(?1,'local_text_incomplete',?2,?3) ON CONFLICT(id) DO UPDATE SET error=excluded.error,retry_at=excluded.retry_at,kind='content',generation=max(jobs.generation,excluded.generation)",params![id,chrono::Utc::now().timestamp_millis()+300_000,generation]))?;}
+            match text.completeness {
+                // Only Gmail's own copy shows that text can never be read; an unreadable local or
+                // cached copy leaves the decision to a fetch from Gmail.
+                Completeness::Unreadable if !authoritative && !given_up => {
+                    sql(db.execute("INSERT INTO jobs(id,generation) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET kind='content',generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;
+                }
+                // A saved message, or one that can never be saved in full, needs only its labels
+                // checked, and not even that when this copy came straight from Gmail.
+                Completeness::Complete | Completeness::Unreadable => {
+                    if text.completeness == Completeness::Complete {
+                        sql(db.execute("DELETE FROM unsaved WHERE id=?1", [id]))?;
+                    } else if authoritative {
+                        give_up(db, id, "local_text_unreadable")?;
+                    }
+                    if authoritative {sql(db.execute("DELETE FROM jobs WHERE id=?1",[id]))?;}
+                    else {sql(db.execute("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,'metadata',50,?2) ON CONFLICT(id) DO UPDATE SET kind='metadata',error='',attempts=0,retry_at=0,generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;}
+                }
+                Completeness::Missing => {
+                    sql(db.execute("DELETE FROM unsaved WHERE id=?1", [id]))?;
+                    sql(db.execute("INSERT INTO jobs(id,generation) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET kind='content',generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;
+                    retry_later(db, id, "local_text_incomplete", chrono::Utc::now().timestamp_millis())?;
+                }
+            }
             Ok(())
         })
     }
@@ -687,7 +843,7 @@ impl Store {
                 sql(db.execute("INSERT INTO edits(ticket,id,additions,removals,before_labels) VALUES(?1,?2,?3,?4,?5)",
                     params![ticket,id,json!(add).to_string(),json!(remove).to_string(),before.to_string()]))?;
                 if let Some(base)=base {replace_labels(db,id,&decode(&base)?)?;}
-                else {sql(db.execute("INSERT INTO jobs(id,priority,generation) VALUES(?1,1000,0) ON CONFLICT(id) DO UPDATE SET priority=1000,retry_at=0",[id]))?;}
+                else {sql(db.execute(&format!("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,{FETCH_KIND},1000,0) ON CONFLICT(id) DO UPDATE SET priority=1000,retry_at=0,attempts=0"),[id]))?;}
             }
             Ok(json!({"ticket":ticket,"queued":true}))
         })
@@ -759,5 +915,6 @@ pub(super) fn delete(db: &Connection, id: &str) -> Result<()> {
     ))?;
     sql(db.execute("DELETE FROM messages WHERE id=?1", [id]))?;
     sql(db.execute("DELETE FROM jobs WHERE id=?1", [id]))?;
+    sql(db.execute("DELETE FROM unsaved WHERE id=?1", [id]))?;
     Ok(())
 }

@@ -32,7 +32,7 @@ use std::{
 use store::Store;
 
 pub(crate) fn text_complete(resource: &Value) -> bool {
-    content::extract(resource).complete
+    content::extract(resource).complete()
 }
 
 pub(crate) fn search_metadata(input: &str, email: &str, as_of: i64) -> Value {
@@ -268,6 +268,10 @@ impl LocalMail {
             };
             let store = Store::open(directory)?;
             stores.insert(account, store.clone());
+            // Other accounts' stores open while this one is repaired; the repair commits each
+            // message separately, so a store in use meanwhile stays consistent.
+            drop(stores);
+            let _ = store.repair_text();
             Ok(Some(store))
         })
         .await

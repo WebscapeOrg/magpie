@@ -121,5 +121,22 @@ Item {
       mailbox.status=({complete:true,error:""})
       verify(!notice.visible)
     }
+    function test_mail_that_cannot_be_saved_is_counted_with_its_reason() {
+      var damaged = "2 messages could not be saved in full because Gmail's copy of their text is damaged."
+      mailbox.status=({complete:true,unsaved:2,unsavedReasons:{local_text_unreadable:2}})
+      verify(notice.visible)
+      verify(findText(notice,damaged))
+      verify(!findText(notice,"Local search covers downloaded text. Files download when opened.").visible)
+      verify(!findText(notice,"Pause downloads").visible, "finished mail offers no download controls")
+      verify(!findText(notice,"Search online").visible)
+      mailbox.status=({complete:false,textComplete:501,estimatedTotal:1200,unsaved:2,unsavedReasons:{local_text_unreadable:2}})
+      verify(findText(notice,"501 of about 1200 messages saved for offline use. " + damaged), "progress stays visible")
+      verify(findText(notice,"Pause downloads").visible)
+      mailbox.status=({complete:false,failed:3,unsaved:2,unsavedReasons:{local_text_unreadable:2}})
+      verify(findText(notice,"3 messages could not finish downloading. Sync will retry automatically. " + damaged))
+      notice.searchActive = true
+      mailbox.status=({complete:true,unsaved:2,unsavedReasons:{local_text_unreadable:2}})
+      verify(!notice.visible)
+    }
   }
 }

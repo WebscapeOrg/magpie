@@ -3,7 +3,6 @@
 import argparse
 import hashlib
 import importlib.util
-import ipaddress
 import json
 import os
 from pathlib import Path
@@ -77,8 +76,12 @@ def runtime():
     if result["state"] != "ready" or result["executable"] != str(DATA / "bin/omamail"):
         raise RuntimeError("Install the verified private backend first")
     info = json.loads(command([result["executable"], "info", "--json"]))
-    if info.get("apiVersion", 0) < 8 or "phone.pairBegin" not in info.get("methods", []):
-        raise RuntimeError("Installed backend does not support the phone service")
+    # Builds from before the iPhone ran its own engine also report API 8 but still list phone
+    # methods and open a phone listener, so they are refused here.
+    methods = info.get("methods")
+    if (info.get("apiVersion", 0) < 8 or "engineService" not in info or not isinstance(methods, list)
+            or any(isinstance(name, str) and name.startswith("phone.") for name in methods)):
+        raise RuntimeError("Installed backend does not support the shared mail service")
     return result["executable"]
 
 
@@ -133,11 +136,7 @@ def install_certificate():
 
 def prepare():
     binary = runtime()
-    address = command(["tailscale", "ip", "-4"])
-    if ipaddress.ip_address(address) not in ipaddress.ip_network("100.64.0.0/10"):
-        raise RuntimeError("the main machine's private network address is unavailable")
     certificate()
-    write(PHONE / "server.json", json.dumps({"listen": address + ":3450", "host": HOST + ":3450"}).encode())
     environment = service_environment()
     unit(UNIT, "# Managed by Magpie\n[Unit]\nDescription=Magpie mail engine\nAfter=network-online.target\n"
          + "ConditionPathExists=" + condition_path(STATE / "engine-enabled") + "\n"
@@ -147,7 +146,6 @@ def prepare():
     prepare_certificate_units(environment)
     records = {name: hashlib.sha256((CONFIG / "systemd/user" / name).read_bytes()).hexdigest()
                for name in [UNIT, "magpie-certificate.service", "magpie-certificate.timer"]}
-    records["server.json"] = hashlib.sha256((PHONE / "server.json").read_bytes()).hexdigest()
     write(PHONE / "prepared.json", json.dumps(records).encode())
     command(["systemctl", "--user", "daemon-reload"])
 
@@ -184,8 +182,8 @@ def enable():
     prepared = PHONE / "prepared.json"
     safe(prepared)
     records = json.loads(prepared.read_bytes())
-    for name in [UNIT, "magpie-certificate.service", "magpie-certificate.timer", "server.json"]:
-        path = PHONE / name if name == "server.json" else CONFIG / "systemd/user" / name
+    for name in [UNIT, "magpie-certificate.service", "magpie-certificate.timer"]:
+        path = CONFIG / "systemd/user" / name
         safe(path)
         content = path.read_bytes()
         if records.get(name) != hashlib.sha256(content).hexdigest():
@@ -212,10 +210,9 @@ def main():
         enable()
     elif args.action == "install-certificate":
         install_certificate()
-    elif certificate():
-        for name in [UNIT, "magpie-ota.service"]:
-            if (CONFIG / "systemd/user" / name).is_file():
-                command(["systemctl", "--user", "try-restart", name])
+    elif certificate() and (CONFIG / "systemd/user/magpie-ota.service").is_file():
+        # Only the iPhone installation page serves the certificate; the mail engine has no listener.
+        command(["systemctl", "--user", "try-restart", "magpie-ota.service"])
 
 
 if __name__ == "__main__":

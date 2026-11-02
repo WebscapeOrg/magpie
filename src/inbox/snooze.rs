@@ -2,7 +2,7 @@
 //! five-minute wake slot, such as `Magpie-snooze-2026-11-02-0500-UTC`, so every Magpie signed in
 //! to the account (desktop, iPhone, iPad) can list and wake it, whichever runs first.
 //! `snoozes.json` mirrors those labels on this device: it answers snapshots offline and holds
-//! snoozes Gmail has not confirmed yet. Per-thread revisions keep paired phone requests ordered.
+//! snoozes Gmail has not confirmed yet. Each change gives the row a new `generation`.
 use super::{account, fields, now, store};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashSet};
@@ -150,11 +150,8 @@ fn note(account: &str) -> Result<()> {
     })
 }
 
-pub(super) fn revisions(account: &str) -> Result<Value> {
-    bookkeeping(&store::key(&["snooze-revisions", account]))
-}
-/// Reads a bookkeeping file, starting it again when it is damaged. These files only save work or
-/// let a phone notice a change, so a damaged one must not stop snooze on this device.
+/// Reads a bookkeeping file, starting it again when it is damaged. These files only save work, so a
+/// damaged one must not stop snooze on this device.
 fn bookkeeping(name: &str) -> Result<Value> {
     match store::read(name) {
         Ok(Some(saved)) if saved.is_object() => Ok(saved),
@@ -166,10 +163,6 @@ fn bookkeeping(name: &str) -> Result<Value> {
         Err(error) => Err(error),
     }
 }
-#[cfg(test)]
-pub(super) fn advance(account: &str, thread: &str) -> Result<String> {
-    advance_operation(account, thread, None)
-}
 fn random() -> Result<String> {
     let mut entropy = [0; 16];
     rustls::crypto::ring::default_provider()
@@ -179,39 +172,14 @@ fn random() -> Result<String> {
     use base64::Engine;
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(entropy))
 }
-fn advance_operation(account: &str, thread: &str, operation: Option<&str>) -> Result<String> {
+/// A new generation for a change to a thread's snooze, noting the account so its bookkeeping is
+/// cleared when it signs out.
+fn advance(account: &str, thread: &str) -> Result<String> {
     if thread.is_empty() {
         return random();
     }
-    if let Some(operation) = operation {
-        let versions = revisions(account)?;
-        if versions[thread]["operationId"] == operation {
-            return versions[thread]["revision"]
-                .as_str()
-                .map(str::to_owned)
-                .ok_or("inbox_storage_invalid");
-        }
-    }
-    let generation = random()?;
     note(account)?;
-    revisions(account)?;
-    store::update(&store::key(&["snooze-revisions", account]), |saved| {
-        if !saved.is_object() {
-            *saved = json!({});
-        }
-        let records = saved.as_object_mut().ok_or("inbox_storage_invalid")?;
-        records.retain(|_, v| {
-            v["updated"]
-                .as_i64()
-                .is_some_and(|t| t > now() - 31 * 86_400_000)
-        });
-        records.insert(
-            thread.to_owned(),
-            json!({"revision":generation,"updated":now(),"operationId":operation}),
-        );
-        Ok(())
-    })?;
-    Ok(generation)
+    random()
 }
 
 fn rows() -> Result<Map<String, Value>> {
@@ -266,8 +234,7 @@ fn confirm(key: &str, name: &str, label: &str) -> Result<()> {
         Ok(())
     })
 }
-/// Moves a row to the slot another device chose, with the thread's new revision, so a phone holding
-/// the old one cannot act on it.
+/// Moves a row to the slot another device chose, with a new generation for the thread.
 fn readopt(key: &str, slot: &Slot, generation: &str) -> Result<()> {
     change(|rows| {
         if let Some(row) = rows.get_mut(key) {
@@ -569,7 +536,7 @@ fn held(account: &str, key: &str, thread: &str) -> Result<Option<String>> {
     Ok(found.and_then(|(other, _)| seen(&saved, other, account, None).as_str().map(str::to_owned)))
 }
 
-async fn snooze(gmail: &impl Mail, p: &Value, operation: Option<&str>) -> Result<Value> {
+async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
     fields(p, &["accountId", "id", "until", "subject"])?;
     let account = account(p)?;
     let id = p["id"].as_str().ok_or("invalid_params")?;
@@ -595,7 +562,7 @@ async fn snooze(gmail: &impl Mail, p: &Value, operation: Option<&str>) -> Result
             let over = seen(&rows()?, &key, &account, None);
             record(
                 &key,
-                json!({"generation":random()?,"operationId":operation,"accountId":account,"id":id,"ids":[],"until":until,"state":"pending","subject":shown,"threadId":"","label":name,"at":at,"over":over}),
+                json!({"generation":random()?,"accountId":account,"id":id,"ids":[],"until":until,"state":"pending","subject":shown,"threadId":"","label":name,"at":at,"over":over}),
             )?;
             return Err("snooze_pending_retry");
         }
@@ -603,10 +570,10 @@ async fn snooze(gmail: &impl Mail, p: &Value, operation: Option<&str>) -> Result
     };
     let ids = thread.ids(|_, _| true)?;
     let over = seen(&rows()?, &key, &account, Some(&thread.id));
-    let generation = advance_operation(&account, &thread.id, operation)?;
+    let generation = advance(&account, &thread.id)?;
     record(
         &key,
-        json!({"generation":generation,"operationId":operation,"accountId":account,"id":id,"ids":ids,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name,"at":at,"over":over}),
+        json!({"generation":generation,"accountId":account,"id":id,"ids":ids,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name,"at":at,"over":over}),
     )?;
     let landed = match listing(gmail.labels(&account).await) {
         Ok(known) => settle(gmail, &account, &thread, &ids, &name, &known).await,
@@ -685,7 +652,7 @@ async fn retry(gmail: &impl Mail, account: &str, key: &str, row: &Value, known: 
     if changed || woken_early {
         // Dave snoozed or returned this thread on another device after choosing this snooze
         // here, so that later choice stands.
-        advance_operation(account, &thread.id, None)?;
+        advance(account, &thread.id)?;
         forget(key)?;
         return Ok(());
     }
@@ -693,11 +660,7 @@ async fn retry(gmail: &impl Mail, account: &str, key: &str, row: &Value, known: 
         Ok(ids) => ids,
         Err(_) => return forget(key),
     };
-    fresh["generation"] = json!(advance_operation(
-        account,
-        &thread.id,
-        row["operationId"].as_str()
-    )?);
+    fresh["generation"] = json!(advance(account, &thread.id)?);
     fresh["ids"] = json!(ids);
     record(key, fresh)?;
     match settle(gmail, account, &thread, &ids, &name, known).await {
@@ -822,7 +785,7 @@ async fn upgrade(gmail: &impl Mail, account: &str, key: &str, row: &Value, known
         .filter(|slot| messages.iter().any(|message| has(message, &slot.id)))
         .next_back()
     {
-        let generation = advance_operation(account, thread, None)?;
+        let generation = advance(account, thread)?;
         readopt(key, latest, &generation)?;
         return Ok(());
     }
@@ -834,7 +797,7 @@ async fn upgrade(gmail: &impl Mail, account: &str, key: &str, row: &Value, known
         .map(str::to_owned)
         .collect();
     if back.is_empty() {
-        advance_operation(account, thread, None)?;
+        advance(account, thread)?;
         forget(key)?;
         return Ok(());
     }
@@ -870,17 +833,13 @@ fn row_for(account: &str, id: &str) -> Result<(String, Value)> {
         .ok_or("snooze_missing")
 }
 
-async fn wake_chosen(gmail: &impl Mail, p: &Value, operation: Option<&str>) -> Result<Value> {
+async fn wake_chosen(gmail: &impl Mail, p: &Value) -> Result<Value> {
     fields(p, &["accountId", "id"])?;
     let account = account(p)?;
     let id = p["id"].as_str().ok_or("invalid_params")?;
     crate::mail::action::validate_message_id(crate::mail::Provider::Gmail, id)?;
     let (key, row) = row_for(&account, id)?;
-    advance_operation(
-        &account,
-        row["threadId"].as_str().ok_or("inbox_storage_invalid")?,
-        operation,
-    )?;
+    advance(&account, row["threadId"].as_str().ok_or("inbox_storage_invalid")?)?;
     // An unresolved snooze ends here without Gmail, so it can be cancelled offline.
     let known = if wanted_ids(&row)?.is_empty() {
         Vec::new()
@@ -931,7 +890,7 @@ async fn discover(
         if until <= at - KEEP_DUE {
             // Magpie deletes a due label once it has kept it long enough after its thread came
             // back, so another Magpie returned it.
-            advance_operation(account, &thread, None)?;
+            advance(account, &thread)?;
             forget(&key)?;
         } else if until <= at {
             // A due label deleted sooner was deleted in Gmail; the wake returns the mail.
@@ -1075,7 +1034,7 @@ async fn reconcile(
                 Err(_) => continue,
             };
             if !carried {
-                advance_operation(account, thread, None)?;
+                advance(account, thread)?;
                 forget(key)?;
             }
         }
@@ -1089,7 +1048,7 @@ async fn reconcile(
                 // A pending row is settled by retry, which checks this slot against what Dave
                 // saw when he chose it.
                 if row["state"] == "sleeping" && row["labelId"] != slot.id.as_str() {
-                    let generation = advance_operation(account, thread, None)?;
+                    let generation = advance(account, thread)?;
                     readopt(key, slot, &generation)?;
                 }
             }
@@ -1103,10 +1062,10 @@ async fn reconcile(
                     Err(error) if transient(error) => return Err(error),
                     Err(_) => json!(""),
                 };
-                let generation = advance_operation(account, thread, None)?;
+                let generation = advance(account, thread)?;
                 record(
                     &store::key(&[account, first]),
-                    json!({"generation":generation,"operationId":null,"accountId":account,"id":first,"ids":ids,"until":slot.until,"state":"sleeping","subject":subject,"threadId":thread,"label":slot.name,"labelId":slot.id}),
+                    json!({"generation":generation,"accountId":account,"id":first,"ids":ids,"until":slot.until,"state":"sleeping","subject":subject,"threadId":thread,"label":slot.name,"labelId":slot.id}),
                 )?;
             }
             None => {}
@@ -1148,6 +1107,7 @@ fn drop_accounts(accounts: &[String]) -> Result<()> {
     // due mail.
     let mut cleared = true;
     for account in &gone {
+        // Engines that still served paired phones also kept per-thread revisions for them.
         for kind in ["snooze-labels", "snooze-revisions"] {
             cleared &= store::remove(&store::key(&[kind, account])).is_ok();
         }
@@ -1216,11 +1176,11 @@ async fn tick(gmail: &impl Mail, seconds: u64) -> Result<Value> {
         let slots = &known[account];
         let outcome = match job {
             Work::Wake => match wake(gmail, account, &row, false, slots).await {
-                Ok(Woke::Moved(slot)) => advance_operation(account, thread, None)
+                Ok(Woke::Moved(slot)) => advance(account, thread)
                     .and_then(|generation| readopt(&key, &slot, &generation)),
                 Ok(outcome) => {
                     woke += matches!(outcome, Woke::Done) as u64;
-                    advance_operation(account, thread, None).and_then(|_| forget(&key))
+                    advance(account, thread).and_then(|_| forget(&key))
                 }
                 Err(error) => Err(error),
             },
@@ -1253,14 +1213,6 @@ async fn tick(gmail: &impl Mail, seconds: u64) -> Result<Value> {
 }
 
 pub(super) async fn call(method: &str, p: &Value, gmail: &impl Mail) -> Result<Value> {
-    call_with_operation(method, p, gmail, None).await
-}
-pub(super) async fn call_with_operation(
-    method: &str,
-    p: &Value,
-    gmail: &impl Mail,
-    operation: Option<&str>,
-) -> Result<Value> {
     match method {
         "inbox.tick" => {
             fields(p, &["seconds"])?;
@@ -1273,8 +1225,8 @@ pub(super) async fn call_with_operation(
             };
             tick(gmail, seconds).await
         }
-        "inbox.wake" => wake_chosen(gmail, p, operation).await,
-        _ => snooze(gmail, p, operation).await,
+        "inbox.wake" => wake_chosen(gmail, p).await,
+        _ => snooze(gmail, p).await,
     }
 }
 

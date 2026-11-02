@@ -69,9 +69,6 @@ pub fn serve() -> io::Result<()> {
         let listener = endpoint.listen().map_err(io::Error::other)?;
         let engine = Arc::new(Engine::default());
         let (stop, mut maintenance_stop) = tokio::sync::watch::channel(false);
-        let phone_engine=engine.clone();let phone_stop=stop.subscribe();
-        let mut phone_servers=tokio::task::JoinSet::new();
-        phone_servers.spawn_local(super::phone::serve(phone_engine,phone_stop));
         let mut service_error=None;
         let maintenance = engine.clone();
         let scheduler = tokio::task::spawn_local(async move {
@@ -104,15 +101,6 @@ pub fn serve() -> io::Result<()> {
                 let _ = maintenance.dispatch("inbox.tick", &json!({})).await;
             }
         });
-        let notifications=engine.clone(); let mut notification_stop=stop.subscribe();
-        let notifier=tokio::task::spawn_local(async move {
-            let mut tick=tokio::time::interval(Duration::from_secs(30));
-            loop {
-                tokio::select! { _=tick.tick()=>(), _=notification_stop.changed()=>break }
-                if *notification_stop.borrow() { break; }
-                let _=notifications.phone.notify(&notifications).await;
-            }
-        });
         let mut clients = tokio::task::JoinSet::new();
         let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
         loop {
@@ -124,15 +112,10 @@ pub fn serve() -> io::Result<()> {
                     clients.spawn_local(connection_task(stream, Arc::new(engine.frontend()), stop.subscribe()));
                 },
                 _ = clients.join_next(), if !clients.is_empty() => (),
-                result = phone_servers.join_next(), if !phone_servers.is_empty() => { if let Some(result)=result { service_error=result.map_err(io::Error::other).and_then(|v|v).err(); if service_error.is_some() { break; } } },
             }
         }
         let _ = stop.send(true);
         let _ = scheduler.await;
-        let _ = notifier.await;
-        while let Some(result)=phone_servers.join_next().await { if let Err(error)=result.map_err(io::Error::other).and_then(|v|v) { service_error=Some(error); } }
-        engine.phone.active.store(false, std::sync::atomic::Ordering::Release);
-        engine.phone.drain().await;
         while clients.join_next().await.is_some() {}
         engine.shutdown().await.map_err(io::Error::other)?;
         match service_error { Some(error)=>Err(error),None=>Ok(()) }

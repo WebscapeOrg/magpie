@@ -1083,6 +1083,7 @@ async fn damaged_bookkeeping_is_started_again_and_never_stops_snooze() {
     for file in &files {
         let path = fixture.state.join("omamail/inbox").join(file);
         std::fs::write(&path, b"{damaged").unwrap();
+        #[cfg(unix)]
         std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
         assert_eq!(store::read(file), Err("inbox_storage_invalid"));
     }

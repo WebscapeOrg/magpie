@@ -31,17 +31,7 @@ pub struct Store {
     #[cfg(test)]
     pub(super) reads: std::cell::Cell<usize>,
 }
-pub fn check_id(id: &str) -> Result<()> {
-    if id.len() == 32
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        Ok(())
-    } else {
-        Err("agent_invalid_id")
-    }
-}
+pub use super::payload::check_id;
 fn filename(name: &str) -> Result<CString> {
     if !matches!(
         name,

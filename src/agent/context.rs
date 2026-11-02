@@ -256,7 +256,7 @@ impl Contexts {
                 if !preceding.is_empty() {
                     payload["threadMessages"] = json!(preceding);
                 }
-                super::jobs::validate_payload(&payload)?;
+                super::payload::validate_payload(&payload)?;
             }
             Ok(json!({"payload":payload}))
         };
@@ -443,7 +443,7 @@ pub fn build(
     } else {
         json!({"messageId":"","messages":rows.iter().zip(texts).map(|(r,t)|json!({"messageId":r["id"],"message":t})).collect::<Vec<_>>(),"accountId":account_id,"account":account,"folder":folder,"subject":format!("{} messages",rows.len()),"prompt":prompt.trim(),"message":""})
     };
-    super::jobs::validate_payload(&payload)
+    super::payload::validate_payload(&payload)
 }
 
 #[cfg(test)]

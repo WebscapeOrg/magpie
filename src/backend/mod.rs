@@ -111,6 +111,8 @@ impl Engine {
     // Performance: Heap-box provider futures because uploaded requests re-enter dispatch; embedding
     // them overflowed the worker stack in the large-request integration test.
     pub fn set_suspended_now(&self, suspended: bool) {
+        #[cfg(feature = "mobile")]
+        crate::inbox::claude::diagnostics::foreground(!suspended);
         self.outbox.set_suspended_now(suspended);
         self.local_mail.set_suspended(suspended);
     }

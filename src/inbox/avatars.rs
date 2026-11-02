@@ -202,9 +202,9 @@ pub(super) async fn organization_image(domain: &str) -> Option<String> {
     );
     crate::public_http::image(&url).await.ok()
 }
-/// The sender's painted picture cut to the circle, cached until it is painted again.
-/// The sender's painted picture, prepared for the avatar circle. Any problem with the pictures
-/// store means no painted picture, so the usual avatar is shown instead.
+/// The sender's painted picture, prepared for the avatar circle and cached until it is painted
+/// again. Any problem with the pictures store means no painted picture, so the usual avatar is
+/// shown instead.
 #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
 async fn painted(account: &str, address: &str) -> Option<Value> {
     let (owner, sender) = (account.to_owned(), address.to_owned());
@@ -230,6 +230,34 @@ async fn painted(account: &str, address: &str) -> Option<Value> {
     let value = json!({"data":image,"source":"painted","painted":painted,"updated":now(),"owner":account});
     let _ = store::cache(&name, &value);
     Some(value)
+}
+/// Deletes the prepared painted pictures of accounts that are not in `accounts`. Blocks: call it off
+/// the async threads.
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+pub(super) fn forget_painted(accounts: &[String]) -> Result<(), &'static str> {
+    use crate::platform::{dirs::AppDirs, private_fs};
+    let Some(dir) = private_fs::directories(&AppDirs::discover()?.state, &["omamail", "inbox"], false)? else {
+        return Ok(());
+    };
+    let _lock = private_fs::lock_exclusive(&dir, ".cache-lock")?;
+    let mut removed = false;
+    for name in private_fs::names(&dir)? {
+        if !name.starts_with("avatar-") {
+            continue;
+        }
+        let Ok(Some(row)) = store::read(&name) else {
+            continue;
+        };
+        let owner = row["owner"].as_str().unwrap_or("");
+        if row["source"] == "painted" && !accounts.iter().any(|account| account == owner) {
+            private_fs::remove_owned(&dir, &name)?;
+            removed = true;
+        }
+    }
+    if removed {
+        private_fs::sync_dir(&dir)?;
+    }
+    Ok(())
 }
 fn organization_artwork(domain: &str) -> Option<&'static str> {
     match domain {

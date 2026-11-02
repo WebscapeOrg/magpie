@@ -75,6 +75,11 @@ fn a_company_is_one_picture_across_its_subdomains() {
     assert_eq!(subject_for(me, "billing@acme.co.uk", 'B', &photos), company);
     assert_eq!(subject_for(me, "a@mail.shop.example.com", 'A', &photos), Subject::Organization { domain: "example.com".into() });
     assert_eq!(subject_for(me, "x@co.za", 'X', &photos), Subject::Organization { domain: "co.za".into() });
+    // Names under a hosting suffix are free to make, so they share the host's picture.
+    let host = Subject::Organization { domain: "github.io".into() };
+    assert_eq!(subject_for(me, "a@one.github.io", 'A', &photos), host);
+    assert_eq!(subject_for(me, "b@two.github.io", 'B', &photos), host);
+    assert_eq!(subject_for(me, "c@deep.acme.example", 'C', &photos), Subject::Organization { domain: "acme.example".into() });
     assert_eq!(subject_for(me, "x@gmail.com", 'X', &photos), Subject::Monogram { letter: 'X' });
 }
 
@@ -230,6 +235,15 @@ fn a_changed_key_stops_a_run_and_its_old_refusal_does_not_count() {
     assert!(state.get("problem").is_none());
     assert_eq!(spent_today(&state, AT), 0);
     assert_eq!(state["subjects"][&name]["state"], "waiting");
+    // Late answers to the old key do not pause the new one.
+    for fault in [openai::Fault::Billing, openai::Fault::RateLimited(None), openai::Fault::Model, openai::Fault::Lost { charged: false }] {
+        assert!(record(&dir, &mut state, &name, Outcome::Fault(fault), AT, 1).unwrap());
+        assert!(state.get("problem").is_none());
+        assert!(blocking_problem(&state, AT).is_none());
+    }
+    assert_eq!(state["subjects"][&name]["attempts"], 1);
+    assert!(record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Billing), AT, 2).unwrap());
+    assert_eq!(state["problem"], "pictures_billing");
     let generation = key_changed()().unwrap();
     assert_eq!(generation, 1);
     assert_eq!(key_changed()().unwrap(), 2);
@@ -500,7 +514,32 @@ async fn a_key_is_saved_only_after_openai_accepts_it() {
     })
     .await;
     assert_eq!(*saved.lock().unwrap(), vec!["sk-synthetic-test-key-1111111111".to_owned()]);
+    // The key generation moved before and after the keyring changed.
+    let dir = directory(false).unwrap().unwrap();
+    assert_eq!(read_state(&dir).unwrap()["keyGeneration"], 2);
     let requests = server.requests();
     assert_eq!(requests.len(), 2);
     assert!(requests.iter().all(|(line, _, _)| line == "GET /v1/models/gpt-image-2 HTTP/1.1"));
+}
+
+#[test]
+fn prepared_painted_avatars_of_removed_accounts_are_deleted() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let rows = [
+        ("avatar-kept", json!({"source":"painted","owner":"me@example.org","data":"x"})),
+        ("avatar-gone", json!({"source":"painted","owner":"gone@example.org","data":"x"})),
+        ("avatar-contact", json!({"source":"contact","owner":"gone@example.org","data":"x"})),
+    ];
+    for (name, value) in &rows {
+        super::super::store::cache(name, value).unwrap();
+    }
+    avatars::forget_painted(&["me@example.org".to_owned()]).unwrap();
+    assert!(super::super::store::read("avatar-kept").unwrap().is_some());
+    assert!(super::super::store::read("avatar-gone").unwrap().is_none());
+    assert!(super::super::store::read("avatar-contact").unwrap().is_some());
+    avatars::forget_painted(&[]).unwrap();
+    assert!(super::super::store::read("avatar-kept").unwrap().is_none());
 }

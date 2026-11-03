@@ -944,7 +944,8 @@ fn has_pictures(state: &Value) -> bool {
         .is_some_and(|subjects| subjects.values().any(|row| matches!(row["state"].as_str(), Some("painted" | "recheck"))))
 }
 
-/// Records which picture each sender gets and, with a key, paints the ones due.
+/// Records which picture each sender gets and, with a key, paints the ones due. A sender newly
+/// given a painted picture, such as one taken in from iCloud, tells the window to show it.
 async fn match_and_paint(
     owner: String,
     assignments: Vec<(String, Subject)>,
@@ -952,8 +953,18 @@ async fn match_and_paint(
     key: Option<Arc<Secret>>,
     key_generation: u64,
 ) -> Result<(), &'static str> {
-    let due =
-        blocking(move || change(|_, state| assign(state, &owner, &assignments, contacts_known, now()))).await?;
+    let (due, newly_shown) = blocking(move || {
+        change(|_, state| {
+            let before = shown_pictures(state, &assignments);
+            let due = assign(state, &owner, &assignments, contacts_known, now())?;
+            Ok((due, shown_pictures(state, &assignments) != before))
+        })
+    })
+    .await?;
+    if newly_shown {
+        seed_revision();
+        REVISION.fetch_add(1, Ordering::Relaxed);
+    }
     let Some(key) = key else {
         return Ok(());
     };
@@ -961,6 +972,17 @@ async fn match_and_paint(
         return Ok(());
     }
     paint_all(due, key, key_generation).await
+}
+
+/// The painted picture each of these senders shows, if any.
+fn shown_pictures(state: &Value, assignments: &[(String, Subject)]) -> Vec<Option<String>> {
+    assignments
+        .iter()
+        .map(|(sender, _)| {
+            let subject = state["senders"][sender]["subject"].as_str()?;
+            matches!(state["subjects"][subject]["state"].as_str(), Some("painted" | "recheck")).then(|| subject.to_owned())
+        })
+        .collect()
 }
 
 /// Whether a listed picture still waits for painting; one taken in from iCloud since the run listed
@@ -1469,10 +1491,18 @@ fn shared_picture(row: &Value, at: i64) -> Option<Shared> {
     let jpeg = STANDARD.decode(encoded).ok().filter(|bytes| bytes.len() as u64 <= SHARED_LIMIT)?;
     let reader = || image::ImageReader::with_format(std::io::Cursor::new(&jpeg), image::ImageFormat::Jpeg);
     let (width, height) = reader().into_dimensions().ok()?;
-    if !jpeg.starts_with(&[0xFF, 0xD8, 0xFF]) || width == 0 || height == 0 || width.max(height) > SHARED_SIDE_LIMIT {
+    // Magpie's own encoder (`avatars::artwork::master`) makes every shared picture and always ends
+    // it with the end-of-image marker, so a picture cut off in transit is refused rather than
+    // shown; the decoder alone accepts one.
+    if !jpeg.starts_with(&[0xFF, 0xD8, 0xFF])
+        || !jpeg.ends_with(&[0xFF, 0xD9])
+        || width == 0
+        || height == 0
+        || width.max(height) > SHARED_SIDE_LIMIT
+    {
         return None;
     }
-    // The whole image is decoded, so a cut-off or damaged JPEG is refused rather than shown.
+    // The whole image is decoded, so a picture whose data the decoder cannot read is refused.
     reader().decode().ok()?;
     let reference = match &row["reference"] {
         Value::Null => None,

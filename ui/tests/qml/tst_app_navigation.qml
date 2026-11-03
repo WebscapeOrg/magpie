@@ -195,7 +195,7 @@ Item {
       callback("draft-1", "")
     }
     function refresh() {}
-    function openSkylark() { record("skylark"); return true }
+    function openMagpieCalendar() { record("calendar"); return true }
     function fail(text) { lastError = String(text || "") }
     function note(text) { actionStatus = String(text || "") }
     function act(id, action) {
@@ -549,14 +549,14 @@ Item {
       compare(kinds(), "list,reader", "the key toggles")
     }
 
-    function test_skylark_shortcut_keeps_the_mail_navigation() {
+    function test_calendar_shortcut_keeps_the_mail_navigation() {
       app.openMessage("m1")
       var before = kinds()
       app.runShortcut("calendarView", "")
-      compare(mailService.count("skylark"), 1)
+      compare(mailService.count("calendar"), 1)
       compare(kinds(), before)
       app.runShortcut("calendar", "")
-      compare(mailService.count("skylark"), 2)
+      compare(mailService.count("calendar"), 2)
       compare(kinds(), before)
     }
 
@@ -636,7 +636,7 @@ Item {
       tryCompare(app, "composing", false)
     }
 
-    function test_skylark_handoff_keeps_the_mail_header() {
+    function test_calendar_handoff_keeps_the_mail_header() {
       var compose = named(app, "compose-button")
       verify(compose && compose.visible)
       compare(compose.text, "Compose")

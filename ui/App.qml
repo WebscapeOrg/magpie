@@ -458,7 +458,7 @@ Item {
         root.openMessage(messageId)
       })
     }
-    if (payload.view === "calendar" && service) service.openSkylark()
+    if (payload.view === "calendar" && service) service.openMagpieCalendar()
     var draft = Mailto.draftFromPayload(payload)
     if (draft) root.openDraft(draft)
     Qt.callLater(root.restoreComposeRecovery)
@@ -551,7 +551,7 @@ Item {
     Qt.callLater(function() { focusScope.applyContextFocus() })
   }
 
-  function showCalendar() { if (service) service.openSkylark() }
+  function showCalendar() { if (service) service.openMagpieCalendar() }
 
   function revealCursorRow() {
     if (list.visible) list.reveal(cursorId)

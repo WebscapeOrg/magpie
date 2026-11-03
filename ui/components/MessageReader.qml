@@ -605,7 +605,7 @@ Item {
       dimColor: root.dimColor
       dimmerColor: root.dimmerColor
       panelFontFamily: root.panelFontFamily
-      onCalendarRequested: if (root.service) root.service.openInvitationInSkylark()
+      onCalendarRequested: if (root.service) root.service.openInvitationInMagpieCalendar()
       onOpenRequested: function(url) { root.openLink(url) }
     }
 

@@ -140,7 +140,9 @@ Item {
 
     Entry {
       x: MailStyle.space(6)
-      label: "Skylark..."
+      // Invariant: the rail is too narrow for the app's whole name, which its tooltip gives.
+      label: "Calendar..."
+      fullPath: "Magpie Calendar..."
       icon: "calendar"
       onActivated: root.calendarRequested()
     }

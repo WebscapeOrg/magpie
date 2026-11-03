@@ -13,7 +13,7 @@ Item {
       var service = createTemporaryObject(factory,parent)
       verify(service !== null)
       compare(service.calendarController,undefined)
-      compare(typeof service.openSkylark,"function")
+      compare(typeof service.openMagpieCalendar,"function")
     }
     function test_resolved_runtime_path_starts_backend() {
       var service = createTemporaryObject(factory, parent)

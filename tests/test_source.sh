@@ -317,7 +317,7 @@ PY
 python3 - <<'PY'
 from pathlib import Path
 sidebar = Path("components/MailboxSidebar.qml").read_text()
-assert 'label: "Skylark..."' in sidebar and "calendarRequested" in sidebar
+assert 'label: "Calendar..."' in sidebar and 'fullPath: "Magpie Calendar..."' in sidebar and "calendarRequested" in sidebar
 service = Path("Service.qml").read_text()
 assert "readonly property var pendingSendHost" in service
 assert "calendarController:" not in service
@@ -569,7 +569,7 @@ settings = menu.index("id: settingsRow")
 switch = menu.index("id: switchRow")
 separator = menu.index("MenuSeparatorLine {", switch)
 if not calendar < switch < settings < separator:
-    raise SystemExit("test_source.sh: Settings must stay with the account actions below Skylark")
+    raise SystemExit("test_source.sh: Settings must stay with the account actions below Magpie Calendar")
 settings_block = menu[settings:menu.index("}", settings)]
 if 'text: "Settings..."' not in settings_block:
     raise SystemExit("test_source.sh: Settings opens an extra page and needs an ellipsis")

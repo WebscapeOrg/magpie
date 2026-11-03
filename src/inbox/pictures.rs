@@ -9,8 +9,12 @@
 //!
 //! Invariants:
 //! - Only a contact photo or a company logo, and the prompt text in `prompts`, leave Magpie. Names,
-//!   addresses, subjects and message text are never sent.
-//! - Each picture is paid for once. A contact whose photo address changes is painted again only
+//!   addresses, subjects and message text are never sent. On the phone the painted pictures also go
+//!   to Dave's private iCloud database for his other devices, each with its picture id, kind, paint
+//!   time and, for a portrait, the photo's fingerprint.
+//! - Each picture is paid for once on each device, and usually once across Dave's devices: a
+//!   picture taken in from iCloud is not painted again, but two devices can both paint a new sender
+//!   before either has shared it. A contact whose photo address changes is painted again only
 //!   when the photo's pixels changed. A refused picture is not asked for again, a lost one at most
 //!   three times, and a day's spending stops at `DAILY_LIMIT_CENTS`, counted before each request.
 //! - A paid picture outlives a passing gap in the contacts answer: senders keep their portraits
@@ -892,7 +896,9 @@ async fn forget_only() -> Result<(), &'static str> {
     .await
 }
 
-/// Paints the account's due senders, at most `IN_FLIGHT` at a time.
+/// Matches the account's senders to their pictures and paints the due ones, at most `IN_FLIGHT` at a
+/// time. Without a key, or while painting is stopped, it only matches them, so pictures painted
+/// earlier or taken in from another device show; a device that has none does nothing more.
 async fn run(
     accounts: Vec<String>,
     account: String,
@@ -900,19 +906,18 @@ async fn run(
     local_mail: Arc<crate::local_mail::LocalMail>,
 ) -> Result<(), &'static str> {
     let known: HashSet<String> = accounts.iter().map(|account| id(&["picture-account", account])).collect();
-    let (stopped, key_generation) = blocking(move || {
+    let (stopped, key_generation, shown) = blocking(move || {
         change(|dir, state| {
             forget(dir, state, &known, now())?;
-            Ok((blocking_problem(state, now()).is_some(), generation(state)))
+            Ok((blocking_problem(state, now()).is_some(), generation(state), has_pictures(state)))
         })
     })
     .await?;
-    if stopped {
+    // A keyring that cannot be read is treated as no key here; Settings reports it.
+    let key = if stopped { None } else { saved_key(key_generation, Asker::Painting).await.ok().flatten() };
+    if key.is_none() && !shown {
         return Ok(());
     }
-    let Some(key) = saved_key(key_generation, Asker::Painting).await? else {
-        return Ok(());
-    };
     let headers = local_mail.inbox_senders(&account, MAX_SENDERS).await?;
     let senders = senders(&headers);
     if senders.is_empty() {
@@ -929,12 +934,39 @@ async fn run(
         })
         .collect();
     let owner = id(&["picture-account", &account]);
+    match_and_paint(owner, assignments, contacts_known, key, key_generation).await
+}
+
+/// Whether any picture is painted, here or on another device, for a sender to be matched to.
+fn has_pictures(state: &Value) -> bool {
+    state["subjects"]
+        .as_object()
+        .is_some_and(|subjects| subjects.values().any(|row| matches!(row["state"].as_str(), Some("painted" | "recheck"))))
+}
+
+/// Records which picture each sender gets and, with a key, paints the ones due.
+async fn match_and_paint(
+    owner: String,
+    assignments: Vec<(String, Subject)>,
+    contacts_known: bool,
+    key: Option<Arc<Secret>>,
+    key_generation: u64,
+) -> Result<(), &'static str> {
     let due =
         blocking(move || change(|_, state| assign(state, &owner, &assignments, contacts_known, now()))).await?;
+    let Some(key) = key else {
+        return Ok(());
+    };
     if due.is_empty() {
         return Ok(());
     }
     paint_all(due, key, key_generation).await
+}
+
+/// Whether a listed picture still waits for painting; one taken in from iCloud since the run listed
+/// it does not.
+fn still_due(state: &Value, subject: &str) -> bool {
+    matches!(state["subjects"][subject]["state"].as_str(), Some("waiting" | "recheck"))
 }
 
 /// What a finished request cost in billionths of a dollar for the spending page: a painted picture
@@ -1002,9 +1034,14 @@ async fn paint_all(due: Vec<Due>, key: Arc<Secret>, key_generation: u64) -> Resu
             let Some((subject, previous)) = queue.next() else {
                 break;
             };
-            match blocking(move || change(|_, state| Ok(reserve(state, now(), key_generation)))).await {
-                Ok(true) => {}
-                Ok(false) => {
+            let name = subject.id();
+            let listed = name.clone();
+            let reserved =
+                blocking(move || change(|_, state| Ok(still_due(state, &listed).then(|| reserve(state, now(), key_generation)))));
+            match reserved.await {
+                Ok(Some(true)) => {}
+                Ok(None) => continue,
+                Ok(Some(false)) => {
                     stopped = true;
                     break;
                 }
@@ -1015,7 +1052,6 @@ async fn paint_all(due: Vec<Due>, key: Arc<Secret>, key_generation: u64) -> Resu
                 }
             }
             let key = key.clone();
-            let name = subject.id();
             // Counted until the picture and its cost are saved, so leaving the app waits for it.
             let under_way = UnderWay::new();
             // The spending page counts the reservation until the cost is known, as the limit does.
@@ -1287,13 +1323,17 @@ pub(crate) async fn remove_key() -> Result<Value, &'static str> {
 /// Most pictures one call hands over or takes in, so a reply stays a few megabytes.
 #[cfg(any(feature = "mobile", test))]
 const SHARE_BATCH: usize = 8;
-/// Widest side of a picture taken from iCloud; Magpie paints them far smaller.
+/// Widest side and largest size of a picture taken from iCloud: twice the side Magpie paints
+/// (`avatars::artwork::master`, 512 pixels), and far more than such a JPEG needs.
 #[cfg(any(feature = "mobile", test))]
-const SHARED_SIDE_LIMIT: u32 = 2048;
+const SHARED_SIDE_LIMIT: u32 = 1024;
+#[cfg(any(feature = "mobile", test))]
+const SHARED_LIMIT: u64 = 1024 * 1024;
 
 /// Pictures painted on this device that iCloud does not have yet, with their JPEGs, for the app to
 /// share with Dave's other devices. A row's `uploaded` is the `painted` time iCloud has, so a
-/// picture painted again is shared again, and one taken from iCloud is never sent back.
+/// picture painted again is shared again, and one taken from iCloud is never sent back. The photo
+/// address is not shared: the other device has its own from the contacts.
 #[cfg(any(feature = "mobile", test))]
 pub(crate) async fn to_share(params: &Value) -> Result<Value, &'static str> {
     use base64::{Engine, engine::general_purpose::STANDARD};
@@ -1322,14 +1362,12 @@ pub(crate) async fn to_share(params: &Value) -> Result<Value, &'static str> {
             let Some(kind) = row["kind"].as_str().filter(|kind| KINDS.contains(kind)) else {
                 continue;
             };
-            let Some(bytes) = jpeg(&dir, subject)? else {
+            let Some(bytes) = jpeg(&dir, subject)?.filter(|bytes| bytes.len() as u64 <= SHARED_LIMIT) else {
                 continue;
             };
             let mut picture = json!({"subject": subject, "kind": kind, "painted": painted, "jpeg": STANDARD.encode(bytes)});
-            for field in ["reference", "photo"] {
-                if let Some(value) = row[field].as_str() {
-                    picture[field] = json!(value);
-                }
+            if let Some(reference) = row["reference"].as_str() {
+                picture["reference"] = json!(reference);
             }
             pictures.push(picture);
         }
@@ -1374,6 +1412,33 @@ pub(crate) async fn shared(params: &Value) -> Result<Value, &'static str> {
     Ok(json!({"marked": marked}))
 }
 
+/// Records that iCloud has none of the pictures any more, because their zone was deleted, so every
+/// painted picture is shared again.
+#[cfg(any(feature = "mobile", test))]
+pub(crate) async fn unshared(params: &Value) -> Result<Value, &'static str> {
+    if params.as_object().is_none_or(|fields| !fields.is_empty()) {
+        return Err("invalid_params");
+    }
+    let cleared = blocking(|| {
+        if directory(false)?.is_none() {
+            return Ok(0);
+        }
+        change(|_, state| {
+            let mut subjects = object(state, "subjects")?;
+            let mut cleared = 0;
+            for row in subjects.values_mut() {
+                if row.as_object_mut().and_then(|fields| fields.remove("uploaded")).is_some() {
+                    cleared += 1;
+                }
+            }
+            state["subjects"] = Value::Object(subjects);
+            Ok(cleared)
+        })
+    })
+    .await?;
+    Ok(json!({"cleared": cleared}))
+}
+
 #[cfg(any(feature = "mobile", test))]
 const KINDS: [&str; 3] = ["person", "organization", "monogram"];
 
@@ -1386,14 +1451,13 @@ struct Shared {
     painted: i64,
     jpeg: Vec<u8>,
     reference: Option<String>,
-    photo: Option<String>,
 }
 
 #[cfg(any(feature = "mobile", test))]
 fn shared_picture(row: &Value, at: i64) -> Option<Shared> {
     use base64::{Engine, engine::general_purpose::STANDARD};
     let fields = row.as_object()?;
-    let known = ["subject", "kind", "painted", "jpeg", "reference", "photo"];
+    let known = ["subject", "kind", "painted", "jpeg", "reference"];
     if !fields.keys().all(|key| known.contains(&key.as_str())) {
         return None;
     }
@@ -1401,29 +1465,29 @@ fn shared_picture(row: &Value, at: i64) -> Option<Shared> {
     let kind = row["kind"].as_str().filter(|kind| KINDS.contains(kind))?;
     // A day's grace for another device's clock.
     let painted = row["painted"].as_i64().filter(|painted| *painted > 0 && *painted <= at + 86_400_000)?;
-    let encoded = row["jpeg"].as_str().filter(|text| text.len() as u64 <= MASTER_LIMIT.div_ceil(3) * 4)?;
-    let jpeg = STANDARD.decode(encoded).ok().filter(|bytes| bytes.len() as u64 <= MASTER_LIMIT)?;
-    let reader = image::ImageReader::with_format(std::io::Cursor::new(&jpeg), image::ImageFormat::Jpeg);
-    let (width, height) = reader.into_dimensions().ok()?;
+    let encoded = row["jpeg"].as_str().filter(|text| text.len() as u64 <= SHARED_LIMIT.div_ceil(3) * 4)?;
+    let jpeg = STANDARD.decode(encoded).ok().filter(|bytes| bytes.len() as u64 <= SHARED_LIMIT)?;
+    let reader = || image::ImageReader::with_format(std::io::Cursor::new(&jpeg), image::ImageFormat::Jpeg);
+    let (width, height) = reader().into_dimensions().ok()?;
     if !jpeg.starts_with(&[0xFF, 0xD8, 0xFF]) || width == 0 || height == 0 || width.max(height) > SHARED_SIDE_LIMIT {
         return None;
     }
-    let optional = |field: &str, valid: &dyn Fn(&str) -> bool| match &row[field] {
-        Value::Null => Some(None),
-        Value::String(text) if valid(text) => Some(Some(text.clone())),
-        _ => None,
+    // The whole image is decoded, so a cut-off or damaged JPEG is refused rather than shown.
+    reader().decode().ok()?;
+    let reference = match &row["reference"] {
+        Value::Null => None,
+        Value::String(text) if is_name(text) => Some(text.clone()),
+        _ => return None,
     };
-    let reference = optional("reference", &is_name)?;
-    let photo = optional("photo", &|url: &str| url.starts_with("https://") && url.len() <= 2048)?;
-    if kind != "person" && photo.is_some() {
-        return None;
-    }
-    Some(Shared { subject: subject.to_owned(), kind: kind.to_owned(), painted, jpeg, reference, photo })
+    Some(Shared { subject: subject.to_owned(), kind: kind.to_owned(), painted, jpeg, reference })
 }
 
 /// Takes pictures another of Dave's devices painted, so this one shows them without painting
-/// them again. A picture this device has painted at the same time or later is kept. Invalid ones
-/// are counted as refused and skipped, so one bad record cannot hold up the rest.
+/// them again. A picture this device has painted at the same time or later is kept. A portrait keeps
+/// this device's photo address, so the next run checks it against the photo's fingerprint without
+/// cost, and a row keeps the time it became unused, so an unused picture still goes after
+/// `ORPHAN_KEEP`. Invalid ones are counted as refused and skipped, so one bad record cannot hold up
+/// the rest.
 #[cfg(any(feature = "mobile", test))]
 pub(crate) async fn import(params: &Value) -> Result<Value, &'static str> {
     let rows = params
@@ -1462,8 +1526,10 @@ pub(crate) async fn import(params: &Value) -> Result<Value, &'static str> {
                 if let Some(reference) = picture.reference {
                     row["reference"] = json!(reference);
                 }
-                if let Some(photo) = picture.photo.or_else(|| current.and_then(|row| row["photo"].as_str()).map(str::to_owned)) {
-                    row["photo"] = json!(photo);
+                for field in ["photo", "orphaned"] {
+                    if let Some(value) = current.map(|row| &row[field]).filter(|value| !value.is_null()) {
+                        row[field] = value.clone();
+                    }
                 }
                 subjects.insert(picture.subject, row);
                 stored += 1;

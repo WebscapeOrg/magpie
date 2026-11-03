@@ -217,7 +217,6 @@ Column {
       objectName: "settings-sync-pause"
       activeFocusOnTab: true
       cursorRing: true
-      hasCursor: activeFocus
       Accessible.role: Accessible.CheckBox
       Accessible.name: "Pause sync"
       Accessible.checked: checked
@@ -233,6 +232,17 @@ Column {
       foreground: root.textColor
       accent: root.accentColor
       onToggled: if (root.mailbox) root.mailbox.setPaused(!SyncHealth.paused(root.status))
+
+      Rectangle {
+        objectName: "settings-sync-pause-focus"
+        anchors.fill: parent
+        radius: Style.cornerRadius
+        color: "transparent"
+        border.width: Math.max(2, Style.focusBorderWidth)
+        border.color: Qt.rgba(pauseSwitch.foreground.r, pauseSwitch.foreground.g, pauseSwitch.foreground.b, 1)
+        visible: pauseSwitch.activeFocus
+        Accessible.ignored: true
+      }
     }
   }
 }

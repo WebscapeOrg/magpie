@@ -69,7 +69,7 @@ Item {
       field.accepted()
       last("inbox.setPictureKey").done({present: true, problem: null, painted: 0, waiting: 41, spentTodayCents: 0, dailyLimitCents: 300}, null)
       compare(field.text, "")
-      compare(status.text, "0 sender pictures painted, 41 waiting. About $0.00 spent today of the $3.00 daily limit.")
+      compare(status.text, "0 sender pictures painted, 41 waiting. About $0.00 of the $3.00 daily limit used today.")
       verify(status.text.indexOf("sk-") < 0)
       verify(findChild(panel, "settings-picture-remove").visible)
     }
@@ -80,7 +80,7 @@ Item {
       compare(status.text, "The keyring could not be used. Unlock it, then try again.")
       panel.load()
       last("inbox.pictureStatus").done({present: true, problem: null, painted: 2, waiting: 0, spentTodayCents: 14, dailyLimitCents: 300}, null)
-      compare(status.text, "2 sender pictures painted. About $0.14 spent today of the $3.00 daily limit.")
+      compare(status.text, "2 sender pictures painted. About $0.14 of the $3.00 daily limit used today.")
     }
     function test_a_locked_keyring_is_explained_and_not_polled() {
       var refresh = findChild(panel, "settings-picture-refresh")

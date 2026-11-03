@@ -9,6 +9,7 @@ pub const ALL: &[&str] = &[
     "inbox.pictureStatus",
     "inbox.setPictureKey",
     "inbox.removePictureKey",
+    "ai.spending",
     "inbox.snooze",
     "inbox.wake",
     "inbox.tick",
@@ -154,7 +155,10 @@ pub fn available() -> Vec<&'static str> {
         })
         .filter(|method| *method != "backup.export" || cfg!(target_os = "linux"))
         .filter(|method| {
-            !matches!(*method, "inbox.pictureStatus" | "inbox.setPictureKey" | "inbox.removePictureKey")
+            !matches!(
+                *method,
+                "inbox.pictureStatus" | "inbox.setPictureKey" | "inbox.removePictureKey" | "ai.spending"
+            )
                 || cfg!(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))
         })
         .collect()

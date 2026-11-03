@@ -1,4 +1,4 @@
-//! What Magpie's paid AI requests cost, by feature and quarter hour, for the iPhone's spending page.
+//! What Magpie's paid AI requests cost, by feature and quarter hour, for the spending page on every device.
 //!
 //! Invariants:
 //! - Amounts are estimates in billionths of a dollar, worked out from the usage each provider
@@ -28,7 +28,6 @@ const OPEN_LIMIT: usize = 64;
 /// The longest request id kept, so a stored id cannot grow the file.
 const ID_LIMIT: usize = 160;
 /// The longest a period may reach back: a month and a day, so a time zone ahead of UTC still fits.
-#[cfg(any(feature = "mobile", test))]
 const LONGEST_PERIOD: i64 = 32 * 86_400_000;
 
 fn name() -> String {
@@ -163,8 +162,7 @@ pub(crate) async fn record(feature: &'static str, amount: u64) {
 }
 
 /// The spending of each feature since each named start, and since when Magpie has counted.
-/// Blocks: call it off the async threads. Only the iPhone reads the totals so far.
-#[cfg(any(feature = "mobile", test))]
+/// Blocks: call it off the async threads.
 fn totals(starts: &[(String, i64)]) -> Result<Value, &'static str> {
     let saved = store::read(&name())?.unwrap_or(json!({}));
     let mut periods = Map::new();
@@ -186,7 +184,6 @@ fn totals(starts: &[(String, i64)]) -> Result<Value, &'static str> {
 }
 
 /// `ai.spending`: the app names when today, this week and this month started in its time zone.
-#[cfg(any(feature = "mobile", test))]
 pub(crate) async fn spending(params: &Value) -> Result<Value, &'static str> {
     let fields = params.as_object().filter(|fields| fields.len() == 3).ok_or("invalid_params")?;
     let at = now();

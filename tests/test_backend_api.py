@@ -222,11 +222,11 @@ const selected = released ? (whole.releasedContract || {
 // Standalone Linux/macOS share the native assistant. Windows remains deferred
 // and must reject the unavailable methods without touching storage.
 const agentUnavailable = standalone && process.platform === 'win32';
-// Sender pictures are built with the assistant, so Windows has neither. Reading their status opens
-// the keyring, which the Linux fixture leaves unreachable (no session bus); macOS would open the
-// runner's real keychain.
+// Sender pictures and AI spending are built with the assistant, so Windows has neither. Reading
+// the picture status opens the keyring, which the Linux fixture leaves unreachable (no session
+// bus); macOS would open the runner's real keychain.
 const picturesUnavailable = process.platform === 'win32';
-const pictureMethods = ['inbox.pictureStatus', 'inbox.setPictureKey', 'inbox.removePictureKey'];
+const pictureMethods = ['inbox.pictureStatus', 'inbox.setPictureKey', 'inbox.removePictureKey', 'ai.spending'];
 const methodUnavailable = method => (agentUnavailable && method.startsWith('agent.')) ||
   (picturesUnavailable && pictureMethods.includes(method)) ||
   (process.platform !== 'linux' && method === 'backup.export');
@@ -351,6 +351,11 @@ function storageSnapshot() {
           ...(index < 9 ? {'next.json':id(index+1)} : {})}))
           fs.writeFileSync(directory+'/'+name,JSON.stringify(value),{mode:0o600});
       }
+    }
+    if (fixture.name === 'AI spending answers each period by feature') {
+      // The engine takes only starts from the last month and a day, so they are made now.
+      const now = Date.now();
+      fixture.params = {day: now - 3600000, week: now - 3 * 86400000, month: now - 20 * 86400000};
     }
     const attachmentRecovery = fixture.name.startsWith('Attachment recovery ');
     if (attachmentRecovery) {

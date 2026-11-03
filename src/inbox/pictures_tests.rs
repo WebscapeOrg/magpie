@@ -1016,6 +1016,16 @@ async fn pictures_painted_here_are_shared_once_and_pictures_from_icloud_are_not_
     assert_eq!(shared(&json!({"pictures":[{"subject": mine, "painted": AT}]})).await.unwrap()["marked"], 1);
     assert_eq!(to_share(&json!({"limit": 8})).await.unwrap()["pictures"], json!([]));
 
+    // A picture larger than another device takes in is not offered.
+    let large = Subject::Organization { domain: "large.example".into() }.id();
+    change(|dir, state| {
+        fs::atomic_replace(dir, &format!("{large}.jpg"), &vec![0xFF; SHARED_LIMIT as usize + 1])?;
+        state["subjects"][&large] = json!({"state":"painted","painted":AT,"attempts":0,"kind":"organization"});
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(to_share(&json!({"limit": 8})).await.unwrap()["pictures"], json!([]));
+
     // Painted again here: shared again.
     change(|_, state| {
         state["subjects"][&mine]["painted"] = json!(AT + 5);
@@ -1036,6 +1046,18 @@ async fn pictures_painted_here_are_shared_once_and_pictures_from_icloud_are_not_
     let listed: Vec<String> = to_share(&json!({"limit": 8})).await.unwrap()["pictures"]
         .as_array().unwrap().iter().map(|row| row["subject"].as_str().unwrap().to_owned()).collect();
     assert_eq!(listed, vec![mine.clone()]);
+}
+
+/// A JPEG of noise, so its image data is long enough to cut inside.
+fn noisy_jpeg(width: u32) -> Vec<u8> {
+    let mut seed = 7u32;
+    let image = image::RgbImage::from_fn(width, width, |_, _| {
+        seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        image::Rgb([(seed >> 16) as u8, (seed >> 8) as u8, seed as u8])
+    });
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+    jpeg.into_inner()
 }
 
 fn picture_bytes(subject: &str) -> Vec<u8> {
@@ -1084,8 +1106,12 @@ async fn the_newer_painting_wins_and_a_bad_record_is_skipped() {
     with_photo["photo"] = json!("https://photos.example/gil");
     let mut oversized = shared_row(&Subject::Monogram { letter: 'H' }.id(), "monogram", AT, &jpeg_bytes(16));
     oversized["jpeg"] = json!("A".repeat(SHARED_LIMIT.div_ceil(3) as usize * 4 + 4));
-    let whole = jpeg_bytes(64);
-    let cut_off = shared_row(&Subject::Monogram { letter: 'I' }.id(), "monogram", AT, &whole[..whole.len() / 2]);
+    let whole = noisy_jpeg(256);
+    let start_of_scan = whole.windows(2).position(|pair| pair == [0xFF, 0xDA]).unwrap();
+    let cut = whole.len() * 3 / 4;
+    assert!(cut > start_of_scan + 64, "the cut falls inside the image data");
+    let cut_off = shared_row(&Subject::Monogram { letter: 'I' }.id(), "monogram", AT, &whole[..cut]);
+    let unmarked = shared_row(&Subject::Monogram { letter: 'J' }.id(), "monogram", AT, &whole[..whole.len() - 2]);
     let reply = import(&json!({"pictures":[
         shared_row(&subject, "organization", AT + 9, &jpeg_bytes(24)),
         portrait,
@@ -1099,9 +1125,11 @@ async fn the_newer_painting_wins_and_a_bad_record_is_skipped() {
     .await
     .unwrap();
     assert_eq!((reply["stored"].as_i64(), reply["kept"].as_i64(), reply["refused"].as_i64()), (Some(2), Some(0), Some(6)));
-    let reply = import(&json!({"pictures":[bad_reference, with_photo, oversized, cut_off]})).await.unwrap();
-    assert_eq!((reply["stored"].as_i64(), reply["refused"].as_i64()), (Some(0), Some(4)),
-        "a malformed fingerprint, a photo address, an oversized picture and a cut-off JPEG are each refused");
+    let reply = import(&json!({"pictures":[bad_reference, with_photo, oversized, cut_off, unmarked]})).await.unwrap();
+    assert_eq!((reply["stored"].as_i64(), reply["refused"].as_i64()), (Some(0), Some(5)),
+        "a malformed fingerprint, a photo address, an oversized picture, a JPEG cut inside its image data and one without its end marker are each refused");
+    assert_eq!(import(&json!({"pictures":[shared_row(&Subject::Monogram { letter: 'J' }.id(), "monogram", AT, &whole)]})).await.unwrap()["stored"], 1,
+        "the same JPEG whole is taken in");
     assert_eq!(picture_bytes(&subject), jpeg_bytes(24), "a newer painting from the other device replaces this one");
     let row = &subjects()[&photo_subject];
     assert_eq!((&row["state"], &row["reference"], &row["photo"]), (&json!("painted"), &json!("b".repeat(64)), &json!("https://photos.example/ada")),
@@ -1141,8 +1169,13 @@ async fn a_device_without_a_key_shows_the_pictures_it_takes_in() {
     assert_eq!(import(&json!({"pictures":[shared_row(&kim.id(), "monogram", AT, &jpeg_bytes(16))]})).await.unwrap()["stored"], 1);
     assert!(has_pictures(&read_state(&directory(false).unwrap().unwrap()).unwrap()));
     assert!(painted("me@example.org", "kim@gmail.com").unwrap().is_none());
-    match_and_paint(owner, assignments, true, None, 0).await.unwrap();
+    let before = revision();
+    match_and_paint(owner.clone(), assignments.clone(), true, None, 0).await.unwrap();
     assert_eq!(painted("me@example.org", "kim@gmail.com").unwrap().map(|(subject, _)| subject), Some(kim.id()));
+    let after = revision();
+    assert!(after > before, "the window is told to show the newly matched picture");
+    match_and_paint(owner, assignments, true, None, 0).await.unwrap();
+    assert_eq!(revision(), after, "matching the same senders again changes nothing on screen");
     assert!(painted("me@example.org", "lee@gmail.com").unwrap().is_none());
     assert_eq!(subjects()[&lee.id()]["state"], "waiting", "nothing is painted without a key");
 }

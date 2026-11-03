@@ -1169,17 +1169,19 @@ pub(crate) fn picture(subject: &str) -> Result<Option<String>, &'static str> {
     let Some(dir) = directory(false)? else {
         return Ok(None);
     };
-    let Some(file) = fs::regular_readonly(&dir, &format!("{subject}.jpg"))? else {
+    Ok(jpeg(&dir, subject)?.map(|bytes| format!("data:image/jpeg;base64,{}", STANDARD.encode(bytes))))
+}
+
+/// A painted picture's JPEG, or None when it is missing or larger than any picture Magpie keeps.
+fn jpeg(dir: &File, subject: &str) -> Result<Option<Vec<u8>>, &'static str> {
+    let Some(file) = fs::regular_readonly(dir, &format!("{subject}.jpg"))? else {
         return Ok(None);
     };
     let mut bytes = Vec::new();
     file.take(MASTER_LIMIT + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| "pictures_storage_unavailable")?;
-    if bytes.len() as u64 > MASTER_LIMIT {
-        return Ok(None);
-    }
-    Ok(Some(format!("data:image/jpeg;base64,{}", STANDARD.encode(bytes))))
+    Ok((bytes.len() as u64 <= MASTER_LIMIT).then_some(bytes))
 }
 
 /// What Settings shows: whether a key is saved, what stops painting, and the counts. Spending is
@@ -1280,6 +1282,202 @@ async fn around_key_change(
 pub(crate) async fn remove_key() -> Result<Value, &'static str> {
     around_key_change(credentials::delete(slot())).await?;
     status().await
+}
+
+/// Most pictures one call hands over or takes in, so a reply stays a few megabytes.
+#[cfg(any(feature = "mobile", test))]
+const SHARE_BATCH: usize = 8;
+/// Widest side of a picture taken from iCloud; Magpie paints them far smaller.
+#[cfg(any(feature = "mobile", test))]
+const SHARED_SIDE_LIMIT: u32 = 2048;
+
+/// Pictures painted on this device that iCloud does not have yet, with their JPEGs, for the app to
+/// share with Dave's other devices. A row's `uploaded` is the `painted` time iCloud has, so a
+/// picture painted again is shared again, and one taken from iCloud is never sent back.
+#[cfg(any(feature = "mobile", test))]
+pub(crate) async fn to_share(params: &Value) -> Result<Value, &'static str> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let limit = params
+        .as_object()
+        .filter(|fields| fields.len() == 1)
+        .and(params["limit"].as_u64())
+        .filter(|limit| (1..=SHARE_BATCH as u64).contains(limit))
+        .ok_or("invalid_params")? as usize;
+    blocking(move || {
+        let Some(dir) = directory(false)? else {
+            return Ok(json!({"pictures": []}));
+        };
+        let state = read_state(&dir)?;
+        let mut pictures = Vec::new();
+        for (subject, row) in state["subjects"].as_object().into_iter().flatten() {
+            if pictures.len() == limit {
+                break;
+            }
+            let Some(painted) = row["painted"].as_i64() else {
+                continue;
+            };
+            if !is_name(subject) || row["state"] != "painted" || row["uploaded"].as_i64() == Some(painted) {
+                continue;
+            }
+            let Some(kind) = row["kind"].as_str().filter(|kind| KINDS.contains(kind)) else {
+                continue;
+            };
+            let Some(bytes) = jpeg(&dir, subject)? else {
+                continue;
+            };
+            let mut picture = json!({"subject": subject, "kind": kind, "painted": painted, "jpeg": STANDARD.encode(bytes)});
+            for field in ["reference", "photo"] {
+                if let Some(value) = row[field].as_str() {
+                    picture[field] = json!(value);
+                }
+            }
+            pictures.push(picture);
+        }
+        Ok(json!({"pictures": pictures}))
+    })
+    .await
+}
+
+/// Records that iCloud now has these pictures as painted at these times.
+#[cfg(any(feature = "mobile", test))]
+pub(crate) async fn shared(params: &Value) -> Result<Value, &'static str> {
+    let rows = params
+        .as_object()
+        .filter(|fields| fields.len() == 1)
+        .and(params["pictures"].as_array())
+        .filter(|rows| rows.len() <= SHARE_BATCH)
+        .ok_or("invalid_params")?;
+    let mut done = Vec::new();
+    for row in rows {
+        let subject = row["subject"].as_str().filter(|subject| is_name(subject));
+        let painted = row["painted"].as_i64();
+        match (row.as_object().map(serde_json::Map::len), subject, painted) {
+            (Some(2), Some(subject), Some(painted)) => done.push((subject.to_owned(), painted)),
+            _ => return Err("invalid_params"),
+        }
+    }
+    let marked = blocking(move || {
+        change(|_, state| {
+            let mut subjects = object(state, "subjects")?;
+            let mut marked = 0;
+            for (subject, painted) in done {
+                if let Some(row) = subjects.get_mut(&subject).filter(|row| row["painted"].as_i64() == Some(painted)) {
+                    row["uploaded"] = json!(painted);
+                    marked += 1;
+                }
+            }
+            state["subjects"] = Value::Object(subjects);
+            Ok(marked)
+        })
+    })
+    .await?;
+    Ok(json!({"marked": marked}))
+}
+
+#[cfg(any(feature = "mobile", test))]
+const KINDS: [&str; 3] = ["person", "organization", "monogram"];
+
+/// One picture from iCloud, checked: iCloud is Dave's own, but what it returns is read like any
+/// other outside data.
+#[cfg(any(feature = "mobile", test))]
+struct Shared {
+    subject: String,
+    kind: String,
+    painted: i64,
+    jpeg: Vec<u8>,
+    reference: Option<String>,
+    photo: Option<String>,
+}
+
+#[cfg(any(feature = "mobile", test))]
+fn shared_picture(row: &Value, at: i64) -> Option<Shared> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let fields = row.as_object()?;
+    let known = ["subject", "kind", "painted", "jpeg", "reference", "photo"];
+    if !fields.keys().all(|key| known.contains(&key.as_str())) {
+        return None;
+    }
+    let subject = row["subject"].as_str().filter(|subject| is_name(subject))?;
+    let kind = row["kind"].as_str().filter(|kind| KINDS.contains(kind))?;
+    // A day's grace for another device's clock.
+    let painted = row["painted"].as_i64().filter(|painted| *painted > 0 && *painted <= at + 86_400_000)?;
+    let encoded = row["jpeg"].as_str().filter(|text| text.len() as u64 <= MASTER_LIMIT.div_ceil(3) * 4)?;
+    let jpeg = STANDARD.decode(encoded).ok().filter(|bytes| bytes.len() as u64 <= MASTER_LIMIT)?;
+    let reader = image::ImageReader::with_format(std::io::Cursor::new(&jpeg), image::ImageFormat::Jpeg);
+    let (width, height) = reader.into_dimensions().ok()?;
+    if !jpeg.starts_with(&[0xFF, 0xD8, 0xFF]) || width == 0 || height == 0 || width.max(height) > SHARED_SIDE_LIMIT {
+        return None;
+    }
+    let optional = |field: &str, valid: &dyn Fn(&str) -> bool| match &row[field] {
+        Value::Null => Some(None),
+        Value::String(text) if valid(text) => Some(Some(text.clone())),
+        _ => None,
+    };
+    let reference = optional("reference", &is_name)?;
+    let photo = optional("photo", &|url: &str| url.starts_with("https://") && url.len() <= 2048)?;
+    if kind != "person" && photo.is_some() {
+        return None;
+    }
+    Some(Shared { subject: subject.to_owned(), kind: kind.to_owned(), painted, jpeg, reference, photo })
+}
+
+/// Takes pictures another of Dave's devices painted, so this one shows them without painting
+/// them again. A picture this device has painted at the same time or later is kept. Invalid ones
+/// are counted as refused and skipped, so one bad record cannot hold up the rest.
+#[cfg(any(feature = "mobile", test))]
+pub(crate) async fn import(params: &Value) -> Result<Value, &'static str> {
+    let rows = params
+        .as_object()
+        .filter(|fields| fields.len() == 1)
+        .and(params["pictures"].as_array())
+        .filter(|rows| rows.len() <= SHARE_BATCH)
+        .ok_or("invalid_params")?;
+    let at = now();
+    let checked: Vec<Option<Shared>> = rows.iter().map(|row| shared_picture(row, at)).collect();
+    let (stored, kept, refused) = blocking(move || {
+        change(|dir, state| {
+            let mut subjects = object(state, "subjects")?;
+            let (mut stored, mut kept, mut refused) = (0, 0, 0);
+            for picture in checked {
+                let Some(picture) = picture else {
+                    refused += 1;
+                    continue;
+                };
+                let current = subjects.get(&picture.subject);
+                if current.is_some_and(|row| row["kind"] != picture.kind.as_str()) {
+                    refused += 1;
+                    continue;
+                }
+                let shown = current.is_some_and(|row| matches!(row["state"].as_str(), Some("painted" | "recheck")));
+                if shown && current.and_then(|row| row["painted"].as_i64()).is_some_and(|mine| mine >= picture.painted) {
+                    kept += 1;
+                    continue;
+                }
+                if let Err(error) = fs::atomic_replace(dir, &format!("{}.jpg", picture.subject), &picture.jpeg) {
+                    state["subjects"] = Value::Object(subjects);
+                    return Err(error);
+                }
+                let mut row =
+                    json!({"state":"painted","painted":picture.painted,"attempts":0,"kind":picture.kind,"uploaded":picture.painted});
+                if let Some(reference) = picture.reference {
+                    row["reference"] = json!(reference);
+                }
+                if let Some(photo) = picture.photo.or_else(|| current.and_then(|row| row["photo"].as_str()).map(str::to_owned)) {
+                    row["photo"] = json!(photo);
+                }
+                subjects.insert(picture.subject, row);
+                stored += 1;
+            }
+            state["subjects"] = Value::Object(subjects);
+            Ok((stored, kept, refused))
+        })
+    })
+    .await?;
+    if stored > 0 {
+        seed_revision();
+        REVISION.fetch_add(1, Ordering::Relaxed);
+    }
+    Ok(json!({"stored": stored, "kept": kept, "refused": refused, "pictures": revision()}))
 }
 
 #[cfg(test)]

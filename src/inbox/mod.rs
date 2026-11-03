@@ -128,6 +128,17 @@ impl Inbox {
     pub(crate) fn stop_pictures(&self) {
         pictures::want(false);
     }
+    /// Hands over, acknowledges or takes in the sender pictures the phone shares with Dave's other
+    /// devices through iCloud.
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn shared_pictures(&self, method: &str, params: &serde_json::Value) -> Result<serde_json::Value, &'static str> {
+        match method {
+            "engine.picturesToShare" => pictures::to_share(params).await,
+            "engine.picturesShared" => pictures::shared(params).await,
+            "engine.importPictures" => pictures::import(params).await,
+            _ => Err("unknown_method"),
+        }
+    }
     /// A number that changes whenever a sender picture is painted.
     #[cfg(feature = "mobile")]
     pub(crate) fn picture_revision(&self) -> u64 {

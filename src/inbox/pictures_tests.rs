@@ -722,9 +722,9 @@ fn prepared_painted_avatars_of_removed_accounts_are_deleted() {
 }
 
 #[test]
-fn the_phone_paints_one_flare_picture_at_a_time_and_linux_two_with_sunburst() {
+fn the_phone_paints_one_picture_at_a_time_and_linux_two_both_with_sunburst() {
     if super::super::PHONE_WRITER {
-        assert_eq!((MODEL, IN_FLIGHT), ("gpt-image-2.5-flare", 1));
+        assert_eq!((MODEL, IN_FLIGHT), ("gpt-image-2.5-sunburst", 1));
     } else {
         assert_eq!((MODEL, IN_FLIGHT), ("gpt-image-2.5-sunburst", 2));
     }

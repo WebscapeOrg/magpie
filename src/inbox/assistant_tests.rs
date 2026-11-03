@@ -150,6 +150,22 @@ fn id(view: &Value) -> String {
 }
 
 #[tokio::test]
+async fn ask_magpie_counts_each_request_on_the_spending_page_at_its_cost() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (assistant, script) = scripted();
+    script.push(reply("end_turn", json!([text("Done.")])));
+    let started = assistant.start(&draft("request-1", "Make it shorter"), unread).await.unwrap();
+    assert_eq!(settled(&assistant, &id(&started)).await["job"]["state"], "done");
+    let since = chrono::Utc::now().timestamp_millis() - 3_600_000;
+    let ledger = super::super::spending::spending(&json!({"day":since,"week":since,"month":since})).await.unwrap();
+    // 1,000 input tokens at $2 and 100 output tokens at $10 per million, in place of the reservation.
+    assert_eq!(ledger["periods"]["day"]["assistant"], json!(3_000_000));
+}
+
+#[tokio::test]
 async fn a_draft_turn_records_proposals_from_the_job_and_replays_history_exactly() {
     if crate::mail::tests::isolated() {
         return;
@@ -974,11 +990,12 @@ fn the_ledger_counts_each_request_once_however_often_it_is_written() {
         .unwrap()
         .and_utc()
         .timestamp_millis();
-    admit_call("a-0", 500, at).unwrap();
-    admit_call("a-0", 500, at).unwrap();
+    assert!(admit_call("a-0", 500, at).unwrap());
+    assert!(!admit_call("a-0", 500, at).unwrap(), "a request counted already is not counted again");
     assert_eq!((ledger()["calls"].as_u64(), ledger()["spent"].as_u64()), (Some(1), Some(500)));
-    settle("a-0", 120, at).unwrap();
-    settle("a-0", 120, at).unwrap();
+    // Only the first settlement counts; the spending page counts the request when it is settled.
+    assert!(settle("a-0", 120, at).unwrap());
+    assert!(!settle("a-0", 120, at).unwrap());
     assert_eq!(ledger()["spent"], 120);
     assert_eq!(ledger()["open"], json!({}));
 
@@ -993,7 +1010,7 @@ fn the_ledger_counts_each_request_once_however_often_it_is_written() {
 
     // A request open past OPEN_KEEP is dropped, and its reservation stays counted.
     let late = after + OPEN_KEEP + 1;
-    settle("c-0", 10, late).unwrap();
+    assert!(!settle("c-0", 10, late).unwrap());
     assert_eq!(ledger()["spent"], 350);
     assert_eq!(ledger()["open"], json!({}));
 

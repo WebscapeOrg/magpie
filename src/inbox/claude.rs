@@ -10,6 +10,8 @@ use std::time::Duration;
 #[path = "claude_diagnostics.rs"]
 pub(crate) mod diagnostics;
 
+// Tests never send here (`origin`).
+#[cfg_attr(test, allow(dead_code))]
 const ORIGIN: &str = "https://api.anthropic.com";
 const VERSION: &str = "2026-10-21";
 // Haiku is used because descriptions are short and its cost is low; DAILY_SPEND caps what a day can cost.
@@ -145,8 +147,11 @@ fn cost(reply: &Value) -> u64 {
         tokens("cache_read_input_tokens"),
         tokens("output_tokens"),
     );
-    let tier = if fresh + written + read > 100_000 { 5 } else { 1 };
-    tier * (fresh * 100 + written * 125 + read * 10 + output * 500)
+    let tier = if fresh.saturating_add(written).saturating_add(read) > 100_000 { 5 } else { 1 };
+    [(fresh, 100u64), (written, 125), (read, 10), (output, 500)]
+        .into_iter()
+        .fold(0u64, |total, (tokens, price)| total.saturating_add(tokens.saturating_mul(price)))
+        .saturating_mul(tier)
 }
 
 fn spend(reply: &Value, at: i64) -> Result<(), &'static str> {
@@ -462,6 +467,13 @@ pub(crate) async fn converse(body: Vec<u8>) -> Result<Value, &'static str> {
     Err(error)
 }
 
+/// Counts a description's cost against the day's limit and on the spending page.
+async fn counted(reply: &Value) -> Result<(), &'static str> {
+    spend(reply, now())?;
+    super::spending::record("descriptions", cost(reply)).await;
+    Ok(())
+}
+
 async fn complete(
     client: &reqwest::Client,
     key: &Secret,
@@ -470,7 +482,7 @@ async fn complete(
 ) -> Result<Value, &'static str> {
     let reply = call(client, key, "describe", "/v1/messages", request(prompt, messages)?, messages).await?;
     let value: Value = serde_json::from_slice(&reply).map_err(|_| INVALID)?;
-    spend(&value, now())?;
+    counted(&value).await?;
     // Invariant: only a description Claude wrote ends the shared wait; a token count can succeed
     // while every description request fails, and must not keep the wait at its first step.
     recovered(now());
@@ -715,6 +727,21 @@ fn retry_wait(answer: &Result<Reply, Fault>, attempt: u32, elapsed: Duration, ji
     (elapsed + wait <= RETRY_WINDOW).then_some(wait)
 }
 
+#[cfg(test)]
+tokio::task_local! {
+    /// Where this future's Claude requests go in a test: a local test server.
+    static TEST_ORIGIN: String;
+}
+
+/// Where Claude requests go. A test that sets no local server gets an address nothing listens on,
+/// so no test can reach Anthropic.
+fn origin() -> String {
+    #[cfg(test)]
+    return TEST_ORIGIN.try_with(Clone::clone).unwrap_or_else(|_| "http://127.0.0.1:9".to_owned());
+    #[cfg(not(test))]
+    ORIGIN.to_owned()
+}
+
 fn build(
     client: &reqwest::Client,
     key: &Secret,
@@ -726,7 +753,7 @@ fn build(
         .map_err(|_| Fault { code: "ai_key_format", class: REFUSED })?;
     header.set_sensitive(true);
     let mut request = client
-        .request(method, format!("{ORIGIN}{path}"))
+        .request(method, format!("{}{path}", origin()))
         .header("x-api-key", header)
         .header("anthropic-version", VERSION);
     if let Some(body) = body {
@@ -972,6 +999,62 @@ mod tests {
         assert_eq!(waiting(&json!({"retryAt":at + 1}), at), Some("ai_rate_limited"));
         assert_eq!(waiting(&json!({"retryAt":at + 1,"problem":"ai_billing"}), at), Some("ai_billing"));
         assert_eq!(waiting(&json!({"retryAt":at - 1}), at), None);
+    }
+
+    #[tokio::test]
+    async fn a_description_is_counted_against_the_day_and_on_the_spending_page() {
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let _fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[]}));
+        let reply = json!({"usage":{"input_tokens":1000,"output_tokens":20}});
+        counted(&reply).await.unwrap();
+        assert_eq!(store::read(&state_name()).unwrap().unwrap()["spent"], json!(110_000));
+        let since = now() - 3_600_000;
+        let ledger = super::super::spending::spending(&json!({"day":since,"week":since,"month":since})).await.unwrap();
+        assert_eq!(ledger["periods"]["day"]["descriptions"], json!(110_000));
+    }
+
+    /// A description Claude writes reaches the spending page through the request that wrote it.
+    #[tokio::test]
+    async fn a_description_written_through_complete_is_on_the_spending_page() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let _fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[]}));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let body = json!({"stop_reason":"end_turn","content":[{"type":"text","text":"[]"}],"usage":{"input_tokens":1000,"output_tokens":20}}).to_string();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                head.push(socket.read_u8().await.unwrap());
+            }
+            let head = String::from_utf8(head).unwrap();
+            let length = head
+                .lines()
+                .find_map(|line| line.split_once(':').filter(|(name, _)| name.eq_ignore_ascii_case("content-length")))
+                .map_or(0, |(_, value)| value.trim().parse::<usize>().unwrap());
+            let mut request = vec![0; length];
+            socket.read_exact(&mut request).await.unwrap();
+            let reply = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+            socket.write_all(reply.as_bytes()).await.unwrap();
+            head.lines().next().unwrap().to_owned()
+        });
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let key = Secret::new(synthetic_key().into_bytes()).unwrap();
+        let _ = TEST_ORIGIN.scope(origin, complete(&client, &key, "Describe.", &json!([{"id":"a"}]))).await;
+        assert_eq!(server.await.unwrap(), "POST /v1/messages HTTP/1.1");
+        let since = now() - 3_600_000;
+        let ledger = super::super::spending::spending(&json!({"day":since,"week":since,"month":since})).await.unwrap();
+        assert_eq!(ledger["periods"]["day"]["descriptions"], json!(110_000));
+    }
+
+    #[test]
+    fn a_nonsensical_token_count_cannot_overflow_the_cost() {
+        assert_eq!(cost(&json!({"usage":{"input_tokens":u64::MAX,"output_tokens":u64::MAX}})), u64::MAX);
     }
 
     #[tokio::test]

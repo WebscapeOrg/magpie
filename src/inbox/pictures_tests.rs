@@ -198,7 +198,7 @@ fn a_changed_photo_is_checked_again_and_keeps_its_picture_until_then() {
     change(|_, state| assign(state, "one", &[("s1".into(), old.clone())], true, AT)).unwrap();
     let dir = directory(true).unwrap().unwrap();
     let mut state = read_state(&dir).unwrap();
-    let painted = Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 6, reference: Some("abc".into()) };
+    let painted = Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 6, micro_dollars: 55_000, reference: Some("abc".into()) };
     record(&dir, &mut state, &name, painted, AT, 0).unwrap();
     assert_eq!(state["subjects"][&name]["reference"], "abc");
     assert_eq!(state["subjects"][&name]["model"], MODEL);
@@ -335,11 +335,48 @@ fn outcomes_decide_retries_refunds_and_pauses() {
 
     setup(&mut state);
     let before = revision();
-    assert!(!record(&dir, &mut state, &name, Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 6, reference: None }, AT, 0).unwrap());
+    assert!(!record(&dir, &mut state, &name, Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 6, micro_dollars: 55_000, reference: None }, AT, 0).unwrap());
     assert_eq!(revision(), before + 1);
     assert_eq!(state["subjects"][&name]["state"], "painted");
     assert_eq!(spent_today(&state, AT), 6);
     assert!(fs::regular_readonly(&dir, &format!("{name}.jpg")).unwrap().is_some());
+
+    // Leaving the app before the request was sent costs nothing and counts no attempt.
+    setup(&mut state);
+    assert!(record(&dir, &mut state, &name, Outcome::Stopped, AT, 0).unwrap());
+    assert_eq!((state["subjects"][&name]["state"].as_str(), state["subjects"][&name]["attempts"].as_i64()), (Some("waiting"), Some(0)));
+    assert_eq!(spent_today(&state, AT), 0);
+
+    // A request iOS cut off says nothing about OpenAI or the picture: no attempt, no pause, and a
+    // charged one keeps its reservation. The second in a row holds that picture back for
+    // `CUT_OFF_WAIT`, so the next one goes first; three of them do not give the picture up.
+    setup(&mut state);
+    state.as_object_mut().unwrap().remove("problem");
+    assert!(record(&dir, &mut state, &name, Outcome::CutOff { charged: true }, AT, 0).unwrap());
+    assert!(state["subjects"][&name].get("retryAt").is_none(), "one cut-off does not hold the picture back");
+    assert!(record(&dir, &mut state, &name, Outcome::CutOff { charged: true }, AT + 1, 0).unwrap());
+    assert_eq!(state["subjects"][&name]["retryAt"], json!(AT + 1 + CUT_OFF_WAIT));
+    assert!(state["subjects"][&name].get("cutOffs").is_none(), "the count starts again");
+    assert!(record(&dir, &mut state, &name, Outcome::CutOff { charged: true }, AT + 2, 0).unwrap());
+    assert_eq!(state["subjects"][&name]["cutOffs"], json!(1));
+    assert_eq!((state["subjects"][&name]["state"].as_str(), state["subjects"][&name]["attempts"].as_i64()), (Some("waiting"), Some(0)));
+    assert_eq!(blocking_problem(&state, AT), None, "not reported as OpenAI being unreachable");
+    assert_eq!(spent_today(&state, AT), openai::ESTIMATE_CENTS);
+    // Any answer about the picture starts the count again; leaving before the request does not.
+    assert!(record(&dir, &mut state, &name, Outcome::Stopped, AT + 3, 0).unwrap());
+    assert_eq!(state["subjects"][&name]["cutOffs"], json!(1));
+    record(&dir, &mut state, &name, Outcome::Fault(openai::Fault::Refused), AT + 4, 0).unwrap();
+    assert!(state["subjects"][&name].get("cutOffs").is_none());
+    setup(&mut state);
+    record(&dir, &mut state, &name, Outcome::CutOff { charged: false }, AT, 0).unwrap();
+    assert_eq!(spent_today(&state, AT), 0);
+
+    // A picture Magpie could not use was paid at its reported cost, and is asked for again later.
+    setup(&mut state);
+    assert!(!record(&dir, &mut state, &name, Outcome::Unusable { cents: 2, micro_dollars: 14_200 }, AT, 0).unwrap());
+    assert_eq!(spent_today(&state, AT), 2);
+    assert_eq!((state["subjects"][&name]["attempts"].as_i64(), state["subjects"][&name]["reason"].as_str()), (Some(1), Some("pictures_unusable")));
+    assert_eq!(blocking_problem(&state, AT), None);
 }
 
 #[test]
@@ -375,7 +412,7 @@ fn rejected_settings_wait_and_a_run_of_them_pauses_painting() {
     assert!(waiting(&state, &names[0]));
     assert_eq!(state["subjects"][&names[0]]["retryAt"], AT + MODEL_WAIT);
     assert_eq!(state["subjects"][&names[0]]["reason"], "pictures_request_rejected");
-    record(&dir, &mut state, &names[1], Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 2, reference: None }, AT, 0).unwrap();
+    record(&dir, &mut state, &names[1], Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 2, micro_dollars: 15_000, reference: None }, AT, 0).unwrap();
     assert!(state.get("refusedRun").is_none());
 
     // An answer to a replaced key leaves the picture as it was and does not count.
@@ -517,6 +554,11 @@ async fn a_monogram_is_painted_from_house_style_text_alone_and_served_in_the_cir
     assert_eq!(status["painted"], 1);
     assert_eq!(status["present"], false);
     assert_eq!(status["spentTodayCents"], 7);
+    // The spending page counts the cost OpenAI reported in place of the reservation.
+    let at = now();
+    let since = at - 3_600_000;
+    let ledger = super::super::spending::spending(&json!({"day":since,"week":since,"month":since})).await.unwrap();
+    assert_eq!(ledger["periods"]["day"]["pictures"], json!(61_500_000));
 }
 
 #[tokio::test]
@@ -533,7 +575,7 @@ async fn a_logo_edit_sends_only_the_reference_and_the_domain() {
     assert_eq!(line, "POST /v1/images/edits HTTP/1.1");
     assert!(head.to_lowercase().contains("content-type: multipart/form-data; boundary=----magpieboundary"));
     let text = String::from_utf8_lossy(body);
-    assert!(text.contains("name=\"model\"\r\n\r\ngpt-image-2.5-sunburst\r\n"));
+    assert!(text.contains(&format!("name=\"model\"\r\n\r\n{MODEL}\r\n")));
     assert!(text.contains("Subject: the acme.example brand mark."));
     assert!(text.contains("filename=\"reference.png\"\r\nContent-Type: image/png\r\n\r\n\u{FFFD}PNG-reference\r\n"));
 }
@@ -637,7 +679,7 @@ async fn a_key_is_saved_only_after_openai_accepts_it() {
     let _store = crate::credentials::tests::isolated_store(Recording(saved.clone()));
     assert_eq!(set_key("not-a-key").await.unwrap_err(), "pictures_key_format");
     assert_eq!(set_key("sk-has spaces-0000000000000000").await.unwrap_err(), "pictures_key_format");
-    let server = Server::new(vec![(401, "{}".into()), (200, r#"{"id":"gpt-image-2.5-sunburst"}"#.into())]).await;
+    let server = Server::new(vec![(401, "{}".into()), (200, json!({"id": MODEL}).to_string())]).await;
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
     let origin = server.origin.clone();
     openai::with_test_transport(client, origin, async {
@@ -654,7 +696,7 @@ async fn a_key_is_saved_only_after_openai_accepts_it() {
     assert_eq!(read_state(&dir).unwrap()["keyGeneration"], 2);
     let requests = server.requests();
     assert_eq!(requests.len(), 2);
-    assert!(requests.iter().all(|(line, _, _)| line == "GET /v1/models/gpt-image-2.5-sunburst HTTP/1.1"));
+    assert!(requests.iter().all(|(line, _, _)| *line == format!("GET /v1/models/{MODEL} HTTP/1.1")));
 }
 
 #[test]
@@ -677,4 +719,257 @@ fn prepared_painted_avatars_of_removed_accounts_are_deleted() {
     assert!(super::super::store::read("avatar-contact").unwrap().is_some());
     avatars::forget_painted(&[]).unwrap();
     assert!(super::super::store::read("avatar-kept").unwrap().is_none());
+}
+
+#[test]
+fn the_phone_paints_one_flare_picture_at_a_time_and_linux_two_with_sunburst() {
+    if super::super::PHONE_WRITER {
+        assert_eq!((MODEL, IN_FLIGHT), ("gpt-image-2.5-flare", 1));
+    } else {
+        assert_eq!((MODEL, IN_FLIGHT), ("gpt-image-2.5-sunburst", 2));
+    }
+}
+
+#[test]
+fn the_spending_page_counts_a_picture_at_its_reported_cost_and_a_lost_one_at_the_estimate() {
+    let painted = Outcome::Painted { jpeg: Vec::new(), cents: 2, micro_dollars: 13_170, reference: None };
+    assert_eq!(spent_on(&painted), 13_170_000);
+    assert_eq!(spent_on(&Outcome::Fault(openai::Fault::Lost { charged: true })), 70_000_000);
+    assert_eq!(spent_on(&Outcome::Fault(openai::Fault::Lost { charged: false })), 0);
+    assert_eq!(spent_on(&Outcome::Fault(openai::Fault::Refused)), 0);
+    assert_eq!(spent_on(&Outcome::NoReference), 0);
+    assert_eq!(spent_on(&Outcome::Stopped), 0);
+    assert_eq!(spent_on(&Outcome::CutOff { charged: true }), 70_000_000);
+    assert_eq!(spent_on(&Outcome::CutOff { charged: false }), 0);
+    assert_eq!(spent_on(&Outcome::Unusable { cents: 2, micro_dollars: 14_200 }), 14_200_000, "the reported cost, not the estimate");
+    assert_eq!(estimate(), 70_000_000);
+}
+
+/// On the phone, a run that finds Magpie no longer in the foreground asks for no picture and sets
+/// nothing aside, so leaving the app never cuts off a picture that was about to start.
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn the_phone_starts_no_picture_while_magpie_is_in_the_background() {
+    if !super::super::PHONE_WRITER || isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    super::super::claude::diagnostics::foreground(false);
+    assert!(!may_start());
+    let monogram = Subject::Monogram { letter: 'Q' };
+    let assignments = vec![("s1".to_owned(), monogram.clone())];
+    let due = blocking(move || change(|_, state| assign(state, "one", &assignments, true, now()))).await.unwrap();
+    assert_eq!(due.len(), 1);
+    // No transport is set, so a request would fail the test's own guard instead of leaving Magpie.
+    paint_all(due, key(), 0).await.unwrap();
+    let state = blocking(|| read_state(&directory(false)?.ok_or("pictures_storage_unavailable")?)).await.unwrap();
+    let row = &state["subjects"][monogram.id()];
+    assert_eq!((row["state"].as_str(), row["attempts"].as_i64()), (Some("waiting"), Some(0)), "no picture was asked for");
+    assert_eq!(spent_today(&state, now()), 0, "nothing was set aside for a picture");
+    // The app may leave while a reference is fetched, after the picture was reserved: nothing is
+    // sent then either. No transport is set, so a request would come back as a fault.
+    let outcome = paint(&monogram, None, &key()).await;
+    assert!(matches!(outcome, Outcome::Stopped), "no request once Magpie has left");
+    super::super::claude::diagnostics::foreground(true);
+    assert!(may_start());
+}
+
+/// A request lost while Magpie was away is told apart from OpenAI being unreachable.
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn a_picture_lost_while_magpie_was_away_is_cut_off_not_unreachable() {
+    if !super::super::PHONE_WRITER || isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    // The test server answers after the app has left, by closing the connection.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut buffer = vec![0u8; 4096];
+        let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buffer).await;
+        super::super::claude::diagnostics::foreground(false);
+        drop(socket);
+    });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let outcome = openai::with_test_transport(client, origin, paint(&Subject::Monogram { letter: 'Q' }, None, &key())).await;
+    super::super::claude::diagnostics::foreground(true);
+    assert!(matches!(outcome, Outcome::CutOff { .. }), "a request cut off while away is not OpenAI's failure");
+}
+
+/// A stand-in for OpenAI that holds each answer until the test releases one, and counts requests.
+#[cfg(feature = "mobile")]
+struct Held {
+    origin: String,
+    arrived: tokio::sync::mpsc::UnboundedReceiver<()>,
+    release: Arc<tokio::sync::Semaphore>,
+    seen: Arc<std::sync::atomic::AtomicUsize>,
+    _task: tokio::task::JoinHandle<()>,
+}
+
+#[cfg(feature = "mobile")]
+impl Held {
+    async fn new() -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let (arrive, arrived) = tokio::sync::mpsc::unbounded_channel();
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let seen = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (gate, count) = (release.clone(), seen.clone());
+        let task = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let (arrive, gate, count) = (arrive.clone(), gate.clone(), count.clone());
+                tokio::spawn(async move {
+                    let mut head = Vec::new();
+                    while !head.ends_with(b"\r\n\r\n") {
+                        let Ok(byte) = socket.read_u8().await else { return };
+                        head.push(byte);
+                    }
+                    let head = String::from_utf8(head).unwrap();
+                    let length = head
+                        .lines()
+                        .find_map(|line| line.split_once(':').filter(|(name, _)| name.eq_ignore_ascii_case("content-length")))
+                        .map_or(0, |(_, value)| value.trim().parse::<usize>().unwrap());
+                    let mut body = vec![0; length];
+                    socket.read_exact(&mut body).await.unwrap();
+                    count.fetch_add(1, Ordering::SeqCst);
+                    let _ = arrive.send(());
+                    gate.acquire().await.unwrap().forget();
+                    let reply = picture_reply();
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                        reply.len()
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+        Self { origin, arrived, release, seen, _task: task }
+    }
+    async fn wait_for_request(&mut self) {
+        tokio::time::timeout(std::time::Duration::from_secs(20), self.arrived.recv()).await.unwrap().unwrap();
+    }
+}
+
+#[cfg(feature = "mobile")]
+async fn due_monograms(letters: &[char]) -> Vec<Due> {
+    let assignments: Vec<(String, Subject)> =
+        letters.iter().map(|letter| (format!("s-{letter}"), Subject::Monogram { letter: *letter })).collect();
+    blocking(move || change(|_, state| assign(state, "one", &assignments, true, now()))).await.unwrap()
+}
+
+/// The app may leave while a photo or logo is fetched, after the foreground was checked at the
+/// start of the run: nothing reaches OpenAI then.
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn the_phone_sends_nothing_when_magpie_leaves_while_a_logo_is_fetched() {
+    if !super::super::PHONE_WRITER || isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    TEST_REFERENCES.lock().unwrap().push(("logo:acme.example".into(), png_data(64, [20, 120, 180, 255])));
+    TEST_LEAVE_WHILE_FETCHING.store(true, Ordering::Release);
+    let server = Server::new(vec![(200, picture_reply())]).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    assert!(may_start());
+    let logo = Subject::Organization { domain: "acme.example".into() };
+    let outcome = openai::with_test_transport(client, server.origin.clone(), paint(&logo, None, &key())).await;
+    super::super::claude::diagnostics::foreground(true);
+    assert!(matches!(outcome, Outcome::Stopped), "the picture stops after the logo is fetched");
+    assert!(server.requests().is_empty(), "no request reached OpenAI");
+}
+
+/// While a picture is asked for, the spending page counts its reservation and leaving the app
+/// waits for it; once it is saved with its cost, leaving goes ahead.
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn leaving_waits_for_a_picture_in_flight_which_is_counted_at_its_reservation() {
+    if !super::super::PHONE_WRITER || isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let mut server = Held::new().await;
+    let due = due_monograms(&['W']).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let run = tokio::spawn(openai::with_test_transport(client, server.origin.clone(), paint_all(due, key(), 0)));
+    server.wait_for_request().await;
+    let since = now() - 3_600_000;
+    let periods = json!({"day":since,"week":since,"month":since});
+    let ledger = super::super::spending::spending(&periods).await.unwrap();
+    assert_eq!(ledger["periods"]["day"]["pictures"], json!(70_000_000), "the picture in flight is counted at its reservation");
+    let inbox = super::super::Inbox::default();
+    super::super::claude::diagnostics::foreground(false);
+    assert_eq!(inbox.settle(std::time::Duration::from_millis(300)).await, "busy", "leaving waits for the picture");
+    server.release.add_permits(1);
+    run.await.unwrap().unwrap();
+    assert!(!under_way());
+    assert_eq!(inbox.settle(std::time::Duration::from_millis(300)).await, "settled");
+    super::super::claude::diagnostics::foreground(true);
+    let ledger = super::super::spending::spending(&periods).await.unwrap();
+    assert_eq!(ledger["periods"]["day"]["pictures"], json!(61_500_000), "its cost replaced the reservation");
+}
+
+/// Hiding sender pictures lets the picture in hand finish and starts no other, until pictures are
+/// asked for again.
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn hiding_sender_pictures_stops_the_run_after_the_picture_in_hand() {
+    if !super::super::PHONE_WRITER || isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let mut server = Held::new().await;
+    let due = due_monograms(&['X', 'Y']).await;
+    assert_eq!(due.len(), 2);
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let run = tokio::spawn(openai::with_test_transport(client, server.origin.clone(), paint_all(due, key(), 0)));
+    server.wait_for_request().await;
+    let inbox = super::super::Inbox::default();
+    inbox.stop_pictures();
+    server.release.add_permits(2);
+    run.await.unwrap().unwrap();
+    assert_eq!(server.seen.load(Ordering::SeqCst), 1, "no second picture was asked for");
+    let state = blocking(|| read_state(&directory(false)?.ok_or("pictures_storage_unavailable")?)).await.unwrap();
+    let states: Vec<&str> = ['X', 'Y']
+        .iter()
+        .map(|letter| state["subjects"][Subject::Monogram { letter: *letter }.id()]["state"].as_str().unwrap_or(""))
+        .collect();
+    assert_eq!(states, ["painted", "waiting"]);
+    assert!(!may_start());
+    let gmail = Arc::new(crate::providers::gmail::Session::default());
+    let local_mail = Arc::new(crate::local_mail::LocalMail::default());
+    inbox.paint_pictures(Vec::new(), gmail, local_mail);
+    assert!(may_start(), "asking for pictures again allows them");
+}
+
+/// Leaving the app waits after OpenAI's answer until the picture and its cost are saved, so iOS
+/// does not freeze the app with a paid picture not yet written.
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn leaving_waits_until_a_paid_picture_is_saved() {
+    if !super::super::PHONE_WRITER || isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let server = Server::new(vec![(200, picture_reply())]).await;
+    let (arrived, mut reached) = tokio::sync::mpsc::unbounded_channel();
+    let permits = Arc::new(tokio::sync::Semaphore::new(0));
+    *TEST_SAVING_GATE.lock().unwrap() = Some((arrived, permits.clone()));
+    let due = due_monograms(&['Z']).await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let run = tokio::spawn(openai::with_test_transport(client, server.origin.clone(), paint_all(due, key(), 0)));
+    tokio::time::timeout(std::time::Duration::from_secs(20), reached.recv()).await.unwrap().unwrap();
+    assert_eq!(server.requests().len(), 1, "OpenAI has answered");
+    assert!(under_way(), "the picture counts until it is saved");
+    let inbox = super::super::Inbox::default();
+    super::super::claude::diagnostics::foreground(false);
+    assert_eq!(inbox.settle(std::time::Duration::from_millis(300)).await, "busy", "leaving waits for the picture to be saved");
+    permits.add_permits(1);
+    run.await.unwrap().unwrap();
+    assert_eq!(inbox.settle(std::time::Duration::from_millis(300)).await, "settled");
+    super::super::claude::diagnostics::foreground(true);
+    let state = blocking(|| read_state(&directory(false)?.ok_or("pictures_storage_unavailable")?)).await.unwrap();
+    assert_eq!(state["subjects"][Subject::Monogram { letter: 'Z' }.id()]["state"], "painted");
 }

@@ -1,7 +1,8 @@
 //! Sender pictures painted in Marmalade's ligne-claire style (C-039).
 //!
-//! Enterprise's engine paints one picture for each sender in an account's Inbox with OpenAI's image
-//! model and Marmalade's avatar prompts. A sender with a contact photo is redrawn from that photo, a
+//! Enterprise's engine, and the engine inside Magpie on the iPhone and iPad (C-040), paints one
+//! picture for each sender in an account's Inbox with OpenAI's image model and Marmalade's avatar
+//! prompts. The phone paints only while Magpie is in the foreground, when the app asks it to. A sender with a contact photo is redrawn from that photo, a
 //! sender at a company from the company's logo (one picture per registrable domain), and anyone
 //! else as a monogram of one letter, so no face is invented. `inbox.avatar` then serves the painted
 //! picture cut to the circle.
@@ -16,7 +17,8 @@
 //!   while contacts are unknown, and a picture no sender uses is kept for `ORPHAN_KEEP` before it is
 //!   deleted. Pictures of the senders of an account removed from Magpie are deleted at the next run;
 //!   signing out keeps them, so signing in again does not pay for them again.
-//! - The key lives in the platform keyring and is never returned, logged or written elsewhere.
+//! - The key lives in the platform keyring (the iPhone's device-only Keychain on the phone) and is
+//!   never returned, logged or written elsewhere.
 //!   Saving or removing it changes `keyGeneration` in the state before and after the keyring
 //!   changes, which stops any run that still holds the old key, in whichever process it runs, from
 //!   sending further requests.
@@ -37,8 +39,10 @@ use std::{
     },
 };
 
-/// OpenAI's gpt-image-2.5 Sunburst, which Dave chose for both Magpie and Marmalade (Q-007).
-pub(crate) const MODEL: &str = "gpt-image-2.5-sunburst";
+/// OpenAI's gpt-image-2.5 Sunburst, which Dave chose for Magpie on Linux and for Marmalade (Q-007).
+/// The iPhone and iPad use gpt-image-2.5 Flare, which Dave chose for them to get a feel for that
+/// model (C-040); both are billed at the same token prices.
+pub(crate) const MODEL: &str = if super::PHONE_WRITER { "gpt-image-2.5-flare" } else { "gpt-image-2.5-sunburst" };
 pub(crate) const DAILY_LIMIT_CENTS: i64 = 300;
 /// Attempts for a picture that keeps failing for reasons that may pass, with the waits between them.
 const ATTEMPTS: i64 = 3;
@@ -46,9 +50,15 @@ const RETRY_WAITS: [i64; 2] = [3_600_000, 6 * 3_600_000];
 /// How often one account's Inbox is looked at for new senders.
 const RUN_EVERY: i64 = 60_000;
 const MAX_SENDERS: usize = 2_000;
-const IN_FLIGHT: usize = 2;
+/// Pictures asked for at once. The phone asks for one, so leaving Magpie cuts off at most one.
+const IN_FLIGHT: usize = if super::PHONE_WRITER { 1 } else { 2 };
 const RATE_WAIT: i64 = 60_000;
 const LOST_WAIT: i64 = 5 * 60_000;
+/// After every `CUT_OFFS` requests for the same picture that iOS cut off, that picture waits
+/// `CUT_OFF_WAIT` and the next one goes first, so short visits to the app do not ask for the same
+/// picture again and again.
+const CUT_OFFS: i64 = 2;
+const CUT_OFF_WAIT: i64 = 10 * 60_000;
 const BILLING_WAIT: i64 = 3_600_000;
 const MODEL_WAIT: i64 = 24 * 3_600_000;
 /// How long painting leaves a keyring it could not read before reading it again. Reading a locked
@@ -370,6 +380,7 @@ fn clear_retry(row: &mut Value) {
     if let Some(row) = row.as_object_mut() {
         row.remove("retryAt");
         row.remove("reason");
+        row.remove("cutOffs");
     }
 }
 
@@ -456,11 +467,18 @@ fn adjust(state: &mut Value, at: i64, cents: i64) {
 
 enum Outcome {
     /// `reference` is the fingerprint of the contact photo it was painted from.
-    Painted { jpeg: Vec<u8>, cents: i64, reference: Option<String> },
+    Painted { jpeg: Vec<u8>, cents: i64, micro_dollars: i64, reference: Option<String> },
     /// The contact's photo has the same pixels as the one already painted; nothing was sent.
     Unchanged,
     /// The contact photo could not be fetched; nothing was sent.
     NoReference,
+    /// Magpie left the foreground before the request was sent, so nothing was sent.
+    Stopped,
+    /// Magpie left the foreground while the request was under way and the answer was lost. iOS may
+    /// have cut it off, so it says nothing about OpenAI or the picture. `charged` as for `Lost`.
+    CutOff { charged: bool },
+    /// OpenAI answered with a picture Magpie could not use. It was paid for at the reported cost.
+    Unusable { cents: i64, micro_dollars: i64 },
     Fault(openai::Fault),
 }
 
@@ -525,8 +543,15 @@ fn record(
         state["subjects"] = Value::Object(subjects);
         return Ok(false);
     };
+    // Only cut-offs in a row hold a picture back; any other outcome but leaving before the request
+    // starts the count again.
+    if !matches!(outcome, Outcome::CutOff { .. } | Outcome::Stopped)
+        && let Some(fields) = row.as_object_mut()
+    {
+        fields.remove("cutOffs");
+    }
     let halt = match outcome {
-        Outcome::Painted { jpeg, cents, reference } => {
+        Outcome::Painted { jpeg, cents, reference, .. } => {
             if let Err(error) = fs::atomic_replace(dir, &format!("{subject}.jpg"), &jpeg) {
                 state["subjects"] = Value::Object(subjects);
                 return Err(error);
@@ -558,6 +583,33 @@ fn record(
         Outcome::NoReference => {
             adjust(state, at, refund);
             failed_once(row, "pictures_reference_unavailable", at);
+            false
+        }
+        // Nothing was sent; the picture waits for the next turn in the foreground.
+        Outcome::Stopped => {
+            adjust(state, at, refund);
+            true
+        }
+        // A request iOS cut off counts no attempt and does not pause painting; one that may have
+        // been charged keeps its reservation. A picture cut off repeatedly waits for a while.
+        Outcome::CutOff { charged } => {
+            if !charged {
+                adjust(state, at, refund);
+            }
+            let cut_offs = row["cutOffs"].as_i64().unwrap_or(0) + 1;
+            if cut_offs >= CUT_OFFS {
+                row["retryAt"] = json!(at + CUT_OFF_WAIT);
+                if let Some(row) = row.as_object_mut() {
+                    row.remove("cutOffs");
+                }
+            } else {
+                row["cutOffs"] = json!(cut_offs);
+            }
+            true
+        }
+        Outcome::Unusable { cents, .. } => {
+            adjust(state, at, cents - openai::ESTIMATE_CENTS);
+            failed_once(row, "pictures_unusable", at);
             false
         }
         // A rejected setting says nothing about the picture, so the picture is never given up for
@@ -626,8 +678,34 @@ fn record(
 #[cfg(test)]
 static TEST_REFERENCES: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
 
+/// Set by a test to hold a run after a picture's answer and before it is saved: the run says it
+/// has arrived, then waits for a permit.
+#[cfg(test)]
+#[allow(clippy::type_complexity)]
+static TEST_SAVING_GATE: Mutex<Option<(tokio::sync::mpsc::UnboundedSender<()>, Arc<tokio::sync::Semaphore>)>> =
+    Mutex::new(None);
+
+#[cfg(test)]
+async fn test_saving_gate() {
+    let gate = TEST_SAVING_GATE.lock().ok().and_then(|gate| gate.clone());
+    if let Some((arrived, permits)) = gate {
+        let _ = arrived.send(());
+        if let Ok(permit) = permits.acquire().await {
+            permit.forget();
+        }
+    }
+}
+
+/// Set by a test to have the app leave the foreground while the next photo or logo is fetched.
+#[cfg(all(test, feature = "mobile"))]
+static TEST_LEAVE_WHILE_FETCHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[cfg(test)]
 fn test_reference(address: &str) -> Option<String> {
+    #[cfg(feature = "mobile")]
+    if TEST_LEAVE_WHILE_FETCHING.swap(false, Ordering::AcqRel) {
+        super::claude::diagnostics::foreground(false);
+    }
     let references = TEST_REFERENCES.lock().ok()?;
     references.iter().find(|(known, _)| known == address).map(|(_, data)| data.clone())
 }
@@ -674,16 +752,59 @@ async fn paint(subject: &Subject, previous: Option<&str>, key: &Secret) -> Outco
         },
         Subject::Monogram { letter } => (openai::Request::Generate { prompt: prompts::monogram(*letter) }, None),
     };
+    // Fetching the reference takes time, so the app may have left since the picture was reserved.
+    // Read before the foreground check, so a departure between the two is seen as one during the
+    // request.
+    let left_before = departures();
+    if !may_start() {
+        return Outcome::Stopped;
+    }
     match openai::paint(key, MODEL, &request).await {
         Ok(painted) => {
-            let cents = painted.cents;
+            let (cents, micro_dollars) = (painted.cents, painted.micro_dollars);
             match tokio::task::spawn_blocking(move || avatars::artwork::master(painted.png)).await {
-                Ok(Ok(jpeg)) => Outcome::Painted { jpeg, cents, reference: fingerprint },
-                _ => Outcome::Fault(openai::Fault::Lost { charged: true }),
+                Ok(Ok(jpeg)) => Outcome::Painted { jpeg, cents, micro_dollars, reference: fingerprint },
+                _ => Outcome::Unusable { cents, micro_dollars },
             }
         }
+        Err(openai::Fault::Lost { charged }) if departures() != left_before => Outcome::CutOff { charged },
         Err(fault) => Outcome::Fault(fault),
     }
+}
+
+/// Pictures started and not yet saved with their cost, so leaving the app can wait for them.
+static UNDER_WAY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Counts one picture in `UNDER_WAY` for as long as it lives.
+struct UnderWay;
+
+impl UnderWay {
+    fn new() -> Self {
+        UNDER_WAY.fetch_add(1, Ordering::AcqRel);
+        UnderWay
+    }
+}
+
+impl Drop for UnderWay {
+    fn drop(&mut self) {
+        UNDER_WAY.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Whether a picture is being asked for or saved.
+#[cfg_attr(not(feature = "mobile"), allow(dead_code))]
+pub(crate) fn under_way() -> bool {
+    UNDER_WAY.load(Ordering::Acquire) > 0
+}
+
+/// Whether the phone still shows sender pictures. Hiding them stops the run under way after the
+/// picture in hand; asking for pictures again allows them. Linux has no such switch.
+#[cfg(feature = "mobile")]
+static WANTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+#[cfg(feature = "mobile")]
+pub(crate) fn want(wanted: bool) {
+    WANTED.store(wanted, Ordering::Release);
 }
 
 /// What this process last read from the keyring: the key (or that none is saved), or the time the
@@ -748,6 +869,18 @@ async fn saved_key(key_generation: u64, asker: Asker) -> Result<Option<Arc<Secre
     read.map_err(|_| "pictures_key_storage")
 }
 
+/// Forgets the senders of accounts not in `accounts`, and the pictures only they used, as the next
+/// painting run would. The phone calls it when an account is removed, because without a key no
+/// painting run comes. Blocks.
+#[cfg(feature = "mobile")]
+pub(crate) fn forget_removed(accounts: &[String]) -> Result<(), &'static str> {
+    if directory(false)?.is_none() {
+        return Ok(());
+    }
+    let known: HashSet<String> = accounts.iter().map(|account| id(&["picture-account", account])).collect();
+    change(|dir, state| forget(dir, state, &known, now()))
+}
+
 /// Forgets what belongs to removed accounts when no account is left.
 async fn forget_only() -> Result<(), &'static str> {
     blocking(|| {
@@ -804,6 +937,55 @@ async fn run(
     paint_all(due, key, key_generation).await
 }
 
+/// What a finished request cost in billionths of a dollar for the spending page: a painted picture
+/// from its reported usage, and one lost after it may have been charged at the estimate the daily
+/// limit keeps for it.
+/// A picture's reservation in billionths of a dollar.
+fn estimate() -> u64 {
+    u64::try_from(openai::ESTIMATE_CENTS).unwrap_or(0).saturating_mul(10_000_000)
+}
+
+fn spent_on(outcome: &Outcome) -> u64 {
+    let micro_dollars = match outcome {
+        Outcome::Painted { micro_dollars, .. } | Outcome::Unusable { micro_dollars, .. } => *micro_dollars,
+        Outcome::Fault(openai::Fault::Lost { charged: true }) | Outcome::CutOff { charged: true } => {
+            openai::ESTIMATE_CENTS * 10_000
+        }
+        _ => 0,
+    };
+    u64::try_from(micro_dollars).unwrap_or(0).saturating_mul(1_000)
+}
+
+/// Whether a new picture may be asked for. On the phone only while Magpie is in the foreground,
+/// because iOS freezes the app soon after it leaves and a picture cut off there may still be
+/// charged, and only while sender pictures are shown.
+fn may_start() -> bool {
+    #[cfg(feature = "mobile")]
+    if super::PHONE_WRITER {
+        return super::claude::diagnostics::active() && WANTED.load(Ordering::Acquire);
+    }
+    true
+}
+
+/// How many times the app has left the foreground; a change means it left during a request. The
+/// desktop never leaves it.
+fn departures() -> u64 {
+    #[cfg(feature = "mobile")]
+    if super::PHONE_WRITER {
+        return super::claude::diagnostics::suspensions();
+    }
+    0
+}
+
+/// A picture being painted: its subject, its reservation on the spending page and whether that was
+/// written, and its place in `UNDER_WAY`, which ends when the entry is dropped.
+struct Running {
+    subject: String,
+    ledger: String,
+    reserved: bool,
+    _under_way: UnderWay,
+}
+
 async fn paint_all(due: Vec<Due>, key: Arc<Secret>, key_generation: u64) -> Result<(), &'static str> {
     let mut queue = due.into_iter();
     let mut tasks = tokio::task::JoinSet::new();
@@ -813,6 +995,10 @@ async fn paint_all(due: Vec<Due>, key: Arc<Secret>, key_generation: u64) -> Resu
     let mut failure = None;
     loop {
         while !stopped && tasks.len() < IN_FLIGHT {
+            if !may_start() {
+                stopped = true;
+                break;
+            }
             let Some((subject, previous)) = queue.next() else {
                 break;
             };
@@ -830,27 +1016,36 @@ async fn paint_all(due: Vec<Due>, key: Arc<Secret>, key_generation: u64) -> Resu
             }
             let key = key.clone();
             let name = subject.id();
+            // Counted until the picture and its cost are saved, so leaving the app waits for it.
+            let under_way = UnderWay::new();
+            // The spending page counts the reservation until the cost is known, as the limit does.
+            let ledger = format!("pictures-{name}-{}", now());
+            let reserved = super::spending::reserve(ledger.clone(), "pictures", estimate()).await;
             let task = tasks.spawn(openai::inherit(async move {
                 let outcome = paint(&subject, previous.as_deref(), &key).await;
                 (subject.id(), outcome)
             }));
-            running.insert(task.id(), name);
+            running.insert(task.id(), Running { subject: name, ledger, reserved, _under_way: under_way });
         }
         let Some(finished) = tasks.join_next_with_id().await else {
             return failure.map_or(Ok(()), Err);
         };
         // A task that panicked may have been charged: count it as a lost, charged attempt.
-        let (subject, outcome) = match finished {
-            Ok((task, (subject, outcome))) => {
-                running.remove(&task);
-                (subject, outcome)
-            }
+        let (subject, entry, outcome) = match finished {
+            Ok((task, (subject, outcome))) => (subject, running.remove(&task), outcome),
             Err(error) => match running.remove(&error.id()) {
-                Some(subject) => (subject, Outcome::Fault(openai::Fault::Lost { charged: true })),
+                Some(entry) => (entry.subject.clone(), Some(entry), Outcome::Fault(openai::Fault::Lost { charged: true })),
                 None => continue,
             },
         };
-        match blocking(move || change(|dir, state| record(dir, state, &subject, outcome, now(), key_generation))).await {
+        #[cfg(test)]
+        test_saving_gate().await;
+        let spent = spent_on(&outcome);
+        let recorded = blocking(move || change(|dir, state| record(dir, state, &subject, outcome, now(), key_generation))).await;
+        if let Some(entry) = entry {
+            super::spending::settle(entry.ledger, "pictures", spent, entry.reserved).await;
+        }
+        match recorded {
             Ok(false) => {}
             Ok(true) => stopped = true,
             Err(error) => {

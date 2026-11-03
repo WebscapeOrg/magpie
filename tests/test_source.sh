@@ -317,7 +317,7 @@ PY
 python3 - <<'PY'
 from pathlib import Path
 sidebar = Path("components/MailboxSidebar.qml").read_text()
-assert 'label: "Calendar..."' in sidebar and 'fullPath: "Magpie Calendar..."' in sidebar and "calendarRequested" in sidebar
+assert 'label: "Calendar..."' in sidebar and 'tooltip: "Magpie Calendar..."' in sidebar and "calendarRequested" in sidebar
 service = Path("Service.qml").read_text()
 assert "readonly property var pendingSendHost" in service
 assert "calendarController:" not in service

@@ -636,6 +636,12 @@ Item {
       tryCompare(app, "composing", false)
     }
 
+    function test_a_calendar_view_request_opens_magpie_calendar() {
+      var before = mailService.count("calendar")
+      app.open(JSON.stringify({ view: "calendar" }))
+      compare(mailService.count("calendar"), before + 1)
+    }
+
     function test_calendar_handoff_keeps_the_mail_header() {
       var compose = named(app, "compose-button")
       verify(compose && compose.visible)

@@ -5,8 +5,8 @@ import "../../components" as Mail
 import "../../settings"
 import "../../settings/Display.js" as Display
 
-// Invariant: the open rail names the calendar without cutting it short at any text size, and its
-// tooltip gives the app's whole name.
+// Invariant: the open rail at its usual width names the calendar without cutting it short at any
+// text size, and its tooltip gives the app's whole name.
 Item {
   width: 600
   height: 600
@@ -44,7 +44,7 @@ Item {
 
     function cleanup() { MailStyle.preferences = Display.normalize({}) }
 
-    function test_the_calendar_is_named_in_full_at_every_text_size() {
+    function test_the_calendar_is_named_in_full_at_the_usual_width_and_every_text_size() {
       var label = find(sidebar, function(item) { return item.text === "Calendar..." && item.textFormat !== undefined })
       verify(label, "the rail names the calendar")
       var sizes = [9, 11, 13, 17, 20, 24]

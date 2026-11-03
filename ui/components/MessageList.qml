@@ -6,6 +6,7 @@ import qs.Ui
 import "../account/Model.js" as Model
 import "../account/Unified.js" as Unified
 import "../search/Presentation.js" as SearchPresentation
+import "../account/SyncHealth.js" as SyncHealth
 
 ListView {
   id: root
@@ -214,7 +215,10 @@ ListView {
       anchors.centerIn: parent
       width: parent.width - MailStyle.space(20)
       horizontalAlignment: Text.AlignHCenter
+      readonly property var syncText: SyncHealth.emptyFor(root.service.localMailbox,
+        root.service.searchQuery !== "", root.service.listLoading)
       text: root.service.preparingInbox > 0 ? "Inbox messages appear when their descriptions are ready. All mail includes messages still being prepared."
+        : syncText !== null ? syncText
         : SearchPresentation.emptyText(root.service.searchStatus, root.service.listLoading,
           root.service.listLoaded, root.service.searchQuery !== "")
       textFormat: Text.PlainText

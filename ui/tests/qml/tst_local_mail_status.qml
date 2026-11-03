@@ -9,15 +9,15 @@ Item {
     id: mailbox
     property bool available: true
     property string error: ""
+    property string problem: ""
+    readonly property bool needsGmail: error === "This search needs Gmail. Choose Search online to continue."
     property var status: ({complete:false,textComplete:501,estimatedTotal:1200})
     property var account: ({listLoading:false})
     property var edits: []
-    property int pauses: 0
     property int searches: 0
-    property string undone: ""
-    function setPaused(value) { pauses++; status=Object.assign({},status,{paused:value}) }
+    property string dismissed: ""
     function searchOnline() { searches++ }
-    function undo(ticket) { undone=ticket }
+    function dismissConflict(ticket) { dismissed=ticket }
   }
   Mail.LocalMailStatus {
     id: notice
@@ -41,102 +41,92 @@ Item {
     function init() {
       notice.searchActive=false
       mailbox.error=""
+      mailbox.problem=""
       mailbox.status=({complete:false,textComplete:501,estimatedTotal:1200})
       mailbox.account=({listLoading:false})
       mailbox.edits=[]
-      mailbox.pauses=0
       mailbox.searches=0
-      mailbox.undone=""
+      mailbox.dismissed=""
     }
-    function test_partial_coverage_and_keyboard_pause_are_visible() {
-      verify(findText(notice,"501 of about 1200 messages saved for offline use."))
-      var pause=findText(notice,"Pause downloads")
-      verify(pause)
-      pause.forceActiveFocus()
-      keyClick(Qt.Key_Return)
-      compare(mailbox.pauses,1)
-      verify(findText(notice,"Resume downloads"))
+    // Q-011: progress, pausing, queued changes and mail that cannot be saved are routine; they are
+    // in Settings → Mailboxes, not above the Inbox.
+    function test_routine_sync_shows_nothing_above_the_inbox() {
+      var routine = [
+        {complete:false,textComplete:5030,estimatedTotal:4599},
+        {complete:false,pending:1},
+        {complete:true,paused:true},
+        {complete:true,pendingEdits:2},
+        {complete:true,unsaved:2,unsavedReasons:{local_text_unreadable:2}},
+        {complete:false,error:"gmail_server_rate_limited"},
+        {complete:false,error:"gmail_request_deferred"},
+        {complete:false,failed:3}
+      ]
+      for (var index=0;index<routine.length;index++) {
+        mailbox.status=routine[index]
+        verify(!notice.visible, JSON.stringify(routine[index]))
+        compare(notice.height, 0)
+      }
+      mailbox.edits=[{ticket:"queued",state:"queued"}]
+      mailbox.status=({complete:true,pendingEdits:1})
+      verify(!notice.visible, "a queued change is undone from Settings")
+      verify(!findText(notice,"Pause downloads"))
+      verify(!findText(notice,"Undo latest change"))
+      verify(!findText(notice,"Local search covers downloaded text. Files download when opened."))
     }
-    function test_search_waits_for_current_list_and_undo_names_the_saved_ticket() {
+    function test_a_problem_is_shown_with_its_own_words() {
+      mailbox.problem="Sign in to Gmail again to resume syncing. Saved mail and queued changes are kept."
+      verify(notice.visible)
+      verify(findText(notice,mailbox.problem).visible)
+      verify(!findText(notice,"Search online").visible, "only a mailbox that needs Gmail offers Search online")
+      mailbox.status=({complete:true,editConflicts:1})
+      mailbox.edits=[{ticket:"failed",state:"conflict"}]
+      verify(findText(notice,"Dismiss failed change").visible, "the row of buttons is shown")
+      verify(!findText(notice,"Search online").visible, "and still has no Search online")
+      mailbox.status=({complete:false,textComplete:501,estimatedTotal:1200})
+      mailbox.edits=[]
+      notice.searchActive=true
+      verify(notice.visible, "a problem still shows while searching")
+      mailbox.error="Could not change the download setting. Try again."
+      verify(findText(notice,mailbox.error).visible, "the latest action's error comes first")
+      mailbox.error=""
+      mailbox.problem=""
+      verify(!notice.visible)
+    }
+    function test_a_mailbox_that_needs_gmail_offers_search_online() {
+      mailbox.status=({complete:true})
+      mailbox.error="This search needs Gmail. Choose Search online to continue."
+      verify(notice.visible)
       var search=findText(notice,"Search online")
+      verify(search.visible)
       mailbox.account=({listLoading:true})
       verify(!search.enabled)
       mailbox.account=({listLoading:false})
       search.forceActiveFocus()
       keyClick(Qt.Key_Return)
       compare(mailbox.searches,1)
-      mailbox.edits=[{ticket:"one",state:"queued"}]
-      var undo=findText(notice,"Undo latest change")
-      verify(undo.visible)
-      undo.forceActiveFocus()
+      notice.searchActive=true
+      verify(!search.visible, "a submitted search retries from the search status")
+    }
+    function test_a_change_that_could_not_sync_can_be_dismissed() {
+      mailbox.status=({complete:true,editConflicts:1})
+      mailbox.edits=[{ticket:"queued",state:"queued"},{ticket:"failed",state:"conflict"}]
+      verify(notice.visible)
+      verify(findText(notice,"A mailbox change could not sync. The message may have been removed or its permissions changed.").visible)
+      var dismiss=findText(notice,"Dismiss failed change")
+      verify(dismiss.visible)
+      dismiss.forceActiveFocus()
       keyClick(Qt.Key_Return)
-      compare(mailbox.undone,"one")
-    }
-    function test_completed_storage_hides_notice_but_failure_explains_recovery() {
-      mailbox.status=({complete:true})
-      verify(!notice.visible)
-      mailbox.status=({complete:true,paused:true})
-      verify(notice.visible)
-      verify(findText(notice,"Resume downloads"))
-      mailbox.status=({complete:true,error:"gmail_server_rate_limited"})
-      verify(notice.visible)
-      verify(findText(notice,"Gmail is limiting requests. Sync will retry automatically. Saved mail is available."))
-      mailbox.error="This search needs Gmail. Choose Search online to continue."
-      verify(notice.visible)
-      verify(findText(notice,mailbox.error))
-    }
-    function test_search_hides_routine_sync_details_but_keeps_recovery() {
-      notice.searchActive = true
-      verify(!notice.visible)
-      var routine = ["gmail_request_deferred", "gmail_rate_limited", "gmail_server_rate_limited"]
-      for (var index = 0; index < routine.length; index++) {
-        mailbox.status = {complete:false,error:routine[index]}
-        verify(!notice.visible)
-      }
-      mailbox.status = {complete:false,paused:true}
-      verify(!notice.visible)
-      mailbox.status = {complete:true,error:"gmail_unauthorized"}
-      verify(notice.visible)
-      mailbox.status = {complete:true,editConflicts:1}
-      verify(notice.visible)
-      mailbox.status = {complete:true,pendingEdits:1}
-      mailbox.edits = [{ticket:"queued-search-edit",state:"queued"}]
-      verify(notice.visible)
-      var undo = findText(notice,"Undo latest change")
-      verify(undo.visible)
-      undo.forceActiveFocus()
-      keyClick(Qt.Key_Return)
-      compare(mailbox.undone,"queued-search-edit")
-      verify(!findText(notice,"Search online").visible)
-    }
-    function test_local_pacing_and_legacy_limits_do_not_blame_gmail() {
-      mailbox.status=({complete:false,error:"gmail_request_deferred"})
-      verify(notice.visible)
-      verify(findText(notice,"Magpie is spacing out mail requests. Sync will continue automatically. Saved mail is available."))
-      verify(!findText(notice,"Gmail is limiting requests. Sync will retry automatically. Saved mail is available."))
-      mailbox.status=({complete:false,error:"gmail_rate_limited"})
-      verify(findText(notice,"Mail requests are temporarily limited. Sync will retry automatically. Saved mail is available."))
-      mailbox.status=({complete:false,error:"",textComplete:502,estimatedTotal:1200})
-      verify(findText(notice,"502 of about 1200 messages saved for offline use."))
-      mailbox.status=({complete:true,error:""})
+      compare(mailbox.dismissed,"failed")
+      mailbox.status=({complete:true,editConflicts:0})
+      mailbox.edits=[]
       verify(!notice.visible)
     }
-    function test_mail_that_cannot_be_saved_is_counted_with_its_reason() {
-      var damaged = "2 messages could not be saved in full because Gmail's copy of their text is damaged."
-      mailbox.status=({complete:true,unsaved:2,unsavedReasons:{local_text_unreadable:2}})
-      verify(notice.visible)
-      verify(findText(notice,damaged))
-      verify(!findText(notice,"Local search covers downloaded text. Files download when opened.").visible)
-      verify(!findText(notice,"Pause downloads").visible, "finished mail offers no download controls")
-      verify(!findText(notice,"Search online").visible)
-      mailbox.status=({complete:false,textComplete:501,estimatedTotal:1200,unsaved:2,unsavedReasons:{local_text_unreadable:2}})
-      verify(findText(notice,"501 of about 1200 messages saved for offline use. " + damaged), "progress stays visible")
-      verify(findText(notice,"Pause downloads").visible)
-      mailbox.status=({complete:false,failed:3,unsaved:2,unsavedReasons:{local_text_unreadable:2}})
-      verify(findText(notice,"3 messages could not finish downloading. Sync will retry automatically. " + damaged))
-      notice.searchActive = true
-      mailbox.status=({complete:true,unsaved:2,unsavedReasons:{local_text_unreadable:2}})
+    function test_an_unavailable_offline_copy_shows_nothing() {
+      mailbox.problem="Downloads are waiting for Gmail. Saved mail is available."
+      mailbox.available=false
       verify(!notice.visible)
+      mailbox.available=true
+      verify(notice.visible)
     }
   }
 }

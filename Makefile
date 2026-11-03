@@ -56,7 +56,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/components/ComposeExitDialog.qml \
 	ui/components/BackBar.qml \
 	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/PictureSettings.qml \
-	ui/components/SpendingSettings.qml \
+	ui/components/SpendingSettings.qml ui/components/SyncSettings.qml \
 	ui/components/SettingsSidebar.qml \
 	ui/components/ConfirmDeleteDialog.qml \
 	ui/components/SetupPage.qml \
@@ -148,6 +148,7 @@ test-js:
 	TZ=America/Santiago node ui/tests/test_spending.js
 	TZ=America/Havana node ui/tests/test_spending.js
 	node ui/tests/test_unsaved.js
+	node ui/tests/test_sync_health.js
 	node ui/tests/test_display.js
 	node app/tests/test_theme.js
 	node app/tests/test_shell_theme.js

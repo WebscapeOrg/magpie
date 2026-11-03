@@ -1703,6 +1703,7 @@
         "failed": 0,
         "health.inboxKnown": false,
         "health.inboxComplete": false,
+        "health.inboxMissing": null,
         "health.missing": 1,
         "health.missingExact": false,
         "health.otherMissing": null,

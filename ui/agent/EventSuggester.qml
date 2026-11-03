@@ -142,7 +142,7 @@ Item {
     if (!suggestion || !reading || !service) return false
     var selected = suggestions.filter(function(value) { return value.key === suggestion.key })
     if (selected.length !== 1 || !service.findAccount(reading.accountId)) return false
-    return service.openSkylark({version:1,kind:"suggestion",accountId:reading.accountId,
+    return service.openMagpieCalendar({version:1,kind:"suggestion",accountId:reading.accountId,
       suggestion:Agent.eventPrefill(selected[0],reading.accountId)})
   }
 }

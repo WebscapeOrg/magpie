@@ -104,7 +104,7 @@ Rust lives under `src/`, shared Qt/QML and its JavaScript under `ui/`, and the s
 - `ui/providers/` owns Google authentication, Gmail transport presentation and Gmail domain facts. No provider picker or multi-protocol registry remains.
 - `ui/account/` owns accounts, a mailbox, and list behavior after actions.
 - `ui/cache/` owns stored query results and message bodies.
-- Skylark owns calendar sources, range caches, event operations and reminders in its own repository and storage. Magpie only sends explicit invitation or suggested-event handoffs.
+- Magpie Calendar owns calendar sources, range caches, event operations and reminders in its own repository and storage. Magpie only sends explicit invitation or suggested-event handoffs.
 - `ui/message/` owns parsing, sanitizing, calendar data, and other decisions about a message's content.
 - `ui/keys/` owns the action and binding declaration.
 - `ui/components/` owns views and reusable interaction primitives.
@@ -122,7 +122,7 @@ QML components own Qt lifecycle and input mechanics. Feature views supply
 Omamail composition; semantic properties supplied from `App.qml` carry the
 Omarchy presentation.
 
-All mail accounts use Gmail. Retained provider fields at persistence and RPC boundaries validate compatibility; they do not choose a transport. Unknown providers are refused before side effects. Skylark checks calendar access permissions independently.
+All mail accounts use Gmail. Retained provider fields at persistence and RPC boundaries validate compatibility; they do not choose a transport. Unknown providers are refused before side effects. Magpie Calendar checks calendar access permissions independently.
 
 ## Vocabulary is an interface contract
 

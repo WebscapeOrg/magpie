@@ -149,9 +149,9 @@ used to exist, and they had.
 | `assistantCommandNext` | `Down` | assistantCommands | Next command |
 | `assistantCommandPrevious` | `Up` | assistantCommands | Previous command |
 | `assistantChooseCommand` | `Return`, `Enter` | assistantCommands | Complete or run the selected AI command |
-| `calendar` | `Alt+C` | mail | Open Skylark... |
+| `calendar` | `Alt+C` | mail | Open Magpie Calendar... |
 | `mailView` | `Ctrl+Shift+M` | mail | Go to mail |
-| `calendarView` | `Ctrl+Shift+C` | mail | Open Skylark... |
+| `calendarView` | `Ctrl+Shift+C` | mail | Open Magpie Calendar... |
 | `toggleSidebar` | `[` | mail | Show or hide the sidebar |
 | `zoomIn` | `Ctrl++`, `Ctrl+=` | reader | Zoom the message body in |
 | `zoomOut` | `Ctrl+-` | reader | Zoom the message body out |

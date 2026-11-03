@@ -112,11 +112,11 @@ var BINDINGS = [
     group: "AI", label: "Complete or run the selected AI command" },
 
   { id: "calendar", keys: ["Alt+C"], contexts: ["list", "reader"],
-    group: "Going", label: "Open Skylark..." },
+    group: "Going", label: "Open Magpie Calendar..." },
   { id: "mailView", keys: ["Ctrl+Shift+M"], contexts: ["list", "reader"],
     group: "Going", label: "Go to mail" },
   { id: "calendarView", keys: ["Ctrl+Shift+C"], contexts: ["list", "reader"],
-    group: "Going", label: "Open Skylark..." },
+    group: "Going", label: "Open Magpie Calendar..." },
   { id: "toggleSidebar", keys: ["["], contexts: ["list", "reader"],
     group: "Going", label: "Show or hide the sidebar" },
 

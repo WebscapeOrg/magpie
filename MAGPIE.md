@@ -60,6 +60,6 @@ Unavailable descriptions keep the original subject and preview. Hovering the sub
 
 ## Gmail-only accounts
 
-Magpie uses the Gmail API for all mailboxes. Skylark owns calendars, event editing, attendance and reminders. Magpie opens invitations and suggested events in Skylark for review. Google Workspace custom domains and multiple accounts are supported. Add mailbox opens Google setup directly. Existing credentials, account identities, downloaded mail, drafts, aliases and calendar choices are preserved. Unsupported provider records are never converted into Gmail accounts or silently deleted.
+Magpie uses the Gmail API for all mailboxes. Magpie Calendar owns calendars, event editing, attendance and reminders. Magpie opens invitations and suggested events in Magpie Calendar for review. Google Workspace custom domains and multiple accounts are supported. Add mailbox opens Google setup directly. Existing credentials, account identities, downloaded mail, drafts, aliases and calendar choices are preserved. Unsupported provider records are never converted into Gmail accounts or silently deleted.
 
 Unified search prepares syntax once, then each account resolves its own `me` and labels. Inbox overviews reuse downloaded message content. These changes preserve the existing quota scheduler and do not increase background request concurrency.

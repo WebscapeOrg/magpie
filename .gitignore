@@ -7,7 +7,7 @@ node_modules/
 .worktrees/
 app/build/
 
-# Invariant: planning material is excluded from the installed plugin; see AGENTS.md.
+# Planning material stays out of the repository and the installed plugin.
 docs/design/
 docs/superpowers/
 .superpowers/

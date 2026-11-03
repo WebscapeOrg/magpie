@@ -50,7 +50,7 @@ Install Rust, CMake 3.21 or newer, and Qt 6.5 or newer, then use the repository 
 make app-run
 ```
 
-`make app-run` builds the standalone backend and Qt host, then launches from the source resources. Current source builds enable AI assistance on Linux and macOS with an installed Claude, Codex or OpenCode CLI; choose the agent in Settings. Windows AI support remains deferred. See [Contributing](CONTRIBUTING.md) for validation commands.
+`make app-run` builds the standalone backend and Qt host, then launches from the source resources. Current source builds enable AI assistance on Linux and macOS with an installed Claude, Codex or OpenCode CLI; choose the agent in Settings. Windows AI support remains deferred. See [MAGPIE.md](MAGPIE.md) and [AGENTS.md](AGENTS.md) for how Magpie is built, checked and installed.
 
 ## Features
 

@@ -43,10 +43,9 @@ use std::{
     },
 };
 
-/// OpenAI's gpt-image-2.5 Sunburst, which Dave chose for Magpie on Linux and for Marmalade (Q-007).
-/// The iPhone and iPad use gpt-image-2.5 Flare, which Dave chose for them to get a feel for that
-/// model (C-040); both are billed at the same token prices.
-pub(crate) const MODEL: &str = if super::PHONE_WRITER { "gpt-image-2.5-flare" } else { "gpt-image-2.5-sunburst" };
+/// OpenAI's gpt-image-2.5 Sunburst, which Dave chose for Magpie on Linux and for Marmalade (Q-007),
+/// and for the iPhone and iPad in place of gpt-image-2.5 Flare, whose pictures looked worse (C-048).
+pub(crate) const MODEL: &str = "gpt-image-2.5-sunburst";
 pub(crate) const DAILY_LIMIT_CENTS: i64 = 300;
 /// Attempts for a picture that keeps failing for reasons that may pass, with the waits between them.
 const ATTEMPTS: i64 = 3;

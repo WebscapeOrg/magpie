@@ -20,6 +20,8 @@ Search accepts plain text and Gmail operators such as `from:`, `to:`, `is:unread
 
 Downloaded mail remains readable offline. Background downloads and queued edits follow the account's existing pacing and retry rules. Attachments download on demand. An inbox overview reuses downloaded message text before fetching missing content.
 
+**Settings → Mailboxes → Sync** shows how the chosen mailbox's offline copy is doing, as the iPhone does under the account's Sync settings: a status, when Gmail was last checked, what is left to download in the Inbox and in other mail (exact counts, not Gmail's estimate), mail that could not be saved in full, and mailbox changes waiting to sync, with **Undo latest change**. **Pause sync** stops new mail downloading; changes such as archiving still reach Gmail. The line above the Inbox appears only for a problem: a sign-in or disk-space problem at once, a change that could not sync (with **Dismiss failed change**), a mailbox that can only be read from Gmail (with **Search online**), and, after ten minutes without progress, a Gmail limit, a connection problem or downloads that keep failing. Pausing keeps routine progress quiet; sign-in and disk-space problems and failed changes stay visible. An empty paused mailbox says that sync is paused.
+
 ## Unsupported configurations
 
 Other mail services and non-Google calendar integrations are no longer supported. An explicit unsupported account must not be interpreted as Gmail. Existing unsupported records and credentials remain intact; an incompatible account configuration is refused rather than rewritten. Skylark preserves unsupported historical calendar sources without activating them.

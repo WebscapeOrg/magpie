@@ -9,8 +9,12 @@ function whole(value) {
   return isFinite(number) && number > 0 ? number : 0
 }
 
+function group(count) {
+  return String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+}
+
 function messages(count) {
-  return count + (count === 1 ? " message" : " messages")
+  return group(count) + (count === 1 ? " message" : " messages")
 }
 
 function summary(status) {
@@ -33,6 +37,6 @@ function summary(status) {
   if (damaged === 0)
     return messages(total) + " could not be saved in full because " + (total === 1 ? "it is" : "they are")
       + " too large to download."
-  return messages(total) + " could not be saved in full: " + damaged + " with damaged text in Gmail and "
-    + large + " too large to download."
+  return messages(total) + " could not be saved in full: " + group(damaged) + " with damaged text in Gmail and "
+    + group(large) + " too large to download."
 }

@@ -1,8 +1,10 @@
 import QtQuick
 import "../controls" as Widgets
 import "../settings"
-import "../account/Unsaved.js" as Unsaved
+import "../account/SyncHealth.js" as SyncHealth
 
+// The line above the Inbox about offline mail. It shows only a problem Dave can act on or should
+// know about (Q-011); download progress, pausing and queued changes are in Settings → Mailboxes.
 Column {
   id: root
   required property var mailbox
@@ -11,15 +13,10 @@ Column {
   required property string panelFontFamily
   property bool searchActive: false
   readonly property var status: mailbox ? mailbox.status : ({})
-  readonly property string unsaved: Unsaved.summary(status)
-  readonly property bool syncing: !!mailbox && (mailbox.error !== "" || !!status.error || status.paused === true || !status.complete
-    || Number(status.pendingEdits || 0) > 0 || Number(status.editConflicts || 0) > 0)
-  readonly property bool searchNeedsAttention: !!mailbox && (mailbox.error !== ""
-    || (!!status.error && ["gmail_request_deferred", "gmail_rate_limited", "gmail_server_rate_limited"].indexOf(status.error) < 0)
-    || Number(status.pendingEdits || 0) > 0 || Number(status.editConflicts || 0) > 0)
-  visible: !!mailbox && mailbox.available
-    && (!searchActive || searchNeedsAttention)
-    && (syncing || unsaved !== "")
+  readonly property string message: !mailbox ? "" : mailbox.error !== "" ? mailbox.error : mailbox.problem
+  readonly property bool conflicted: SyncHealth.conflicts(status) > 0
+  readonly property bool offersSearch: !searchActive && !!mailbox && mailbox.needsGmail === true
+  visible: !!mailbox && mailbox.available && (message !== "" || conflicted)
   height: visible ? implicitHeight : 0
   spacing: MailStyle.space(4)
 
@@ -27,64 +24,39 @@ Column {
     Accessible.role: Accessible.StaticText
     Accessible.name: text
     width: parent.width
+    visible: text !== ""
     textFormat: Text.PlainText
     color: root.textColor
     font.family: root.panelFontFamily
     font.pixelSize: MailStyle.bodySmall
     wrapMode: Text.WordWrap
-    text: {
-      if (!root.mailbox) return ""
-      if (root.mailbox.error !== "") return root.mailbox.error
-      if (root.status.error === "local_disk_low" || root.status.error === "local_disk_full")
-        return "Downloads paused: free at least 1 GB of disk space. Saved mail is available."
-      if (root.status.error === "gmail_unauthorized" || root.status.error === "gmail_invalid_token")
-        return "Sign in to Gmail again to resume syncing. Saved mail and queued changes are kept."
-      if (root.status.error === "gmail_request_deferred")
-        return "Magpie is spacing out mail requests. Sync will continue automatically. Saved mail is available."
-      if (root.status.error === "gmail_rate_limited")
-        return "Mail requests are temporarily limited. Sync will retry automatically. Saved mail is available."
-      if (root.status.error === "gmail_server_rate_limited")
-        return "Gmail is limiting requests. Sync will retry automatically. Saved mail is available."
-      if (root.status.error) return "Downloads are waiting for Gmail. Saved mail is available."
-      if (root.status.paused) return "Mail downloads paused. Saved mail is available."
-      if (Number(root.status.editConflicts || 0) > 0)
-        return "A mailbox change could not sync. The message may have been removed or its permissions changed."
-      if (Number(root.status.pendingEdits || 0) > 0)
-        return root.status.pendingEdits + " mailbox changes saved, waiting to sync."
-      if (Number(root.status.failed || 0) > 0)
-        return root.status.failed + " messages could not finish downloading. Sync will retry automatically."
-          + (root.unsaved !== "" ? " " + root.unsaved : "")
-      if (root.status.complete) return root.unsaved
-      var saved = Number(root.status.textComplete || 0)
-      var total = Number(root.status.estimatedTotal || 0)
-      return (total > 0 ? saved + " of about " + total + " messages saved for offline use."
-        : saved + " messages saved for offline use. Checking the rest...")
-        + (root.unsaved !== "" ? " " + root.unsaved : "")
-    }
+    text: root.message
   }
   Text {
     Accessible.role: Accessible.StaticText
     Accessible.name: text
     width: parent.width
-    visible: !root.searchActive && !!root.mailbox && !root.status.complete
+    visible: root.conflicted
     textFormat: Text.PlainText
-    text: "Local search covers downloaded text. Files download when opened."
-    color: root.dimColor
+    color: root.textColor
     font.family: root.panelFontFamily
-    font.pixelSize: MailStyle.caption
+    font.pixelSize: MailStyle.bodySmall
     wrapMode: Text.WordWrap
+    text: "A mailbox change could not sync. The message may have been removed or its permissions changed."
   }
   Flow {
     width: parent.width
-    visible: root.syncing
+    // A child's visible is false while this row is hidden, so the row reads their conditions.
+    visible: (root.conflicted && dismiss.ticket !== "") || root.offersSearch
     spacing: MailStyle.space(6)
     Widgets.Button {
+      id: dismiss
       readonly property string ticket: {
         var entries = root.mailbox ? root.mailbox.edits : []
         for (var entryIndex=0;entryIndex<entries.length;entryIndex++) if (entries[entryIndex].state === "conflict") return String(entries[entryIndex].ticket)
         return ""
       }
-      visible: ticket !== ""
+      visible: root.conflicted && ticket !== ""
       focusable: true
       text: "Dismiss failed change"
       foreground: root.textColor
@@ -92,35 +64,14 @@ Column {
       onClicked: root.mailbox.dismissConflict(ticket)
     }
     Widgets.Button {
-      text: root.status.paused ? "Resume downloads" : "Pause downloads"
-      focusable: true
-      foreground: root.textColor
-      fontSize: MailStyle.caption
-      enabled: !!root.mailbox
-      onClicked: root.mailbox.setPaused(!root.status.paused)
-    }
-    Widgets.Button {
+      id: search
       text: "Search online"
-      visible: !root.searchActive
+      visible: root.offersSearch
       focusable: true
       foreground: root.textColor
       fontSize: MailStyle.caption
       enabled: !!root.mailbox && !root.mailbox.account.listLoading
       onClicked: root.mailbox.searchOnline()
-    }
-    Widgets.Button {
-      readonly property string ticket: {
-        var entries = root.mailbox ? root.mailbox.edits : []
-        for (var entryIndex=entries.length-1;entryIndex>=0;entryIndex--)
-          if (entries[entryIndex].state === "queued") return String(entries[entryIndex].ticket)
-        return ""
-      }
-      visible: ticket !== ""
-      focusable: true
-      text: "Undo latest change"
-      foreground: root.textColor
-      fontSize: MailStyle.caption
-      onClicked: root.mailbox.undo(ticket)
     }
   }
 }

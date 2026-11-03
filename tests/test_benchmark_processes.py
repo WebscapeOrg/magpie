@@ -415,6 +415,23 @@ for (const [kind, source] of Object.entries(snippets)) {
             self.assertEqual(len(children), 1, "Display setup must not start without a ready bus")
             self.assertFalse(forbidden.exists(), "Stalled setup must not leave its child running")
 
+    def test_desktop_fixture_does_not_inherit_accessibility_buses(self):
+        with patch.dict(sys.modules, {"PIL": SimpleNamespace(Image=None, ImageGrab=None)}):
+            module = load("desktop_acceptance")
+        inherited = {"AT_SPI_BUS_ADDRESS": "unix:path=/synthetic-host-a11y",
+                     "DBUS_STARTER_ADDRESS": "unix:path=/synthetic-host-session",
+                     "DBUS_STARTER_BUS_TYPE": "session"}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, inherited):
+            root = Path(directory)
+            def stop_before_backend(*args, **kwargs):
+                for key in inherited:
+                    self.assertNotIn(key, kwargs["env"])
+                self.assertEqual(kwargs["env"]["XDG_RUNTIME_DIR"], str(root / "runtime"))
+                raise RuntimeError("fixture environment checked")
+            with patch.object(module.subprocess, "run", side_effect=stop_before_backend):
+                with self.assertRaisesRegex(RuntimeError, "fixture environment checked"):
+                    module.seed(root, root / "unused-backend", 50, 0, root / "runtime")
+
     def test_desktop_readiness_timeout_reaps_silent_bus(self):
         self.stalled_desktop_bus("")
 

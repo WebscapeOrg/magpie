@@ -140,9 +140,10 @@ Item {
 
     Entry {
       x: MailStyle.space(6)
-      // Invariant: the rail is too narrow for the app's whole name, which its tooltip gives.
+      // Invariant: the rail at its usual width is too narrow for the app's whole name, which its
+      // tooltip gives.
       label: "Calendar..."
-      fullPath: "Magpie Calendar..."
+      tooltip: "Magpie Calendar..."
       icon: "calendar"
       onActivated: root.calendarRequested()
     }
@@ -166,6 +167,7 @@ Item {
     property bool expanded: true
     property bool selectable: true
     property string fullPath: ""
+    property string tooltip: ""
     signal activated()
     signal foldRequested()
     signal menuRequested(real sceneX, real sceneY)
@@ -307,7 +309,7 @@ Item {
     Widgets.PanelToolTip {
       objectName: "label-tooltip"
       visible: hover.hovered
-      text: (entry.fullPath !== "" ? entry.fullPath : entry.label)
+      text: (entry.tooltip !== "" ? entry.tooltip : (entry.fullPath !== "" ? entry.fullPath : entry.label))
         + (entry.count > 0 ? " · " + entry.count : "")
       fontFamily: root.panelFontFamily
     }

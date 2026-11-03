@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +27,9 @@ answers = os.environ['FAKE_ANSWERS'].split(',')
 with open(os.environ['FAKE_LOG']) as log:
     turn = len(log.read().splitlines()) - 1
 answer = answers[min(turn, len(answers) - 1)]
+if answer == 'hang':
+    import time
+    time.sleep(60)
 if answer == 'down':
     print('omarchy-shell is not running', file=sys.stderr)
     sys.exit(1)
@@ -85,6 +89,29 @@ class CalendarOpener(unittest.TestCase):
                 self.assertEqual(result.stderr.strip(), NOT_OPENED)
                 self.assertEqual(self.summons(), [['shell', 'summon', 'magpie-calendar', '{}']])
 
+    def test_a_shell_that_fails_on_the_old_name_is_not_taken_for_an_open_calendar(self):
+        for answers in ('unknown,down', 'unknown,Not ready', 'unknown,'):
+            with self.subTest(answers=answers):
+                self.log.write_text('')
+                result = self.run_opener(answers=answers)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stderr.strip(), NOT_OPENED)
+                self.assertEqual([call[2] for call in self.summons()], ['magpie-calendar', 'skylark'])
+
+    def test_a_shell_that_hangs_is_given_up_on(self):
+        began = time.monotonic()
+        result = self.run_opener(answers='hang')
+        self.assertLess(time.monotonic() - began, 25)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr.strip(), NOT_OPENED)
+        self.assertEqual(len(self.summons()), 1)
+
+    def test_a_request_with_non_ascii_text_reaches_the_calendar_whole(self):
+        request = {**REQUEST, 'title': 'Café \u2014 planning \U0001f426'}
+        result = self.run_opener(json.dumps(request, ensure_ascii=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.summons()[0][3]), {'handoff': request})
+
     def test_both_link_schemes_open_the_calendar(self):
         for scheme in ('magpiecalendar', 'skylark'):
             for link, sent in ((f'{scheme}://calendar', {}), (f'{scheme}://calendar/', {}),
@@ -102,7 +129,11 @@ class CalendarOpener(unittest.TestCase):
                       handoff_link('magpiecalendar', {**REQUEST, 'kind': 'send'}),
                       handoff_link('magpiecalendar', {**REQUEST, 'accountId': ''}),
                       json.dumps({**REQUEST, 'version': True}), json.dumps({**REQUEST, 'accountId': 'a\nb'}),
-                      '[]', 'not json', '[' * 100000, 'x' * 100001):
+                      '[]', 'not json', '[' * 100000,
+                      json.dumps({**REQUEST, 'padding': 'x' * 100000}),
+                      handoff_link('magpiecalendar', {**REQUEST, 'padding': 'x' * 50000}),
+                      '{"version": 1, "kind": "invitation", "accountId": "a", "start": NaN}',
+                      handoff_link('skylark', {**REQUEST, 'start': float('inf')})):
             with self.subTest(value=value[:40]):
                 self.log.write_text('')
                 result = self.run_opener(value)

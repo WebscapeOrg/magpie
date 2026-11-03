@@ -12,6 +12,10 @@ import subprocess
 import sys
 import urllib.parse
 
+
+def refuse_constant(name):
+    raise ValueError(f'{name} is not a calendar value.')
+
 # Invariant: the calendar's name, then its name before the rename.
 CALENDAR_PLUGINS = ('magpie-calendar', 'skylark')
 LINK_SCHEMES = ('magpiecalendar', 'skylark')
@@ -35,9 +39,9 @@ def payload(value):
         raw = base64.b64decode(query[0][1], validate=True)
         if len(raw) > 49152:
             raise ValueError('The calendar link is too large.')
-        request = json.loads(raw)
+        request = json.loads(raw, parse_constant=refuse_constant)
     else:
-        request = json.loads(value or '{}')
+        request = json.loads(value or '{}', parse_constant=refuse_constant)
     if request == {}:
         return {}
     if not isinstance(request, dict) or type(request.get('version')) is not int or request.get('version') != 1 or request.get('kind') not in ('invitation', 'suggestion', 'event'):
@@ -49,7 +53,7 @@ def payload(value):
 
 
 def summon(value):
-    message = json.dumps(value, ensure_ascii=False)
+    message = json.dumps(value, allow_nan=False)
     for plugin in CALENDAR_PLUGINS:
         answer = subprocess.run(['omarchy-shell', 'shell', 'summon', plugin, message], stdin=subprocess.DEVNULL,
                                 capture_output=True, text=True, check=True, timeout=15).stdout.strip()

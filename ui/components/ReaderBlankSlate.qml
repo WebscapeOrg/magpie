@@ -6,6 +6,7 @@ import "../account/Model.js" as Model
 import "../providers/Registry.js" as Provider
 import "../keys/Keymap.js" as Keymap
 import "../search/Presentation.js" as SearchPresentation
+import "../account/SyncHealth.js" as SyncHealth
 
 Item {
   id: root
@@ -81,8 +82,11 @@ Item {
       text: {
         if (!root.service || !root.service.messages) return ""
         if (root.service.messages.length === 0 && root.service.preparingInbox > 0) return "Inbox messages appear when their descriptions are ready. All mail includes messages still being prepared."
-        if (root.service.messages.length === 0) return SearchPresentation.emptyText(
-          root.service.searchStatus, root.service.listLoading, root.service.listLoaded, root.searching)
+        if (root.service.messages.length === 0) {
+          var sync = SyncHealth.emptyFor(root.service.localMailbox, root.searching, root.service.listLoading)
+          return sync !== null ? sync : SearchPresentation.emptyText(
+            root.service.searchStatus, root.service.listLoading, root.service.listLoaded, root.searching)
+        }
         return "Pick a message to read it"
       }
       textFormat: Text.PlainText

@@ -62,6 +62,33 @@ Item {
           Probe.checkpoint("accessibility-inbox")
           tryVerify(function() { return Probe.checkpointComplete("accessibility-inbox") }, 15000)
           tryCompare(desktop.service.localMailbox.status, "paused", true)
+          desktop.app.openSettings()
+          tryCompare(desktop.app, "showSettings", true)
+          tryVerify(function() { var sync = find(desktop.app, "settings-sync"); return !!sync && sync.visible }, 10000)
+          // A screen reader lists only what is on screen, so the Sync section is scrolled into view
+          // and held there until the page has finished laying out after it first appeared.
+          var flick = find(desktop.app, "settings-flick")
+          var sync = find(desktop.app, "settings-sync")
+          var steady = 0
+          var lastTop = -1
+          tryVerify(function() {
+            var top = sync.mapToItem(null, 0, 0).y
+            if (top < 0 || top + sync.height > desktop.height) {
+              flick.contentY = Math.max(0, Math.min(flick.contentHeight - flick.height,
+                flick.contentY + sync.mapToItem(flick, 0, 0).y - 24))
+              steady = 0
+              lastTop = -1
+              return false
+            }
+            steady = top === lastTop ? steady + 1 : 0
+            lastTop = top
+            return steady >= 5
+          }, 10000, "the Sync section stays on screen")
+          Probe.checkpoint("accessibility-settings")
+          tryVerify(function() { return Probe.checkpointComplete("accessibility-settings") }, 45000)
+          tryCompare(desktop.service.localMailbox.status, "paused", true, 5000)
+          desktop.app.backToList()
+          tryCompare(desktop.app, "showSettings", false)
         }
         var samples = Number(Probe.options.samples || 7)
         desktop.app.openMessage(desktop.service.messages[20].id)

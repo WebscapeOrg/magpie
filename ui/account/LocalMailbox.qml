@@ -1,4 +1,5 @@
 import QtQuick
+import "SyncHealth.js" as SyncHealth
 
 Item {
   id: root
@@ -12,7 +13,21 @@ Item {
   readonly property bool hasMail: Number(status.stored || 0) > 0
   property bool refreshing: false
   property string error: ""
+  // While the shown mailbox can only be read from Gmail, the notice offers Search online.
+  readonly property string needsGmailText: "This search needs Gmail. Choose Search online to continue."
+  readonly property bool needsGmail: error === needsGmailText
   property var edits: []
+  // The sync problem shown above the Inbox and in Settings, under the iPhone's rules (SyncHealth.js).
+  property var warnings: ({episode:null, downloads:null})
+  property double clock: Date.now()
+  readonly property string problem: SyncHealth.problem(status, warnings, clock)
+  function observe() {
+    clock = Date.now()
+    warnings = SyncHealth.observe(warnings, status, clock)
+  }
+  // True after local.status failed, until a status arrives again; Settings then says the status is unavailable.
+  property bool statusFailed: false
+  onStatusChanged: { statusFailed = false; observe() }
   property string watched: ""
   property bool overviewBusy: false
   function refreshOverview(check) {
@@ -64,7 +79,7 @@ Item {
     backend.call("local.status", {accountId:identity}, function(result, failure) {
       root.refreshing = false
       if (identity !== root.account.accountId) return
-      if (failure) { root.error = "Offline mail is unavailable. Your saved messages have been kept."; return }
+      if (failure) { root.statusFailed = true; root.error = "Offline mail is unavailable. Your saved messages have been kept."; return }
       root.status = result || ({})
       root.error = ""
     })
@@ -95,7 +110,7 @@ Item {
       root.account.listLoading = false
       if (failure) {
         root.error = String(failure.message || "") === "local_search_unsupported"
-          ? "This search needs Gmail. Choose Search online to continue."
+          ? root.needsGmailText
           : "Could not read offline mail. Your saved messages have been kept."
         root.account.nextPageToken = ""
         return
@@ -135,10 +150,11 @@ Item {
   Component.onCompleted: if (available) {refreshStatus();refreshOverview(false);refreshEdits()}
   Component.onDestruction: stopWatch()
   Timer {interval: 5000; repeat: true; running: root.available && root.watched === ""; onTriggered: root.refreshOverview(false)}
+  Timer {interval: 30000; repeat: true; running: root.available; onTriggered: root.observe()}
   Connections {
     target: root.account
     function onAccountIdChanged() {
-      root.status = ({}); root.edits = []; root.error = ""; root.refreshing = false
+      root.status = ({}); root.warnings = ({episode:null, downloads:null}); root.edits = []; root.error = ""; root.refreshing = false
       root.onlineSearch = false; root.stopWatch(); root.overviewBusy=false; refreshList.stop(); root.refreshStatus(); root.refreshOverview(false)
     }
   }

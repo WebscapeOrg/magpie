@@ -973,3 +973,274 @@ async fn leaving_waits_until_a_paid_picture_is_saved() {
     let state = blocking(|| read_state(&directory(false)?.ok_or("pictures_storage_unavailable")?)).await.unwrap();
     assert_eq!(state["subjects"][Subject::Monogram { letter: 'Z' }.id()]["state"], "painted");
 }
+
+fn jpeg_bytes(width: u32) -> Vec<u8> {
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(width, width, image::Rgb([200, 120, 40])).write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+    jpeg.into_inner()
+}
+
+fn shared_row(subject: &str, kind: &str, painted: i64, jpeg: &[u8]) -> Value {
+    use base64::Engine;
+    json!({"subject": subject, "kind": kind, "painted": painted, "jpeg": base64::engine::general_purpose::STANDARD.encode(jpeg)})
+}
+
+fn subjects() -> Value {
+    read_state(&directory(false).unwrap().unwrap()).unwrap()["subjects"].clone()
+}
+
+/// A picture painted on one device reaches another through iCloud without being painted again,
+/// is never sent back, and one painted again is shared again.
+#[tokio::test]
+async fn pictures_painted_here_are_shared_once_and_pictures_from_icloud_are_not_sent_back() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let mine = Subject::Organization { domain: "acme.example".into() }.id();
+    change(|dir, state| {
+        fs::atomic_replace(dir, &format!("{mine}.jpg"), &jpeg_bytes(8))?;
+        state["subjects"] = json!({&mine: {"state":"painted","painted":AT,"attempts":0,"kind":"organization","reference":"a".repeat(64)}});
+        Ok(())
+    })
+    .unwrap();
+
+    let listed = to_share(&json!({"limit": 8})).await.unwrap();
+    assert_eq!(listed["pictures"].as_array().unwrap().len(), 1);
+    let picture = &listed["pictures"][0];
+    assert_eq!((picture["subject"].as_str().unwrap(), &picture["kind"], &picture["painted"]), (mine.as_str(), &json!("organization"), &json!(AT)));
+    assert_eq!(picture["reference"], "a".repeat(64));
+    assert!(picture["jpeg"].as_str().is_some_and(|text| !text.is_empty()));
+
+    assert_eq!(shared(&json!({"pictures":[{"subject": mine, "painted": AT - 1}]})).await.unwrap()["marked"], 0, "an older painting is not marked");
+    assert_eq!(shared(&json!({"pictures":[{"subject": mine, "painted": AT}]})).await.unwrap()["marked"], 1);
+    assert_eq!(to_share(&json!({"limit": 8})).await.unwrap()["pictures"], json!([]));
+
+    // A picture larger than another device takes in is not offered.
+    let large = Subject::Organization { domain: "large.example".into() }.id();
+    change(|dir, state| {
+        fs::atomic_replace(dir, &format!("{large}.jpg"), &vec![0xFF; SHARED_LIMIT as usize + 1])?;
+        state["subjects"][&large] = json!({"state":"painted","painted":AT,"attempts":0,"kind":"organization"});
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(to_share(&json!({"limit": 8})).await.unwrap()["pictures"], json!([]));
+
+    // Painted again here: shared again.
+    change(|_, state| {
+        state["subjects"][&mine]["painted"] = json!(AT + 5);
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(to_share(&json!({"limit": 8})).await.unwrap()["pictures"].as_array().unwrap().len(), 1);
+
+    // From iCloud: stored, shown, and not listed to share.
+    let theirs = Subject::Monogram { letter: 'Q' }.id();
+    let before = revision();
+    let reply = import(&json!({"pictures":[shared_row(&theirs, "monogram", AT, &jpeg_bytes(16))]})).await.unwrap();
+    assert_eq!((reply["stored"].as_i64(), reply["kept"].as_i64(), reply["refused"].as_i64()), (Some(1), Some(0), Some(0)));
+    assert!(revision() > before, "the window is told to show the new picture");
+    let row = &subjects()[&theirs];
+    assert_eq!((&row["state"], &row["painted"], &row["uploaded"]), (&json!("painted"), &json!(AT), &json!(AT)));
+    assert_eq!(picture_bytes(&theirs), jpeg_bytes(16));
+    let listed: Vec<String> = to_share(&json!({"limit": 8})).await.unwrap()["pictures"]
+        .as_array().unwrap().iter().map(|row| row["subject"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(listed, vec![mine.clone()]);
+}
+
+/// A JPEG of noise, so its image data is long enough to cut inside.
+fn noisy_jpeg(width: u32) -> Vec<u8> {
+    let mut seed = 7u32;
+    let image = image::RgbImage::from_fn(width, width, |_, _| {
+        seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        image::Rgb([(seed >> 16) as u8, (seed >> 8) as u8, seed as u8])
+    });
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+    jpeg.into_inner()
+}
+
+fn picture_bytes(subject: &str) -> Vec<u8> {
+    jpeg(&directory(false).unwrap().unwrap(), subject).unwrap().unwrap()
+}
+
+/// The newer painting wins on either side; a picture this device painted at the same time or later
+/// is kept, and a refused row does not stop the others.
+#[tokio::test]
+async fn the_newer_painting_wins_and_a_bad_record_is_skipped() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let subject = Subject::Organization { domain: "acme.example".into() }.id();
+    let photo_subject = person("ada@example.org", "https://photos.example/ada").id();
+    change(|dir, state| {
+        fs::atomic_replace(dir, &format!("{subject}.jpg"), &jpeg_bytes(8))?;
+        state["subjects"] = json!({
+            &subject: {"state":"painted","painted":AT,"attempts":0,"kind":"organization"},
+            &photo_subject: {"state":"waiting","attempts":1,"kind":"person","photo":"https://photos.example/ada"},
+        });
+        Ok(())
+    })
+    .unwrap();
+
+    let reply = import(&json!({"pictures":[
+        shared_row(&subject, "organization", AT, &jpeg_bytes(16)),
+        shared_row(&subject, "organization", AT - 1, &jpeg_bytes(16)),
+    ]}))
+    .await
+    .unwrap();
+    assert_eq!((reply["stored"].as_i64(), reply["kept"].as_i64()), (Some(0), Some(2)));
+    assert_eq!(picture_bytes(&subject), jpeg_bytes(8), "this device's own painting is kept");
+
+    let mut portrait = shared_row(&photo_subject, "person", AT, &jpeg_bytes(16));
+    portrait["reference"] = json!("b".repeat(64));
+    let mut not_jpeg = shared_row(&Subject::Monogram { letter: 'A' }.id(), "monogram", AT, &jpeg_bytes(16));
+    not_jpeg["jpeg"] = json!(png_data(16, [0, 0, 0, 255]).trim_start_matches("data:image/png;base64,"));
+    let wrong_kind = shared_row(&subject, "monogram", AT + 9, &jpeg_bytes(16));
+    let mut extra_field = shared_row(&Subject::Monogram { letter: 'B' }.id(), "monogram", AT, &jpeg_bytes(16));
+    extra_field["sendTo"] = json!("someone@example.org");
+    let mut bad_reference = shared_row(&Subject::Monogram { letter: 'F' }.id(), "monogram", AT, &jpeg_bytes(16));
+    bad_reference["reference"] = json!("not-a-fingerprint");
+    let mut with_photo = shared_row(&person("gil@example.org", "https://photos.example/gil").id(), "person", AT, &jpeg_bytes(16));
+    with_photo["photo"] = json!("https://photos.example/gil");
+    let mut oversized = shared_row(&Subject::Monogram { letter: 'H' }.id(), "monogram", AT, &jpeg_bytes(16));
+    oversized["jpeg"] = json!("A".repeat(SHARED_LIMIT.div_ceil(3) as usize * 4 + 4));
+    let whole = noisy_jpeg(256);
+    let start_of_scan = whole.windows(2).position(|pair| pair == [0xFF, 0xDA]).unwrap();
+    let cut = whole.len() * 3 / 4;
+    assert!(cut > start_of_scan + 64, "the cut falls inside the image data");
+    let cut_off = shared_row(&Subject::Monogram { letter: 'I' }.id(), "monogram", AT, &whole[..cut]);
+    let unmarked = shared_row(&Subject::Monogram { letter: 'J' }.id(), "monogram", AT, &whole[..whole.len() - 2]);
+    let reply = import(&json!({"pictures":[
+        shared_row(&subject, "organization", AT + 9, &jpeg_bytes(24)),
+        portrait,
+        not_jpeg,
+        wrong_kind,
+        extra_field,
+        shared_row("../escape", "monogram", AT, &jpeg_bytes(16)),
+        shared_row(&Subject::Monogram { letter: 'C' }.id(), "monogram", AT, &jpeg_bytes(SHARED_SIDE_LIMIT + 1)),
+        shared_row(&Subject::Monogram { letter: 'D' }.id(), "monogram", now() + 2 * 86_400_000, &jpeg_bytes(16)),
+    ]}))
+    .await
+    .unwrap();
+    assert_eq!((reply["stored"].as_i64(), reply["kept"].as_i64(), reply["refused"].as_i64()), (Some(2), Some(0), Some(6)));
+    let reply = import(&json!({"pictures":[bad_reference, with_photo, oversized, cut_off, unmarked]})).await.unwrap();
+    assert_eq!((reply["stored"].as_i64(), reply["refused"].as_i64()), (Some(0), Some(5)),
+        "a malformed fingerprint, a photo address, an oversized picture, a JPEG cut inside its image data and one without its end marker are each refused");
+    assert_eq!(import(&json!({"pictures":[shared_row(&Subject::Monogram { letter: 'J' }.id(), "monogram", AT, &whole)]})).await.unwrap()["stored"], 1,
+        "the same JPEG whole is taken in");
+    assert_eq!(picture_bytes(&subject), jpeg_bytes(24), "a newer painting from the other device replaces this one");
+    let row = &subjects()[&photo_subject];
+    assert_eq!((&row["state"], &row["reference"], &row["photo"]), (&json!("painted"), &json!("b".repeat(64)), &json!("https://photos.example/ada")),
+        "a waiting portrait takes the painting and keeps the photo it was assigned, so it is not checked again");
+    for letter in ['A', 'B', 'C', 'D', 'F', 'H', 'I'] {
+        assert!(subjects().get(Subject::Monogram { letter }.id()).is_none());
+    }
+    assert!(subjects().get(person("gil@example.org", "https://photos.example/gil").id()).is_none());
+
+    // A picture no sender uses keeps the time it became unused, so it still goes after ORPHAN_KEEP.
+    let unused = Subject::Monogram { letter: 'E' }.id();
+    change(|_, state| {
+        state["subjects"][&unused] = json!({"state":"waiting","attempts":0,"kind":"monogram","orphaned":AT - 5});
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(import(&json!({"pictures":[shared_row(&unused, "monogram", AT, &jpeg_bytes(16))]})).await.unwrap()["stored"], 1);
+    assert_eq!((&subjects()[&unused]["state"], &subjects()[&unused]["orphaned"]), (&json!("painted"), &json!(AT - 5)));
+}
+
+/// A device without a key still shows the pictures it takes in from iCloud: its senders are matched
+/// to them, and nothing is painted.
+#[tokio::test]
+async fn a_device_without_a_key_shows_the_pictures_it_takes_in() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let owner = id(&["picture-account", "me@example.org"]);
+    let kim = Subject::Monogram { letter: 'K' };
+    let lee = Subject::Monogram { letter: 'L' };
+    let assignments = vec![
+        (id(&["picture-sender", "me@example.org", "kim@gmail.com"]), kim.clone()),
+        (id(&["picture-sender", "me@example.org", "lee@gmail.com"]), lee.clone()),
+    ];
+    assert!(!has_pictures(&json!({})), "a device with no picture does not look at its senders without a key");
+    assert_eq!(import(&json!({"pictures":[shared_row(&kim.id(), "monogram", AT, &jpeg_bytes(16))]})).await.unwrap()["stored"], 1);
+    assert!(has_pictures(&read_state(&directory(false).unwrap().unwrap()).unwrap()));
+    assert!(painted("me@example.org", "kim@gmail.com").unwrap().is_none());
+    let before = revision();
+    match_and_paint(owner.clone(), assignments.clone(), true, None, 0).await.unwrap();
+    assert_eq!(painted("me@example.org", "kim@gmail.com").unwrap().map(|(subject, _)| subject), Some(kim.id()));
+    let after = revision();
+    assert!(after > before, "the window is told to show the newly matched picture");
+    match_and_paint(owner, assignments, true, None, 0).await.unwrap();
+    assert_eq!(revision(), after, "matching the same senders again changes nothing on screen");
+    assert!(painted("me@example.org", "lee@gmail.com").unwrap().is_none());
+    assert_eq!(subjects()[&lee.id()]["state"], "waiting", "nothing is painted without a key");
+}
+
+/// A picture taken in from iCloud after a run listed it as due is not painted, or paid for, again;
+/// the run goes on with the others.
+#[tokio::test]
+async fn a_picture_taken_in_while_a_run_starts_is_not_painted_again() {
+    if super::super::PHONE_WRITER || isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let server = Server::new(vec![(200, picture_reply())]).await;
+    let kim = Subject::Monogram { letter: 'K' };
+    let lee = Subject::Monogram { letter: 'L' };
+    let assignments = vec![
+        (id(&["picture-sender", "me@example.org", "kim@gmail.com"]), kim.clone()),
+        (id(&["picture-sender", "me@example.org", "lee@gmail.com"]), lee.clone()),
+    ];
+    let owner = id(&["picture-account", "me@example.org"]);
+    let due = change(|_, state| assign(state, &owner, &assignments, true, now())).unwrap();
+    assert_eq!(due.len(), 2);
+    let theirs = jpeg_bytes(16);
+    assert_eq!(import(&json!({"pictures":[shared_row(&kim.id(), "monogram", now(), &theirs)]})).await.unwrap()["stored"], 1);
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    openai::with_test_transport(client, server.origin.clone(), paint_all(due, key(), 0)).await.unwrap();
+    assert_eq!(server.requests().len(), 1, "only the picture iCloud did not have was asked for");
+    assert_eq!(picture_bytes(&kim.id()), theirs, "the picture from iCloud is kept");
+    assert_eq!(subjects()[&lee.id()]["state"], "painted");
+    let listed: Vec<String> = to_share(&json!({"limit": 8})).await.unwrap()["pictures"]
+        .as_array().unwrap().iter().map(|row| row["subject"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(listed, vec![lee.id()], "the picture from iCloud is not sent back");
+}
+
+/// When iCloud loses the pictures' zone, every painted picture is shared again.
+#[tokio::test]
+async fn pictures_icloud_lost_are_shared_again() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    assert_eq!(unshared(&json!({})).await.unwrap()["cleared"], 0, "a new device has nothing to clear");
+    let theirs = Subject::Monogram { letter: 'Q' }.id();
+    assert_eq!(import(&json!({"pictures":[shared_row(&theirs, "monogram", AT, &jpeg_bytes(16))]})).await.unwrap()["stored"], 1);
+    assert_eq!(to_share(&json!({"limit": 8})).await.unwrap()["pictures"], json!([]));
+    assert_eq!(unshared(&json!({})).await.unwrap()["cleared"], 1);
+    let listed = to_share(&json!({"limit": 8})).await.unwrap();
+    assert_eq!(listed["pictures"][0]["subject"], json!(theirs));
+    assert!(listed["pictures"][0].get("photo").is_none());
+}
+
+#[tokio::test]
+async fn sharing_calls_refuse_unexpected_shapes() {
+    for params in [json!({}), json!({"limit": 0}), json!({"limit": 9}), json!({"limit": 1, "more": true}), json!({"limit": "1"})] {
+        assert_eq!(to_share(&params).await.unwrap_err(), "invalid_params", "{params}");
+    }
+    let nine: Vec<Value> = (0..9).map(|_| json!({})).collect();
+    for params in [json!({}), json!({"pictures": nine}), json!({"pictures": [{"subject": "x", "painted": 1}]}),
+        json!({"pictures": [{"subject": "a".repeat(64), "painted": 1, "more": 1}]})] {
+        assert_eq!(shared(&params).await.unwrap_err(), "invalid_params", "{params}");
+    }
+    for params in [json!({}), json!({"pictures": nine}), json!({"pictures": [], "more": 1})] {
+        assert_eq!(import(&params).await.unwrap_err(), "invalid_params", "{params}");
+    }
+    for params in [json!(null), json!([]), json!({"all": true})] {
+        assert_eq!(unshared(&params).await.unwrap_err(), "invalid_params", "{params}");
+    }
+}

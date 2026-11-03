@@ -204,6 +204,7 @@ pub unsafe extern "C" fn magpie_engine_request(
                     "ai.setKey" | "ai.removeKey" | "ai.keyStatus" | "ai.spending"=>host.engine.mobile_ai_key(&method,&params).await,
                     "engine.paintPictures"=>host.engine.mobile_paint_pictures(&params).await,
                     "engine.stopPictures"=>host.engine.mobile_stop_pictures(&params).await,
+                    "engine.picturesToShare" | "engine.picturesShared" | "engine.importPictures" | "engine.picturesUnshared"=>host.engine.mobile_shared_pictures(&method,&params).await,
                     "ai.start" | "ai.show" | "ai.cancel" | "ai.list"=>host.engine.mobile_ai(&method,&params).await,
                     "engine.copyAttachments" | "engine.clearDraft"=>host.engine.mobile_draft_attachments(&method,&params).await,
                     "engine.conversation"=>host.engine.mobile_conversation(&params).await,
@@ -376,6 +377,7 @@ fn read_only(method: &str) -> bool {
             | "engine.mailAlerts"
             | "ai.keyStatus"
             | "ai.spending"
+            | "engine.picturesToShare"
             | "ai.show"
             | "ai.list"
             | "engine.conversation"

@@ -376,6 +376,8 @@ impl Inbox {
                 fields(params, &[])?;
                 pictures::remove_key().await
             }
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "ai.spending" => spending::spending(params).await,
             "inbox.preferences" => {
                 fields(params, &["accountId", "paused", "allowRemoteImages"])?;
                 for field in ["paused", "allowRemoteImages"] {

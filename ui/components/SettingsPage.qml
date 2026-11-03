@@ -239,11 +239,14 @@ Column {
       service.refreshDefaultMailClient()
   }
   onServiceChanged: refreshDefaultMailClient()
-  // The page is shown and hidden, not rebuilt, so the picture counts and any keyring problem are
-  // read again each time it opens.
+  // The page is shown and hidden, not rebuilt, so the picture counts, any keyring problem and the
+  // spending are read again each time it opens.
   onVisibleChanged: {
     refreshDefaultMailClient()
-    if (visible) pictureSettings.load()
+    if (visible) {
+      pictureSettings.load()
+      spendingSettings.load()
+    }
   }
   Component.onCompleted: {
     refreshDefaultMailClient()
@@ -747,6 +750,17 @@ Column {
   PictureSettings {
     id: pictureSettings
     objectName: "settings-pictures"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  SpendingSettings {
+    id: spendingSettings
+    objectName: "settings-spending"
     width: parent.width
     service: root.service
     textColor: root.textColor

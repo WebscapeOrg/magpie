@@ -63,7 +63,7 @@ fn decode(bytes: Vec<u8>) -> Result<image::DynamicImage, &'static str> {
 
 /// A fetched picture re-encoded as PNG for the image model: decoded under the same limits as an
 /// avatar, at least 256 and at most 1024 pixels on its longer edge, so only pixels leave Magpie.
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(in crate::inbox) fn reference(data: &str) -> Result<Vec<u8>, &'static str> {
     let encoded = data.split_once(";base64,").ok_or("public_image_refused")?.1;
     if encoded.len() > 7 * 1024 * 1024 {
@@ -97,7 +97,7 @@ pub(in crate::inbox) fn reference(data: &str) -> Result<Vec<u8>, &'static str> {
 
 /// A painted picture kept for Magpie: the model's square image as a 512-pixel JPEG. It is opaque,
 /// so the circle is cut when it is shown, through the photo branch of `prepare`.
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(in crate::inbox) fn master(bytes: Vec<u8>) -> Result<Vec<u8>, &'static str> {
     const EDGE: u32 = 512;
     let painted = decode(bytes)?;

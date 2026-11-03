@@ -201,7 +201,9 @@ pub unsafe extern "C" fn magpie_engine_request(
                     "engine.backgroundDescribe" => { if host.active.load(Ordering::Acquire) { return Err("mobile_refresh_foreground"); } host.engine.mobile_background_describe(&params).await },
                     "engine.overviews"=>host.engine.mobile_overviews(&params).await,
                     "engine.overviewSettings"=>host.engine.mobile_overview_settings(&params).await,
-                    "ai.setKey" | "ai.removeKey" | "ai.keyStatus"=>host.engine.mobile_ai_key(&method,&params).await,
+                    "ai.setKey" | "ai.removeKey" | "ai.keyStatus" | "ai.spending"=>host.engine.mobile_ai_key(&method,&params).await,
+                    "engine.paintPictures"=>host.engine.mobile_paint_pictures(&params).await,
+                    "engine.stopPictures"=>host.engine.mobile_stop_pictures(&params).await,
                     "ai.start" | "ai.show" | "ai.cancel" | "ai.list"=>host.engine.mobile_ai(&method,&params).await,
                     "engine.copyAttachments" | "engine.clearDraft"=>host.engine.mobile_draft_attachments(&method,&params).await,
                     "engine.conversation"=>host.engine.mobile_conversation(&params).await,
@@ -373,6 +375,7 @@ fn read_only(method: &str) -> bool {
         "engine.contacts"
             | "engine.mailAlerts"
             | "ai.keyStatus"
+            | "ai.spending"
             | "ai.show"
             | "ai.list"
             | "engine.conversation"

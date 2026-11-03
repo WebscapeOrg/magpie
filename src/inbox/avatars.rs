@@ -48,7 +48,7 @@ pub(super) fn consumer(domain: &str) -> bool {
 }
 /// The contacts' photos and whether that answer is complete. An incomplete answer (no token, or a
 /// failed or partial People reply) does not mean a contact has no photo.
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(super) async fn contact_photos(
     gmail: &crate::providers::gmail::Session,
     account: &str,
@@ -146,7 +146,7 @@ pub async fn get(
     refresh_id: &str,
 ) -> Result<Value, &'static str> {
     let domain = address.split_once('@').ok_or("invalid_params")?.1;
-    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     if let Some(value) = painted(account, address).await {
         return Ok(value);
     }
@@ -205,7 +205,7 @@ pub(super) async fn organization_image(domain: &str) -> Option<String> {
 /// The sender's painted picture, prepared for the avatar circle and cached until it is painted
 /// again. Any problem with the pictures store means no painted picture, so the usual avatar is
 /// shown instead.
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 async fn painted(account: &str, address: &str) -> Option<Value> {
     let (owner, sender) = (account.to_owned(), address.to_owned());
     let (subject, painted) = tokio::task::spawn_blocking(move || super::pictures::painted(&owner, &sender))
@@ -234,7 +234,7 @@ async fn painted(account: &str, address: &str) -> Option<Value> {
 /// Deletes the prepared painted pictures of accounts that are not in `accounts`. The rows are read
 /// without the cache lock, so avatar requests keep working during the scan; the lock is taken,
 /// waiting up to two seconds, only to delete. Blocks: call it off the async threads.
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(super) fn forget_painted(accounts: &[String]) -> Result<(), &'static str> {
     use crate::platform::{dirs::AppDirs, private_fs};
     let Some(dir) = private_fs::directories(&AppDirs::discover()?.state, &["omamail", "inbox"], false)? else {

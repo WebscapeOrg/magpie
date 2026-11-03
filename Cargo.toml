@@ -14,7 +14,7 @@ default = ["agent"]
 agent = ["dep:psl"]
 standalone = ["agent"]
 integration-test-credentials = []
-mobile = []
+mobile = ["dep:psl"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -63,8 +63,8 @@ lto = true
 codegen-units = 1
 strip = true
 
-# Sender pictures group a company's subdomains under its registrable domain (agent builds only).
-[target.'cfg(all(unix, not(target_os = "ios")))'.dependencies]
+# Sender pictures group a company's subdomains under its registrable domain (Linux and the phone).
+[target.'cfg(unix)'.dependencies]
 psl = { version = "2.1", optional = true }
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]

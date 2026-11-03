@@ -388,7 +388,7 @@ impl Store {
         })
     }
     /// The From headers of the Inbox's messages, newest first, one row per distinct header.
-    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     pub(super) fn inbox_senders(&self, limit: usize) -> Result<Vec<String>> {
         self.read(|db| {
             let mut query = sql(db.prepare("SELECT m.sender FROM messages m JOIN labels l ON m.id=l.message_id WHERE l.label='INBOX' GROUP BY m.sender ORDER BY max(m.date) DESC LIMIT ?1"))?;

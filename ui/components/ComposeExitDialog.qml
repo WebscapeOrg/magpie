@@ -1,11 +1,8 @@
 import QtQuick
 import QtQuick.Window
-import "../controls" as Widgets
-import "../settings"
-import QtQuick.Controls as QQC
-import qs.Commons
-import qs.Ui
 
+// Docs: asks whether to save a changed draft before leaving it. The confirmation itself is ConfirmPopup,
+// shared with the label delete and mailbox removal confirmations.
 Item {
   id: root
   required property color textColor
@@ -59,15 +56,25 @@ Item {
     if (key !== "") saveRequested(key)
   }
 
-  QQC.Popup {
+  ConfirmPopup {
     id: dialog
-    anchors.centerIn: parent
-    width: Math.min(MailStyle.space(400), parent.width - MailStyle.space(32))
-    padding: MailStyle.space(18)
-    modal: true
-    focus: true
-    closePolicy: QQC.Popup.CloseOnEscape
-    onOpened: saveButton.forceActiveFocus()
+    objectName: "compose-exit-confirmation"
+    question: "Save this draft?"
+    message: "You changed this message. Save your changes before leaving?"
+    cancelName: "compose-exit-cancel"
+    choices: [{value: "discard", label: "Discard", objectName: "compose-exit-discard"},
+      {value: "save", label: "Save draft", objectName: "compose-exit-save", danger: false}]
+    focusIndex: 1
+    textColor: root.textColor
+    dimColor: root.dimColor
+    dangerColor: root.dangerColor
+    backgroundColor: root.popupBackgroundColor
+    borderColor: root.popupBorderColor
+    fontFamily: root.panelFontFamily
+    onChosen: function(value) {
+      if (value === "save") root.save()
+      else if (value === "discard") root.discard()
+    }
     onClosed: {
       root.requestedDraftKey = ""
       var target = root.returnFocusItem
@@ -79,80 +86,6 @@ Item {
             && root.Window.window && root.Window.window.visible)
           target.forceActiveFocus()
       })
-    }
-    background: Rectangle {
-      radius: Style.cornerRadius
-      color: root.popupBackgroundColor
-      border.width: 1
-      border.color: root.popupBorderColor
-    }
-    contentItem: Column {
-      spacing: MailStyle.space(14)
-      // Invariant: popups consume window shortcuts; local key handling and KeyNavigation contain
-      // the focus cycle.
-      Keys.onPressed: function(event) {
-        if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return
-        event.accepted = true
-        if (cancelButton.activeFocus) root.cancel()
-        else if (discardButton.activeFocus) root.discard()
-        else if (saveButton.activeFocus) root.save()
-      }
-      Text {
-        width: parent.width
-        textFormat: Text.PlainText
-        text: "Save this draft?"
-        color: root.textColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.heading
-        font.bold: true
-        wrapMode: Text.Wrap
-      }
-      Text {
-        width: parent.width
-        textFormat: Text.PlainText
-        text: "You changed this message. Save your changes before leaving?"
-        color: root.dimColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.bodySmall
-        wrapMode: Text.Wrap
-      }
-      Row {
-        anchors.right: parent.right
-        spacing: MailStyle.space(8)
-        Widgets.Button {
-          id: cancelButton
-          text: "Cancel"
-          foreground: root.textColor
-          fontFamily: root.panelFontFamily
-          focusable: true
-          activeFocusOnTab: true
-          KeyNavigation.tab: discardButton
-          KeyNavigation.backtab: saveButton
-          onClicked: root.cancel()
-        }
-        Widgets.Button {
-          id: discardButton
-          text: "Discard"
-          foreground: root.dangerColor
-          fontFamily: root.panelFontFamily
-          focusable: true
-          activeFocusOnTab: true
-          KeyNavigation.tab: saveButton
-          KeyNavigation.backtab: cancelButton
-          onClicked: root.discard()
-        }
-        Widgets.Button {
-          id: saveButton
-          text: "Save draft"
-          foreground: root.textColor
-          fontFamily: root.panelFontFamily
-          focusable: true
-          activeFocusOnTab: true
-          KeyNavigation.tab: cancelButton
-          KeyNavigation.backtab: discardButton
-          onClicked: root.save()
-        }
-      }
     }
   }
 }

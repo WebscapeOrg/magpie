@@ -59,6 +59,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/components/SpendingSettings.qml ui/components/SyncSettings.qml \
 	ui/components/SettingsSidebar.qml \
 	ui/components/ConfirmDeleteDialog.qml \
+	ui/components/ConfirmPopup.qml \
 	ui/components/SetupPage.qml \
 	ui/components/ShortcutHelp.qml \
 	ui/components/WindowMoveArea.qml \

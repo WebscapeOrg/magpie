@@ -1,9 +1,7 @@
 import QtQuick
-import "../controls" as Widgets
-import "../settings"
-import QtQuick.Controls as QQC
-import qs.Commons
 
+// Docs: asks before a mailbox is removed. The confirmation itself is ConfirmPopup, shared with the label
+// delete and draft exit confirmations.
 Item {
   id: root
 
@@ -28,72 +26,25 @@ Item {
 
   function close() { dialog.close() }
 
-  QQC.Popup {
+  ConfirmPopup {
     id: dialog
-    anchors.centerIn: parent
-    width: Math.min(MailStyle.space(360), parent.width - MailStyle.space(32))
-    padding: MailStyle.space(18)
-    modal: true
-    focus: true
-    closePolicy: QQC.Popup.CloseOnEscape
+    objectName: "removal-confirmation"
+    question: "Remove " + String(root.request ? root.request.email : "") + "?"
+    message: "This mailbox will be removed from Magpie."
+    cancelName: "removal-cancel"
+    choices: [{value: "remove", label: "Remove", objectName: "removal-confirm"}]
+    focusIndex: -1
+    textColor: root.textColor
+    dimColor: root.dimColor
+    dangerColor: root.dangerColor
+    backgroundColor: root.popupBackgroundColor
+    borderColor: root.popupBorderColor
+    fontFamily: root.panelFontFamily
+    onChosen: function() {
+      var confirmedRequest = dialog.opened ? root.request : null
+      dialog.close()
+      if (confirmedRequest) root.confirmed(confirmedRequest)
+    }
     onClosed: root.request = null
-    onOpened: cancelButton.forceActiveFocus()
-    background: Rectangle {
-      radius: Style.cornerRadius
-      color: root.popupBackgroundColor
-      border.width: 1
-      border.color: root.popupBorderColor
-    }
-    contentItem: Column {
-      spacing: MailStyle.space(14)
-
-      Text {
-        width: parent.width
-        textFormat: Text.PlainText
-        text: "Remove " + String(root.request ? root.request.email : "") + "?"
-        color: root.textColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.heading
-        font.bold: true
-        wrapMode: Text.Wrap
-      }
-      Text {
-        width: parent.width
-        textFormat: Text.PlainText
-        text: "This mailbox will be removed from Magpie."
-        color: root.dimColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.bodySmall
-        wrapMode: Text.Wrap
-      }
-      Row {
-        anchors.right: parent.right
-        spacing: MailStyle.space(8)
-        Widgets.Button {
-          id: cancelButton
-          focusable: true
-          KeyNavigation.tab: removeButton
-          KeyNavigation.backtab: removeButton
-          text: "Cancel"
-          foreground: root.textColor
-          bordered: false
-          onClicked: dialog.close()
-        }
-        Widgets.Button {
-          id: removeButton
-          focusable: true
-          KeyNavigation.tab: cancelButton
-          KeyNavigation.backtab: cancelButton
-          text: "Remove"
-          foreground: root.dangerColor
-          bordered: false
-          onClicked: {
-            var confirmedRequest = root.request
-            dialog.close()
-            if (confirmedRequest) root.confirmed(confirmedRequest)
-          }
-        }
-      }
-    }
   }
 }

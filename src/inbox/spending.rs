@@ -152,7 +152,6 @@ pub(crate) async fn settle(id: String, feature: &'static str, cost: u64, reserve
 }
 
 /// Counts what one request cost. A failure to count is ignored, so it never fails the request.
-#[cfg(any(feature = "mobile", test))]
 pub(crate) async fn record(feature: &'static str, amount: u64) {
     if amount == 0 || !FEATURES.contains(&feature) {
         return;

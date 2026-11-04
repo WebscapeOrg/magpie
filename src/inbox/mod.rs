@@ -7,6 +7,8 @@ mod context;
 pub(crate) mod describe;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod point_context;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod picker;
 #[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
 pub(crate) mod point_eval;
 #[cfg(any(
@@ -40,13 +42,16 @@ mod writer {
     pub(super) async fn personal() -> bool {
         crate::agent::overview::personal().await
     }
-    pub(super) async fn generate(messages: &serde_json::Value, context: &serde_json::Value, _left_before: u64) -> Result<serde_json::Value, &'static str> {
-        crate::agent::overview::generate(messages, context).await
+    pub(super) async fn generate(messages: &serde_json::Value, context: &serde_json::Value, tier: super::picker::Tier, _left_before: u64) -> Result<serde_json::Value, &'static str> {
+        crate::agent::overview::generate(messages, context, tier).await
     }
+    /// Claude runs on the household's subscriptions here, so only the picker costs money, and the
+    /// spending page counts it; there is no daily limit to charge.
+    pub(super) fn charge(_amount: u64) {}
 }
 #[cfg(all(feature = "mobile", not(all(feature = "agent", unix, not(target_os = "ios")))))]
 mod writer {
-    pub(super) use super::claude::{generate, ready};
+    pub(super) use super::claude::{charge, generate, ready};
     /// The phone's own key reaches only Claude, so its writer may be given the owner's context.
     pub(super) async fn personal() -> bool {
         true
@@ -252,7 +257,7 @@ impl Inbox {
             let _permit = permit;
             let started = std::time::Instant::now();
             let result =
-                overview_batch(&account, &chosen, &gmail, &local_mail, remote, left_before).await;
+                overview_batch(&account, &chosen, &gmail, &local_mail, remote, left_before, limit.is_some()).await;
             let Ok(protected) = local_mail.overview_candidates(&account).await else {
                 return;
             };
@@ -357,7 +362,7 @@ impl Inbox {
         let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
         // Invariant: the app names more messages than are described, so messages that failed or are
         // still running never hold back the ones behind them.
-        let due: Vec<String> = ids.iter().filter(|id| overview_due(&saved[id.as_str()], false, now())).take(4).cloned().collect();
+        let due = background_due(&saved, ids, now());
         let mut finished = json!(true);
         if !due.is_empty() {
             let prefs = preferences(account)?;
@@ -603,12 +608,18 @@ fn finish_overviews_protected(
                 if let Some(personal) = row["personal"].as_bool() {
                     ready["personal"] = json!(personal);
                 }
+                if let Some(tier) = row["tier"].as_str().filter(|tier| ["haiku", "sonnet", "opus"].contains(tier)) {
+                    ready["tier"] = json!(tier);
+                }
                 ready
             }
             None if overview_current(&saved[id], now()) => {
                 let mut previous = saved[id].clone();
                 previous["rewriteState"] = json!("failed");
                 previous["rewriteAt"] = json!(now());
+                if error == Some(WAITS_FOR_APP) {
+                    previous["foreground"] = json!(true);
+                }
                 previous
             }
             None if PHONE_WRITER => phone_unfinished(&saved[id], error, own, asked, attempts, pending_since, now()),
@@ -668,7 +679,10 @@ fn phone_unfinished(previous: &Value, error: Option<&str>, own: bool, asked: boo
         return row;
     }
     let mut row = json!({"state":"waiting","reason":reason,"updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts});
-    let claude = error.is_some_and(|error| error.starts_with("ai_") || error == INTERRUPTED);
+    if error == Some(WAITS_FOR_APP) {
+        row["foreground"] = json!(true);
+    }
+    let claude = error.is_some_and(|error| error.starts_with("ai_") || error == INTERRUPTED || error == WAITS_FOR_APP);
     let waited = previous["waits"].as_u64().unwrap_or(0).min(16);
     if claude && !asked {
         // Not asked this time, so its own wait does not grow, but it is kept for the next time it is.
@@ -687,6 +701,16 @@ fn phone_unfinished(previous: &Value, error: Option<&str>, own: bool, asked: boo
 /// The batch stopped because the app left the foreground, so the messages after it were not asked.
 #[cfg_attr(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")), allow(dead_code))]
 const INTERRUPTED: &str = "overview_interrupted";
+/// The first four messages the phone's background run may describe. A message the picker gave
+/// Sonnet or Opus is left for the foreground, so the background run does not ask about it again.
+#[cfg_attr(not(feature = "mobile"), allow(dead_code))]
+fn background_due(saved: &Value, ids: &[String], at: i64) -> Vec<String> {
+    ids.iter().filter(|id| saved[id.as_str()]["foreground"] != true && overview_due(&saved[id.as_str()], false, at)).take(4).cloned().collect()
+}
+
+/// A Sonnet or Opus message met in the phone's background run, which asks only Haiku.
+#[cfg_attr(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")), allow(dead_code))]
+const WAITS_FOR_APP: &str = "overview_waits_for_app";
 
 #[cfg(feature = "mobile")]
 fn suspensions() -> u64 {
@@ -738,6 +762,7 @@ async fn overview_batch(
     local_mail: &crate::local_mail::LocalMail,
     remote: bool,
     left_before: u64,
+    background: bool,
 ) -> Result<Value, &'static str> {
     let personal = writer::personal().await;
     PERSONAL.store(personal, std::sync::atomic::Ordering::Release);
@@ -774,9 +799,17 @@ async fn overview_batch(
         let generated = if suspensions() != left_before {
             Ok(json!(prepared.as_array().into_iter().flatten().map(|message| json!({"id":message["id"],"error":INTERRUPTED,"stage":"batch"})).collect::<Vec<_>>()))
         } else {
-            // The writer marks each row with whether context went with it (the desktop's writer
-            // decides that again when it writes); a row it leaves unmarked had the batch's answer.
-            writer::generate(&prepared, &shared, left_before).await.map(|mut rows| {
+            let (tiers, spent) = picker::choose(&prepared, &shared).await;
+            spending::record("descriptions", spent).await;
+            writer::charge(spent);
+            tiered(&prepared, &tiers, background, |group, tier| {
+                let shared = &shared;
+                async move { writer::generate(&group, shared, tier, left_before).await }
+            })
+            .await
+            .map(|mut rows| {
+                // The writer marks each row with whether context went with it (the desktop's writer
+                // decides that again when it writes); a row it leaves unmarked had the batch's answer.
                 for row in rows.as_array_mut().into_iter().flatten() {
                     if !row["personal"].is_boolean() {
                         row["personal"] = json!(personal);
@@ -795,6 +828,54 @@ async fn overview_batch(
 fn account_failure(error: &str) -> bool {
     error.starts_with("accounts_")
         || matches!(error, "local_account_unknown" | "gmail_account_unknown" | "gmail_auth_required" | "overview_account_changed")
+}
+
+/// Writes each tier's messages with its own model, Haiku first, and marks each row with its tier.
+/// Invariant: in the phone's short background run only Haiku is asked; Sonnet and Opus messages
+/// are returned as not asked (`WAITS_FOR_APP`) and written when Magpie is next in the foreground.
+/// A tier whose writer fails marks only its own messages; when the batch had one tier, the
+/// writer's failure is the batch's, as before tiers.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+async fn tiered<F, Fut>(prepared: &Value, tiers: &[picker::Tier], background: bool, mut write: F) -> Result<Value, &'static str>
+where
+    F: FnMut(Value, picker::Tier) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, &'static str>>,
+{
+    let messages = prepared.as_array().ok_or("overview_input_invalid")?;
+    let groups: Vec<(picker::Tier, Vec<Value>)> = [picker::Tier::Haiku, picker::Tier::Sonnet, picker::Tier::Opus]
+        .into_iter()
+        .map(|tier| (tier, messages.iter().zip(tiers).filter(|(_, chosen)| **chosen == tier).map(|(message, _)| message.clone()).collect::<Vec<_>>()))
+        .filter(|(_, group)| !group.is_empty())
+        .collect();
+    let not_asked = |group: &[Value], error: &str| group.iter().map(|message| json!({"id":message["id"],"error":error,"stage":"batch"})).collect::<Vec<_>>();
+    let mut rows = Vec::new();
+    let mut only_failure = None;
+    let single = groups.len() == 1;
+    for (tier, group) in groups {
+        if background && tier != picker::Tier::Haiku {
+            rows.extend(not_asked(&group, WAITS_FOR_APP).into_iter().map(|mut row| {
+                row["tier"] = json!(tier.name());
+                row
+            }));
+            continue;
+        }
+        match write(json!(group), tier).await {
+            Ok(answer) => rows.extend(answer.as_array().into_iter().flatten().map(|row| {
+                let mut row = row.clone();
+                if row["error"].is_null() {
+                    row["tier"] = json!(tier.name());
+                }
+                row
+            })),
+            Err(error) if account_failure(error) => return Err(error),
+            Err(error) if single => only_failure = Some(error),
+            Err(error) => rows.extend(not_asked(&group, error)),
+        }
+    }
+    match only_failure {
+        Some(error) => Err(error),
+        None => Ok(json!(rows)),
+    }
 }
 
 /// Joins the writer's rows for the messages it was given with the rows of messages that could not be prepared.
@@ -860,8 +941,11 @@ fn overview_message(id: &str, raw: &Value) -> Result<Value, &'static str> {
     let valid_until = next_day(current.timestamp_millis());
     // Invariant: recipient and attachment lists are bounded like the body, so no header can make a request unbounded.
     let first = |list: &Value| json!(list.as_array().map(|items| &items[..items.len().min(50)]).unwrap_or_default());
+    // Only the picker reads these; they are not sent to Claude.
+    let categories: Vec<&str> = summary["labelIds"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|label| label.starts_with("CATEGORY_")).take(5).collect();
+    let unsubscribe = !crate::message::content::header(raw, "List-Unsubscribe").trim().is_empty();
     Ok(
-        json!({"id":id,"from":summary["from"],"to":first(&summary["to"]),"cc":first(&summary["cc"]),"bcc":first(&summary["bcc"]),"subject":summary["subject"],"date":summary["date"],"currentDate":current.format("%Y-%m-%d").to_string(),"currentTime":current.to_rfc3339(),"validUntil":valid_until,"sentByOwner":summary["isSent"],"body":context::bounded(body,48000),"attachments":first(&prepared["attachments"])}),
+        json!({"id":id,"from":summary["from"],"to":first(&summary["to"]),"cc":first(&summary["cc"]),"bcc":first(&summary["bcc"]),"subject":summary["subject"],"date":summary["date"],"currentDate":current.format("%Y-%m-%d").to_string(),"currentTime":current.to_rfc3339(),"validUntil":valid_until,"sentByOwner":summary["isSent"],"body":context::bounded(body,48000),"attachments":first(&prepared["attachments"]),"picker":{"categories":categories,"listUnsubscribe":unsubscribe}}),
     )
 }
 
@@ -996,7 +1080,7 @@ fn orphaned(value: &Value) -> bool {
 fn service_failure(error: &str) -> bool {
     ["ai_", "gmail_", "local_", "private_fs_", "inbox_storage_"].iter().any(|prefix| error.starts_with(prefix))
         && error != "gmail_not_found"
-        || matches!(error, "overview_start_failed" | "overview_ai_unavailable" | "overview_account_changed" | INTERRUPTED)
+        || matches!(error, "overview_start_failed" | "overview_ai_unavailable" | "overview_ai_paused" | "overview_account_changed" | INTERRUPTED | WAITS_FOR_APP)
 }
 
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
@@ -1071,6 +1155,7 @@ fn overview_failure(error: Option<&str>) -> &'static str {
     match error {
         Some("overview_start_failed") => "AI worker could not start; retry from Menu",
         Some("overview_ai_unavailable") => "AI service did not respond; retry from Menu",
+        Some("overview_ai_paused") => "Every Claude subscription is out for now; Magpie will try again",
         Some("overview_invalid_response") => {
             "AI response failed format or length checks; retry from Menu"
         }
@@ -1089,6 +1174,7 @@ fn overview_failure(error: Option<&str>) -> &'static str {
         }
         Some("overview_ai_refused") => "Claude declined to describe this message",
         Some(INTERRUPTED) => "Magpie left the foreground before this message; it will be described next",
+        Some(WAITS_FOR_APP) => "Its Point is written when you next open Magpie",
         None => "AI response omitted this message; retry from Menu",
         _ => "Mail could not be prepared for AI; retry from Menu",
     }
@@ -1512,4 +1598,93 @@ pub(crate) fn forget_phone_account(account: &str) -> Result<(), &'static str> {
         }
     }
     private_fs::sync_dir(&dir)
+}
+
+#[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+mod tier_tests {
+    use super::*;
+    use picker::Tier;
+
+    fn prepared() -> Value {
+        json!([{"id":"news"},{"id":"friend"},{"id":"clinic"},{"id":"shop"}])
+    }
+
+    fn written(group: &Value) -> Value {
+        json!(group.as_array().unwrap().iter().map(|message| json!({"id":message["id"],"text":"A Point."})).collect::<Vec<_>>())
+    }
+
+    #[tokio::test]
+    async fn each_tier_is_written_with_its_own_model_haiku_first_and_each_row_says_which() {
+        let tiers = [Tier::Haiku, Tier::Sonnet, Tier::Opus, Tier::Haiku];
+        let mut asked = Vec::new();
+        let rows = tiered(&prepared(), &tiers, false, |group, tier| {
+            asked.push((tier, group.as_array().unwrap().iter().map(|message| message["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>()));
+            std::future::ready(Ok(written(&group)))
+        })
+        .await
+        .unwrap();
+        assert_eq!(asked, vec![(Tier::Haiku, vec!["news".to_owned(), "shop".to_owned()]), (Tier::Sonnet, vec!["friend".to_owned()]), (Tier::Opus, vec!["clinic".to_owned()])]);
+        let tier_of = |id: &str| rows.as_array().unwrap().iter().find(|row| row["id"] == id).unwrap()["tier"].clone();
+        assert_eq!([tier_of("news"), tier_of("friend"), tier_of("clinic"), tier_of("shop")], [json!("haiku"), json!("sonnet"), json!("opus"), json!("haiku")]);
+    }
+
+    #[tokio::test]
+    async fn the_short_background_run_asks_only_haiku_and_leaves_the_rest_for_the_app() {
+        let tiers = [Tier::Haiku, Tier::Sonnet, Tier::Opus, Tier::Haiku];
+        let mut asked = Vec::new();
+        let rows = tiered(&prepared(), &tiers, true, |group, tier| {
+            asked.push(tier);
+            std::future::ready(Ok(written(&group)))
+        })
+        .await
+        .unwrap();
+        assert_eq!(asked, vec![Tier::Haiku]);
+        for id in ["friend", "clinic"] {
+            let row = rows.as_array().unwrap().iter().find(|row| row["id"] == id).unwrap();
+            assert_eq!((row["error"].as_str(), row["stage"].as_str()), (Some(WAITS_FOR_APP), Some("batch")), "{row}");
+        }
+        assert!(service_failure(WAITS_FOR_APP), "waiting for the app is not an attempt");
+    }
+
+    #[tokio::test]
+    async fn one_tiers_failure_marks_only_its_own_messages_and_a_single_tiers_is_the_batchs() {
+        let tiers = [Tier::Haiku, Tier::Opus, Tier::Opus, Tier::Haiku];
+        let rows = tiered(&prepared(), &tiers, false, |group, tier| {
+            std::future::ready(if tier == Tier::Opus { Err("overview_ai_paused") } else { Ok(written(&group)) })
+        })
+        .await
+        .unwrap();
+        let error_of = |id: &str| rows.as_array().unwrap().iter().find(|row| row["id"] == id).unwrap()["error"].clone();
+        assert_eq!([error_of("news"), error_of("friend"), error_of("clinic")], [Value::Null, json!("overview_ai_paused"), json!("overview_ai_paused")]);
+        let single = tiered(&prepared(), &[Tier::Sonnet; 4], false, |_, _| std::future::ready(Err("overview_ai_unavailable"))).await;
+        assert_eq!(single.unwrap_err(), "overview_ai_unavailable");
+        let account = tiered(&prepared(), &tiers, false, |group, tier| {
+            std::future::ready(if tier == Tier::Opus { Err("gmail_auth_required") } else { Ok(written(&group)) })
+        })
+        .await;
+        assert_eq!(account.unwrap_err(), "gmail_auth_required", "an account's failure stops the batch");
+        assert!(service_failure("overview_ai_paused"), "every subscription being out is not the message's attempt");
+        assert!(overview_failure(Some("overview_ai_paused")).contains("subscription"));
+    }
+
+    #[test]
+    fn a_ready_row_keeps_its_tier_and_a_message_left_for_the_app_is_marked() {
+        let mut saved = json!({"a":{"state":"running","updated":1,"version":2}});
+        finish_overviews_protected(&mut saved, &["a".to_owned()], &Ok(json!([{"id":"a","text":"Your R780 payment arrived.","tier":"opus"}])), &Default::default()).unwrap();
+        assert_eq!((saved["a"]["state"].as_str(), saved["a"]["tier"].as_str()), (Some("ready"), Some("opus")));
+        let mut saved = json!({"a":{"state":"running","updated":1,"version":2}});
+        finish_overviews_protected(&mut saved, &["a".to_owned()], &Ok(json!([{"id":"a","text":"x","tier":"fable"}])), &Default::default()).unwrap();
+        assert!(saved["a"].get("tier").is_none(), "only a known tier is kept");
+        let mut current = json!({"a":{"state":"ready","text":"An earlier Point.","version":2,"promptRevision":POINT_REVISION,"expiresAt":0,"rewriteState":"running","rewriteAt":5}});
+        finish_overviews_protected(&mut current, &["a".to_owned()], &Ok(json!([{"id":"a","error":WAITS_FOR_APP,"stage":"batch"}])), &Default::default()).unwrap();
+        assert_eq!((current["a"]["text"].as_str(), current["a"]["foreground"].as_bool()), (Some("An earlier Point."), Some(true)), "the old Point stays until the app writes the new one");
+        let saved = json!({"left":{"state":"waiting","version":2,"foreground":true},"new":{}});
+        let ids = ["left".to_owned(), "new".to_owned()];
+        assert_eq!(background_due(&saved, &ids, now()), vec!["new".to_owned()], "the background run leaves a Sonnet or Opus message for the app");
+        if PHONE_WRITER {
+            let row = phone_unfinished(&json!({}), Some(WAITS_FOR_APP), false, false, 0, 1, 2);
+            assert_eq!((row["state"].as_str(), row["foreground"].as_bool()), (Some("waiting"), Some(true)));
+            assert!(row.get("retryAt").is_none(), "due as soon as the app is in the foreground");
+        }
+    }
 }

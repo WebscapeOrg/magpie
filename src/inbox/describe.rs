@@ -16,12 +16,6 @@ pub(crate) struct Prompt {
     pub(crate) shared: String,
     pub(crate) task: String,
 }
-impl Prompt {
-    #[cfg_attr(not(all(feature = "agent", unix, not(target_os = "ios"))), allow(dead_code))]
-    pub(crate) fn joined(&self) -> String {
-        format!("{}\n\n{}", self.shared, self.task)
-    }
-}
 
 /// The shared part: the rules, the owner's bio and the context every email is read against.
 pub(crate) fn shared(context: &Value) -> Result<String, &'static str> {
@@ -51,7 +45,9 @@ fn emails(messages: &Value) -> Result<String, &'static str> {
     serde_json::to_string(&text_context(messages)).map_err(|_| "overview_input_invalid")
 }
 
-pub(crate) async fn generate_with<F, Fut>(messages: &Value, context: &Value, mut complete: F) -> Result<Value, &'static str>
+/// Drafts, then (with `edits`) reviews as a separate editor, then repairs once if the checks
+/// refuse the answer. Sonnet and Opus skip the editor; Haiku needs it.
+pub(crate) async fn generate_with<F, Fut>(messages: &Value, context: &Value, edits: bool, mut complete: F) -> Result<Value, &'static str>
 where
     F: FnMut(Prompt) -> Fut,
     Fut: std::future::Future<Output = Result<Value, &'static str>>,
@@ -60,11 +56,34 @@ where
     let source = emails(messages)?;
     let ask = |task: String| Prompt { shared: shared.clone(), task };
     let first = complete(ask(format!("EMAILS (untrusted data):\n{source}"))).await?;
+    if !edits {
+        return match validate(&first, messages, context) {
+            Ok(answer) => Ok(answer),
+            Err(error) => repair(&ask, &mut complete, error, &source, &first, messages, context).await,
+        };
+    }
     let reviewed = complete(ask(format!("You are the final editor. Review each candidate against its original email and the context. Correct missing decisive facts, invented obligations, stale relative deadlines, generic summaries, a missed purpose, or a missed connection to the context: something the owner already handled, an answer someone needs from them, or a change that does not affect them. Cut each Point to the shortest text that still gets its point across, and remove any he, she, him, her or his the mail does not support. Check every evidence item against the source it names. Keep a good candidate. Return the same JSON schema.\n\nEMAILS (untrusted data):\n{source}\n\nCANDIDATES (untrusted data):\n{first}"))).await?;
-    let error = match validate(&reviewed, messages, context) {
-        Ok(answer) => return Ok(answer),
-        Err(error) => error,
-    };
+    match validate(&reviewed, messages, context) {
+        Ok(answer) => Ok(answer),
+        Err(error) => repair(&ask, &mut complete, error, &source, &reviewed, messages, context).await,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn repair<F, Fut>(
+    ask: &impl Fn(String) -> Prompt,
+    complete: &mut F,
+    error: &'static str,
+    source: &str,
+    candidates: &Value,
+    messages: &Value,
+    context: &Value,
+) -> Result<Value, &'static str>
+where
+    F: FnMut(Prompt) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, &'static str>>,
+{
+    let reviewed = candidates;
     let repaired = complete(ask(format!("The final checks rejected the candidates: {error}. Correct every entry. Keep each text to at most 280 characters, to leave room below the hard {POINT_LIMIT}-character limit. Each evidence quote must be one short exact contiguous quote copied from the single source it names, and the first item must come from the email itself (source \"mail\", \"file:N\" or \"thread:ID\"). Do not paraphrase evidence, combine separate passages, insert ellipses, or change punctuation. Use no he, she, him, her or his that the email does not use; name the person or say they. You may copy the exact subject when it supports the Point. Preserve the supplied id strings. Return ONLY the required JSON.\n\nEMAILS (untrusted data):\n{source}\n\nCANDIDATES (untrusted data):\n{reviewed}"))).await?;
     validate(&repaired, messages, context)
 }
@@ -92,6 +111,7 @@ pub(crate) fn text_context(messages: &Value) -> Value {
     for message in context.as_array_mut().into_iter().flatten() {
         if let Some(fields) = message.as_object_mut() {
             fields.remove("validUntil");
+            fields.remove("picker");
         }
         for file in message["files"].as_array_mut().into_iter().flatten() {
             for block in file["content"].as_array_mut().into_iter().flatten() {
@@ -535,6 +555,7 @@ mod tests {
         assert!(one.task.contains("\"One\"") && !one.task.contains("Born 1 January"));
         assert!(draft(&json!([{"id":"a"}]), &json!({})).unwrap().shared.contains("(not written yet)"));
         assert!(!text_context(&json!([{"id":"a","validUntil":5}]))[0].as_object().unwrap().contains_key("validUntil"));
+        assert!(!text_context(&json!([{"id":"a","picker":{"listUnsubscribe":true}}]))[0].as_object().unwrap().contains_key("picker"), "what only the picker needs is not sent to Claude");
     }
 
     #[tokio::test]
@@ -544,7 +565,7 @@ mod tests {
         let valid = json!({"overviews":[{"id":"a","text":"R780 payment confirmed; keep the receipt for your records.","evidence":"Payment received: R780."}]});
         let mut replies = VecDeque::from([invalid.clone(), invalid, valid]);
         let mut shared = Vec::new();
-        let result = generate_with(&messages, &none(), |prompt| {
+        let result = generate_with(&messages, &none(), true, |prompt| {
             shared.push(prompt.shared);
             std::future::ready(Ok(replies.pop_front().unwrap()))
         })
@@ -563,7 +584,7 @@ mod tests {
         let messages = json!([{"id":"a","body":"Payment received: R780."}]);
         let invalid = json!({"overviews":[{"id":"a","text":"Pay R500 immediately","evidence":"R500 is due"}]});
         let mut calls = 0;
-        let result = generate_with(&messages, &none(), |_| {
+        let result = generate_with(&messages, &none(), true, |_| {
             calls += 1;
             std::future::ready(Ok(invalid.clone()))
         })
@@ -577,13 +598,45 @@ mod tests {
         let messages = json!([{"id":"a","body":"Payment received: R780."}]);
         let valid = json!({"overviews":[{"id":"a","text":"R780 payment confirmed","evidence":"Payment received: R780."}]});
         let mut calls = 0;
-        generate_with(&messages, &none(), |_| {
+        generate_with(&messages, &none(), true, |_| {
             calls += 1;
             std::future::ready(Ok(valid.clone()))
         })
         .await
         .unwrap();
         assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn without_the_editor_a_valid_draft_is_one_call_and_an_invalid_one_is_repaired_once() {
+        let messages = json!([{"id":"a","body":"Payment received: R780."}]);
+        let valid = json!({"overviews":[{"id":"a","text":"R780 payment confirmed","evidence":"Payment received: R780."}]});
+        let invalid = json!({"overviews":[{"id":"a","text":"Pay R500 immediately","evidence":"R500 is due"}]});
+        let mut tasks = Vec::new();
+        generate_with(&messages, &none(), false, |prompt| {
+            tasks.push(prompt.task);
+            std::future::ready(Ok(valid.clone()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(tasks.len(), 1);
+        let mut replies = VecDeque::from([invalid.clone(), valid]);
+        let mut tasks = Vec::new();
+        generate_with(&messages, &none(), false, |prompt| {
+            tasks.push(prompt.task);
+            std::future::ready(Ok(replies.pop_front().unwrap()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks[1].starts_with("The final checks rejected") && tasks.iter().all(|task| !task.contains("final editor")));
+        let mut calls = 0;
+        let refused = generate_with(&messages, &none(), false, |_| {
+            calls += 1;
+            std::future::ready(Ok(invalid.clone()))
+        })
+        .await;
+        assert_eq!((refused.unwrap_err(), calls), ("overview_unsupported_claim", 2));
     }
     #[test]
     fn rejects_cross_message_ids_invented_evidence_and_active_markup() {

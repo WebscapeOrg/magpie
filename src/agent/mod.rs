@@ -24,7 +24,6 @@ desktop! {
     mod stream;
     pub mod worker;
     pub mod overview;
-    mod vision;
 }
 #[cfg(all(target_os = "macos", feature = "agent"))]
 mod control;

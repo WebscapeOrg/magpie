@@ -261,7 +261,7 @@ Item {
       }
       MenuRow {
         id: calendarRow
-        text: "Skylark..."
+        text: "Magpie Calendar..."
         onActivated: { menu.close(); root.calendarRequested() }
       }
       MenuSeparatorLine {

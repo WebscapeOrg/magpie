@@ -56,6 +56,8 @@ Item {
     property bool canOpenOnWeb: false
     property var selectedAttachments: []
 
+    property int calendarOpens: 0
+    function openInvitationInMagpieCalendar() { calendarOpens++; return true }
     function getMessage() { fetches++ }
     function showRemoteImages() { renders++ }
   }
@@ -90,6 +92,17 @@ Item {
       var children = item.children || []
       for (var index = 0; index < children.length; index++) {
         var match = findByType(children[index], typeName)
+        if (match) return match
+      }
+      return null
+    }
+
+    function findButton(item, label) {
+      if (!item) return null
+      if (item.text === label && typeof item.clicked === "function") return item
+      var children = item.children || []
+      for (var index = 0; index < children.length; index++) {
+        var match = findButton(children[index], label)
         if (match) return match
       }
       return null
@@ -223,6 +236,16 @@ Item {
       reader.bodyMode = "original"
       compare(card.x, reader.bodyInset)
       compare(card.width, reader.bodyWidth)
+      mailService.selectedInvite = null
+    }
+
+    function test_the_invitation_button_opens_it_in_magpie_calendar() {
+      mailService.calendarOpens = 0
+      mailService.selectedInvite = ({ summary: "Planning", attendees: [] })
+      var button = findButton(findChild(reader, "eventCard"), "Open invitation in Magpie Calendar...")
+      verify(button && button.visible, "the card offers Magpie Calendar")
+      button.clicked()
+      compare(mailService.calendarOpens, 1)
       mailService.selectedInvite = null
     }
 

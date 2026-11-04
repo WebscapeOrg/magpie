@@ -1432,21 +1432,21 @@ Item {
     return Preview.latestMessages(accounts, 3)
   }
 
-  function openSkylark(request) {
-    if (skylarkLauncher.running) return false
-    skylarkLauncher.command = ["python3",root.pluginDir + "/scripts/open-skylark.py",JSON.stringify(request || {})]
-    skylarkLauncher.running = true
+  function openMagpieCalendar(request) {
+    if (calendarLauncher.running) return false
+    calendarLauncher.command = ["python3",root.pluginDir + "/scripts/open-magpie-calendar.py",JSON.stringify(request || {})]
+    calendarLauncher.running = true
     return true
   }
-  function openInvitationInSkylark() {
+  function openInvitationInMagpieCalendar() {
     if (!reading || !selectedInvite) return false
-    return openSkylark(CalendarHandoff.invitation(reading.accountId, selectedInvite))
+    return openMagpieCalendar(CalendarHandoff.invitation(reading.accountId, selectedInvite))
   }
   Process {
-    id:skylarkLauncher
-    objectName:"skylark-launcher"
+    id:calendarLauncher
+    objectName:"magpie-calendar-launcher"
     stderr:StdioCollector { waitForEnd:true }
-    onExited:function(code) { if (code !== 0 && root.current) root.current.fail("Skylark could not open. Check that Skylark is installed, then try again.") }
+    onExited:function(code) { if (code !== 0 && root.current) root.current.fail("Magpie Calendar could not open. Check that Magpie Calendar is installed, then try again.") }
   }
 
   property bool windowOpen: false

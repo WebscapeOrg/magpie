@@ -26,6 +26,10 @@ struct Credentials(Arc<Mutex<Vec<String>>>);
 
 impl CredentialStore for Credentials {
     fn get(&self, key: &CredentialKey) -> Result<Secret, Error> {
+        // No OpenAI key, so the picker chooses Sonnet without asking anyone.
+        if key.provider == "openai" {
+            return Err(Error::Missing);
+        }
         self.0.lock().unwrap().push(key.account_id.clone());
         assert_eq!(key.provider, "gmail");
         assert!([ACCOUNT, OTHER].contains(&key.account_id.as_str()));
@@ -665,6 +669,8 @@ async fn c023_background_preparation_reaches_past_a_hundred_ready_rows_without_u
     let worker = bin.join("claude-routed");
     std::fs::write(&worker,r#"#!/usr/bin/python3
 import json,sys,pathlib
+if sys.argv[1:3]==['--claude-only','--probe']:
+    print('claude-only'); sys.exit(0)
 p=''.join(b.get('text','') for b in json.load(sys.stdin)['message']['content'] if b.get('type')=='text')
 source=p.split('EMAILS (untrusted data):\n',1)[1]
 messages=json.JSONDecoder().raw_decode(source)[0]
@@ -736,8 +742,8 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
         std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
     assert_eq!(
         calls.lines().count(),
-        4,
-        "two reviewed AI turns for each of two bounded batches"
+        2,
+        "without an OpenAI key the picker chooses Sonnet, which writes each of two bounded batches in one turn"
     );
     assert!(!calls.contains(OTHER));
     assert!(
@@ -798,9 +804,13 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     assert_eq!(saved["ask-1"]["sources"], json!(["mail", "thread:sent-1"]));
     assert_eq!(saved["ask-1"]["promptRevision"], super::POINT_REVISION);
     assert_eq!(saved["ask-1"]["personal"], true, "the row says it was written with the owner's context");
+    assert_eq!(saved["ask-1"]["tier"], "sonnet", "without an OpenAI key the picker chooses Sonnet");
     let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
     let first: Value = serde_json::from_str(calls.lines().next().unwrap()).unwrap();
     assert_eq!(first["args"][0], "--claude-only", "personal context asks for the Claude-only mode");
+    let args = first["args"].as_array().unwrap();
+    assert!(args.windows(2).any(|pair| pair[0] == "--model" && pair[1] == "sonnet"), "the tier's model: {args:?}");
+    assert_eq!(calls.lines().count(), 1, "Sonnet writes without a separate editing pass");
     let prompt = first["prompt"].as_str().unwrap();
     assert!(prompt.contains("Synthetic owner, lives in Testville."), "the bio");
     let shared = prompt.split("EMAILS (untrusted data):").next().unwrap();
@@ -811,7 +821,7 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
 }
 
 #[tokio::test]
-async fn without_the_claude_only_mode_no_personal_context_is_sent() {
+async fn without_the_claude_only_mode_nothing_is_sent_and_the_mail_waits_uncounted() {
     if isolated() {
         return;
     }
@@ -822,54 +832,40 @@ async fn without_the_claude_only_mode_no_personal_context_is_sent() {
     let bin = fixture.root.join("home/.local/bin");
     std::fs::create_dir_all(&bin).unwrap();
     let worker = bin.join("claude-routed");
-    // An older router passes every argument to Claude, which refuses one it does not know.
+    // An older router passes every argument to Claude, which refuses one it does not know; asked
+    // without the Claude-only mode it would run on any provider, so it must never be asked.
     std::fs::write(&worker, r#"#!/usr/bin/python3
 import json,sys,pathlib
 args=sys.argv[1:]
+with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
+    f.write(json.dumps({'args':args})+'\n')
 if '--claude-only' in args:
     sys.exit(1)
-p=''.join(b.get('text','') for b in json.load(sys.stdin)['message']['content'] if b.get('type')=='text')
-with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
-    f.write(json.dumps({'args':args,'prompt':p})+'\n')
-messages=json.JSONDecoder().raw_decode(p.split('EMAILS (untrusted data):\n',1)[1])[0]
-rows=[{'id':m['id'],'text':'Confirm the synthetic request.','evidence':'Synthetic request','timeSensitive':False} for m in messages]
-print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'overviews':rows})}))
+print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'overviews':[]})}))
 "#).unwrap();
     std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
     let gmail = Arc::new(gmail::Session::default());
     let local = Arc::new(LocalMail::default());
-    let mut sent = message("sent-1", "Here is the signed contract.");
-    sent["threadId"] = json!("thread-1");
-    sent["internalDate"] = json!((chrono::Utc::now().timestamp_millis() - 86_400_000).to_string());
-    sent["labelIds"] = json!(["SENT"]);
-    seed(&local, &gmail, ACCOUNT, &sent).await;
-    let mut asked = message("ask-1", "Could you send me the signed contract?");
-    asked["threadId"] = json!("thread-1");
-    seed(&local, &gmail, ACCOUNT, &asked).await;
+    seed(&local, &gmail, ACCOUNT, &message("ask-1", "Could you send me the signed contract?")).await;
     super::point_context::set_about_you("Synthetic owner, lives in Testville.").unwrap();
     let name = super::store::key(&["overviews", ACCOUNT]);
     Inbox::default().prepare(ACCOUNT, gmail.clone(), local.clone()).await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
-    while super::store::read(&name).unwrap().unwrap_or(json!({}))["ask-1"]["state"] != "ready" {
-        assert!(Instant::now() < deadline, "the description was not written");
+    while super::store::read(&name).unwrap().unwrap_or(json!({}))["ask-1"]["state"] != "failed" {
+        assert!(Instant::now() < deadline, "the message did not wait: {}", super::store::read(&name).unwrap().unwrap_or(json!({})));
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+    let saved = super::store::read(&name).unwrap().unwrap();
+    assert_eq!(saved["ask-1"]["attempts"], 0, "the router's failure is not the message's");
     let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
     for line in calls.lines() {
         let call: Value = serde_json::from_str(line).unwrap();
-        assert!(!call["args"].as_array().unwrap().contains(&json!("--claude-only")));
-        let prompt = call["prompt"].as_str().unwrap();
-        assert!(!prompt.contains("Testville"), "no bio without the Claude-only mode");
-        assert!(!prompt.contains("Here is the signed contract."), "no other mail without the Claude-only mode");
-        assert!(prompt.contains("(not written yet)"));
+        assert_eq!(call["args"], json!(["--claude-only", "--probe"]), "only the probe ran: {line}");
     }
-    let saved = super::store::read(&name).unwrap().unwrap();
-    assert_eq!(saved["ask-1"]["personal"], false, "the row says it was written from the email alone");
-    assert!(!super::overview_due(&saved["ask-1"], false, super::now()), "and stays until context may be sent");
 }
 
 #[tokio::test]
-async fn mail_prepared_with_context_is_written_without_it_when_the_router_cannot_promise_claude() {
+async fn mail_prepared_with_context_is_not_written_when_the_router_loses_its_claude_only_mode() {
     if isolated() {
         return;
     }
@@ -881,14 +877,9 @@ async fn mail_prepared_with_context_is_written_without_it_when_the_router_cannot
     std::fs::write(&worker, r#"#!/usr/bin/python3
 import json,sys,pathlib
 args=sys.argv[1:]
-if '--claude-only' in args:
-    sys.exit(1)
-p=''.join(b.get('text','') for b in json.load(sys.stdin)['message']['content'] if b.get('type')=='text')
 with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
-    f.write(json.dumps({'args':args,'prompt':p})+'\n')
-messages=json.JSONDecoder().raw_decode(p.split('EMAILS (untrusted data):\n',1)[1])[0]
-rows=[{'id':m['id'],'text':'Confirm the synthetic request.','evidence':'Synthetic request','timeSensitive':False} for m in messages]
-print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'overviews':rows})}))
+    f.write(json.dumps({'args':args})+'\n')
+sys.exit(1)
 "#).unwrap();
     std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
     // As if the batch had found the Claude-only mode and the router lost it before the writing.
@@ -896,15 +887,45 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
         "thread":[{"id":"t-1","body":"Earlier thread text from Testville."}],
         "related":[{"id":"r-1","snippet":"Related mail from Testville."}]}]);
     let context = json!({"aboutYou":"Synthetic owner, lives in Testville.","sent":[{"id":"s-1","snippet":"Sent mail from Testville."}]});
-    let rows = crate::agent::overview::generate(&messages, &context).await.unwrap();
-    assert_eq!(rows[0]["personal"], false, "the row says it was written from the email alone");
+    let written = crate::agent::overview::generate(&messages, &context, super::picker::Tier::Sonnet).await;
+    assert_eq!(written.unwrap_err(), "overview_ai_unavailable");
     let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
-    assert!(calls.lines().count() >= 1);
     for line in calls.lines() {
         let call: Value = serde_json::from_str(line).unwrap();
-        assert!(!call["args"].as_array().unwrap().contains(&json!("--claude-only")));
-        let prompt = call["prompt"].as_str().unwrap();
-        assert!(prompt.contains("Synthetic request"), "the email itself is written");
-        assert!(!prompt.contains("Testville"), "no bio, sent, thread or related mail: {prompt}");
+        assert_eq!(call["args"], json!(["--claude-only", "--probe"]), "only the probe ran: {line}");
+    }
+}
+
+#[tokio::test]
+async fn when_every_subscription_is_out_the_points_wait_as_paused_and_nothing_else_is_tried() {
+    if isolated() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let bin = fixture.root.join("home/.local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let worker = bin.join("claude-routed");
+    std::fs::write(&worker, r#"#!/usr/bin/python3
+import json,sys,pathlib
+args=sys.argv[1:]
+if args[:2]==['--claude-only','--probe']:
+    print('claude-only'); sys.exit(0)
+with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
+    f.write(json.dumps({'args':args})+'\n')
+print('claude-routed: all accounts out until 2026-11-05T03:00:00+00:00', file=sys.stderr)
+sys.exit(75)
+"#).unwrap();
+    std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let messages = json!([{"id":"ask-1","subject":"Contract","body":"Synthetic request"}]);
+    for tier in [super::picker::Tier::Haiku, super::picker::Tier::Opus] {
+        let written = crate::agent::overview::generate(&messages, &json!({}), tier).await;
+        assert_eq!(written.unwrap_err(), "overview_ai_paused");
+    }
+    let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
+    assert_eq!(calls.lines().count(), 2, "one refused run for each, with no second pass or other provider");
+    for line in calls.lines() {
+        let call: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(call["args"][0], "--claude-only");
     }
 }

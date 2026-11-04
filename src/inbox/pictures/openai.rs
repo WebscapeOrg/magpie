@@ -32,7 +32,7 @@ pub(super) struct Painted {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Fault {
+pub(in crate::inbox) enum Fault {
     /// OpenAI does not accept the key, or the key may not use this model.
     Key(&'static str),
     /// The key's account has no credit left.
@@ -60,7 +60,7 @@ tokio::task_local! {
 
 /// Sends this future's OpenAI requests to a local test server instead of OpenAI.
 #[cfg(test)]
-pub(super) async fn with_test_transport<T>(
+pub(in crate::inbox) async fn with_test_transport<T>(
     client: reqwest::Client,
     origin: String,
     work: impl std::future::Future<Output = T>,
@@ -188,6 +188,29 @@ pub(super) async fn paint(key: &Secret, model: &str, request: &Request) -> Resul
         return Err(classify(status, &body, retry));
     }
     parse(&body)
+}
+
+/// Asks OpenAI's Decisions API one question set (`body`, already bounded by the caller), with the
+/// same origin, header and redirect rules as pictures. Any failure is only "no answer": the picker
+/// falls back to a model of its own and never retries.
+pub(in crate::inbox) async fn decide(key: &Secret, body: Vec<u8>, timeout: Duration) -> Result<Vec<u8>, Fault> {
+    let (client, origin) = transport()?;
+    let response = client
+        .post(format!("{origin}/v1/decisions"))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header(reqwest::header::AUTHORIZATION, authorization(key)?)
+        .timeout(timeout)
+        .body(body)
+        .send()
+        .await
+        .map_err(|error| Fault::Lost { charged: !error.is_connect() })?;
+    let status = response.status().as_u16();
+    let retry = retry_after(response.headers());
+    let body = read(response).await.map_err(|_| Fault::Lost { charged: true })?;
+    if status != 200 {
+        return Err(classify(status, &body, retry));
+    }
+    Ok(body)
 }
 
 async fn read(mut response: reqwest::Response) -> Result<Vec<u8>, ()> {

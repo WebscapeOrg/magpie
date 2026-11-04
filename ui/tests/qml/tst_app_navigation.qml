@@ -250,6 +250,12 @@ Item {
 
     function kinds() { return app.navKinds.join(",") }
 
+    // Invariant: a test that stopped with a confirmation open must not leave it over the next one.
+    function cleanup() {
+      var dialog = findChild(app, "delete-confirmation")
+      if (dialog && dialog.opened) dialog.close()
+    }
+
     function init() {
       // Invariant: A test that failed part way through its scales must not leave the next
       // one measuring at somebody else's.
@@ -738,6 +744,47 @@ Item {
       compare(field.text, "", "the letter is a shortcut again, not text")
       compare(mailService.count("act:archive:message-1"), 1,
         "and the list's keys work with the reader open")
+    }
+
+    // Invariant: Down and Up stay on in the list and the reader while an overlay is open, but with a
+    // confirmation open they scroll its words and run no shortcut behind it, and Escape closes only it.
+    function test_down_in_a_confirmation_scrolls_its_words_not_the_list_data() {
+      return [{ tag: "list", context: "list", kinds: "list" },
+              { tag: "reader", context: "reader", kinds: "list,reader" }]
+    }
+    function test_down_in_a_confirmation_scrolls_its_words_not_the_list(data) {
+      if (data.context === "reader") app.openMessage("message-1")
+      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      verify(scope)
+      tryCompare(scope, "keyContext", data.context)
+      scope.applyContextFocus()
+      var router = findChild(app, "key-router")
+      var shortcuts = []
+      var heard = function(id) { shortcuts.push(id) }
+      router.triggered.connect(heard)
+      var cursor = app.cursorId
+      var dialog = findChild(app, "delete-confirmation")
+      var long = ""
+      for (var sentence = 0; sentence < 80; sentence++) long += "Every label beneath it is removed from the server. "
+      dialog.parent.openFor({ kind: "label", labelId: "Work", name: "Work", accountId: "", message: long })
+      tryCompare(dialog, "opened", true)
+      wait(30)
+      // A focus call from navigation or a change of context, as when a send finishes behind it.
+      scope.applyContextFocus()
+      verify(named(dialog.contentItem, "delete-confirm").activeFocus, "the confirmation keeps the keyboard")
+      var words = findChild(dialog, "confirm-words")
+      verify(words.contentHeight > words.height + 1, "the words do not fit: " + words.contentHeight + " in " + words.height)
+      compare(words.contentY, 0)
+      keyClick(Qt.Key_Down)
+      verify(words.contentY > 0, "Down scrolls the confirmation's words")
+      keyClick(Qt.Key_Up)
+      compare(words.contentY, 0, "Up scrolls them back")
+      keyClick(Qt.Key_Escape)
+      tryCompare(dialog, "opened", false)
+      router.triggered.disconnect(heard)
+      compare(shortcuts, [], "no shortcut ran behind the confirmation")
+      compare(app.cursorId, cursor, "the list's cursor stayed where it was")
+      compare(kinds(), data.kinds, "Escape closed only the confirmation")
     }
 
     function test_search_context_changes_preserve_typing_and_caret() {

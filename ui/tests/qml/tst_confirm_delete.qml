@@ -50,49 +50,61 @@ Item {
       tryCompare(dialog,"opened",true)
     }
     function cleanup() { dialog.close() }
-    function test_enter_confirms_initial_choice() {
-      keyClick(Qt.Key_Return)
-      compare(confirmed.count,1)
-      compare(confirmed.signalArguments[0][0].event.googleId,"one")
-    }
-    function test_tab_then_enter_cancels() {
-      keyClick(Qt.Key_Tab)
+    // Invariant: Q-016. The question opens on Cancel, so Return deletes nothing.
+    function test_return_on_opening_cancels() {
       keyClick(Qt.Key_Return)
       tryCompare(dialog,"opened",false)
       compare(confirmed.count,0)
     }
+    function test_tab_then_return_deletes() {
+      keyClick(Qt.Key_Tab)
+      keyClick(Qt.Key_Return)
+      compare(confirmed.count,1)
+      compare(confirmed.signalArguments[0][0].event.googleId,"one")
+    }
     function test_tab_cycles_and_keypad_enter_confirms() {
+      keyClick(Qt.Key_Tab)
       keyClick(Qt.Key_Tab)
       keyClick(Qt.Key_Tab)
       keyClick(Qt.Key_Enter)
       compare(confirmed.count,1)
     }
-    function test_backtab_then_enter_cancels() {
+    function test_tab_then_backtab_then_enter_cancels() {
+      keyClick(Qt.Key_Tab)
       keyClick(Qt.Key_Backtab,Qt.ShiftModifier)
       keyClick(Qt.Key_Enter)
       tryCompare(dialog,"opened",false)
       compare(confirmed.count,0)
     }
-    function test_choices_default_to_the_last_and_backtab_reaches_the_others() {
+    function test_choices_start_on_cancel_and_tab_reaches_each_in_turn() {
       dialog.close()
       tryCompare(dialog,"opened",false)
       dialog.openFor({kind:"event",name:"Review",event:{googleId:"two"},
         choices:[{value:"none",label:"Delete without email"},{value:"all",label:"Delete and notify guests"}]})
       tryCompare(dialog,"opened",true)
-      keyClick(Qt.Key_Backtab,Qt.ShiftModifier)
+      keyClick(Qt.Key_Tab)
       keyClick(Qt.Key_Return)
       compare(confirmed.count,1)
       compare(confirmed.signalArguments[0][0].choice,"none")
       compare(confirmed.signalArguments[0][0].event.googleId,"two")
+      confirmed.clear()
+      dialog.openFor({kind:"event",name:"Review",event:{googleId:"two"},
+        choices:[{value:"none",label:"Delete without email"},{value:"all",label:"Delete and notify guests"}]})
+      tryCompare(dialog,"opened",true)
+      keyClick(Qt.Key_Tab)
+      keyClick(Qt.Key_Tab)
+      keyClick(Qt.Key_Return)
+      compare(confirmed.signalArguments[0][0].choice,"all")
     }
-    function test_choice_default_is_the_last_one() {
+    function test_return_with_choices_on_opening_cancels() {
       dialog.close()
       tryCompare(dialog,"opened",false)
       dialog.openFor({kind:"event",name:"Review",
         choices:[{value:"series",label:"Delete series"},{value:"all",label:"Delete occurrence"}]})
       tryCompare(dialog,"opened",true)
       keyClick(Qt.Key_Return)
-      compare(confirmed.signalArguments[0][0].choice,"all")
+      tryCompare(dialog,"opened",false)
+      compare(confirmed.count,0)
     }
     function test_escape_cancels() {
       keyClick(Qt.Key_Escape)
@@ -181,8 +193,8 @@ Item {
       verify(words.height >= line * 2, "the words keep room for two lines: " + words.height)
     }
     // Invariant: at 36 pt, with a long name and three long choices, the confirmation stays inside the window
-    // and opens on its question with the last choice focused; each button Tab reaches is scrolled whole into
-    // view inside the confirmation, in order.
+    // and opens on its question with Cancel focused; each button Tab reaches is scrolled whole into view
+    // inside the confirmation, in order.
     function test_three_long_choices_at_the_largest_size_keep_the_question_and_every_button_in_view() {
       failOnWarning(/Binding loop/)
       MailStyle.preferences = Display.normalize({interfaceSize: 36})
@@ -192,10 +204,11 @@ Item {
       var wordsAt = words.mapToItem(box(), 0, 0)
       verify(wordsAt.y >= 0 && wordsAt.y + words.height <= box().height + 0.5, "the words sit inside the confirmation")
       questionShows(popup())
-      verify(named(popup(), "delete-confirm").activeFocus, "the last choice has the focus")
-      // Shift+Tab back to Cancel, then Tab out to the last choice, so each button is checked as the focus
-      // reaches it from either side.
-      var steps = [[null, 3], [Qt.Key_Backtab, 2], [Qt.Key_Backtab, 1], [Qt.Key_Backtab, 0], [Qt.Key_Tab, 1], [Qt.Key_Tab, 2], [Qt.Key_Tab, 3]]
+      verify(named(popup(), "delete-cancel").activeFocus, "Cancel has the focus")
+      // Tab out to the last choice, Shift+Tab back to Cancel, then Tab out again, so each button is checked
+      // as the focus reaches it from either side.
+      var steps = [[null, 0], [Qt.Key_Tab, 1], [Qt.Key_Tab, 2], [Qt.Key_Tab, 3], [Qt.Key_Backtab, 2], [Qt.Key_Backtab, 1],
+        [Qt.Key_Backtab, 0], [Qt.Key_Tab, 1], [Qt.Key_Tab, 2], [Qt.Key_Tab, 3]]
       for (var step of steps) {
         if (step[0] !== null) keyClick(step[0], step[0] === Qt.Key_Backtab ? Qt.ShiftModifier : Qt.NoModifier)
         var name = order[step[1]]
@@ -205,7 +218,7 @@ Item {
         var at = button.mapToItem(box(), 0, 0)
         verify(at.x >= 0 && at.x + button.width <= box().width + 0.5, name + " fits across")
         wholeLabel(button, name)
-        // The focused choice may wait below the question when the confirmation opens; every other step
+        // The focused button may wait below the question when the confirmation opens; every other step
         // scrolls to it.
         if (step[0] === null) continue
         verify(at.y >= -0.5 && at.y + button.height <= box().height + 0.5, name + " is inside the confirmation: " + at.y + " + " + button.height + " in " + box().height)
@@ -254,7 +267,7 @@ Item {
       verify(words.contentY > 0, "PageDown scrolls the words")
       keyClick(Qt.Key_PageUp)
       compare(words.contentY, 0)
-      verify(named(popup(), "delete-confirm").activeFocus, "the focus stays on the button")
+      verify(named(popup(), "delete-cancel").activeFocus, "the focus stays on the button")
       compare(confirmed.count, 0)
     }
     // Invariant: only Return or Enter alone acts; with Shift, Ctrl or Alt it does nothing, so a habit from the
@@ -262,6 +275,8 @@ Item {
     function test_return_with_a_modifier_does_nothing() {
       var modifiers = [Qt.ShiftModifier, Qt.ControlModifier, Qt.AltModifier]
       openFor(label)
+      keyClick(Qt.Key_Tab)
+      verify(named(popup(), "delete-confirm").activeFocus, "Delete has the focus")
       for (var modifier of modifiers) {
         keyClick(Qt.Key_Return, modifier)
         keyClick(Qt.Key_Enter, modifier | Qt.KeypadModifier)
@@ -291,6 +306,7 @@ Item {
       insideTheWindow()
       questionShows(popup())
       keyClick(Qt.Key_Backtab, Qt.ShiftModifier)
+      keyClick(Qt.Key_Backtab, Qt.ShiftModifier)
       var words = findChild(popup(), "confirm-words")
       var chosen = named(popup(), "delete-choice-none")
       verify(chosen.activeFocus)
@@ -312,13 +328,13 @@ Item {
       resize(480, 360)
       openFor(short)
       keyClick(Qt.Key_Tab)
-      verify(named(popup(), "delete-cancel").activeFocus)
+      verify(named(popup(), "delete-confirm").activeFocus)
       keyClick(Qt.Key_Escape)
       tryCompare(dialog, "opened", false)
       resize(360, 240)
       openFor(short)
       verify(popup().stacked, "the buttons scroll with the words in the small window")
-      verify(named(popup(), "delete-confirm").activeFocus)
+      verify(named(popup(), "delete-cancel").activeFocus)
       questionShows(popup())
       resize(360, 250)
       verify(popup().stacked)
@@ -331,6 +347,7 @@ Item {
       MailStyle.preferences = Display.normalize({interfaceSize: 28})
       openFor(occurrence)
       verify(popup().stacked, "the buttons scroll with the words")
+      keyClick(Qt.Key_Backtab, Qt.ShiftModifier)
       keyClick(Qt.Key_Backtab, Qt.ShiftModifier)
       var chosen = named(popup(), "delete-choice-none")
       verify(chosen.activeFocus)
@@ -347,7 +364,8 @@ Item {
       MailStyle.preferences = Display.normalize({interfaceSize: 36})
       resize(360, 240)
       openFor(occurrence)
-      keyClick(Qt.Key_Backtab, Qt.ShiftModifier)
+      keyClick(Qt.Key_Tab)
+      keyClick(Qt.Key_Tab)
       keyClick(Qt.Key_Tab)
       var words = findChild(popup(), "confirm-words")
       var tall = named(popup(), "delete-confirm")

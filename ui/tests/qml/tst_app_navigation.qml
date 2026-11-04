@@ -771,7 +771,7 @@ Item {
       wait(30)
       // A focus call from navigation or a change of context, as when a send finishes behind it.
       scope.applyContextFocus()
-      verify(named(dialog.contentItem, "delete-confirm").activeFocus, "the confirmation keeps the keyboard")
+      verify(named(dialog.contentItem, "delete-cancel").activeFocus, "the confirmation keeps the keyboard")
       var words = findChild(dialog, "confirm-words")
       verify(words.contentHeight > words.height + 1, "the words do not fit: " + words.contentHeight + " in " + words.height)
       compare(words.contentY, 0)

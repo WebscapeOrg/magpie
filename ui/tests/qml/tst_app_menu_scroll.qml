@@ -5,8 +5,8 @@ import "../../components" as Omamail
 import "../../settings"
 import "../../settings/Display.js" as Display
 
-// Invariant: a menu that scrolls shows its bar at rest, beside its entries and inside its frame, as Magpie
-// Calendar's menu does; a menu that fits shows no bar and keeps its usual padding, at every text size.
+// Invariant: a menu that scrolls shows a thin bar at rest, in the middle of its right padding, beside its
+// entries and inside its frame, as Magpie Calendar's menu does; a menu that fits shows none, at every text size.
 Item {
   id: page
   width: 420
@@ -77,17 +77,23 @@ Item {
       verify(bar !== null, "the menu has its scroll bar")
       compare(list.contentHeight > list.height + 1, scrolls, tag + ": the entries are cut off exactly when it should scroll: "
         + list.contentHeight + " in " + list.height)
-      compare(bar.visible, scrolls, tag + ": the bar is on exactly when the menu scrolls")
+      compare(bar.active, scrolls, tag + ": the bar is on exactly when the menu scrolls")
+      compare(menu.rightPadding, scrolls ? Math.max(menu.leftPadding, bar.implicitWidth) : menu.leftPadding,
+        tag + ": the menu keeps its usual padding, widened only to hold the bar")
       if (!scrolls) {
-        compare(menu.rightPadding, menu.leftPadding, tag + ": a menu that fits keeps its usual padding")
+        tryVerify(function() { return bar.contentItem.opacity === 0 }, 2000, tag + ": a menu that fits shows no bar")
         return
       }
-      verify(bar.contentItem.visible && bar.contentItem.opacity > 0 && bar.size < 1,
+      tryVerify(function() { return bar.contentItem.visible && bar.contentItem.opacity > 0 && bar.size < 1 }, 2000,
         tag + ": the bar shows there is more before anything moves")
-      verify(bar.x >= list.x + list.width + 1,
-        tag + ": the bar is beside the entries with a gap: " + bar.x + " from " + (list.x + list.width))
-      verify(bar.x + bar.width <= menu.width - 1 + 0.5,
-        tag + ": the bar is inside the menu's frame: " + (bar.x + bar.width) + " in " + menu.width)
+      var line = bar.contentItem.mapToItem(list.parent, 0, 0)
+      verify(line.x >= list.x + list.width + 1,
+        tag + ": the bar is beside the entries with a gap: " + line.x + " from " + (list.x + list.width))
+      verify(line.x + bar.contentItem.width <= menu.width - 1 - 1 + 0.5,
+        tag + ": the bar is inside the menu's frame with a gap: " + (line.x + bar.contentItem.width) + " in " + menu.width)
+      var middle = list.x + list.width + menu.rightPadding / 2
+      verify(Math.abs(line.x + bar.contentItem.width / 2 - middle) <= 0.5,
+        tag + ": the bar is in the middle of the padding: " + (line.x + bar.contentItem.width / 2) + " for " + middle)
       verify(bar.y >= list.y - 0.5 && bar.y + bar.height <= list.y + list.height + 0.5,
         tag + ": the bar runs beside the entries: " + bar.y + " + " + bar.height + " beside " + list.y + " + " + list.height)
     }
@@ -182,13 +188,14 @@ Item {
       resize(300)
       var menu = open()
       var bar = barOf(menu)
-      verify(bar.visible)
+      verify(bar.active)
       wait(250)
       var surface = menu.contentItem.parent
       var image = grabImage(surface)
       var middle = bar.contentItem.mapToItem(surface, bar.contentItem.width / 2, bar.contentItem.height / 2)
       var handle = image.pixel(Math.round(middle.x), Math.round(middle.y))
-      var beside = image.pixel(Math.round(bar.x - 2), Math.round(middle.y))
+      var list = menu.contentItem
+      var beside = image.pixel(Math.round(list.x + list.width), Math.round(middle.y))
       verify(!Qt.colorEqual(handle, beside), "the handle paints over the menu's background: " + handle + " beside " + beside)
     }
   }

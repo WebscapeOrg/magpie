@@ -128,10 +128,9 @@ Item {
     // never scrolls by a pixel lost to rounding.
     implicitHeight: Math.min(menuItems.implicitHeight + topPadding + bottomPadding, root.height - MailStyle.space(16))
     padding: MailStyle.space(4)
-    // Invariant: while the menu scrolls, its bar stays on beside the entries, in a right padding widened
-    // to hold it, so the menu shows there is more without the bar covering an entry or the frame (as in
-    // Magpie Calendar's menu). A menu that fits keeps its usual padding.
-    rightPadding: menuScroll.scrolls ? 2 * padding + menuBar.implicitWidth : padding
+    // Invariant: while the menu scrolls, its right padding is at least as wide as its bar, so at small
+    // text sizes the bar keeps clear of the frame. A menu that fits keeps its usual padding.
+    rightPadding: menuScroll.scrolls ? Math.max(padding, menuBar.implicitWidth) : padding
     modal: false
     focus: true
     closePolicy: QQC.Popup.CloseOnPressOutside | (root.helpPage ? 0 : QQC.Popup.CloseOnEscape)
@@ -156,10 +155,11 @@ Item {
       clip: true
       boundsBehavior: Flickable.StopAtBounds
       // Invariant: whether the menu scrolls is worked out from what it holds and the height it was given,
-      // not from the list's own laid-out height, which changes while the padding below is written (as in
-      // Magpie Calendar's menu).
+      // not from the list's own laid-out height (as in Magpie Calendar's menu).
       readonly property bool scrolls: menuItems.implicitHeight + menu.topPadding + menu.bottomPadding > menu.height + 1
-      QQC.ScrollBar.vertical: QQC.ScrollBar {
+      // Invariant: while the menu scrolls, a thin bar stays on beside its entries, in the menu's right
+      // padding, so the menu shows there is more without the bar covering an entry (Magpie Calendar's menu).
+      QQC.ScrollIndicator.vertical: QQC.ScrollIndicator {
         id: menuBar
         objectName: "app-menu-scroll"
         parent: menuScroll.parent
@@ -167,7 +167,7 @@ Item {
         anchors.bottom: menuScroll.bottom
         anchors.left: menuScroll.right
         anchors.leftMargin: Math.max(0, (menu.rightPadding - width) / 2)
-        policy: menuScroll.scrolls ? QQC.ScrollBar.AlwaysOn : QQC.ScrollBar.AlwaysOff
+        active: menuScroll.scrolls
       }
       Column {
       id: menuItems

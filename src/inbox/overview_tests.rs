@@ -24,10 +24,14 @@ const CLIENT: &str = "123-overviews.apps.googleusercontent.com";
 
 struct Credentials(Arc<Mutex<Vec<String>>>);
 
+/// How often this test process looked for the picker's OpenAI key.
+static OPENAI_LOOKUPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 impl CredentialStore for Credentials {
     fn get(&self, key: &CredentialKey) -> Result<Secret, Error> {
         // No OpenAI key, so the picker chooses Sonnet without asking anyone.
         if key.provider == "openai" {
+            OPENAI_LOOKUPS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             return Err(Error::Missing);
         }
         self.0.lock().unwrap().push(key.account_id.clone());
@@ -805,6 +809,7 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     assert_eq!(saved["ask-1"]["promptRevision"], super::POINT_REVISION);
     assert_eq!(saved["ask-1"]["personal"], true, "the row says it was written with the owner's context");
     assert_eq!(saved["ask-1"]["tier"], "sonnet", "without an OpenAI key the picker chooses Sonnet");
+    assert!(OPENAI_LOOKUPS.load(std::sync::atomic::Ordering::SeqCst) > 0, "the picker looked for its key");
     let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
     let first: Value = serde_json::from_str(calls.lines().next().unwrap()).unwrap();
     assert_eq!(first["args"][0], "--claude-only", "personal context asks for the Claude-only mode");
@@ -857,6 +862,7 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     }
     let saved = super::store::read(&name).unwrap().unwrap();
     assert_eq!(saved["ask-1"]["attempts"], 0, "the router's failure is not the message's");
+    assert_eq!(OPENAI_LOOKUPS.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing will be written, so the picker is not asked");
     let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
     for line in calls.lines() {
         let call: Value = serde_json::from_str(line).unwrap();

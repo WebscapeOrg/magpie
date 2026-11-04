@@ -13,6 +13,9 @@ use std::time::Duration;
 const MODEL: &str = "gpt-6-luna";
 const QUESTION: &str = "model";
 const OPENING: usize = 600;
+/// The longest sender name, address, subject or attachment name the picker is sent, in characters,
+/// so mail cannot make a decision large: twenty names and every field fit in about 7,000 bytes.
+const FIELD: usize = 200;
 const TIMEOUT: Duration = Duration::from_secs(10);
 /// Leaning upward: Opus when it is this likely, else Sonnet when Sonnet or Opus together are.
 const OPUS_AT: f64 = 0.25;
@@ -66,15 +69,25 @@ pub(crate) fn summary(message: &Value, context: &Value) -> Value {
             })
             || context["sent"].as_array().into_iter().flatten().any(|row| to_sender(&row["to"]) || to_sender(&row["cc"])));
     let opening: String = message["body"].as_str().unwrap_or("").chars().take(OPENING).collect();
+    let categories = message["picker"]["categories"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|label| label.starts_with("CATEGORY_")).take(5).map(|label| clipped(label, FIELD)).collect::<Vec<_>>();
     json!({
-        "from": {"name": message["from"]["name"], "email": message["from"]["email"]},
+        "from": {"name": text(&message["from"]["name"]), "email": text(&message["from"]["email"])},
         "ownerHasWrittenToThem": wrote,
-        "gmailCategories": message["picker"]["categories"],
+        "gmailCategories": categories,
         "offersUnsubscribe": message["picker"]["listUnsubscribe"] == true,
-        "subject": message["subject"],
+        "subject": text(&message["subject"]),
         "opening": opening,
-        "attachments": json!(message["attachments"].as_array().into_iter().flatten().take(20).map(|file| file["name"].clone()).collect::<Vec<_>>()),
+        "attachments": message["attachments"].as_array().into_iter().flatten().take(20).map(|file| text(&file["name"])).collect::<Vec<_>>(),
     })
+}
+
+fn clipped(text: &str, limit: usize) -> String {
+    text.chars().take(limit).collect()
+}
+
+/// A field of the email as text of at most FIELD characters, or null when it is not text.
+fn text(value: &Value) -> Value {
+    value.as_str().map_or(Value::Null, |text| json!(clipped(text, FIELD)))
 }
 
 /// The Decisions request for one email.
@@ -142,24 +155,43 @@ pub(crate) async fn choose(messages: &Value, context: &Value) -> (Vec<Tier>, u64
 }
 
 pub(crate) async fn choose_with(key: &Secret, messages: &[Value], context: &Value) -> (Vec<Tier>, u64) {
-    let asked = messages.iter().map(|message| async move {
-        let Ok(body) = serde_json::to_vec(&request(&summary(message, context))) else {
-            return (Tier::Sonnet, 0);
-        };
-        let sent = body.len();
-        match super::pictures::openai::decide(key, body, TIMEOUT).await {
-            Ok(reply) => match serde_json::from_slice::<Value>(&reply) {
-                Ok(reply) => (decide(&reply), cost(&reply, sent)),
-                Err(_) => (Tier::Sonnet, cost(&json!({}), sent)),
-            },
-            // An answer lost after it was sent may still have been charged.
-            Err(super::pictures::openai::Fault::Lost { charged: true }) => (Tier::Sonnet, cost(&json!({}), sent)),
-            Err(_) => (Tier::Sonnet, 0),
-        }
-    });
-    let answers = futures_util::future::join_all(asked).await;
+    let answers = futures_util::future::join_all(messages.iter().map(|message| ask(key, message, context))).await;
     let spent = answers.iter().map(|(_, cost)| cost).sum();
-    (answers.into_iter().map(|(tier, _)| tier).collect(), spent)
+    (answers.into_iter().map(|(answer, _)| answer.map_or(Tier::Sonnet, |reply| decide(&reply))).collect(), spent)
+}
+
+/// OpenAI's answer about one email, or why there is none, and what asking cost.
+async fn ask(key: &Secret, message: &Value, context: &Value) -> (Result<Value, String>, u64) {
+    let Ok(body) = serde_json::to_vec(&request(&summary(message, context))) else {
+        return (Err("unencodable".into()), 0);
+    };
+    let sent = body.len();
+    match super::pictures::openai::decide(key, body, TIMEOUT).await {
+        Ok(reply) => match serde_json::from_slice::<Value>(&reply) {
+            Ok(reply) => {
+                let spent = cost(&reply, sent);
+                (Ok(reply), spent)
+            }
+            Err(_) => (Err("unreadable answer".into()), cost(&json!({}), sent)),
+        },
+        // An answer lost after it was sent may still have been charged.
+        Err(fault @ super::pictures::openai::Fault::Lost { charged: true }) => (Err(format!("{fault:?}")), cost(&json!({}), sent)),
+        Err(fault) => (Err(format!("{fault:?}")), 0),
+    }
+}
+
+/// For the live evaluation only: asks OpenAI itself about each email with the owner's saved key,
+/// returning each answer's tier or why there was none, and what asking cost.
+#[cfg(all(test, feature = "agent"))]
+pub(crate) async fn choose_live(messages: &Value, context: &Value) -> (Vec<Result<Tier, String>>, u64) {
+    let messages = messages.as_array().cloned().unwrap_or_default();
+    let Ok(key) = credentials::get(super::pictures::slot()).await else {
+        return (vec![Err("no OpenAI key saved".into()); messages.len()], 0);
+    };
+    let asked = futures_util::future::join_all(messages.iter().map(|message| ask(&key, message, context)));
+    let answers = super::pictures::openai::with_openai(asked).await;
+    let spent = answers.iter().map(|(_, cost)| cost).sum();
+    (answers.into_iter().map(|(answer, _)| answer.map(|reply| decide(&reply))).collect(), spent)
 }
 
 #[cfg(test)]
@@ -283,6 +315,47 @@ mod tests {
         assert_eq!((tiers, spent), (vec![Tier::Sonnet, Tier::Sonnet], 0));
         let (tiers, spent) = choose_with(&key(), &messages(), &json!({})).await;
         assert_eq!((tiers, spent), (vec![Tier::Sonnet, Tier::Sonnet], 0), "a test without a stand-in never reaches OpenAI");
+    }
+
+    #[test]
+    fn mail_cannot_make_a_decision_large() {
+        let long = "x".repeat(100_000);
+        let message = json!({"owner":"sam@example.test","from":{"name":long,"email":format!("{long}@shop.test")},"subject":long,"body":long,
+            "attachments":(0..50).map(|_| json!({"name":long})).collect::<Vec<_>>(),
+            "picker":{"categories":([json!("INBOX"), json!({"not":"text"})].into_iter().chain((0..50).map(|n| json!(format!("CATEGORY_{n}{long}")))).collect::<Vec<_>>()),"listUnsubscribe":true}});
+        let seen = summary(&message, &json!({}));
+        for field in [&seen["from"]["name"], &seen["from"]["email"], &seen["subject"]] {
+            assert_eq!(field.as_str().unwrap().chars().count(), FIELD);
+        }
+        let names = seen["attachments"].as_array().unwrap();
+        assert_eq!(names.len(), 20);
+        assert!(names.iter().all(|name| name.as_str().unwrap().chars().count() == FIELD));
+        let labels = seen["gmailCategories"].as_array().unwrap();
+        assert_eq!(labels.len(), 5);
+        assert!(labels.iter().all(|label| label.as_str().unwrap().starts_with("CATEGORY_") && label.as_str().unwrap().chars().count() == FIELD));
+        let body = serde_json::to_vec(&request(&seen)).unwrap();
+        assert!(body.len() < 10 * 1024, "{} bytes", body.len());
+        let odd = summary(&json!({"from":{"name":{"html":"<b>"},"email":7},"subject":["a"],"attachments":[{"name":null}]}), &json!({}));
+        assert_eq!((odd["from"]["name"].clone(), odd["from"]["email"].clone(), odd["subject"].clone(), odd["attachments"].clone()), (Value::Null, Value::Null, Value::Null, json!([null])), "a field that is not text is not sent");
+    }
+
+    #[tokio::test]
+    async fn an_answer_too_large_for_a_decision_is_not_read_and_means_sonnet() {
+        let padding = "p".repeat(80 * 1024);
+        let (origin, _received) = stand_in(200, json!({"answers":[{"type":"choice","name":"model","choice":"haiku"}],"padding":padding})).await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let (tiers, spent) = super::super::pictures::openai::with_test_transport(client, origin, choose_with(&key(), &messages()[..1], &json!({}))).await;
+        assert_eq!(tiers, vec![Tier::Sonnet]);
+        assert!(spent > 0, "a reply that was sent may have been charged");
+    }
+
+    #[tokio::test]
+    async fn a_question_too_large_is_never_sent() {
+        let (origin, mut received) = stand_in(200, json!({"answers":[{"type":"choice","name":"model","choice":"haiku"}]})).await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let reply = super::super::pictures::openai::with_test_transport(client, origin, super::super::pictures::openai::decide(&key(), vec![b' '; 65 * 1024], TIMEOUT)).await;
+        assert_eq!(reply, Err(super::super::pictures::openai::Fault::Rejected));
+        assert!(received.try_recv().is_err(), "nothing reached OpenAI");
     }
 
     #[test]

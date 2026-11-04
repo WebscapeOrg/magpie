@@ -257,7 +257,7 @@ impl Inbox {
             let _permit = permit;
             let started = std::time::Instant::now();
             let result =
-                overview_batch(&account, &chosen, &gmail, &local_mail, remote, left_before, limit.is_some()).await;
+                overview_batch(&account, &chosen, &gmail, &local_mail, remote, left_before, PHONE_WRITER && limit.is_some()).await;
             let Ok(protected) = local_mail.overview_candidates(&account).await else {
                 return;
             };
@@ -799,7 +799,12 @@ async fn overview_batch(
         let generated = if suspensions() != left_before {
             Ok(json!(prepared.as_array().into_iter().flatten().map(|message| json!({"id":message["id"],"error":INTERRUPTED,"stage":"batch"})).collect::<Vec<_>>()))
         } else {
-            let (tiers, spent) = picker::choose(&prepared, &shared).await;
+            // A writer that cannot take the owner's context writes nothing, so the picker is not asked.
+            let (tiers, spent) = if personal {
+                picker::choose(&prepared, &shared).await
+            } else {
+                (vec![picker::Tier::Sonnet; prepared.as_array().map_or(0, Vec::len)], 0)
+            };
             spending::record("descriptions", spent).await;
             writer::charge(spent);
             tiered(&prepared, &tiers, background, |group, tier| {

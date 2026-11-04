@@ -1140,7 +1140,9 @@ mod tests {
 
     /// A stand-in for Claude that refuses Sonnet with `status` and answers Haiku, recording the
     /// model each request named.
-    async fn refusing_sonnet(status: u16) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    /// A stand-in for Claude that refuses the `refused` models with `status` and writes the Point
+    /// with any other, returning the models it was asked for.
+    async fn refusing(status: u16, refused: &'static [&'static str]) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -1164,7 +1166,7 @@ mod tests {
                     let model = request["model"].as_str().unwrap_or("").to_owned();
                     let counting = head.starts_with("POST /v1/messages/count_tokens");
                     models.lock().unwrap().push(format!("{}{model}", if counting { "count " } else { "" }));
-                    let (code, reply) = if model == Tier::Sonnet.model() {
+                    let (code, reply) = if refused.contains(&model.as_str()) {
                         (status, json!({"type":"error","error":{"type":"not_found_error","message":"model"}}).to_string())
                     } else if counting {
                         (200, json!({"input_tokens":1000}).to_string())
@@ -1185,9 +1187,12 @@ mod tests {
         if crate::mail::tests::isolated() {
             return;
         }
+        // The key is the saved one, so a refusal that should pause the Points is recorded.
+        let saved = || crate::credentials::tests::isolated_store(crate::credentials::tests::SingleCredential { key: slot(), secret: Secret::new(synthetic_key().into_bytes()).unwrap() });
         for status in [404, 403] {
             let _fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[]}));
-            let (origin, seen) = refusing_sonnet(status).await;
+            let _credentials = saved();
+            let (origin, seen) = refusing(status, &["claude-sonnet-5-5"]).await;
             let client = reqwest::Client::builder().no_proxy().build().unwrap();
             let key = Secret::new(synthetic_key().into_bytes()).unwrap();
             let message = json!({"id":"a","body":"Payment received: R780."});
@@ -1199,6 +1204,16 @@ mod tests {
             assert!(models.iter().any(|model| model == Tier::Haiku.model()), "{models:?}");
             assert_eq!(blocking(&state().unwrap()), None, "Sonnet's refusal ({status}) pauses no Points");
         }
+        // A key that Haiku refuses too can write nothing, and that does pause the Points.
+        let _fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[]}));
+        let _credentials = saved();
+        let (origin, _seen) = refusing(404, &["claude-sonnet-5-5", "claude-haiku-5-5"]).await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let key = Secret::new(synthetic_key().into_bytes()).unwrap();
+        let message = json!({"id":"a","body":"Payment received: R780."});
+        let failed = TEST_ORIGIN.scope(origin, describe_tiered(&client, &key, &message, &json!({}), Tier::Sonnet)).await;
+        assert_eq!(failed, Err("ai_model_unavailable"));
+        assert_eq!(blocking(&state().unwrap()), Some("ai_model_unavailable"), "Haiku's refusal pauses the Points");
     }
 
     #[test]

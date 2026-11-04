@@ -7,6 +7,8 @@ mod context;
 pub(crate) mod describe;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod point_context;
+#[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+pub(crate) mod point_eval;
 #[cfg(any(
     feature = "mobile",
     all(test, feature = "agent", unix, not(target_os = "ios"))
@@ -772,9 +774,13 @@ async fn overview_batch(
         let generated = if suspensions() != left_before {
             Ok(json!(prepared.as_array().into_iter().flatten().map(|message| json!({"id":message["id"],"error":INTERRUPTED,"stage":"batch"})).collect::<Vec<_>>()))
         } else {
+            // The writer marks each row with whether context went with it (the desktop's writer
+            // decides that again when it writes); a row it leaves unmarked had the batch's answer.
             writer::generate(&prepared, &shared, left_before).await.map(|mut rows| {
                 for row in rows.as_array_mut().into_iter().flatten() {
-                    row["personal"] = json!(personal);
+                    if !row["personal"].is_boolean() {
+                        row["personal"] = json!(personal);
+                    }
                 }
                 rows
             })

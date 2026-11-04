@@ -20,11 +20,12 @@ const REPLY_LIMIT: usize = 8 * 1024 * 1024;
 pub(crate) const REQUEST_LIMIT: usize = 30 * 1024 * 1024;
 // Q-005: Dave chose Sonnet 5.5 for the assistant, with a daily limit of its own (assistant.rs).
 pub(crate) const ASSISTANT_MODEL: &str = "claude-sonnet-5-5";
-// Invariant: spending stops for the day at about $0.50. Each message is counted before it is sent and
-// stays below PROMPT_LIMIT tokens; with the rules and earlier answers a request stays below 100,000
-// tokens, where Haiku 5.5 bills $0.10 per million input and $0.50 per million output tokens.
-const DAILY_SPEND: u64 = 500_000_000;
-const DAILY_CALLS: u64 = 1_500;
+// Invariant: spending stops for the day at about $5, Dave's limit for The Point (4 Nov 2026). Each
+// message is counted with the shared context before it is sent and stays below PROMPT_LIMIT tokens;
+// with the editor's candidates a request stays below 100,000 tokens, where Haiku 5.5 bills $0.10 per
+// million input and $0.50 per million output tokens.
+const DAILY_SPEND: u64 = 5_000_000_000;
+const DAILY_CALLS: u64 = 3_000;
 const PROMPT_LIMIT: u64 = 80_000;
 const PAUSE: i64 = 5 * 60_000;
 // Invariant: a request that failed for a reason that says nothing about it (a lost connection, a
@@ -923,6 +924,8 @@ mod tests {
         assert_eq!(cost(&json!({"usage":{"cache_read_input_tokens":50_000}})), 500_000, "cached media costs a tenth");
         assert_eq!(cost(&json!({})), 0);
         let at = 1_800_000_000_000;
+        assert_eq!(DAILY_SPEND, 5_000_000_000, "Dave's limit for The Point is about $5 a day");
+        assert_eq!(waiting(&json!({"day":today(at),"spent":4_999_999_999u64}), at), None, "$4.99 of reading leaves room for more");
         assert_eq!(waiting(&json!({"day":today(at),"spent":DAILY_SPEND}), at), Some("ai_daily_limit"));
         assert_eq!(waiting(&json!({"day":today(at),"calls":DAILY_CALLS}), at), Some("ai_daily_limit"));
         assert_eq!(waiting(&json!({"day":today(at),"spent":DAILY_SPEND - 1,"calls":DAILY_CALLS - 1}), at), None);

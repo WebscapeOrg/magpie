@@ -55,7 +55,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/components/AccountRemovalDialog.qml \
 	ui/components/ComposeExitDialog.qml \
 	ui/components/BackBar.qml \
-	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/PictureSettings.qml \
+	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/AboutYouSettings.qml ui/components/PictureSettings.qml \
 	ui/components/SpendingSettings.qml ui/components/SyncSettings.qml \
 	ui/components/SettingsSidebar.qml \
 	ui/components/ConfirmDeleteDialog.qml \

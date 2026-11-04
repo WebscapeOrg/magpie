@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- Invariant: Magpie opens a message link here, as #<length>:<encoded link>, so the browser names the
+     window after this page and never after the link's address, and a link cut short on its way here
+     is never forwarded. -->
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>Opening link</title>
+<script>
+try {
+  var parts = /^#([0-9]{1,6}):(.*)$/.exec(location.hash)
+  if (parts && parts[2].length === Number(parts[1])) {
+    var target = decodeURIComponent(parts[2])
+    if (/^https?:\/\/[^\\\s]/i.test(target)) location.replace(target)
+  }
+} catch (error) {}
+</script>

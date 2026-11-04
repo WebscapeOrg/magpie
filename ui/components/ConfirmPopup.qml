@@ -61,10 +61,14 @@ QQC.Popup {
     lastFocused = null
     navigated = false
   }
+  // Invariant: the button focused as the confirmation opens counts as where the focus starts, even when Qt
+  // first gave the focus back to the button an earlier opening ended on, so reopening never counts as moving.
   onOpened: {
     var ordered = buttonsInOrder()
     var first = ordered[root.focusIndex + 1] || cancelButton
     first.forceActiveFocus()
+    root.lastFocused = first
+    root.navigated = false
     words.contentY = 0
   }
   // Invariant: a button the focus moves to while the buttons scroll with the words is scrolled into view.

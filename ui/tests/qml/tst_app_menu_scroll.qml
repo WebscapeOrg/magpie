@@ -43,6 +43,11 @@ Item {
       window.height = height
       page.height = height
     }
+    function widen(width) {
+      var window = page.Window.window
+      window.width = width
+      page.width = width
+    }
     function textSize(size, scale) {
       Style.spacingScale = scale
       MailStyle.preferences = Display.normalize({interfaceSize: size})
@@ -52,6 +57,7 @@ Item {
       appMenu.close()
       textSize(17, 1)
       resize(520)
+      widen(420)
     }
 
     function open() {
@@ -99,12 +105,12 @@ Item {
     }
 
     // A menu that just fits, or has room to spare, shows no bar; one a few pixels short, or far short, shows it,
-    // at every text size and at the shell's 7/6 spacing.
+    // at every text size and at the shell's 7/6 and 1/2 spacing.
     function test_the_bar_shows_exactly_when_the_menu_scrolls_data() {
       var rows = []
       for (var size of [8, 12, 15, 17, 20, 25, 28, 33, 36]) {
-        for (var scale of [1, 7 / 6]) {
-          var name = size + " pt at " + (scale === 1 ? "1" : "7/6")
+        for (var scale of [1, 7 / 6, 1 / 2]) {
+          var name = size + " pt at " + (scale === 1 ? "1" : scale > 1 ? "7/6" : "1/2")
           rows.push({tag: name + ", room to spare", size: size, scale: scale, extra: 120, scrolls: false})
           rows.push({tag: name + ", just fits", size: size, scale: scale, extra: 0, scrolls: false})
           rows.push({tag: name + ", a few pixels short", size: size, scale: scale, extra: -4, scrolls: true})
@@ -169,6 +175,72 @@ Item {
       var at = help.mapToItem(list, 0, 0)
       verify(at.y >= -0.5 && at.y + help.height <= list.height + 0.5,
         "the Help entry is in view: " + at.y + " + " + help.height + " in " + list.height)
+    }
+
+    // A menu opened from near the bottom of the window stays inside it when the text size grows or the
+    // window gets shorter while it is open.
+    function test_a_menu_stays_inside_the_window_when_it_grows_while_open_data() {
+      return [{tag: "from the bottom left", x: 10, y: 1500}, {tag: "from the bottom right", x: 400, y: 1590},
+              {tag: "from the top", x: 10, y: 10}]
+    }
+    function test_a_menu_stays_inside_the_window_when_it_grows_while_open(data) {
+      resize(1600)
+      textSize(12, 1)
+      appMenu.openAt(data.x, data.y)
+      tryCompare(appMenu, "opened", true)
+      wait(30)
+      var menu = findChild(appMenu, "app-menu-popup")
+      var steps = [{size: 20}, {size: 36}, {height: 700}, {size: 17}, {height: 400}]
+      for (var step of steps) {
+        if (step.size) textSize(step.size, 1)
+        if (step.height) resize(step.height)
+        var tag = step.size ? step.size + " pt" : step.height + " px window"
+        tryVerify(function() { return menu.y >= -0.5 && menu.y + menu.height <= page.height + 0.5 }, 1000,
+          tag + ": the menu is inside the window: " + menu.y + " + " + menu.height + " in " + page.height)
+        verify(menu.x >= -0.5 && menu.x + menu.width <= page.width + 0.5, tag + ": and inside its width")
+      }
+    }
+
+    // An entry too wide for the menu, at a large text size in a narrow window, shrinks to fit, down to
+    // half its size, instead of being cut short, and keeps its row's height; at the usual size every
+    // entry is drawn at full size (as in Magpie Calendar's menu).
+    function test_a_long_entry_shrinks_to_fit_data() {
+      return [{tag: "36 pt, 640 px", size: 36, width: 640, shrinks: true}, {tag: "30 pt, 640 px", size: 30, width: 640, shrinks: true},
+              {tag: "36 pt, 1200 px", size: 36, width: 1200, shrinks: false}, {tag: "17 pt, 420 px", size: 17, width: 420, shrinks: false},
+              {tag: "36 pt, 300 px", size: 36, width: 300, shrinks: true, cut: true}]
+    }
+    function test_a_long_entry_shrinks_to_fit(data) {
+      widen(data.width)
+      resize(1600)
+      textSize(data.size, 1)
+      open()
+      var shrunk = 0
+      var cut = 0
+      var first = null
+      var whole = null
+      for (var row of appMenu.menuRows) {
+        var label = findItem(row, function(item) { return item.truncated !== undefined && item.text === row.text })
+        verify(label, row.text + " has its label")
+        if (label.truncated) cut++
+        verify(data.cut || !label.truncated, data.tag + ": '" + row.text + "' is shown whole")
+        verify(label.contentHeight >= label.font.pixelSize / 2 - 0.5, data.tag + ": '" + row.text + "' is at least half size")
+        compare(label.implicitHeight, label.height, data.tag + ": '" + row.text + "' keeps its full line's height")
+        if (label.contentWidth < label.implicitWidth - 0.5) {
+          shrunk++
+          if (!first && !label.truncated) first = label
+        } else if (!whole) {
+          whole = label
+        }
+      }
+      compare(shrunk > 0, data.shrinks, data.tag + ": entries shrink only when they would not fit: " + shrunk)
+      compare(cut > 0, !!data.cut, data.tag + ": an entry is cut short only when half its size is still too wide: " + cut)
+      if (!first || !whole) return
+      // The shrunk text is drawn in the middle of its row's line, not at its top: its baseline sits as far
+      // into its smaller text as a full-size entry's does, plus half the room the shrinking left.
+      var depth = whole.baselineOffset / whole.contentHeight
+      var centred = (first.height - first.contentHeight) / 2 + depth * first.contentHeight
+      verify(Math.abs(first.baselineOffset - centred) <= 1,
+        data.tag + ": the shrunk entry is drawn in the middle of its line: baseline " + first.baselineOffset + " for " + centred)
     }
 
     // A menu opens at its first entry, wherever the last one was scrolled to.

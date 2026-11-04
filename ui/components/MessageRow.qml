@@ -205,9 +205,11 @@ Rectangle {
       elide: Text.ElideRight
       horizontalAlignment: root.overview ? root.textAlignment : root.subjectAlignment
       wrapMode: Text.Wrap
-      maximumLineCount: 3
-      Accessible.name: (root.summary.unread === true ? "Unread. " : "") + (root.overview ? "AI description: " + root.overview : text)
-      Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && (subject.truncated || root.overviewState === "failed"); text: root.overview || (root.overviewReason ? "Original subject shown. " + root.overviewReason : subject.text); fontFamily: root.panelFontFamily }
+      // Invariant: The Point is shown whole and the row grows to fit it (the engine caps it at
+      // POINT_LIMIT characters); a sender's subject stops at three lines and is shown whole on hover.
+      maximumLineCount: root.overview ? 2147483647 : 3
+      Accessible.name: (root.summary.unread === true ? "Unread. " : "") + (root.overview ? "The Point: " + root.overview : text)
+      Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && (subject.truncated || root.overviewState === "failed"); text: root.overviewReason && root.overviewState === "failed" ? "Original subject shown. " + root.overviewReason : subject.text; fontFamily: root.panelFontFamily }
       HoverHandler { id: overviewHover }
     }
 

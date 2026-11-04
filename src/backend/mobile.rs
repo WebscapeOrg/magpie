@@ -140,7 +140,7 @@ impl Engine {
         }
         let ids: Vec<&str> = ids.iter().filter_map(Value::as_str).collect();
         let page = self.inbox.overview_page(account, &ids)?;
-        let keys = ["text", "state", "updated", "version", "expiresAt", "reason", "pendingSince", "attempts", "retryAt"];
+        let keys = ["text", "state", "updated", "version", "expiresAt", "reason", "pendingSince", "attempts", "retryAt", "refresh"];
         let rows: serde_json::Map<String, Value> = page["overviews"]
             .as_object()
             .into_iter()

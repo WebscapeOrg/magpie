@@ -95,6 +95,18 @@ impl LocalMail {
         let store = self.store(account).await?;
         sync::disk(&store, |store| store.overview_candidates()).await
     }
+    /// The newest messages of one thread in the account, newest first.
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(crate) async fn thread_ids(
+        &self,
+        account: &str,
+        thread: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, &'static str> {
+        let store = self.store(account).await?;
+        let thread = thread.to_owned();
+        sync::disk(&store, move |store| store.thread_ids(&thread, limit)).await
+    }
     /// The From headers of the account's Inbox, newest first, for its sender pictures.
     #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     pub(crate) async fn inbox_senders(

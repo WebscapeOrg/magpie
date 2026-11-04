@@ -304,6 +304,27 @@ Item {
       verify(inWords.y >= -0.5 && inWords.y + chosen.height <= words.height + 0.5, "the chosen button is in view: " + inWords.y + " in " + words.height)
       verify(chosen.activeFocus)
     }
+    // Invariant: a confirmation opened again after the last one ended on another button opens on its question,
+    // and keeps it in view when the window then changes size, since the focus has not been moved.
+    function test_opening_again_after_ending_on_another_button_shows_the_question() {
+      var short = Object.assign({}, label, {name: "Clients/Acme"})
+      MailStyle.preferences = Display.normalize({interfaceSize: 36})
+      resize(480, 360)
+      openFor(short)
+      keyClick(Qt.Key_Tab)
+      verify(named(popup(), "delete-cancel").activeFocus)
+      keyClick(Qt.Key_Escape)
+      tryCompare(dialog, "opened", false)
+      resize(360, 240)
+      openFor(short)
+      verify(popup().stacked, "the buttons scroll with the words in the small window")
+      verify(named(popup(), "delete-confirm").activeFocus)
+      questionShows(popup())
+      resize(360, 250)
+      verify(popup().stacked)
+      questionShows(popup())
+      compare(findChild(popup(), "confirm-words").contentY, 0)
+    }
     // Invariant: a button taller than the room a very small window leaves shows from its first line.
     function test_a_button_taller_than_the_room_shows_from_its_first_line() {
       MailStyle.preferences = Display.normalize({interfaceSize: 36})

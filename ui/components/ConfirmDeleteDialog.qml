@@ -48,8 +48,9 @@ Item {
       return {value: choice.value, label: choice.label,
         objectName: index === root.choices.length - 1 ? "delete-confirm" : "delete-choice-" + String(choice.value)}
     })
-    // Invariant: the last choice has the focus, so Return deletes, until Dave settles Q-016.
-    focusIndex: root.choices.length - 1
+    // Invariant: Cancel has the focus, so Return deletes nothing; Tab reaches the choices (Q-016, as in
+    // Magpie Calendar).
+    focusIndex: -1
     textColor: root.textColor
     dimColor: root.dimColor
     dangerColor: root.dangerColor

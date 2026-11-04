@@ -1248,8 +1248,20 @@ Item {
         while (item) { if (item === container) return true; item = item.parent }
         return false
       }
+      // Invariant: an open confirmation, prompt, picker or menu keeps the keyboard. A focus call queued by
+      // navigation or a change of context must not park the keyboard behind it, or its keys stop working.
+      function focusInOpenPopup() {
+        var overlay = focusScope.Overlay.overlay
+        var item = focusScope.Window.activeFocusItem
+        while (item && item.parent) {
+          if (item.parent === overlay) return item.visible
+          item = item.parent
+        }
+        return false
+      }
       function applyContextFocus() {
         if (composeExitDialog.opened || appMenu.opened || searchBar.helpOpened || searchBar.controlsFocused) return
+        if (focusInOpenPopup()) return
         if ((keyContext === "list" || keyContext === "reader")
             && statusViewport.visible && focusWithin(statusViewport)) return
         if (keyContext === "assistant" || keyContext === "assistantCommands") {

@@ -1664,10 +1664,10 @@ mod tier_tests {
         let single = tiered(&prepared(), &[Tier::Sonnet; 4], false, |_, _| std::future::ready(Err("overview_ai_unavailable"))).await;
         assert_eq!(single.unwrap_err(), "overview_ai_unavailable");
         let account = tiered(&prepared(), &tiers, false, |group, tier| {
-            std::future::ready(if tier == Tier::Opus { Err("gmail_auth_required") } else { Ok(written(&group)) })
+            std::future::ready(if tier == Tier::Opus { Err("gmail_account_unknown") } else { Ok(written(&group)) })
         })
         .await;
-        assert_eq!(account.unwrap_err(), "gmail_auth_required", "an account's failure stops the batch");
+        assert_eq!(account.unwrap_err(), "gmail_account_unknown", "an account's failure stops the batch");
         assert!(service_failure("overview_ai_paused"), "every subscription being out is not the message's attempt");
         assert!(overview_failure(Some("overview_ai_paused")).contains("subscription"));
     }

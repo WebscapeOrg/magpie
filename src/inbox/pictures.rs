@@ -27,7 +27,7 @@
 //!   Saving or removing it changes `keyGeneration` in the state before and after the keyring
 //!   changes, which stops any run that still holds the old key, in whichever process it runs, from
 //!   sending further requests.
-mod openai;
+pub(super) mod openai;
 mod prompts;
 
 use super::{avatars, now};
@@ -95,7 +95,7 @@ pub(crate) fn revision() -> u64 {
     REVISION.load(Ordering::Relaxed)
 }
 
-fn slot() -> CredentialKey {
+pub(super) fn slot() -> CredentialKey {
     CredentialKey {
         provider: "openai".into(),
         account_id: "default".into(),

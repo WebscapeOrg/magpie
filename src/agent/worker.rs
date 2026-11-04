@@ -277,6 +277,8 @@ pub async fn run(id: &str) -> Result<(), &'static str> {
 pub(super) struct Outcome {
     pub(super) cancelled: bool,
     pub(super) failure: Option<&'static str>,
+    /// The worker's exit code once it was reaped, if it exited on its own with one.
+    pub(super) exit: Option<i32>,
 }
 
 /// A std Child is intentional: Tokio's process driver can reap the leader before
@@ -455,6 +457,7 @@ async fn execute_bounded<
             return Outcome {
                 cancelled: false,
                 failure: Some(error),
+                exit: None,
             };
         }
     };
@@ -516,19 +519,20 @@ async fn execute_bounded<
         Ok(())
     };
     let mut outcome = tokio::select! {
-        _ = cancel => Outcome { cancelled:true, failure:None },
-        value = tokio::time::timeout(deadline, work) => Outcome { cancelled:false, failure: match value { Ok(value) => value.err(), Err(_) => Some("The AI request reached its one-hour limit.") } }
+        _ = cancel => Outcome { cancelled:true, failure:None, exit:None },
+        value = tokio::time::timeout(deadline, work) => Outcome { cancelled:false, failure: match value { Ok(value) => value.err(), Err(_) => Some("The AI request reached its one-hour limit.") }, exit:None }
     };
     group.signal(libc::SIGTERM);
     tokio::time::sleep(Duration::from_millis(200)).await;
     group.signal(libc::SIGKILL);
     match group.0.wait() {
         Ok(status) if !status.success() && !outcome.cancelled && outcome.failure.is_none() => {
+            outcome.exit = status.code();
             outcome.failure =
                 Some("The AI request failed. Check its login or permissions and retry.")
         }
+        Ok(status) => outcome.exit = status.code(),
         Err(_) => outcome.failure = Some(INVALID),
-        _ => {}
     }
     if !outcome.cancelled
         && outcome.failure.is_none()

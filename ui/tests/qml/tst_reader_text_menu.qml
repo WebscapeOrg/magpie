@@ -17,6 +17,9 @@ Item {
 
     property var copied: []
     property var opened: []
+    property var openedFrom: []
+    property var notes: []
+    readonly property var reading: ({ accountId: "gmail:reader@example.com" })
 
     property string selectedId: "message-9"
     property var selectedMessage: ({
@@ -54,7 +57,12 @@ Item {
     function getMessage() {}
     function showRemoteImages() {}
     function copyText(text) { copied = copied.concat([String(text)]); return true }
-    function openExternal(url) { opened = opened.concat([String(url)]); return true }
+    function note(text) { notes = notes.concat([String(text)]) }
+    function openMessageLink(url, accountId) {
+      opened = opened.concat([String(url)])
+      openedFrom = openedFrom.concat([String(accountId)])
+      return true
+    }
   }
 
   Omamail.MessageReader {
@@ -116,6 +124,8 @@ Item {
       bodyEditor().deselect()
       mailService.copied = []
       mailService.opened = []
+      mailService.openedFrom = []
+      mailService.notes = []
     }
 
     function cleanup() { menu().close() }
@@ -161,6 +171,18 @@ Item {
       wait(20)
       menu().openLinkRow.activated()
       compare(mailService.opened, ["https://example.com/board"])
+      compare(mailService.openedFrom, ["gmail:reader@example.com"])
+      compare(mailService.notes, [])
+    }
+
+    function test_a_link_magpie_will_not_open_says_so_without_naming_it() {
+      var links = ["http://192.168.1.1/admin", "https://printer.local/", "javascript:alert(1)",
+                   "file:///etc/passwd", "https://example.com&sol;@10.0.0.1/"]
+      for (var index = 0; index < links.length; index++) reader.openLink(links[index])
+      compare(mailService.opened, [])
+      compare(mailService.notes.length, links.length)
+      for (var noteIndex = 0; noteIndex < links.length; noteIndex++)
+        compare(mailService.notes[noteIndex], "Magpie did not open the link, because it is not a public web address.")
     }
   }
 }

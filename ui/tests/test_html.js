@@ -415,6 +415,28 @@ assert.strictEqual(html.externallyOpenableHttpUrl("https://meet.google.com/abc-d
   "https://meet.google.com/abc-defg-hij")
 assert.strictEqual(html.externallyOpenableHttpUrl("javascript:alert(1)"), "")
 assert.strictEqual(html.externallyOpenableHttpUrl("file:///etc/passwd"), "")
+assert.strictEqual(html.externallyOpenableHttpUrl("https://example.com/jobs/\n42?ref=\tmail\r"),
+  "https://example.com/jobs/42?ref=mail")
+assert.strictEqual(html.externallyOpenableHttpUrl("https://192.168.1.1\\@example.com/admin"), "")
+assert.strictEqual(html.externallyOpenableHttpUrl("https://localhost\\.example.com/"), "")
+assert.strictEqual(html.externallyOpenableHttpUrl("https://example.com\\@192.168.1.1/"),
+  "https://example.com\\@192.168.1.1/")
+// Invariant: the browser decodes no character references, so the host as written is the one it
+// opens, and it must be public too.
+for (const hidden of ["https://example.com&sol;@192.168.1.1/admin", "https://example.com&SOL;@192.168.1.1/",
+  "https://example.com&sol@10.0.0.1/", "https://www.google.com&sol;@localhost:631/",
+  "https://docs.example.com&sol;@router.lan/", "https://example.com&amp;sol;@192.168.1.1/admin"]) {
+  assert.strictEqual(html.externallyOpenableHttpUrl(hidden), "", hidden + " must not open in a browser")
+}
+assert.strictEqual(html.externallyOpenableHttpUrl("https://example.com/a?b=1&amp;c=2"),
+  "https://example.com/a?b=1&amp;c=2")
+// Invariant: a link the browser could not open is not offered to it.
+for (const broken of ["https://example.com:example.com/x", "https://example.com:99999/",
+  "https://example.com\u001f@good.example/x", "https://example.com/\u0001"]) {
+  assert.strictEqual(html.externallyOpenableHttpUrl(broken), "", JSON.stringify(broken) + " must not open")
+}
+assert.strictEqual(html.externallyOpenableHttpUrl("https://example.com:8443/x"), "https://example.com:8443/x")
+assert.strictEqual(html.externallyOpenableHttpUrl("https://example.com:/x"), "https://example.com:/x")
 
 // Invariant: A public address in a URL is fine, however it is written.
 assert.strictEqual(sanitizeWithTestImages("<img src=\"https://93.184.216.34/x.png\" width=\"90\">",

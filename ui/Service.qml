@@ -444,6 +444,17 @@ Item {
     return Quickshell.execDetached(["xdg-open", target])
   }
 
+  // Invariant: a message's web link opens over this desk in the browser profile signed in as the
+  // message's mailbox; other destinations keep openExternal.
+  function openMessageLink(value, accountId) {
+    var target = String(value || "")
+    if (target === "") return false
+    if (platform && typeof platform.openExternal === "function")
+      return platform.openExternal(target)
+    return Quickshell.execDetached(["python3", "-I", pluginDir + "/scripts/open-link-window.py", target,
+      accountEmailFor(accountId)])
+  }
+
   function copyText(value) {
     var text = String(value === undefined || value === null ? "" : value)
     if (platform && typeof platform.setClipboard === "function")

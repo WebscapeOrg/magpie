@@ -66,10 +66,16 @@ Item {
       root.mailtoRequested(url)
       return
     }
+    if (!root.service) return
     var opened = Html.externallyOpenableHttpUrl(url)
-    if (opened === "") return
-    if (root.service && typeof root.service.openExternal === "function")
-      root.service.openExternal(opened)
+    // Invariant: a link Magpie will not open says so, in words that never name it.
+    if (opened === "") {
+      if (typeof root.service.note === "function")
+        root.service.note("Magpie did not open the link, because it is not a public web address.")
+      return
+    }
+    if (typeof root.service.openMessageLink !== "function") return
+    root.service.openMessageLink(opened, root.service.reading ? root.service.reading.accountId : "")
   }
 
   property int imageRequestSerial: 0

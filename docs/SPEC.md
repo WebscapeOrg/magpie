@@ -57,6 +57,35 @@ guided by an in-app four-step walkthrough.
 - Mailboxes: Inbox, Unread, Starred, Sent, All mail, Trash, plus user labels
 - Message list: sender, subject, snippet, time, unread dot, star; paging. One row per Gmail message
 - Reader: headers, the message read three ways, attachment list, open in browser
+- Links in a message open in a browser app window (no tabs or address bar) that floats, centred
+  and solid, over the desk Magpie is on, in the Chrome-family profile signed in as that mailbox.
+  Each click opens its own copy of `scripts/link-window.html`, in a private folder of its own
+  under `$XDG_RUNTIME_DIR/magpie-links/`, and the page forwards to the link. So the window is named
+  after that copy and never after the link, and Magpie places only the window its click opened;
+  other desktop tools can tell a link window by `_link-window.html-` in its class. Magpie opens
+  only links to public host names, read as the browser reads them, whatever the reader passed it;
+  a public name that leads to a private address is not caught. A running browser gets the link
+  over its own profile socket, served by the process holding the profile, by Omarchy's handoff
+  rules. Magpie starts the browser only when no browser process holds the profile, one start at a
+  time, each lasting until the new browser holds it, because Chrome closes a running copy that is
+  slow to answer a new one. When those rules leave the link to the browser's launcher (a wrapper,
+  an extra launch flag or another data folder), Magpie starts the browser as any app opening a
+  link does, from the home folder as Omarchy does, and watches the data folder that browser uses.
+  The window has no address bar, so as it opens a desktop notice shows its site's host for five
+  seconds (Q-014); a link that forwards elsewhere shows the site it starts at. A link that cannot
+  have a window of its own opens in a tab, handed to the running browser or started with it in the
+  same way. A running browser reads only the first 32 KiB of what it is handed and opens what it
+  read, so Magpie opens no link over 32,000 bytes, with any browser, and none whose handoff might
+  not fit, counting all a launcher may add: its folder, every line of its flags files, the names
+  a pattern there matches, and the flags it takes from the environment, wherever Chrome's, Edge's,
+  Brave's or Chromium's launcher reads them. It opens none, and says why, when Chrome's launcher
+  would read its flags file by a name with a space or a pattern in it, which can lead it to other
+  files. Everything a launcher reads as data is counted. What it cannot count is code of the
+  user's own that runs in the launcher's chain, such as their own wrapper, a program earlier in
+  `PATH` than the one a launcher runs, an exported shell function, a `BASH_ENV` start-up file or a
+  preloaded library, which may add more than the 4 KiB it keeps spare. The page forwards only a link that reached it whole.
+  Magpie says when a link does not open, in words that never name it. Without a Chromium-based
+  default browser, links open with `xdg-open` as before
 - Actions: read/unread, star, archive, trash, untrash, report spam, mark all read
 - Compose, reply, reply-all, forward
 - Calendar invitations: full meeting detail, RSVP, and one-click Meet join

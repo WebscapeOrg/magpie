@@ -438,14 +438,17 @@ function normalizedUrl(value) {
   return text.replace(/[\t\n\r]/g, "").replace(/^[\s\u0000-\u001f]+|[\s\u0000-\u001f]+$/g, "")
 }
 
-// Invariant: decoding can introduce @ and change URL authority. Both the once-decoded and
-// twice-decoded hosts must be public.
+// Invariant: decoding can introduce @ and change URL authority, and a browser handed the link
+// decodes nothing. The host as written, once decoded and twice decoded must all be public.
 function hostsOf(value) {
   var text = String(value === undefined || value === null ? "" : value)
   var once = decodeReferences(text)
   var twice = decodeReferences(once)
-  return once === twice ? [hostOf(normalizedUrl(text))]
+  var hosts = once === twice ? [hostOf(normalizedUrl(text))]
     : [hostOf(normalizedUrl(text)), hostOf(once.replace(/[\t\n\r]/g, ""))]
+  var written = text.replace(/[\t\n\r]/g, "").replace(/^[\s\u0000-\u001f]+|[\s\u0000-\u001f]+$/g, "")
+  if (/^(https?:)?\/\//i.test(written)) hosts.push(hostOf(written))
+  return hosts
 }
 
 function isPublicUrl(value) {
@@ -458,9 +461,12 @@ function isPublicUrl(value) {
 
 // Invariant: this spelling check protects deliberate browser links, not automatic fetches;
 // public_http pins checked DNS destinations.
+// Invariant: tabs and line breaks inside a link are dropped, as a browser drops them.
 function externallyOpenableHttpUrl(value) {
-  var text = String(value || "").trim()
+  var text = String(value || "").trim().replace(/[\t\n\r]/g, "")
   if (!/^https?:\/\//i.test(text)) return ""
+  // Invariant: no web address has other control characters in it, and the link opener refuses them.
+  if (/[\u0000-\u001f\u007f]/.test(text)) return ""
   return isPublicUrl(text) ? text : ""
 }
 
@@ -468,7 +474,8 @@ function hostOf(url) {
   var text = String(url || "").replace(/^https?:/i, "")
   if (text.indexOf("//") !== 0) return ""
   var authority = text.substring(2)
-  var end = authority.search(/[\/?#]/)
+  // Invariant: browsers end an http(s) authority at a backslash too.
+  var end = authority.search(/[\/\\?#]/)
   if (end >= 0) authority = authority.substring(0, end)
   var at = authority.lastIndexOf("@")
   if (at >= 0) authority = authority.substring(at + 1)
@@ -477,7 +484,11 @@ function hostOf(url) {
     return (close < 0 ? authority : authority.substring(0, close + 1)).toLowerCase()
   }
   var colon = authority.indexOf(":")
-  return (colon < 0 ? authority : authority.substring(0, colon)).toLowerCase()
+  if (colon < 0) return authority.toLowerCase()
+  // Invariant: a browser opens nothing for a port that is not a number up to 65535.
+  var port = authority.substring(colon + 1)
+  if (!/^[0-9]{0,5}$/.test(port) || (port !== "" && Number(port) > 65535)) return ""
+  return authority.substring(0, colon).toLowerCase()
 }
 
 var DOTTED_QUAD = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/

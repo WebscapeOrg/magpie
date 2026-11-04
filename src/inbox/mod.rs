@@ -64,6 +64,11 @@ const PHONE_WRITER: bool = cfg!(all(feature = "mobile", not(all(feature = "agent
 /// When this engine started. A row still "running" from before then lost its writer when iOS ended
 /// the app, so it is asked again at once instead of after 15 minutes.
 static STARTED: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(i64::MIN);
+/// Whether the writer was last found able to take the owner's context (see `writer::personal`).
+/// A Point written without it is written again once it can, so a desktop whose router gains its
+/// Claude-only mode does not keep Points that were written from the email alone.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+static PERSONAL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(PHONE_WRITER);
 /// How long the phone waits before asking again about a message whose own description failed once, then twice.
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 const OWN_WAITS: [i64; 2] = [60_000, 300_000];
@@ -593,6 +598,9 @@ fn finish_overviews_protected(
                 if let Some(sources) = row["sources"].as_array().filter(|sources| !sources.is_empty()) {
                     ready["sources"] = json!(sources);
                 }
+                if let Some(personal) = row["personal"].as_bool() {
+                    ready["personal"] = json!(personal);
+                }
                 ready
             }
             None if overview_current(&saved[id], now()) => {
@@ -730,6 +738,7 @@ async fn overview_batch(
     left_before: u64,
 ) -> Result<Value, &'static str> {
     let personal = writer::personal().await;
+    PERSONAL.store(personal, std::sync::atomic::Ordering::Release);
     overview_batch_with(account, ids, gmail, local_mail, |messages| async move {
         let mut prepared = Vec::new();
         let mut failed = Vec::new();
@@ -763,7 +772,12 @@ async fn overview_batch(
         let generated = if suspensions() != left_before {
             Ok(json!(prepared.as_array().into_iter().flatten().map(|message| json!({"id":message["id"],"error":INTERRUPTED,"stage":"batch"})).collect::<Vec<_>>()))
         } else {
-            writer::generate(&prepared, &shared, left_before).await
+            writer::generate(&prepared, &shared, left_before).await.map(|mut rows| {
+                for row in rows.as_array_mut().into_iter().flatten() {
+                    row["personal"] = json!(personal);
+                }
+                rows
+            })
         };
         merge_rows(generated, &prepared, failed)
     })
@@ -919,7 +933,11 @@ fn valid_description(text: &str) -> bool {
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 fn overview_due(value: &Value, retry: bool, at: i64) -> bool {
     if overview_current(value, at) {
-        if value["promptRevision"] == POINT_REVISION { return false; }
+        let behind = value["promptRevision"] != POINT_REVISION
+            || (value["personal"] == false && PERSONAL.load(std::sync::atomic::Ordering::Acquire));
+        if !behind {
+            return false;
+        }
         let age = at.saturating_sub(value["rewriteAt"].as_i64().unwrap_or(0));
         return !(age >= 0 && age < 900_000 && (value["rewriteState"] == "running" || (!retry && value["rewriteState"] == "failed")));
     }
@@ -990,14 +1008,26 @@ fn overview_current(value: &Value, at: i64) -> bool {
         })
 }
 
+/// Whether a current Point would be written again now; never where this build has no writer.
+fn rewrite_due(value: &Value, at: i64) -> bool {
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    return overview_due(value, false, at);
+    #[cfg(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+    {
+        let _ = (value, at);
+        false
+    }
+}
+
 fn overview_snapshot(mut saved: Value, at: i64) -> Result<Value, &'static str> {
     for value in saved
         .as_object_mut()
         .ok_or("inbox_storage_invalid")?
         .values_mut()
     {
-        // A Point written under earlier rules is still shown, and marked so the app asks for it again.
-        if overview_current(value, at) && value["promptRevision"] != POINT_REVISION {
+        // A Point written under earlier rules is still shown, and marked so the app asks for it
+        // again when the engine would take it: not while a rewrite is running or has just failed.
+        if overview_current(value, at) && rewrite_due(value, at) {
             value["refresh"] = json!(true);
         }
         if !overview_current(value, at) && value["state"] == "ready" {
@@ -1131,6 +1161,76 @@ mod overview_attempt_tests {
         claim_overviews(&mut saved, &["m".to_string()], true, later).unwrap();
         assert_eq!(saved["m"]["attempts"], 3, "a claim carries the count forward");
         assert!(service_failure("ai_daily_limit") && !service_failure("overview_unsupported_claim"));
+    }
+
+    fn point(revision: u64) -> Value {
+        json!({"state":"ready","text":"Pay the invoice by Friday.","version":2,"promptRevision":revision,"updated":now(),"expiresAt":0})
+    }
+
+    #[test]
+    fn the_phone_is_told_to_ask_again_only_when_the_engine_would_write_the_point_again() {
+        let at = now();
+        let rewriting = |state: &str, since: i64| {
+            let mut row = point(1);
+            row["rewriteState"] = json!(state);
+            row["rewriteAt"] = json!(at - since);
+            row
+        };
+        let saved = json!({
+            "old": point(1),
+            "current": point(POINT_REVISION),
+            "running": rewriting("running", 1_000),
+            "failed": rewriting("failed", 1_000),
+            "stuck": rewriting("running", 900_001),
+        });
+        let shown = overview_snapshot(saved, at).unwrap();
+        assert_eq!(shown["old"]["refresh"], true);
+        assert_eq!(shown["stuck"]["refresh"], true, "a rewrite that never finished is asked for again");
+        for id in ["current", "running", "failed"] {
+            assert!(shown[id].get("refresh").is_none(), "{id}: the engine would not take it now");
+            assert_eq!(shown[id]["text"], "Pay the invoice by Friday.", "{id}: the Point stays in view");
+        }
+        assert!(!overview_due(&shown["running"], false, at) && overview_due(&shown["stuck"], false, at));
+    }
+
+    #[test]
+    fn a_point_written_from_the_email_alone_is_written_again_once_context_may_be_sent() {
+        use std::sync::atomic::Ordering;
+        let at = now();
+        let mut plain = point(POINT_REVISION);
+        plain["personal"] = json!(false);
+        let mut personal = point(POINT_REVISION);
+        personal["personal"] = json!(true);
+        let before = PERSONAL.load(Ordering::Acquire);
+        PERSONAL.store(false, Ordering::Release);
+        assert!(!overview_due(&plain, false, at), "nothing better can be written yet");
+        PERSONAL.store(true, Ordering::Release);
+        let plain_due = overview_due(&plain, false, at);
+        let personal_due = overview_due(&personal, false, at);
+        let legacy_due = overview_due(&point(POINT_REVISION), false, at);
+        let mut running = plain.clone();
+        running["rewriteState"] = json!("running");
+        running["rewriteAt"] = json!(at - 1_000);
+        let running_due = overview_due(&running, false, at);
+        PERSONAL.store(before, Ordering::Release);
+        assert!(plain_due, "written again once the owner's context may be sent");
+        assert!(!personal_due && !legacy_due, "a Point written with context, or with no marker, stays");
+        assert!(!running_due, "not while its rewrite is running");
+    }
+
+    #[test]
+    fn a_finished_point_records_whether_it_was_written_with_the_owners_context() {
+        let ids = ["with".to_string(), "without".to_string(), "unmarked".to_string()];
+        let mut saved = json!({"with":{"state":"running","updated":now(),"version":2},"without":{"state":"running","updated":now(),"version":2},"unmarked":{"state":"running","updated":now(),"version":2}});
+        let rows = json!([
+            {"id":"with","text":"Pay the invoice by Friday.","expiresAt":0,"personal":true},
+            {"id":"without","text":"Pay the invoice by Friday.","expiresAt":0,"personal":false},
+            {"id":"unmarked","text":"Pay the invoice by Friday.","expiresAt":0},
+        ]);
+        finish_overviews_protected(&mut saved, &ids, &Ok(rows), &Default::default()).unwrap();
+        assert_eq!(saved["with"]["personal"], true);
+        assert_eq!(saved["without"]["personal"], false);
+        assert!(saved["unmarked"].get("personal").is_none());
     }
 }
 

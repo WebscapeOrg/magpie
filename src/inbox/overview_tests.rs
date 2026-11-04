@@ -797,6 +797,7 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     assert_eq!(saved["ask-1"]["text"], "You already sent the contract.");
     assert_eq!(saved["ask-1"]["sources"], json!(["mail", "thread:sent-1"]));
     assert_eq!(saved["ask-1"]["promptRevision"], super::POINT_REVISION);
+    assert_eq!(saved["ask-1"]["personal"], true, "the row says it was written with the owner's context");
     let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
     let first: Value = serde_json::from_str(calls.lines().next().unwrap()).unwrap();
     assert_eq!(first["args"][0], "--claude-only", "personal context asks for the Claude-only mode");
@@ -862,4 +863,7 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
         assert!(!prompt.contains("Here is the signed contract."), "no other mail without the Claude-only mode");
         assert!(prompt.contains("(not written yet)"));
     }
+    let saved = super::store::read(&name).unwrap().unwrap();
+    assert_eq!(saved["ask-1"]["personal"], false, "the row says it was written from the email alone");
+    assert!(!super::overview_due(&saved["ask-1"], false, super::now()), "and stays until context may be sent");
 }

@@ -251,9 +251,12 @@ Item {
     function kinds() { return app.navKinds.join(",") }
 
     // Invariant: a test that stopped with a confirmation open must not leave it over the next one.
+    property var tip: null
     function cleanup() {
       var dialog = findChild(app, "delete-confirmation")
       if (dialog && dialog.opened) dialog.close()
+      if (tip) { tip.destroy(); tip = null }
+      if (app.composing) app.back()
     }
 
     function init() {
@@ -785,6 +788,59 @@ Item {
       compare(shortcuts, [], "no shortcut ran behind the confirmation")
       compare(app.cursorId, cursor, "the list's cursor stayed where it was")
       compare(kinds(), data.kinds, "Escape closed only the confirmation")
+    }
+
+    // Invariant: a message started from outside while a confirmation is open gets the keyboard once the
+    // confirmation closes, not before, even if another window had the keyboard in between.
+    function test_a_message_started_behind_a_confirmation_gets_the_keyboard_when_it_closes_data() {
+      return [{ tag: "window stays in front", away: false }, { tag: "another window has the keyboard meanwhile", away: true }]
+    }
+    function test_a_message_started_behind_a_confirmation_gets_the_keyboard_when_it_closes(data) {
+      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      tryCompare(scope, "keyContext", "list")
+      scope.applyContextFocus()
+      var dialog = findChild(app, "delete-confirmation")
+      dialog.parent.openFor({ kind: "label", labelId: "Work", name: "Work", accountId: "", message: "" })
+      tryCompare(dialog, "opened", true)
+      wait(30)
+      app.startCompose("new")
+      tryCompare(scope, "keyContext", "compose")
+      wait(30)
+      verify(named(dialog.contentItem, "delete-cancel").activeFocus, "the confirmation keeps the keyboard while open")
+      if (data.away) {
+        // As the window does when another window takes the keyboard, and when it gets it back.
+        var content = app.Window.window.contentItem
+        content.focus = false
+        wait(30)
+        content.focus = true
+        wait(30)
+        verify(named(dialog.contentItem, "delete-cancel").activeFocus, "the confirmation gets the keyboard back")
+      }
+      keyClick(Qt.Key_Escape)
+      tryCompare(dialog, "opened", false)
+      var to = having(app, function(item) { return item.objectName === "compose-to-field" })
+      verify(to)
+      tryVerify(function() { return to.activeFocus }, 1000, "the new message has the keyboard once the confirmation closes")
+      compare(scope.contextFocusWaiting, false, "nothing is left waiting to move the keyboard later")
+      app.back()
+      tryCompare(app, "composing", false)
+    }
+
+    // Invariant: a tooltip on show does not hold the keyboard, so it never keeps a new message from getting it.
+    function test_a_tooltip_on_show_does_not_keep_the_keyboard_from_a_new_message() {
+      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      tryCompare(scope, "keyContext", "list")
+      scope.applyContextFocus()
+      tip = Qt.createQmlObject('import QtQuick.Controls; ToolTip { text: "Archive" }', app)
+      tip.parent = app
+      tip.open()
+      tryCompare(tip, "opened", true)
+      app.startCompose("new")
+      tryCompare(scope, "keyContext", "compose")
+      var to = having(app, function(item) { return item.objectName === "compose-to-field" })
+      tryVerify(function() { return to.activeFocus }, 1000, "the new message has the keyboard while the tooltip shows")
+      app.back()
+      tryCompare(app, "composing", false)
     }
 
     function test_search_context_changes_preserve_typing_and_caret() {

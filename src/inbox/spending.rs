@@ -80,9 +80,8 @@ fn change_bucket(saved: &mut Value, feature: &str, at: i64, less: u64, amount: u
 }
 
 /// Adds `amount` billionths of a dollar to `feature` in the quarter hour of `at`, and forgets
-/// quarter hours older than `KEEP`. Blocks: call it off the async threads. On Linux only sender
-/// pictures are counted, and they use `reserve` and `settle`.
-#[cfg(any(feature = "mobile", test))]
+/// quarter hours older than `KEEP`. Blocks: call it off the async threads. On Linux it counts the
+/// picker's decisions; sender pictures use `reserve` and `settle`.
 fn add(feature: &str, amount: u64, at: i64) -> Result<(), &'static str> {
     store::update_waiting(LOCK, &name(), |saved| {
         tidy(saved, at);

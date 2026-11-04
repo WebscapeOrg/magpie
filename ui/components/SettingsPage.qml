@@ -239,11 +239,12 @@ Column {
       service.refreshDefaultMailClient()
   }
   onServiceChanged: refreshDefaultMailClient()
-  // The page is shown and hidden, not rebuilt, so the picture counts, any keyring problem and the
-  // spending are read again each time it opens.
+  // The page is shown and hidden, not rebuilt, so the picture counts, any keyring problem, the
+  // spending and the saved bio are read again each time it opens.
   onVisibleChanged: {
     refreshDefaultMailClient()
     if (visible) {
+      aboutYouSettings.load()
       pictureSettings.load()
       spendingSettings.load()
     }
@@ -739,6 +740,17 @@ Column {
   AiSettings {
     objectName: "settings-ai"
     visible: !!root.service && root.service.hasAgent !== false
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  AboutYouSettings {
+    id: aboutYouSettings
+    objectName: "settings-about-you-section"
     width: parent.width
     service: root.service
     textColor: root.textColor

@@ -36,7 +36,7 @@ mod c023_hostile {
         assert!(overview_current(&base,1000));
         for (field,value) in [
             ("version",json!(1)),("version",json!("2")),("state",json!("running")),
-            ("text",json!(" \t")),("text",json!("x".repeat(141))), ("text",json!("safe\nunsafe")),
+            ("text",json!(" \t")),("text",json!("x".repeat(POINT_LIMIT + 1))), ("text",json!("safe\nunsafe")),
             ("text",json!("safe\u{0085}unsafe")),("text",json!("<tag>")),("text",json!(null)),
             ("expiresAt",json!(-1)),("expiresAt",json!(1000)),("expiresAt",json!(1000.5)),("expiresAt",json!("2000")),("expiresAt",json!(null))
         ] {

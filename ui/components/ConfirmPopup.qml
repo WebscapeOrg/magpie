@@ -141,6 +141,9 @@ QQC.Popup {
       clip: true
       boundsBehavior: Flickable.StopAtBounds
       onHeightChanged: Qt.callLater(root.keepInViewResized)
+      // Invariant: a change of text size lays the buttons out again after the words' height changes, so
+      // the button the focus was moved to is kept in view once they are (as in Magpie Calendar).
+      onContentHeightChanged: Qt.callLater(root.keepInViewResized)
       // Invariant: the scroll bar shows only when the words do not fit, and sits in the padding beside them.
       QQC.ScrollBar.vertical: QQC.ScrollBar {
         parent: words.parent

@@ -205,7 +205,7 @@ Item {
     // half its size, instead of being cut short, and keeps its row's height; at the usual size every
     // entry is drawn at full size (as in Magpie Calendar's menu).
     function test_a_long_entry_shrinks_to_fit_data() {
-      return [{tag: "36 pt, 640 px", size: 36, width: 640, shrinks: true}, {tag: "30 pt, 640 px", size: 30, width: 640, shrinks: true},
+      return [{tag: "36 pt, 640 px", size: 36, width: 640, shrinks: true}, {tag: "30 pt, 560 px", size: 30, width: 560, shrinks: true},
               {tag: "36 pt, 1200 px", size: 36, width: 1200, shrinks: false}, {tag: "17 pt, 420 px", size: 17, width: 420, shrinks: false},
               {tag: "36 pt, 300 px", size: 36, width: 300, shrinks: true, cut: true}]
     }

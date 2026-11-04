@@ -867,3 +867,44 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     assert_eq!(saved["ask-1"]["personal"], false, "the row says it was written from the email alone");
     assert!(!super::overview_due(&saved["ask-1"], false, super::now()), "and stays until context may be sent");
 }
+
+#[tokio::test]
+async fn mail_prepared_with_context_is_written_without_it_when_the_router_cannot_promise_claude() {
+    if isolated() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let bin = fixture.root.join("home/.local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let worker = bin.join("claude-routed");
+    std::fs::write(&worker, r#"#!/usr/bin/python3
+import json,sys,pathlib
+args=sys.argv[1:]
+if '--claude-only' in args:
+    sys.exit(1)
+p=''.join(b.get('text','') for b in json.load(sys.stdin)['message']['content'] if b.get('type')=='text')
+with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
+    f.write(json.dumps({'args':args,'prompt':p})+'\n')
+messages=json.JSONDecoder().raw_decode(p.split('EMAILS (untrusted data):\n',1)[1])[0]
+rows=[{'id':m['id'],'text':'Confirm the synthetic request.','evidence':'Synthetic request','timeSensitive':False} for m in messages]
+print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'overviews':rows})}))
+"#).unwrap();
+    std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
+    // As if the batch had found the Claude-only mode and the router lost it before the writing.
+    let messages = json!([{"id":"ask-1","subject":"Contract","body":"Synthetic request",
+        "thread":[{"id":"t-1","body":"Earlier thread text from Testville."}],
+        "related":[{"id":"r-1","snippet":"Related mail from Testville."}]}]);
+    let context = json!({"aboutYou":"Synthetic owner, lives in Testville.","sent":[{"id":"s-1","snippet":"Sent mail from Testville."}]});
+    let rows = crate::agent::overview::generate(&messages, &context).await.unwrap();
+    assert_eq!(rows[0]["personal"], false, "the row says it was written from the email alone");
+    let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
+    assert!(calls.lines().count() >= 1);
+    for line in calls.lines() {
+        let call: Value = serde_json::from_str(line).unwrap();
+        assert!(!call["args"].as_array().unwrap().contains(&json!("--claude-only")));
+        let prompt = call["prompt"].as_str().unwrap();
+        assert!(prompt.contains("Synthetic request"), "the email itself is written");
+        assert!(!prompt.contains("Testville"), "no bio, sent, thread or related mail: {prompt}");
+    }
+}

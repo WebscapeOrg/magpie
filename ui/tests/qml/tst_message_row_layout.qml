@@ -145,8 +145,8 @@ Item {
       waitForRendering(row)
       var oneLine=row.height
       var point="Your landlord wants the October rent by Friday and says the August payment never arrived. "
-        + "You paid it on 2 August from the joint account, so send him the bank receipt. "
-        + "The new lease he mentions starts in January and keeps the same rent, so nothing changes there for you."
+        + "You paid it on 2 August from the joint account, so send the landlord the bank receipt. "
+        + "The new lease starts in January and keeps the same rent, so nothing changes there for you."
       verify(Array.from(point).length<=300)
       row.overview=point
       waitForRendering(row)

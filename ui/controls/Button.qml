@@ -32,6 +32,9 @@ BorderSurface {
   property real horizontalPadding: Style.spacing.controlPaddingX
   property real verticalPadding: Style.spacing.controlPaddingY
   property bool leftAlign: false
+  // Docs: the widest the button may be. A longer label wraps onto more lines instead of running past it, so a
+  // confirmation's choice is never cut short at a large text size.
+  property real maximumWidth: Infinity
 
   leftPadding: horizontalPadding
   rightPadding: horizontalPadding
@@ -157,7 +160,7 @@ BorderSurface {
     spacing: Style.spacing.controlGap
 
     Text {
-
+      id: iconLabel
       textFormat: Text.PlainText
       visible: root.iconText !== ""
       text: root.iconText
@@ -178,7 +181,8 @@ BorderSurface {
     }
 
     Text {
-
+      id: label
+      objectName: "button-label"
       textFormat: Text.PlainText
       visible: root.text !== ""
       text: root.text
@@ -187,6 +191,11 @@ BorderSurface {
       font.pixelSize: root.fontSize
       font.bold: root.selected
       anchors.verticalCenter: parent.verticalCenter
+      width: isFinite(root.maximumWidth) ? Math.max(0, Math.min(Math.ceil(implicitWidth), root.maximumWidth
+        - root.horizontalPadding * 2 - root._reservedBorderLeft - root._reservedBorderRight
+        - (iconLabel.visible ? iconLabel.width + row.spacing : 0))) : implicitWidth
+      wrapMode: isFinite(root.maximumWidth) ? Text.Wrap : Text.NoWrap
+      horizontalAlignment: root.leftAlign ? Text.AlignLeft : Text.AlignHCenter
     }
   }
 

@@ -1248,8 +1248,33 @@ Item {
         while (item) { if (item === container) return true; item = item.parent }
         return false
       }
+      // Invariant: an open confirmation, prompt, picker or menu keeps the keyboard. A focus call queued by
+      // navigation or a change of context must not park the keyboard behind it, or its keys stop working.
+      // The call waits instead and runs once the keyboard leaves the popup, so a context that changed
+      // meanwhile, such as a message started from outside, still gets the keyboard when the popup closes.
+      property bool contextFocusWaiting: false
+      Connections {
+        target: focusScope.Window.window
+        function onActiveFocusItemChanged() {
+          if (!focusScope.contextFocusWaiting || focusScope.focusInOpenPopup()) return
+          focusScope.contextFocusWaiting = false
+          Qt.callLater(focusScope.applyContextFocus)
+        }
+      }
+      // Read where the keyboard belongs, not where it is: while another window has it there is no active item,
+      // but the popup keeps its focus and gets the keyboard back when this window does.
+      function focusInOpenPopup() {
+        var overlay = focusScope.Overlay.overlay
+        if (!overlay) return false
+        for (var index = 0; index < overlay.children.length; index++) {
+          var popup = overlay.children[index]
+          if (popup.visible && popup.focus) return true
+        }
+        return false
+      }
       function applyContextFocus() {
         if (composeExitDialog.opened || appMenu.opened || searchBar.helpOpened || searchBar.controlsFocused) return
+        if (focusInOpenPopup()) { contextFocusWaiting = true; return }
         if ((keyContext === "list" || keyContext === "reader")
             && statusViewport.visible && focusWithin(statusViewport)) return
         if (keyContext === "assistant" || keyContext === "assistantCommands") {

@@ -1,10 +1,7 @@
 import QtQuick
-import "../controls" as Widgets
-import "../settings"
-import QtQuick.Controls as QQC
-import qs.Commons
-import qs.Ui
 
+// Docs: asks before a label is deleted. The confirmation itself is ConfirmPopup, shared with the mailbox
+// removal and draft exit confirmations.
 Item {
   id: root
 
@@ -41,103 +38,26 @@ Item {
     confirmed(answered)
   }
 
-  function buttonsInOrder() {
-    var ordered = [cancelButton]
-    for (var entryIndex = 0; entryIndex < choiceButtons.count; entryIndex++) ordered.push(choiceButtons.itemAt(entryIndex))
-    return ordered
-  }
-  function moveFocus(step) {
-    var ordered = buttonsInOrder()
-    var at = 0
-    for (var entryIndex = 0; entryIndex < ordered.length; entryIndex++) if (ordered[entryIndex] && ordered[entryIndex].activeFocus) at = entryIndex
-    var next = ordered[(at + step + ordered.length) % ordered.length]
-    if (next) next.forceActiveFocus()
-  }
-
-  QQC.Popup {
+  ConfirmPopup {
     id: dialog
-    anchors.centerIn: parent
-    width: Math.min(MailStyle.space(420), parent.width - MailStyle.space(32))
-    padding: MailStyle.space(18)
-    modal: true
-    focus: true
-    closePolicy: QQC.Popup.CloseOnEscape
-    onOpened: {
-      var ordered = root.buttonsInOrder()
-      ordered[ordered.length - 1].forceActiveFocus()
-    }
+    objectName: "delete-confirmation"
+    question: "Delete \"" + String(root.request ? root.request.name : "") + "\"?"
+    message: String(root.request && root.request.message || "")
+    cancelName: "delete-cancel"
+    choices: root.choices.map(function(choice, index) {
+      return {value: choice.value, label: choice.label,
+        objectName: index === root.choices.length - 1 ? "delete-confirm" : "delete-choice-" + String(choice.value)}
+    })
+    // Invariant: Cancel has the focus, so Return deletes nothing; Tab reaches the choices (Q-016, as in
+    // Magpie Calendar).
+    focusIndex: -1
+    textColor: root.textColor
+    dimColor: root.dimColor
+    dangerColor: root.dangerColor
+    backgroundColor: root.popupBackgroundColor
+    borderColor: root.popupBorderColor
+    fontFamily: root.panelFontFamily
+    onChosen: function(value) { root.confirm(value) }
     onClosed: root.request = null
-    background: Rectangle {
-      radius: Style.cornerRadius
-      color: root.popupBackgroundColor
-      border.width: 1
-      border.color: root.popupBorderColor
-    }
-    contentItem: Column {
-      spacing: MailStyle.space(14)
-      // Invariant: popups consume keys before the window shortcut map.
-      Keys.onPressed: function(event) {
-        if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-          event.accepted = true
-          root.moveFocus(event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier) ? -1 : 1)
-          return
-        }
-        if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return
-        event.accepted = true
-        if (cancelButton.activeFocus) { root.close(); return }
-        for (var entryIndex = 0; entryIndex < choiceButtons.count; entryIndex++)
-          if (choiceButtons.itemAt(entryIndex).activeFocus) root.confirm(root.choices[entryIndex].value)
-      }
-
-      Text {
-        width: parent.width
-        textFormat: Text.PlainText
-        text: "Delete \"" + String(root.request ? root.request.name : "") + "\"?"
-        color: root.textColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.heading
-        font.bold: true
-        wrapMode: Text.Wrap
-      }
-      Text {
-        width: parent.width
-        visible: text !== ""
-        textFormat: Text.PlainText
-        text: String(root.request && root.request.message || "")
-        color: root.dimColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.bodySmall
-        wrapMode: Text.Wrap
-      }
-      Flow {
-        width: parent.width
-        spacing: MailStyle.space(8)
-        Widgets.Button {
-          id: cancelButton
-          objectName: "delete-cancel"
-          text: "Cancel"
-          bordered: true
-          foreground: root.textColor
-          fontFamily: root.panelFontFamily
-          focusable: true
-          onClicked: dialog.close()
-        }
-        Repeater {
-          id: choiceButtons
-          model: root.choices
-          Widgets.Button {
-            required property var modelData
-            required property int index
-            objectName: index === root.choices.length - 1 ? "delete-confirm" : "delete-choice-" + String(modelData.value)
-            text: String(modelData.label)
-            bordered: true
-            foreground: root.dangerColor
-            fontFamily: root.panelFontFamily
-            focusable: true
-            onClicked: root.confirm(modelData.value)
-          }
-        }
-      }
-    }
   }
 }

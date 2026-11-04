@@ -164,23 +164,28 @@ mod live_quality {
         }
     }
 
-    /// The tier a case is written with: POINT_EVAL_TIER (haiku, sonnet or opus) for every case, or
-    /// else the picker's choice, with the owner's OpenAI key.
-    async fn tier(messages: &Value, context: &Value) -> (Tier, Option<Tier>) {
-        let forced = match std::env::var("POINT_EVAL_TIER").as_deref() {
+    fn forced() -> Option<Tier> {
+        match std::env::var("POINT_EVAL_TIER").as_deref() {
             Ok("haiku") => Some(Tier::Haiku),
             Ok("sonnet") => Some(Tier::Sonnet),
             Ok("opus") => Some(Tier::Opus),
             _ => None,
-        };
-        let picked = crate::inbox::picker::choose(messages, context).await.0[0];
-        (forced.unwrap_or(picked), Some(picked))
+        }
+    }
+
+    /// The tier a case is written with: POINT_EVAL_TIER (haiku, sonnet or opus) for every case, or
+    /// else the picker's choice, asked of OpenAI itself with the owner's OpenAI key; with why the
+    /// picker gave no answer, if it did not, and what asking cost.
+    async fn tier(messages: &Value, context: &Value) -> (Tier, Result<Tier, String>, u64) {
+        let (mut answers, spent) = crate::inbox::picker::choose_live(messages, context).await;
+        let picked = answers.remove(0);
+        (forced().unwrap_or(picked.clone().unwrap_or(Tier::Sonnet)), picked, spent)
     }
 
     async fn scored(case: Value) -> Value {
         let (messages, context) = point_eval::inputs(&case);
         let draft = crate::inbox::describe::draft(&messages, &context).expect("a case makes a prompt");
-        let (tier, picked) = tier(&messages, &context).await;
+        let (tier, picked, picker_cost) = tier(&messages, &context).await;
         let started = std::time::Instant::now();
         let written = if std::env::var_os("POINT_EVAL_TRACE").is_some() {
             // Each pass's raw answer, to see why a case was refused.
@@ -198,7 +203,7 @@ mod live_quality {
             generate(&messages, &context, tier).await
         };
         let seconds = started.elapsed().as_secs_f64();
-        let mut result = json!({"id":case["id"],"kind":case["kind"],"expected":case["expected"],"seconds":seconds,"promptChars":draft.shared.chars().count() + draft.task.chars().count(),"tier":tier.name(),"picked":picked.map(Tier::name)});
+        let mut result = json!({"id":case["id"],"kind":case["kind"],"expected":case["expected"],"seconds":seconds,"promptChars":draft.shared.chars().count() + draft.task.chars().count(),"tier":tier.name(),"picked":picked.as_ref().ok().map(|tier| tier.name()),"pickerError":picked.err(),"pickerCost":picker_cost});
         match written {
             Ok(rows) => {
                 let row = &rows[0];
@@ -243,6 +248,8 @@ mod live_quality {
             "picked": (["haiku", "sonnet", "opus"].map(|name| json!({"tier":name,"count":results.iter().filter(|result| result["picked"] == name).count()}))),
             "pickedAsKind": results.iter().filter(|result| matches!((result["kind"].as_str(), result["picked"].as_str()), (Some("automated"), Some("haiku")) | (Some("person"), Some("sonnet")) | (Some("high-stakes"), Some("opus")))).count(),
             "pickedAtLeastKind": results.iter().filter(|result| matches!((result["kind"].as_str(), result["picked"].as_str()), (Some("automated"), Some(_)) | (Some("person"), Some("sonnet" | "opus")) | (Some("high-stakes"), Some("opus")))).count(),
+            "pickerAnswered": results.iter().filter(|result| result["picked"].is_string()).count(),
+            "pickerCost": results.iter().filter_map(|result| result["pickerCost"].as_u64()).sum::<u64>(),
         });
         let out = std::env::var_os("POINT_EVAL_OUT").map(std::path::PathBuf::from).unwrap_or_else(|| std::env::temp_dir().join("point-eval.json"));
         std::fs::write(&out, serde_json::to_vec_pretty(&json!({"summary":summary,"results":results})).unwrap()).unwrap();
@@ -250,6 +257,10 @@ mod live_quality {
         let unsafe_misses: Vec<&Value> = results.iter().filter(|result| result["misses"].as_array().into_iter().flatten().filter_map(Value::as_str).any(point_eval::unsafe_miss)).collect();
         assert!(unsafe_misses.is_empty(), "forbidden words: {unsafe_misses:?}");
         assert!(written * 10 >= chosen.len() * 9, "only {written} of {} cases got a Point", chosen.len());
+        // The picker's counts mean something only when OpenAI answered: a picker that is never
+        // reached chooses Sonnet for every case, which looks like a choice.
+        let answered = results.iter().filter(|result| result["picked"].is_string()).count();
+        assert!(answered * 10 >= chosen.len() * 9, "the picker answered only {answered} of {} cases", chosen.len());
     }
     #[tokio::test]
     #[ignore = "uses household AI routing with synthetic dates and recipient roles"]

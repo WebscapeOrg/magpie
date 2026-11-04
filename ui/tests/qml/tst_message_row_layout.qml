@@ -135,6 +135,53 @@ Item {
       compare(subject.text,"Original subject")
       compare(findChild(row,"message-description").visible,true)
     }
+    function test_a_long_point_is_shown_whole_and_the_row_grows_data() {
+      return [{tag:"narrow-actions",width:360,actions:true},{tag:"narrowest",width:280,actions:false},{tag:"wide",width:600,actions:false}]
+    }
+    function test_a_long_point_is_shown_whole_and_the_row_grows(data) {
+      row.width=data.width;row.hasCursor=data.actions
+      row.summary={id:"one",subject:"Original subject",snippet:"Old preview",from:{display:"Sender"},time:"Yesterday",unread:true}
+      row.overview=""
+      waitForRendering(row)
+      var oneLine=row.height
+      var point="Your landlord wants the October rent by Friday and says the August payment never arrived. "
+        + "You paid it on 2 August from the joint account, so send him the bank receipt. "
+        + "The new lease he mentions starts in January and keeps the same rent, so nothing changes there for you."
+      verify(Array.from(point).length<=300)
+      row.overview=point
+      waitForRendering(row)
+      var subject=findChild(row,"message-subject"),actions=findChild(row,"message-actions"),time=findChild(row,"message-time")
+      compare(subject.text,point)
+      verify(!subject.truncated,data.tag+": the whole Point is shown")
+      verify(subject.lineCount>3,data.tag+": a long Point runs past the old three-line cap ("+subject.lineCount+" lines)")
+      verify(row.height>oneLine,"the row grows to fit the Point")
+      verify(subject.mapToItem(row,0,subject.height).y<=row.height-6,"the Point keeps space below it")
+      if(actions.visible) verify(subject.mapToItem(row,subject.width,0).x<=actions.x,"the Point stops before the tools")
+      verify(subject.mapToItem(row,0,0).y>=time.mapToItem(row,0,time.height).y,"the Point starts below the date")
+      compare(subject.Accessible.name,"Unread. The Point: "+point)
+      mouseMove(subject,5,5)
+      wait(50)
+      verify(!findChild(row,"overview-tooltip").visible,"a Point shown whole needs no tooltip")
+      mouseMove(row,-20,-20)
+      row.overview=""
+      waitForRendering(row)
+      compare(row.height,oneLine,"the row returns to its size without the Point")
+    }
+    function test_a_long_subject_without_a_point_stops_at_three_lines_and_shows_whole_on_hover() {
+      row.width=360;row.hasCursor=false;row.overview="";row.overviewState="";row.overviewReason=""
+      var long=""
+      for(var i=0;i<30;i++) long+="Quarterly statement and notes "
+      row.summary={id:"one",subject:long,from:{display:"Sender"},time:"09:14",unread:false}
+      waitForRendering(row)
+      var subject=findChild(row,"message-subject")
+      compare(subject.lineCount,3)
+      verify(subject.truncated)
+      mouseMove(subject,5,5)
+      var tooltip=findChild(row,"overview-tooltip")
+      tryCompare(tooltip,"visible",true)
+      compare(tooltip.text,long)
+      mouseMove(row,-20,-20)
+    }
     function test_time_stays_fixed_when_actions_appear() {
       row.hasCursor=false
       row.checked=false

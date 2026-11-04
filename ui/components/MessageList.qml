@@ -217,7 +217,7 @@ ListView {
       horizontalAlignment: Text.AlignHCenter
       readonly property var syncText: SyncHealth.emptyFor(root.service.localMailbox,
         root.service.searchQuery !== "", root.service.listLoading)
-      text: root.service.preparingInbox > 0 ? "Inbox messages appear when their descriptions are ready. All mail includes messages still being prepared."
+      text: root.service.preparingInbox > 0 ? "Inbox messages appear when their Point is ready. All mail includes messages still being prepared."
         : syncText !== null ? syncText
         : SearchPresentation.emptyText(root.service.searchStatus, root.service.listLoading,
           root.service.listLoaded, root.service.searchQuery !== "")

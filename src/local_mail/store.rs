@@ -387,6 +387,15 @@ impl Store {
             Ok(ids)
         })
     }
+    /// The newest messages of one thread, for the context The Point reads an email against.
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn thread_ids(&self, thread: &str, limit: usize) -> Result<Vec<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT id FROM messages WHERE thread_id=?1 ORDER BY date DESC,id DESC LIMIT ?2"))?;
+            let ids = sql(query.query_map(rusqlite::params![thread, limit as i64], |r| r.get(0)))?.map(sql).collect::<Result<_>>()?;
+            Ok(ids)
+        })
+    }
     /// The From headers of the Inbox's messages, newest first, one row per distinct header.
     #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     pub(super) fn inbox_senders(&self, limit: usize) -> Result<Vec<String>> {

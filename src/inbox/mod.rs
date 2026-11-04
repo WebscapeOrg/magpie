@@ -5,6 +5,8 @@ include!("readiness_tests.rs");
 mod context;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod describe;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod point_context;
 #[cfg(any(
     feature = "mobile",
     all(test, feature = "agent", unix, not(target_os = "ios"))
@@ -31,15 +33,29 @@ mod writer {
     pub(super) async fn ready() -> Result<(), &'static str> {
         Ok(())
     }
-    pub(super) async fn generate(messages: &serde_json::Value, _left_before: u64) -> Result<serde_json::Value, &'static str> {
-        crate::agent::overview::generate(messages).await
+    /// Whether this writer may be given the owner's bio and other mail: only where every request
+    /// is sure to reach Claude.
+    pub(super) async fn personal() -> bool {
+        crate::agent::overview::personal().await
+    }
+    pub(super) async fn generate(messages: &serde_json::Value, context: &serde_json::Value, _left_before: u64) -> Result<serde_json::Value, &'static str> {
+        crate::agent::overview::generate(messages, context).await
     }
 }
 #[cfg(all(feature = "mobile", not(all(feature = "agent", unix, not(target_os = "ios")))))]
 mod writer {
     pub(super) use super::claude::{generate, ready};
+    /// The phone's own key reaches only Claude, so its writer may be given the owner's context.
+    pub(super) async fn personal() -> bool {
+        true
+    }
 }
 
+/// The longest Point Magpie keeps, in characters: about four lines of the desktop list.
+pub(crate) const POINT_LIMIT: usize = 300;
+/// Changes whenever The Point's rules change, so every Point still in the Inbox is written again,
+/// its earlier text staying in view until then.
+pub(crate) const POINT_REVISION: u64 = 2;
 /// Invariant: the phone's own writer pays for each request and runs in an app iOS can freeze, so a
 /// message it could not describe for Claude's or the mail's reasons waits ("waiting") instead of
 /// failing, and a message's own failure is asked again after 1 and then 5 minutes rather than 15.
@@ -390,6 +406,16 @@ impl Inbox {
             }
             #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
             "ai.spending" => spending::spending(params).await,
+            // The owner's bio, which The Point reads every email against: read it, or save it with `text`.
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.aboutYou" => {
+                fields(params, &["text"])?;
+                if let Some(text) = params.get("text") {
+                    let text = text.as_str().filter(|text| text.len() <= 16 * 1024).ok_or("invalid_params")?;
+                    point_context::set_about_you(text)?;
+                }
+                point_context::about_you_page()
+            }
             "inbox.preferences" => {
                 fields(params, &["accountId", "paused", "allowRemoteImages"])?;
                 for field in ["paused", "allowRemoteImages"] {
@@ -559,7 +585,15 @@ fn finish_overviews_protected(
         let attempts = saved[id]["attempts"].as_u64().unwrap_or(0) + u64::from(own);
         saved[id] = match row.filter(|row| row["text"].as_str().is_some_and(valid_description)) {
             Some(row) => {
-                json!({"state":"ready","text":row["text"],"version":2,"promptRevision":1,"updated":now(),"expiresAt":if row["timeSensitive"] == false && !relative_words(row["text"].as_str().unwrap_or("")) { 0 } else { row["expiresAt"].as_i64().filter(|value| *value > 0).unwrap_or_else(|| next_day(now())) }})
+                let at = now();
+                // The writer's own expiry, which counts from when the Point was written, even when
+                // that has passed by the time the batch completes.
+                let expires = row["expiresAt"].as_i64().filter(|value| (0..=9_007_199_254_740_991).contains(value)).unwrap_or_else(|| next_day(at));
+                let mut ready = json!({"state":"ready","text":row["text"],"version":2,"promptRevision":POINT_REVISION,"updated":at,"expiresAt":expires});
+                if let Some(sources) = row["sources"].as_array().filter(|sources| !sources.is_empty()) {
+                    ready["sources"] = json!(sources);
+                }
+                ready
             }
             None if overview_current(&saved[id], now()) => {
                 let mut previous = saved[id].clone();
@@ -695,6 +729,7 @@ async fn overview_batch(
     remote: bool,
     left_before: u64,
 ) -> Result<Value, &'static str> {
+    let personal = writer::personal().await;
     overview_batch_with(account, ids, gmail, local_mail, |messages| async move {
         let mut prepared = Vec::new();
         let mut failed = Vec::new();
@@ -705,7 +740,11 @@ async fn overview_batch(
                 .to_owned();
             let enriched = async {
                 let raw = local_mail.read(account, &id, gmail).await?;
-                context::enrich(account, &id, &raw, &mut message, gmail, remote).await
+                context::enrich(account, &id, &raw, &mut message, gmail, remote).await?;
+                if personal {
+                    point_context::add_related(account, &raw, &mut message, local_mail).await;
+                }
+                Ok::<(), &'static str>(())
             }
             .await;
             match enriched {
@@ -718,12 +757,13 @@ async fn overview_batch(
             return Ok(json!(failed));
         }
         let prepared = json!(prepared);
+        let shared = if personal { point_context::shared(local_mail).await } else { json!({}) };
         // Invariant: when the app left while the mail was being prepared, nothing is sent; the
         // messages are returned as not asked and are described when it returns.
         let generated = if suspensions() != left_before {
             Ok(json!(prepared.as_array().into_iter().flatten().map(|message| json!({"id":message["id"],"error":INTERRUPTED,"stage":"batch"})).collect::<Vec<_>>()))
         } else {
-            writer::generate(&prepared, left_before).await
+            writer::generate(&prepared, &shared, left_before).await
         };
         merge_rows(generated, &prepared, failed)
     })
@@ -867,7 +907,7 @@ fn validate_preferences(saved: &Value) -> Result<(), &'static str> {
 
 fn valid_description(text: &str) -> bool {
     !text.trim().is_empty()
-        && text.chars().count() <= 140
+        && text.chars().count() <= POINT_LIMIT
         && !text.chars().any(|c| {
             c.is_control()
                 || matches!(c as u32, 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x206f | 0xfeff)
@@ -879,7 +919,7 @@ fn valid_description(text: &str) -> bool {
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 fn overview_due(value: &Value, retry: bool, at: i64) -> bool {
     if overview_current(value, at) {
-        if value["promptRevision"] == 1 { return false; }
+        if value["promptRevision"] == POINT_REVISION { return false; }
         let age = at.saturating_sub(value["rewriteAt"].as_i64().unwrap_or(0));
         return !(age >= 0 && age < 900_000 && (value["rewriteState"] == "running" || (!retry && value["rewriteState"] == "failed")));
     }
@@ -956,6 +996,10 @@ fn overview_snapshot(mut saved: Value, at: i64) -> Result<Value, &'static str> {
         .ok_or("inbox_storage_invalid")?
         .values_mut()
     {
+        // A Point written under earlier rules is still shown, and marked so the app asks for it again.
+        if overview_current(value, at) && value["promptRevision"] != POINT_REVISION {
+            value["refresh"] = json!(true);
+        }
         if !overview_current(value, at) && value["state"] == "ready" {
             value["state"] = json!("stale");
             value.as_object_mut().map(|fields| fields.remove("text"));
@@ -965,32 +1009,6 @@ fn overview_snapshot(mut saved: Value, at: i64) -> Result<Value, &'static str> {
         }
     }
     Ok(saved)
-}
-
-fn relative_words(text: &str) -> bool {
-    text.to_lowercase()
-        .split(|c: char| !c.is_alphabetic())
-        .any(|word| {
-            matches!(
-                word,
-                "today"
-                    | "yesterday"
-                    | "tomorrow"
-                    | "tonight"
-                    | "ago"
-                    | "overdue"
-                    | "due"
-                    | "expires"
-                    | "expired"
-                    | "monday"
-                    | "tuesday"
-                    | "wednesday"
-                    | "thursday"
-                    | "friday"
-                    | "saturday"
-                    | "sunday"
-            )
-        })
 }
 
 fn next_day(at: i64) -> i64 {
@@ -1255,7 +1273,7 @@ mod overview_storage_tests {
         let mut saved = json!({});
         finish_overviews(&mut saved, &["dated".into(),"static".into()], &Ok(json!([
             {"id":"dated","text":"Reminder — Your bill was due yesterday","timeSensitive":false,"expiresAt":1000},
-            {"id":"static","text":"Receipt — R780 received for invoice INV-520","timeSensitive":false,"expiresAt":1000}
+            {"id":"static","text":"Receipt — R780 received for invoice INV-520","timeSensitive":false,"expiresAt":0}
         ]))).unwrap();
         assert_eq!(saved["dated"]["expiresAt"], 1000);
         assert!(!super::overview_current(&saved["dated"], 1000));
@@ -1307,7 +1325,7 @@ mod overview_storage_tests {
     #[test]
     fn overview_claim_preserves_ready_results_and_observes_retry_cooldown() {
         let original = json!({
-            "ready": {"text":"saved summary", "version":2,"promptRevision":1,"state":"ready","expiresAt":0},
+            "ready": {"text":"saved summary", "version":2,"promptRevision":super::POINT_REVISION,"state":"ready","expiresAt":0},
             "recent": {"state":"failed", "updated":100_001},
             "expired": {"state":"failed", "updated":100_000}
         });
@@ -1341,7 +1359,7 @@ mod overview_storage_tests {
         assert_eq!(saved["inbox"]["text"], old["text"], "failed rewrite preserves valid text");
         assert!(super::overview_current(&saved["inbox"], 1001));
         finish_overviews(&mut saved, &["inbox".into()], &Ok(json!([{"id":"inbox","text":"Your payment of €20 has arrived","timeSensitive":false}]))).unwrap();
-        assert_eq!(saved["inbox"]["promptRevision"], 1);
+        assert_eq!(saved["inbox"]["promptRevision"], super::POINT_REVISION);
         assert!(claim_overviews(&mut saved, &["inbox".into()], false, 2000).unwrap().is_empty());
     }
 

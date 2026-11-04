@@ -83,12 +83,12 @@ Item {
   property string error: ""
   readonly property string preparationProblem: {
     if (!service || !service.preparingInbox) return ""
-    if (paused) return "New Inbox messages are paused. Resume AI descriptions from Menu, or open All mail."
+    if (paused) return "New Inbox messages are paused. Choose Menu → Resume new Points, or open All mail."
     var rows = service.rawMessages || []
-    for (var name in preparationFailures) if (overviewClock - preparationFailures[name] >= 900000) return "Inbox preparation has been unavailable for a while. Choose Menu → Retry AI descriptions, or read these messages in All mail."
+    for (var name in preparationFailures) if (overviewClock - preparationFailures[name] >= 900000) return "Inbox preparation has been unavailable for a while. Choose Menu → Retry Points, or read these messages in All mail."
     for (var i=0;i<rows.length;i++) {
       var value = overviewFor(rows[i]); var since = Number(value.pendingSince || value.updated || 0)
-      if (!value.text && since > 0 && overviewClock-since >= 900000) return "Some Inbox messages are taking longer to prepare. Choose Menu → Retry AI descriptions, or read them in All mail."
+      if (!value.text && since > 0 && overviewClock-since >= 900000) return "Some Inbox messages are taking longer to prepare. Choose Menu → Retry Points, or read them in All mail."
     }
     return ""
   }
@@ -253,7 +253,7 @@ Item {
       if (!(service.accountSummaries || []).some(function(row) { return row.id === batch.accountId })) return
       root.preparationResult(batch.accountId,"request",!!failure)
       if (failure) {
-        root.error = "AI descriptions could not start. Check the AI connection, then choose Menu → Retry AI descriptions."
+        root.error = "Magpie could not start writing Points. Check the AI connection, then choose Menu → Retry Points."
         var next = Object.assign({},root.overviews)
         for (var messageIndex=0;messageIndex<batch.ids.length;messageIndex++)
           next[root.key(batch.accountId,batch.ids[messageIndex])] = {state:"failed",reason:"AI request could not start; retry from Menu",updated:Date.now()}

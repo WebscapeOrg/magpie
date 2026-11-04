@@ -325,6 +325,23 @@ Item {
       questionShows(popup())
       compare(findChild(popup(), "confirm-words").contentY, 0)
     }
+    // Invariant: a change of text size while the confirmation is open keeps the button the focus was moved to
+    // in view.
+    function test_a_text_size_change_keeps_the_chosen_button_in_view() {
+      MailStyle.preferences = Display.normalize({interfaceSize: 28})
+      openFor(occurrence)
+      verify(popup().stacked, "the buttons scroll with the words")
+      keyClick(Qt.Key_Backtab, Qt.ShiftModifier)
+      var chosen = named(popup(), "delete-choice-none")
+      verify(chosen.activeFocus)
+      var words = findChild(popup(), "confirm-words")
+      MailStyle.preferences = Display.normalize({interfaceSize: 36})
+      wait(80)
+      verify(popup().stacked)
+      var inWords = chosen.mapToItem(words, 0, 0)
+      verify(inWords.y >= -0.5 && inWords.y + chosen.height <= words.height + 0.5, "the chosen button is in view: " + inWords.y + " in " + words.height)
+      verify(chosen.activeFocus)
+    }
     // Invariant: a button taller than the room a very small window leaves shows from its first line.
     function test_a_button_taller_than_the_room_shows_from_its_first_line() {
       MailStyle.preferences = Display.normalize({interfaceSize: 36})

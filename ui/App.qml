@@ -428,6 +428,26 @@ Item {
     pushEntry("settings")
   }
 
+  property bool interviewOfferChecked: false
+  property bool interviewOfferChecking: false
+  readonly property bool canOfferInterview: opened && ready && page === "list" && overlay === "" && !!service.backend
+    && service.backend.ready && service.backend.apiVersion >= 8 && !!service.inboxTools
+    && service.inboxTools.descriptionsEnabled !== false
+  onCanOfferInterviewChanged: checkInterviewOffer()
+  function checkInterviewOffer() {
+    if (!canOfferInterview || interviewOfferChecked || interviewOfferChecking || focusScope.focusInOpenPopup()) return
+    interviewOfferChecking = true
+    service.backend.call("inbox.aboutYou", {}, function(result, error) {
+      root.interviewOfferChecking = false
+      if (error || !result || !root.canOfferInterview || focusScope.focusInOpenPopup()) return
+      root.interviewOfferChecked = true
+      if (result.interviewOffered === false && String(result.text || "") === "") interviewOffer.open()
+    })
+  }
+  function acknowledgeInterview() {
+    service.backend.call("inbox.aboutYou", {interviewOffered: true}, function() {})
+  }
+
   readonly property bool ready: !!service && service.ready
   // Invariant: An added but unsigned-in mailbox belongs in Settings rather than first-run setup.
   readonly property bool anyReady: !!service && service.anyAccountReady
@@ -1256,6 +1276,7 @@ Item {
       Connections {
         target: focusScope.Window.window
         function onActiveFocusItemChanged() {
+          Qt.callLater(root.checkInterviewOffer)
           if (!focusScope.contextFocusWaiting || focusScope.focusInOpenPopup()) return
           focusScope.contextFocusWaiting = false
           Qt.callLater(focusScope.applyContextFocus)
@@ -2130,6 +2151,54 @@ Item {
           font.family: root.fontFamily
           font.pixelSize: MailStyle.caption
           wrapMode: Text.WordWrap
+        }
+      }
+
+      Dialog {
+        id: interviewOffer
+        objectName: "interview-offer"
+        title: "Help Magpie understand your mail"
+        anchors.centerIn: parent
+        width: Math.min(parent.width - MailStyle.space(32), MailStyle.space(480))
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        onClosed: root.acknowledgeInterview()
+        contentItem: Column {
+          spacing: MailStyle.space(16)
+          Text {
+            width: parent.width
+            text: "Magpie can ask a few optional questions and draft an About you bio. You can edit it before saving."
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: MailStyle.bodySmall
+          }
+          Flow {
+            width: parent.width
+            spacing: MailStyle.space(8)
+            Widgets.Button {
+              text: "Magpie interviews you..."
+              focusable: true
+              maximumWidth: parent.width
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              onClicked: {
+                interviewOffer.close()
+                root.openSettings()
+                settings.beginInterview()
+                Qt.callLater(function() { settingsFlick.contentY = settings.interviewY })
+              }
+            }
+            Widgets.Button {
+              text: "Not now"
+              focusable: true
+              maximumWidth: parent.width
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              onClicked: interviewOffer.close()
+            }
+          }
         }
       }
 

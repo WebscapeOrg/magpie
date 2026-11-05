@@ -29,6 +29,10 @@ Column {
   visible: saved !== null
   spacing: MailStyle.space(6)
 
+  function beginInterview() {
+    error = problem(field.text.trim())
+    if (error === "") interview.begin(field.text.trim())
+  }
   function load() {
     if (!ready) return
     service.backend.call("inbox.aboutYou", {}, function(result, failure) {
@@ -53,7 +57,7 @@ Column {
     return ""
   }
   function save() {
-    if (!ready || busy || !changed) return
+    if (!ready || busy || !changed || interview.active) return
     var text = field.text.trim()
     var reason = problem(text)
     error = reason
@@ -79,6 +83,7 @@ Column {
   }
   QQC.TextArea {
     id: field
+    visible: !interview.active
     objectName: "settings-about-you"
     readonly property var borderSpec: Border.controlSpec(activeFocus ? "focus" : (hovered ? "hover-cursor" : "normal"), root.textColor, root.accentColor)
     width: parent.width
@@ -118,6 +123,7 @@ Column {
   }
   Text {
     id: caption
+    visible: !interview.active
     objectName: "settings-about-you-status"
     width: parent.width
     textFormat: Text.PlainText
@@ -133,12 +139,41 @@ Column {
   }
   Widgets.Button {
     objectName: "settings-about-you-save"
-    visible: root.changed
+    visible: root.changed && !interview.active
     text: "Save"
+    focusable: true
     enabled: root.ready && !root.busy
     foreground: root.textColor
     fontFamily: root.panelFontFamily
     fontSize: MailStyle.caption
     onClicked: root.save()
+  }
+  Widgets.Button {
+    objectName: "settings-interview"
+    visible: !interview.active
+    text: "Magpie interviews you..."
+    foreground: root.textColor
+    fontFamily: root.panelFontFamily
+    fontSize: MailStyle.caption
+    focusable: true
+    maximumWidth: root.width
+    enabled: root.ready && !root.busy
+    onClicked: root.beginInterview()
+  }
+  PointInterview {
+    id: interview
+    objectName: "point-interview"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+    onSaved: function(page) {
+      root.saved = page
+      field.text = String(page.text || "")
+      root.error = ""
+      root.justSaved = true
+    }
   }
 }

@@ -387,6 +387,44 @@ impl Store {
             Ok(ids)
         })
     }
+    /// For each of `ids` found here, its thread and the newest message the owner sent in that thread
+    /// (labelled SENT), so a Point is written again once the owner has answered.
+    /// Sent mail is read once through the label index rather than once per thread, since threads
+    /// have no index of their own.
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn replies(&self, ids: &[String]) -> Result<Vec<(String, String, Option<String>)>> {
+        self.read(|db| {
+            let mut found = Vec::new();
+            let mut thread_of = sql(db.prepare("SELECT thread_id FROM messages WHERE id=?1"))?;
+            for id in ids {
+                let thread: Option<String> = sql(thread_of.query_row([id], |r| r.get(0)).optional())?;
+                if let Some(thread) = thread.filter(|thread| !thread.is_empty()) {
+                    found.push((id.clone(), thread));
+                }
+            }
+            let threads: std::collections::HashSet<&str> = found.iter().map(|(_, thread)| thread.as_str()).collect();
+            let mut newest: std::collections::HashMap<String, (i64, String)> = std::collections::HashMap::new();
+            let mut sent = sql(db.prepare("SELECT m.thread_id, m.date, m.id FROM labels l JOIN messages m ON m.id=l.message_id WHERE l.label='SENT'"))?;
+            let rows = sql(sent.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))))?;
+            for row in rows {
+                let (thread, date, id) = sql(row)?;
+                if !threads.contains(thread.as_str()) {
+                    continue;
+                }
+                let entry = newest.entry(thread).or_insert((i64::MIN, String::new()));
+                if (date, id.as_str()) > (entry.0, entry.1.as_str()) {
+                    *entry = (date, id);
+                }
+            }
+            Ok(found
+                .into_iter()
+                .map(|(id, thread)| {
+                    let sent = newest.get(&thread).map(|(_, sent)| sent.clone());
+                    (id, thread, sent)
+                })
+                .collect())
+        })
+    }
     /// The newest messages of one thread, for the context The Point reads an email against.
     #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     pub(super) fn thread_ids(&self, thread: &str, limit: usize) -> Result<Vec<String>> {

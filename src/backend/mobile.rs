@@ -139,6 +139,7 @@ impl Engine {
                 .await?;
         }
         let ids: Vec<&str> = ids.iter().filter_map(Value::as_str).collect();
+        self.inbox.check_rewrites(account, &self.local_mail).await;
         let page = self.inbox.overview_page(account, &ids)?;
         let keys = ["text", "state", "updated", "version", "expiresAt", "reason", "pendingSince", "attempts", "retryAt", "refresh"];
         let rows: serde_json::Map<String, Value> = page["overviews"]

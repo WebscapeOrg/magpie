@@ -129,6 +129,40 @@ const INVALID_PROPOSAL: &str = "agent_invalid_proposal: give a one-line subject 
 const PROPOSAL_LIMIT: &str = "agent_proposal_limit: no more drafts can be proposed in this turn.";
 const UNKNOWN_TOOL: &str = "Unknown tool. The only tool is propose_draft.";
 
+pub(crate) async fn interview(prompt: &super::describe::Prompt) -> Result<Value> {
+    claude::conversation_ready().await?;
+    interview_with(prompt, Arc::new(|body| Box::pin(claude::converse(body)))).await
+}
+
+async fn interview_with(prompt: &super::describe::Prompt, sender: Sender) -> Result<Value> {
+    let body = serde_json::to_vec(&json!({"model":MODEL,"max_tokens":1200,
+        "system":prompt.shared,"messages":[{"role":"user","content":prompt.task}]}))
+        .map_err(|_| "ai_request_rejected")?;
+    if body.len() > 64 * 1024 { return Err("ai_request_rejected"); }
+    static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let time = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_| "ai_unavailable")?.as_nanos();
+    let call = format!("interview-{time}-{}", SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    let reserved = reservation(body.len(), 1200);
+    let admitted = tokio::task::spawn_blocking({ let call = call.clone(); move || admit_call(&call, reserved, now()) }).await.map_err(|_| "agent_worker_failed")??;
+    let ledger = admitted && super::spending::reserve(call.clone(), "assistant", reserved).await;
+    let reply = tokio::time::timeout(Duration::from_secs(80), sender(body)).await.unwrap_or(Err("ai_unreachable"));
+    let actual = match &reply {
+        Ok(value) => charged(value, reserved),
+        Err("ai_unreachable" | "ai_invalid_response") => reserved,
+        Err(_) => 0,
+    };
+    if matches!(tokio::task::spawn_blocking({let call=call.clone(); move || settle(&call,actual,now())}).await, Ok(Ok(true))) {
+        super::spending::settle(call, "assistant", actual, ledger).await;
+    }
+    let reply = reply?;
+    if reply["stop_reason"] != "end_turn" { return Err("interview_invalid_response"); }
+    let blocks = reply["content"].as_array().ok_or("interview_invalid_response")?;
+    if blocks.iter().any(|b| b["type"] != "text") { return Err("interview_invalid_response"); }
+    let text: String = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
+    if text.len() > 16 * 1024 { return Err("interview_invalid_response"); }
+    serde_json::from_str(text.trim()).map_err(|_| "interview_invalid_response")
+}
+
 pub(crate) struct Assistant {
     live: Mutex<HashMap<String, tokio::task::AbortHandle>>,
     sender: Sender,
@@ -1128,7 +1162,7 @@ impl Assistant {
             // charged, so its reservation stays counted. A settlement that cannot be written
             // leaves the reservation counted.
             let actual = match &reply {
-                Ok(reply) => cost(reply),
+                Ok(reply) => charged(reply, reserved),
                 Err("ai_unreachable" | "ai_invalid_response") => reserved,
                 Err(_) => 0,
             };
@@ -1841,6 +1875,14 @@ const fn reservation(bytes: usize, max_tokens: u64) -> u64 {
 /// What a reply cost in billionths of a dollar at Sonnet 5.5's prices: $2 per million input
 /// tokens, $2.50 per million written to the cache, $0.20 per million read from it, $10 per million
 /// output tokens.
+fn charged(reply: &Value, reserved: u64) -> u64 {
+    let usage = &reply["usage"];
+    let known = ["input_tokens", "output_tokens"].iter().all(|key| usage[*key].as_u64().is_some())
+        && ["cache_creation_input_tokens", "cache_read_input_tokens"].iter()
+            .all(|key| usage.get(*key).is_none_or(|value| value.as_u64().is_some()));
+    if known { cost(reply) } else { reserved }
+}
+
 fn cost(reply: &Value) -> u64 {
     let usage = &reply["usage"];
     let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);

@@ -18,6 +18,9 @@ Column {
   required property color urgentColor
   required property string panelFontFamily
 
+  function beginInterview() { aboutYouSettings.beginInterview() }
+  readonly property real interviewY: aboutYouSettings.y
+
   signal clientSetupRequested()
   signal addRequested()
   signal editRequested(int index)
@@ -45,6 +48,7 @@ Column {
         || String(root.service.notificationError || "") !== "")
       values.push({ key: "notifications", title: "Notifications", y: notificationsHeading.y })
     values.push({ key: "writing", title: "Writing", y: writingHeading.y })
+    if (aboutYouSettings.visible) values.push({ key: "aboutYou", title: "About you", y: aboutYouSettings.y })
     values.push({ key: "mailboxes", title: "Mailboxes", y: mailboxesHeading.y })
     values.push({ key: "oauth", title: "Google OAuth client", y: oauthHeading.y })
     return values

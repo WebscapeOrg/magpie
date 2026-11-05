@@ -26,6 +26,7 @@ Item {
 
   QtObject {
     id: mailService
+    property var inboxTools: null
     property var backend: recoveryBackend
     property var backendRuntime: null
 
@@ -212,6 +213,40 @@ Item {
     name: "AppComposePending"
     when: windowShown
 
+    function interviewRequest() {
+      var requests = recoveryBackend.requests.filter(function(r) { return r.method === "inbox.aboutYou" && r.params.interviewOffered === undefined })
+      return requests.length ? requests[requests.length - 1] : null
+    }
+    function allowInterview() {
+      recoveryBackend.apiVersion = 8
+      recoveryBackend.ready = true
+      mailService.inboxTools = ({descriptionsEnabled: true, snoozed: [], waking: false, overviewProblem: "", overviewPending: 0})
+    }
+    function test_interview_waits_for_compose_to_close() {
+      app.open("{}"); app.backToList(); app.startCompose("new")
+      tryCompare(app,"composing",true)
+      allowInterview(); wait(30)
+      verify(!app.interviewOfferChecking)
+      verify(!findChild(app,"interview-offer").opened)
+      recoveryBackend.requests = []
+      composeView().finish(); wait(30)
+      verify(interviewRequest())
+      interviewRequest().done({text:"",interviewOffered:false},null)
+      tryCompare(findChild(app,"interview-offer"),"opened",true)
+    }
+    function test_interview_reply_does_not_interrupt_an_open_menu() {
+      app.open("{}"); app.backToList(); allowInterview(); wait(30)
+      var request = interviewRequest(); verify(request)
+      var menu = named(app,"app-menu"); menu.openAt(40,40); wait(30)
+      request.done({text:"",interviewOffered:false},null)
+      verify(!findChild(app,"interview-offer").opened)
+      verify(!app.interviewOfferChecked)
+      menu.close(); wait(30)
+      verify(interviewRequest() !== request)
+      interviewRequest().done({text:"",interviewOffered:false},null)
+      tryCompare(findChild(app,"interview-offer"),"opened",true)
+    }
+
     function test_restart_blocks_application_shortcuts_and_escape_cancels_only_saving() {
       app.open("{}")
       app.startCompose("new")
@@ -397,6 +432,10 @@ Item {
       app.composeRecoveryUpdateNoticePending = false
       var exitDialog = named(app, "compose-exit-dialog")
       if (exitDialog) exitDialog.close()
+      mailService.inboxTools = null
+      findChild(app, "interview-offer").close()
+      app.interviewOfferChecked = false
+      app.interviewOfferChecking = false
       recoveryBackend.ready = false
       recoveryBackend.apiVersion = 3
       recoveryRuntime.requiredApiVersion = 2

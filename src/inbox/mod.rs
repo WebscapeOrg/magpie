@@ -14,6 +14,8 @@ pub(crate) mod todos;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod rewrites;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod interview;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod picker;
 #[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
 pub(crate) mod point_eval;
@@ -435,12 +437,16 @@ impl Inbox {
             "ai.spending" => spending::spending(params).await,
             // The owner's bio, which The Point reads every email against: read it, or save it with `text`.
             #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.interview" => interview::generate(params).await,
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
             "inbox.aboutYou" => {
-                fields(params, &["text"])?;
+                fields(params, &["text", "interviewOffered"])?;
+                if params.get("interviewOffered").is_some_and(|value| *value != true) { return Err("invalid_params"); }
                 if let Some(text) = params.get("text") {
                     let text = text.as_str().filter(|text| text.len() <= 16 * 1024).ok_or("invalid_params")?;
                     point_context::set_about_you(text)?;
                 }
+                if params["interviewOffered"] == true { point_context::mark_interview_offered()?; }
                 point_context::about_you_page()
             }
             // Whether The Point may read each account's Google Calendar; `accountId` reads that one again.

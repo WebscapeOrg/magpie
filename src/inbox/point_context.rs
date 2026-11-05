@@ -1,8 +1,11 @@
 //! What The Point reads each email against. Shared by every email in a run: the owner's bio and
-//! their recent sent mail and other Inbox mail, from every account on this device. For each email:
+//! their recent sent mail and other Inbox mail, from every account on this device, their calendar and
+//! their todos. For each email:
 //! the earlier messages in its thread and recent mail with the same sender.
-//! Invariant: everything here is bounded in count and characters and read from the local replica
-//! only, never from Gmail; a part that cannot be read is left out rather than failing the email.
+//! Invariant: everything here is bounded in count and characters. Mail is read from the local replica
+//! only, never from Gmail; the calendar and todos come from their own modules (calendar.rs, todos.rs),
+//! which bound them, reuse their last read and never wait on the network in the iPhone's background
+//! run. A part that cannot be read is left out rather than failing the email.
 //! The bio is the owner's own text, kept in this device's private state and never logged.
 use super::{describe::ABOUT_YOU_LIMIT, store};
 use serde_json::{Value, json};
@@ -121,7 +124,7 @@ pub(crate) fn accounts() -> Vec<String> {
 
 /// The context every email in a run shares, ordered from what changes least to what changes most,
 /// so a cached request stays the same for as long as possible.
-/// With `network` false (the iPhone's short background run) the calendar is what was read before.
+/// With `network` false (the iPhone's short background run) the calendar and todos are what was read before.
 pub(crate) async fn shared(local_mail: &crate::local_mail::LocalMail, gmail: &crate::providers::gmail::Session, network: bool) -> Value {
     let accounts = accounts();
     let mut sent = Vec::new();
@@ -134,6 +137,10 @@ pub(crate) async fn shared(local_mail: &crate::local_mail::LocalMail, gmail: &cr
     let calendar = super::calendar::events(gmail, &accounts, network).await;
     if !calendar.is_empty() {
         context["calendar"] = json!(calendar);
+    }
+    let todos = super::todos::todos(network).await;
+    if !todos.is_empty() {
+        context["todos"] = json!(todos);
     }
     if let Ok(Some(about)) = about_you() {
         context["aboutYou"] = json!(clipped(&about, ABOUT_YOU_LIMIT));

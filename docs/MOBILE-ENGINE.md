@@ -75,3 +75,9 @@ A phone that holds Dave's Claude API key answers Ask Magpie itself (`src/inbox/a
 - A follow-up's history is gathered before the index lock is taken; under the lock the engine only checks that the parent is unchanged, and gathers it again in the rare case that it changed.
 
 Apple documents discretionary scheduling in [background task guidance](https://developer.apple.com/documentation/backgroundtasks/refreshing-and-maintaining-your-app-using-background-tasks). Simulator checks cannot establish physical-device delivery, scheduling frequency or operation before the first device unlock.
+
+### About you interview
+
+`inbox.interview` accepts only `{about?: string, answers?: [{question: string, answer: string}], draft?: bool}`. At most six answers are allowed (1,200 Unicode scalars each); questions are limited to 300 and the bio to 2,000. Empty input returns the first question locally. Subsequent questions and the final draft use Claude Sonnet without tools, with only these supplied facts. The response carries `question`, `draft`, `completed`, `total`, `answerLimit`, and `bioLimit`; exactly one of question and draft is nonempty. The request never saves the bio. `inbox.aboutYou` saves approved text, and independently accepts `interviewOffered: true` to acknowledge the once-only offer.
+
+Interview calls use Ask Magpie's existing reservation ledger and daily limit. Missing or malformed usage retains the reservation, and provider output is bounded and checked before the app sees it. Cancellation dismisses the UI and ignores a late result; a call already admitted may still finish and count toward spending.

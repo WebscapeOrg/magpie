@@ -31,7 +31,7 @@ pub(crate) fn about_you() -> Result<Option<String>, &'static str> {
 
 /// Characters a bio may not hold: controls other than line breaks and tabs, invisible format
 /// characters, and the markup brackets no list text may carry.
-fn refused(c: char) -> bool {
+pub(super) fn refused(c: char) -> bool {
     (c.is_control() && c != '\n' && c != '\t')
         || matches!(c as u32, 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x206f | 0xfeff)
         || c == '<'
@@ -56,9 +56,13 @@ pub(crate) fn set_about_you(text: &str) -> Result<Value, &'static str> {
 }
 
 /// The saved bio for the settings screen.
+pub(crate) fn mark_interview_offered() -> Result<(), &'static str> {
+    store::replace(&store::key(&["interview-offered"]), &json!({"offered":true}))
+}
+
 pub(crate) fn about_you_page() -> Result<Value, &'static str> {
     let saved = store::read(&about_key())?.unwrap_or(json!({}));
-    Ok(json!({"text":saved["text"].as_str().unwrap_or(""),"updated":saved["updated"].as_i64().unwrap_or(0),"limit":ABOUT_YOU_LIMIT}))
+    Ok(json!({"text":saved["text"].as_str().unwrap_or(""),"updated":saved["updated"].as_i64().unwrap_or(0),"limit":ABOUT_YOU_LIMIT,"interviewOffered":store::read(&store::key(&["interview-offered"]))?.is_some_and(|v| v["offered"] == true)}))
 }
 
 fn clipped(text: &str, limit: usize) -> String {

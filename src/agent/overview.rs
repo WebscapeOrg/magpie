@@ -64,6 +64,11 @@ pub(crate) async fn generate(messages: &Value, context: &Value, tier: Tier) -> R
     }).collect::<Vec<_>>()))
 }
 
+pub(crate) async fn interview(prompt: &Prompt) -> Result<Value, &'static str> {
+    if !personal().await { return Err("overview_ai_unavailable"); }
+    turn(prompt, "sonnet", &json!([])).await
+}
+
 const PAUSED_EXIT: i32 = 75;
 
 fn media_input(prompt: &Prompt, messages: &Value) -> Result<Vec<u8>, &'static str> {

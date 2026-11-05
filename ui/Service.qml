@@ -1514,8 +1514,7 @@ Item {
   readonly property var rawMessages: unified
     ? unifiedMessages : (current ? current.messages : [])
   readonly property bool curatedInbox: hasAgent && mailboxKey === "inbox" && !searchActive
-  readonly property var messages: curatedInbox ? inboxController.inboxRows(rawMessages) : rawMessages
-  readonly property int preparingInbox: curatedInbox ? rawMessages.length - messages.length : 0
+  readonly property var messages: rawMessages
   // Invariant: Labels belong to one account and are unavailable in unified view.
   readonly property var labels: unified ? [] : (current ? current.labels : [])
   readonly property bool canMoveToLabel: !unified

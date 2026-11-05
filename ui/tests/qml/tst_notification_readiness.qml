@@ -22,7 +22,6 @@ Item {
   property bool curatedInbox:true
   property bool listLoading:false
   property bool hasMore:false
-  property int preparingInbox:0
   property var accountSummaries:[{id:"a@example.test"}]
   property var rawMessages:[]
   property var messages:[]
@@ -40,7 +39,8 @@ Item {
   function test_unsupported_ai_keeps_inbox_and_bar_rows_without_requesting_preparation(){
    service.hasAgent=false
    var rows=[{id:"raw",subject:"Original subject"}]
-   compare(tools.inboxRows(rows),rows);compare(tools.admitted(host.accountId,rows),rows)
+   service.rawMessages=rows;compare(tools.status(rows[0]),"plain");compare(tools.writingCount,0);compare(tools.hold,"")
+   compare(tools.admitted(host.accountId,rows),rows);service.rawMessages=[]
    tools.requestOverviews({accountId:host.accountId,ids:["raw"]})
    compare(backend.calls.filter(function(c){return c.method==="inbox.overviews"}).length,0)
   }
@@ -57,7 +57,7 @@ Item {
   function test_temporary_provider_outage_keeps_curated_admission(){
    verify(service.hasAgent);compare(service.agentAvailable,false)
    var rows=[{id:"raw",subject:"Original subject"}]
-   compare(tools.inboxRows(rows).length,0);compare(tools.admitted(host.accountId,rows).length,0)
+   compare(tools.status(rows[0]),"writing");compare(tools.admitted(host.accountId,rows).length,0)
    tools.queueNotifications(host.accountId,rows);tools.flushNotifications(host.accountId)
    var q=summaryRequest();verify(q)
    q.done({summaries:[{id:"raw",matchesQuery:true,subject:"Original subject"}]},null)
@@ -96,8 +96,9 @@ Item {
   function test_transport_failure_age_survives_repeated_failure_and_clears_on_success(){
    var name="a@example.test\nsnapshot",start=Date.now()-901000
    var values=({});values[name]=start;tools.preparationFailures=values;tools.preparationResult("a@example.test","snapshot",true)
-   compare(tools.preparationFailures[name],start);service.preparingInbox=1;tools.overviewClock=Date.now();verify(tools.preparationProblem.indexOf("All mail")>=0)
-   tools.preparationResult("a@example.test","snapshot",false);compare(Object.keys(tools.preparationFailures).length,0);service.preparingInbox=0
+   compare(tools.preparationFailures[name],start);service.rawMessages=[{id:"raw"}];tools.overviewClock=Date.now()
+   compare(tools.hold,"unanswered");compare(tools.holdText,"Claude has not answered for 15 minutes. Magpie keeps trying.")
+   tools.preparationResult("a@example.test","snapshot",false);compare(Object.keys(tools.preparationFailures).length,0);compare(tools.hold,"");service.rawMessages=[]
   }
 
   function test_no_subject_or_alert_before_ready(){

@@ -23,7 +23,7 @@ Item {
       failOnWarning(/Unable to assign|TypeError|ReferenceError/)
       mouseMove(row,-20,-20)
       row.width=600;row.hasCursor=false;row.checked=false;row.conversations=false
-      row.attachmentIndicatorEnabled=true;row.overview="";row.overviewState="";row.overviewReason=""
+      row.attachmentIndicatorEnabled=true;row.overview="";row.writing=false
       row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",unread:false,starred:false}
       waitForRendering(row)
     }
@@ -86,11 +86,12 @@ Item {
       compare(description.mapToItem(row,0,0).x,before.x)
       row.attachmentIndicatorEnabled=true
     }
-    function test_long_failure_tooltip_fits_a_narrow_row() {
+    function test_long_subject_tooltip_fits_a_narrow_row() {
       row.width=360;row.hasCursor=false
-      row.overview="";row.overviewState="failed"
-      row.overviewReason="AI response could not be verified against the mail; retry from Menu"
+      row.overview=""
+      row.summary={id:"one",subject:"A subject long enough to need more than the three lines a sender's subject may take in a narrow row, so the whole of it is shown on hover instead, with nothing cut off and nothing spilling past the row",from:{display:"Sender"},time:"09:14",unread:false,starred:false}
       waitForRendering(row)
+      verify(findChild(row,"message-subject").truncated)
       var description=findChild(row,"message-subject")
       mouseMove(description,5,5)
       var tooltip=findChild(row,"overview-tooltip")
@@ -100,13 +101,10 @@ Item {
       compare(tooltip.contentItem.wrapMode,Text.WordWrap)
       verify(tooltip.contentItem.height>tooltip.fontSize*1.5)
       mouseMove(row,-20,-20)
-      row.overviewState="";row.overviewReason=""
     }
-    function test_phase_four_tools_and_failure_detail() {
+    function test_phase_four_tools_and_a_failed_point_shows_the_subject() {
       row.hasCursor=true
       row.overview=""
-      row.overviewState="failed"
-      row.overviewReason="AI response could not be verified against the mail; retry from Menu"
       row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",unread:false,starred:false,sourceLabel:"Personal"}
       waitForRendering(row)
       var time=findChild(row,"message-time")
@@ -117,7 +115,34 @@ Item {
       compare(actions.spacing,unread.width*0.15)
       compare(findChild(row,"message-subject").text,"Title")
       compare(findChild(row,"message-description").visible,false)
-      row.overviewState="";row.overviewReason="";row.hasCursor=false
+      compare(findChild(row,"overview-tooltip").visible,false,"no warning on the row")
+      row.hasCursor=false
+    }
+    function test_a_point_being_written_shows_moving_lines_then_fades_in_data() {
+      return [{tag:"narrow-actions",width:360,actions:true},{tag:"narrowest",width:280,actions:false},{tag:"wide",width:600,actions:false}]
+    }
+    function test_a_point_being_written_shows_moving_lines_then_fades_in(data) {
+      row.width=data.width;row.hasCursor=data.actions
+      row.summary={id:"one",subject:"Original subject",snippet:"Old preview",from:{display:"Sender"},time:"22:58",unread:true}
+      row.writing=true
+      waitForRendering(row)
+      var placeholder=findChild(row,"point-placeholder"),subject=findChild(row,"message-subject"),sender=findChild(row,"message-sender")
+      compare(placeholder.visible,true);compare(subject.visible,false);compare(findChild(row,"message-description").visible,false)
+      compare(placeholder.Accessible.name,"Point being written. Original subject")
+      var top=placeholder.mapToItem(row,0,0)
+      verify(top.y>=sender.mapToItem(row,0,sender.height).y,"the lines sit below the sender")
+      verify(top.y+placeholder.height<=row.height-6,"with space below them")
+      if (data.actions) verify(placeholder.mapToItem(row,placeholder.width,0).x<=findChild(row,"message-actions").x)
+      else verify(placeholder.mapToItem(row,placeholder.width,0).x<=row.width)
+      row.overview="Ana needs your answer by Friday."
+      row.writing=false
+      compare(placeholder.visible,false);compare(subject.visible,true);compare(subject.text,row.overview)
+      verify(subject.opacity<1,"the Point fades in")
+      tryCompare(subject,"opacity",1,2000)
+      row.summary={id:"two",subject:"Other",from:{display:"Sender"},time:"22:58",unread:false}
+      row.writing=true;row.summary={id:"three",subject:"Reused",from:{display:"Sender"},time:"22:58",unread:false};row.writing=false
+      compare(subject.opacity,1,"a recycled row does not fade")
+      row.overview=""
     }
     function test_description_replaces_subject_and_preview_without_colliding_with_actions() {
       row.width=360;row.hasCursor=true
@@ -168,7 +193,7 @@ Item {
       compare(row.height,oneLine,"the row returns to its size without the Point")
     }
     function test_a_long_subject_without_a_point_stops_at_three_lines_and_shows_whole_on_hover() {
-      row.width=360;row.hasCursor=false;row.overview="";row.overviewState="";row.overviewReason=""
+      row.width=360;row.hasCursor=false;row.overview=""
       var long=""
       for(var i=0;i<30;i++) long+="Quarterly statement and notes "
       row.summary={id:"one",subject:long,from:{display:"Sender"},time:"09:14",unread:false}

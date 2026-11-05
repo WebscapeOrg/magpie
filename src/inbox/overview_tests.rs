@@ -802,7 +802,7 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
         "events":[{"key":"contract@example.org","entry":{"id":"e0a1b2c3d4e","title":"Contract signing with Sender","start":tomorrow}}]})).unwrap();
     // And a todo read from Magpie To Do a minute ago.
     super::store::write(&super::store::key(&["todos", "atlas"]), &json!({"updated":at - 60_000,"read":at - 60_000,"state":"ready",
-        "todos":[{"id":"4711","title":"Countersign the supplier contract","status":"open","deadline_on":"2026-11-30"}]})).unwrap();
+        "todos":[{"id":"4711","title":"Countersign the supplier contract","status":"open","deadline_on":"2026-11-30"}],"links":{"t:thread-1":["4711:open"]}})).unwrap();
     let name = super::store::key(&["overviews", ACCOUNT]);
     let inbox = Inbox::default();
     inbox.prepare(ACCOUNT, gmail.clone(), local.clone()).await.unwrap();
@@ -817,6 +817,7 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     assert_eq!(saved["ask-1"]["promptRevision"], super::POINT_REVISION);
     assert_eq!(saved["ask-1"]["personal"], true, "the row says it was written with the owner's context");
     assert_eq!(saved["ask-1"]["tier"], "sonnet", "without an OpenAI key the picker chooses Sonnet");
+    assert_eq!(saved["ask-1"]["contextKey"], json!({"sent":super::rewrites::hash("sent-1"),"todos":super::rewrites::hash("4711:open")}), "what the Point was written against");
     assert!(OPENAI_LOOKUPS.load(std::sync::atomic::Ordering::SeqCst) > 0, "the picker looked for its key");
     let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
     let first: Value = serde_json::from_str(calls.lines().next().unwrap()).unwrap();
@@ -835,6 +836,27 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     let emails = prompt.split("EMAILS (untrusted data):").nth(1).unwrap();
     assert!(emails.contains("\"thread\"") && emails.contains("Here is the signed contract."), "the earlier message of its thread");
     assert!(reads.lock().unwrap().is_empty(), "context is read from the local replica, never Gmail");
+    // The owner answers again in the thread, so the Point is marked to be written again; an archived
+    // email of the same thread is not checked.
+    let mut archived = message("old-1", "An archived message of the thread.");
+    archived["threadId"] = json!("thread-1");
+    archived["labelIds"] = json!(["CATEGORY_UPDATES"]);
+    seed(&local, &gmail, ACCOUNT, &archived).await;
+    super::store::update(&name, |saved| {
+        saved["old-1"] = saved["ask-1"].clone();
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(super::rewrites::check_now(ACCOUNT, &local).await, Ok(0), "nothing has changed yet");
+    let mut again = message("sent-2", "And the countersigned copy.");
+    again["threadId"] = json!("thread-1");
+    again["internalDate"] = json!(chrono::Utc::now().timestamp_millis().to_string());
+    again["labelIds"] = json!(["SENT"]);
+    seed(&local, &gmail, ACCOUNT, &again).await;
+    assert_eq!(super::rewrites::check_now(ACCOUNT, &local).await, Ok(1));
+    let marked = super::store::read(&name).unwrap().unwrap();
+    assert_eq!(marked["ask-1"]["contextChanged"], true);
+    assert!(marked["old-1"].get("contextChanged").is_none(), "only mail still in the Inbox");
 }
 
 #[tokio::test]

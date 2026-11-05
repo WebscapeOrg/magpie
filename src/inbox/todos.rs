@@ -24,6 +24,8 @@ const DONE_WITHIN: i64 = 14 * 86_400_000;
 const EMAILS: usize = 3;
 const TEXT: usize = 200;
 const REF: usize = 100;
+/// The most emails the links of one read may name.
+const LINKS: usize = 4_000;
 const RESPONSE_LIMIT: usize = 2 * 1024 * 1024;
 /// How long a read is reused before Magpie To Do is asked again.
 const FRESH: i64 = 10 * 60_000;
@@ -147,19 +149,47 @@ pub(crate) fn entries(items: &[Value], at: i64) -> Vec<Value> {
     open.into_iter().chain(done.into_iter().take(DONE).map(|(_, entry)| entry)).collect()
 }
 
-/// What Magpie To Do's answer means: its todos, a refused key, or a read to try again later.
-fn answer(status: u16, body: &[u8], at: i64) -> Result<Vec<Value>, &'static str> {
+/// Which todos each email is linked to, as sorted `id:status` lists keyed `t:<thread id>` and
+/// `g:<Gmail id>` (from a `source_ref` of gmail:…:<id>). Taken from every todo that counts (open, or
+/// done in the last two weeks) before the list is cut to OPEN and DONE, so whether an email's Point
+/// is written again never depends on where its todo falls in the list.
+fn links_of(items: &[Value], at: i64) -> Value {
+    use std::collections::{BTreeMap, BTreeSet};
+    let since = at - DONE_WITHIN;
+    let mut links: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (entry, _) in items.iter().filter_map(|item| entry(item, since)) {
+        let todo = format!("{}:{}", entry["id"].as_str().unwrap_or(""), entry["status"].as_str().unwrap_or(""));
+        let threads = entry["emails"].as_array().into_iter().flatten().filter_map(|email| email["thread_id"].as_str()).map(|thread| format!("t:{thread}"));
+        let message = entry["source_ref"]
+            .as_str()
+            .filter(|reference| reference.starts_with("gmail:"))
+            .and_then(|reference| reference.rsplit(':').next())
+            .filter(|id| !id.is_empty())
+            .map(|id| format!("g:{id}"));
+        for key in threads.chain(message) {
+            if links.len() < LINKS || links.contains_key(&key) {
+                links.entry(key).or_default().insert(todo.clone());
+            }
+        }
+    }
+    json!(links)
+}
+
+/// What Magpie To Do's answer means: its todos and the emails they link to, a refused key, or a
+/// read to try again later.
+fn answer(status: u16, body: &[u8], at: i64) -> Result<(Vec<Value>, Value), &'static str> {
     match status {
         200 => {
             let page: Value = serde_json::from_slice(body).map_err(|_| "todos_invalid")?;
-            Ok(entries(page["todos"].as_array().ok_or("todos_invalid")?, at))
+            let items = page["todos"].as_array().ok_or("todos_invalid")?;
+            Ok((entries(items, at), links_of(items, at)))
         }
         401 => Err("todos_unauthorized"),
         _ => Err("todos_unavailable"),
     }
 }
 
-async fn fetch(key: &[u8], at: i64) -> Result<Vec<Value>, &'static str> {
+async fn fetch(key: &[u8], at: i64) -> Result<(Vec<Value>, Value), &'static str> {
     let key = std::str::from_utf8(key).ok().filter(|key| is_key(key)).ok_or("todos_unauthorized")?;
     let client = reqwest::Client::builder()
         .https_only(true)
@@ -229,17 +259,29 @@ async fn atlas_todos(at: i64, network: bool) -> Vec<Value> {
         }
         Err(_) => {
             let todos = usable(&saved, at);
-            let _ = store::write(&saved_key(), &json!({"updated":at,"read":saved["read"],"state":"unavailable","todos":todos}));
+            let _ = store::write(&saved_key(), &json!({"updated":at,"read":saved["read"],"state":"unavailable","todos":todos,"links":saved["links"]}));
             return todos;
         }
     };
-    let (state, read, todos) = match fetch(key.as_slice(), at).await {
-        Ok(todos) => ("ready", json!(at), todos),
-        Err("todos_unauthorized") => ("unauthorized", Value::Null, Vec::new()),
-        Err(_) => ("unavailable", saved["read"].clone(), usable(&saved, at)),
+    let (state, read, todos, links) = match fetch(key.as_slice(), at).await {
+        Ok((todos, links)) => ("ready", json!(at), todos, links),
+        Err("todos_unauthorized") => ("unauthorized", Value::Null, Vec::new(), Value::Null),
+        Err(_) => ("unavailable", saved["read"].clone(), usable(&saved, at), saved["links"].clone()),
     };
-    let _ = store::write(&saved_key(), &json!({"updated":at,"read":read,"state":state,"todos":todos}));
+    let _ = store::write(&saved_key(), &json!({"updated":at,"read":read,"state":state,"todos":todos,"links":links}));
     todos
+}
+
+/// The emails the owner's Atlas todos link to, from the last good read while it is at most STALE
+/// old; None when there is no such read (not connected, refused, or not read for a day), so an
+/// unknown list never counts as a change.
+pub(crate) fn links(at: i64) -> Option<Value> {
+    let saved = store::read(&saved_key()).ok().flatten()?;
+    let read = saved["read"].as_i64()?;
+    if read > at || at.saturating_sub(read) > STALE {
+        return None;
+    }
+    Some(if saved["links"].is_object() { saved["links"].clone() } else { json!({}) })
 }
 
 fn forget() {
@@ -385,7 +427,7 @@ mod tests {
 
     #[test]
     fn atlas_todos_become_short_quotable_entries() {
-        let todos = answer(200, recorded().to_string().as_bytes(), at()).unwrap();
+        let todos = answer(200, recorded().to_string().as_bytes(), at()).unwrap().0;
         assert_eq!(todos.iter().map(|todo| todo["id"].clone()).collect::<Vec<_>>(), vec![json!("101"), json!("102"), json!("105"), json!("103")], "ids are strings; open first; binned left out");
         let passport = &todos[0];
         assert_eq!(passport["title"], "Renew passport");
@@ -428,6 +470,20 @@ mod tests {
         assert_eq!(kept[OPEN]["id"], "1059", "the most recently done first");
         assert_eq!(kept.last().unwrap()["id"], format!("{}", 1059 - DONE as i64 + 1));
         assert!(kept.iter().all(|todo| todo["id"] != "5000" && todo["title"] != "Odd"));
+    }
+
+    #[test]
+    fn an_emails_todos_are_linked_however_long_the_list() {
+        let at = at();
+        let (_, links) = answer(200, recorded().to_string().as_bytes(), at).unwrap();
+        assert_eq!(links, json!({"g:18f00":["101:open"],"t:18eff":["101:open"]}), "binned and unlinked todos name no email");
+        let mut items: Vec<Value> = (0..80).map(|n| json!({"id":n,"title":"Open","status":"open"})).collect();
+        items[75]["emails"] = json!([{"message_id":"<x@example.test>","thread_id":"far"}]);
+        let old = chrono::DateTime::from_timestamp_millis(at - 15 * 86_400_000).unwrap().to_rfc3339();
+        items.push(json!({"id":900,"title":"Long done","status":"done","done_at":old,"emails":[{"thread_id":"far"}]}));
+        let (kept, links) = answer(200, json!({"todos":items}).to_string().as_bytes(), at).unwrap();
+        assert!(kept.iter().all(|todo| todo["id"] != "75"), "past the 60 kept");
+        assert_eq!(links["t:far"], json!(["75:open"]), "still linked; a todo done over two weeks ago is not");
     }
 
     #[test]
@@ -511,11 +567,13 @@ mod tests {
         assert_eq!(page, json!({"connected":true,"state":"ready","open":1,"done":1}));
         assert!(!store::read(&saved_key()).unwrap().unwrap().to_string().contains(&key), "nor saved with the todos");
         assert_eq!(todos(false).await.len(), 2, "the saved read reaches the Point");
+        assert_eq!(links(now()), Some(json!({})), "a good read without links links nothing");
 
         assert_eq!(connection(Some("")).await.unwrap(), json!({"connected":false,"state":"off","open":0,"done":0}));
         assert!(matches!(credentials::get(slot()).await, Err(credentials::Error::Missing)), "Disconnect removes the key");
         assert!(store::read(&saved_key()).unwrap().is_none(), "and the todos read with it");
         assert!(todos(false).await.is_empty());
+        assert_eq!(links(now()), None, "and nothing is known about links any more");
     }
 
     #[test]

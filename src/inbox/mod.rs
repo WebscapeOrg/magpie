@@ -1954,3 +1954,60 @@ mod point_detail_tests {
         assert_eq!(snapshot["a"]["details"]["createMs"],23);
     }
 }
+
+#[cfg(all(test, feature = "mobile"))]
+mod mobile_overview_tests {
+    use super::*;
+    use crate::mail::tests::{account_fixture, isolated};
+
+    #[tokio::test]
+    async fn phone_page_preserves_saved_details_without_exposing_internal_or_other_account_data() {
+        if isolated() { return; }
+        let _fixture = account_fixture(json!({"version":1,"activeId":"owner@example.test","accounts":[
+            {"provider":"gmail","email":"owner@example.test"}, {"provider":"gmail","email":"other@example.test"}
+        ]}));
+        let id = "18c2f0a1b2c3d4e5";
+        let details = json!({"requestedModel":"sonnet","model":"claude-opus-5-5","gmailMs":125,"decideMs":230,"createMs":4567,"choice":"decisions"});
+        let mut row = json!({"state":"ready","text":"Sam needs your reply.","version":2,"promptRevision":POINT_REVISION,"expiresAt":0,"updated":now(),"tier":"sonnet","details":details,"contextKey":{"private":"not for the phone"},"lastAttempt":{"createMs":4},"internal":"private"});
+        row["details"]["private"] = json!("not for the phone");
+        store::write(&store::key(&["overviews","owner@example.test"]), &json!({id:row,"ab12":{"state":"ready","text":"Not requested."}})).unwrap();
+        store::write(&store::key(&["overviews","other@example.test"]), &json!({id:{"state":"ready","text":"Other account.","version":2,"expiresAt":0,"details":{"createMs":99}}})).unwrap();
+        let engine = crate::backend::Engine::default();
+        let page = engine.mobile_overviews(&json!({"accountId":"owner@example.test","ids":[id]})).await.unwrap();
+        assert_eq!(page["overviews"].as_object().unwrap().len(), 1);
+        assert_eq!(page["overviews"][id]["details"], details);
+        assert_eq!(page["overviews"][id]["tier"], "sonnet");
+        assert_eq!(page["overviews"][id]["text"], "Sam needs your reply.");
+        for field in ["contextKey", "lastAttempt", "internal"] { assert!(page["overviews"][id].get(field).is_none(), "{field}"); }
+        let other = engine.mobile_overviews(&json!({"accountId":"other@example.test","ids":[id]})).await.unwrap();
+        assert_eq!(other["overviews"][id]["details"]["createMs"], 99);
+        assert!(engine.mobile_overviews(&json!({"accountId":"unknown@example.test","ids":[id]})).await.is_err());
+        engine.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn phone_page_preserves_rewrite_history_and_rejects_unbounded_metadata() {
+        if isolated() { return; }
+        let _fixture = account_fixture(json!({"version":1,"activeId":"owner@example.test","accounts":[{"provider":"gmail","email":"owner@example.test"}]}));
+        let rows = json!({
+            "ab10":{"state":"failed","previousPoint":true,"details":{"requestedModel":"opus","createMs":900},"lastAttempt":{"requestedModel":"haiku","createMs":7}},
+            "ab11":{"state":"ready","text":"Your earlier Point.","version":2,"expiresAt":1,"tier":"haiku"},
+            "ab12":{"state":"waiting","previousPoint":true,"details":{"gmailMs":0,"decideMs":-1,"createMs":86400001,"requestedModel":"<img>","model":"claude-haiku-5-5","extra":"private"},"tier":"<img>"}
+        });
+        store::write(&store::key(&["overviews","owner@example.test"]), &rows).unwrap();
+        let engine = crate::backend::Engine::default();
+        let page = engine.mobile_overviews(&json!({"accountId":"owner@example.test","ids":["ab10","ab11","ab12"]})).await.unwrap();
+        let shown = &page["overviews"];
+        assert_eq!(shown["ab10"]["previousPoint"], true);
+        assert_eq!(shown["ab10"]["details"], json!({"requestedModel":"opus","createMs":900}));
+        assert!(shown["ab10"].get("lastAttempt").is_none());
+        assert_eq!(shown["ab11"]["state"], "stale");
+        assert_eq!(shown["ab11"]["tier"], "haiku");
+        assert!(shown["ab11"].get("text").is_none());
+        assert!(shown["ab11"].get("details").is_none(), "do not invent historical timings");
+        assert_eq!(shown["ab12"]["previousPoint"], true);
+        assert_eq!(shown["ab12"]["details"], json!({"gmailMs":0,"model":"claude-haiku-5-5"}));
+        assert!(shown["ab12"].get("tier").is_none());
+        engine.shutdown().await.unwrap();
+    }
+}

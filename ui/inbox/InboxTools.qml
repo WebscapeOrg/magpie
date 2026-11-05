@@ -70,6 +70,9 @@ Item {
     for (var account in preferenceQueue) if (owners[account]) prefs[account] = preferenceQueue[account]
     for (var name in preparationFailures) if (owners[name.split("\n")[0]]) failures[name] = preparationFailures[name]
     for (var name in overviews) if (owners[name.split("\n")[0]]) values[name] = overviews[name]
+    var writing = ({})
+    for (var account in writingIds) if (owners[account]) writing[account] = writingIds[account]
+    writingIds = writing
     notificationRows = notifications; preferenceQueue = prefs; preparationFailures = failures; overviews = values
     if ((oldQueue !== JSON.stringify(prefs) || oldFailures !== JSON.stringify(failures)) && typeof service.saveWindowPrefs === "function") service.saveWindowPrefs()
   }
@@ -127,6 +130,13 @@ Item {
     for (var i=0;i<rows.length;i++) if (Readiness.status(overviewFor(rows[i]), overviewClock, false) === "writing") count++
     return count
   }
+  property bool selecting: false
+  property var writingIds: ({})
+  readonly property var stack: Readiness.stack(service ? service.rawMessages || [] : [], overviewFor,
+    function(row) {
+      var host = owner(row)
+      return !!host && (writingIds[host.accountId] || []).indexOf(id(row)) >= 0
+    }, overviewClock, writesPoints && hold === "" && !selecting)
   property string notice: ""
   property var snoozes: []
   property var lastSnoozed: null
@@ -184,6 +194,9 @@ Item {
       delete root.snapshotsPending[account]
       if (!(service.accountSummaries || []).some(function(row) { return row.id === account })) return
       root.preparationResult(account,"snapshot",!!failure || !result)
+      var active = Object.assign({}, root.writingIds)
+      active[account] = !failure && result && Array.isArray(result.writingIds) ? result.writingIds : []
+      root.writingIds = active
       if (failure || !result) return
       var next = Object.assign({},root.overviews)
       for (var oldKey in next) if (oldKey.indexOf(account + "\n") === 0) delete next[oldKey]

@@ -25,3 +25,24 @@ assert.strictEqual(readiness.waited(25*60000),"25 minutes");
 assert.strictEqual(readiness.waited(65*60000),"1 hour 5 minutes");
 assert.strictEqual(readiness.waited(120*60000),"2 hours");
 console.log("Inbox readiness checks passed");
+
+const rows = [{id:"one/same"}, {id:"done"}, {id:"two/same"}, {id:"failed"}];
+let values = {"one/same":{state:"running",updated:1}, done:{...ready,expiresAt:0}, failed:{state:"failed",attempts:1}};
+const valuesFor = row => values[row.id];
+let stack = readiness.stack(rows, valuesFor, row => row.id === "two/same", 1000, true);
+assert.strictEqual(stack.currentId,"two/same");
+assert.strictEqual(stack.count,2);
+assert.strictEqual(stack.depth,2);
+assert.deepStrictEqual(Array.from(stack.messages, row => row.id),["two/same","done","failed"]);
+assert.strictEqual(rows.length,4,"raw queue is not changed");
+values["two/same"] = {...ready, expiresAt:0, refresh:true};
+stack = readiness.stack(rows, valuesFor, row => row.id === "two/same", 1000, true);
+assert.strictEqual(stack.currentId,"one/same");
+assert.deepStrictEqual(Array.from(stack.messages, row => row.id),["one/same","done","two/same","failed"]);
+assert.strictEqual(readiness.stack(rows, valuesFor, () => true, 1000, false).messages,rows,"selection and holds expose every row");
+for (let count=0;count<=5;count++) {
+  const pending=Array.from({length:count},(_,i)=>({id:String(i)}));
+  const state=readiness.stack(pending,()=>({}),()=>false,1000,true);
+  assert.strictEqual(state.depth,Math.min(3,count));
+  assert.strictEqual(state.messages.length,Math.min(1,count));
+}

@@ -14,6 +14,7 @@
     "inbox.removePictureKey",
     "inbox.aboutYou",
     "inbox.calendarAccess",
+    "inbox.todoConnection",
     "ai.spending",
     "inbox.snooze",
     "inbox.wake",
@@ -2288,6 +2289,34 @@
       }
     },
     {
+      "name": "Inbox todo connection rejects unknown fields",
+      "method": "inbox.todoConnection",
+      "params": {
+        "link": "",
+        "server": "https://atlas.anotherdave.net"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox todo connection refuses a link that is not text",
+      "method": "inbox.todoConnection",
+      "params": {
+        "link": 5
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox todo connection refuses a link to another server before storing anything",
+      "method": "inbox.todoConnection",
+      "params": {
+        "link": "magpie://connect?server=https%3A%2F%2Fatlas.evil.example&token=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "errorCode": -32000,
+      "equals": {
+        "message": "todos_link_invalid"
+      }
+    },
+    {
       "name": "AI spending needs the starts of today, this week and this month",
       "method": "ai.spending",
       "params": {
@@ -2347,6 +2376,7 @@
       "inbox.removePictureKey",
       "inbox.aboutYou",
       "inbox.calendarAccess",
+      "inbox.todoConnection",
       "ai.spending",
       "inbox.snooze",
       "inbox.wake",
@@ -2461,7 +2491,10 @@
       "Inbox about you returns the saved bio and its limit",
       "Inbox calendar access rejects unknown fields",
       "Inbox calendar access refuses an account that is not signed in",
-      "Inbox calendar access names each account's state"
+      "Inbox calendar access names each account's state",
+      "Inbox todo connection rejects unknown fields",
+      "Inbox todo connection refuses a link that is not text",
+      "Inbox todo connection refuses a link to another server before storing anything"
     ]
   },
   "releasedContract": {

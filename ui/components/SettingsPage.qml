@@ -769,6 +769,16 @@ Column {
     panelFontFamily: root.panelFontFamily
   }
 
+  TodoSettings {
+    objectName: "settings-todos-section"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
   PictureSettings {
     id: pictureSettings
     objectName: "settings-pictures"

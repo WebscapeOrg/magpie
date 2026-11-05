@@ -10,6 +10,8 @@ pub(crate) mod point_context;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod calendar;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod todos;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod picker;
 #[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
 pub(crate) mod point_eval;
@@ -444,6 +446,17 @@ impl Inbox {
                     let _ = gmail.call("gmail.invalidate", &json!({"accountId":account})).await;
                 }
                 Ok(json!({"accounts":calendar::check(&gmail, &accounts, recheck).await}))
+            }
+            // Whether The Point reads the owner's todos from Magpie To Do; `link` connects a key from
+            // Atlas's Settings → Connections → Magpie, and an empty `link` disconnects.
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.todoConnection" => {
+                fields(params, &["link"])?;
+                let link = match params.get("link") {
+                    Some(value) => Some(value.as_str().filter(|link| link.len() <= 4096).ok_or("invalid_params")?),
+                    None => None,
+                };
+                todos::connection(link).await
             }
             "inbox.preferences" => {
                 fields(params, &["accountId", "paused", "allowRemoteImages"])?;

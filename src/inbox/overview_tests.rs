@@ -800,6 +800,9 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     let tomorrow = chrono::DateTime::from_timestamp_millis(at + 86_400_000).unwrap().to_rfc3339();
     super::store::write(&super::store::key(&["calendar", ACCOUNT]), &json!({"updated":at - 60_000,"read":at - 60_000,"state":"ready",
         "events":[{"key":"contract@example.org","entry":{"id":"e0a1b2c3d4e","title":"Contract signing with Sender","start":tomorrow}}]})).unwrap();
+    // And a todo read from Magpie To Do a minute ago.
+    super::store::write(&super::store::key(&["todos", "atlas"]), &json!({"updated":at - 60_000,"read":at - 60_000,"state":"ready",
+        "todos":[{"id":"4711","title":"Countersign the supplier contract","status":"open","deadline_on":"2026-11-30"}]})).unwrap();
     let name = super::store::key(&["overviews", ACCOUNT]);
     let inbox = Inbox::default();
     inbox.prepare(ACCOUNT, gmail.clone(), local.clone()).await.unwrap();
@@ -827,6 +830,8 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     assert!(shared.contains("\"sent-1\"") && shared.contains("Signed contract"), "recent sent mail in the shared part");
     assert!(shared.contains("Contract signing with Sender") && shared.contains("\"e0a1b2c3d4e\""), "the calendar in the shared part");
     assert!(shared.find("CONTEXT (untrusted data").unwrap() < shared.find("Contract signing with Sender").unwrap(), "framed as untrusted data");
+    assert!(shared.contains("Countersign the supplier contract") && shared.contains("\"4711\""), "the todos in the shared part");
+    assert!(shared.find("CONTEXT (untrusted data").unwrap() < shared.find("Countersign the supplier contract").unwrap(), "todos framed as untrusted data");
     let emails = prompt.split("EMAILS (untrusted data):").nth(1).unwrap();
     assert!(emails.contains("\"thread\"") && emails.contains("Here is the signed contract."), "the earlier message of its thread");
     assert!(reads.lock().unwrap().is_empty(), "context is read from the local replica, never Gmail");

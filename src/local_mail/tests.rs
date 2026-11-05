@@ -815,3 +815,35 @@ fn a_store_from_an_earlier_build_of_this_change_gains_the_unsaved_generation() {
     drop(store);
     std::fs::remove_dir_all(path).unwrap();
 }
+#[test]
+fn replies_name_the_newest_message_the_owner_sent_in_each_thread() {
+    let path = directory();
+    {
+        let store = Store::open(open_directory(&path)).unwrap();
+        let at = |resource: &mut Value, thread: &str, date: &str, labels: Value| {
+            resource["threadId"] = json!(thread);
+            resource["internalDate"] = json!(date);
+            resource["labelIds"] = labels;
+        };
+        let mut asked = message("asked", "Can you send the receipts?");
+        at(&mut asked, "t1", "1700000000000", json!(["INBOX"]));
+        let mut first = message("first", "Here is one.");
+        at(&mut first, "t1", "1700000100000", json!(["SENT"]));
+        let mut second = message("second", "And the rest.");
+        at(&mut second, "t1", "1700000200000", json!(["SENT"]));
+        let mut elsewhere = message("elsewhere", "Another thread.");
+        at(&mut elsewhere, "t2", "1700000300000", json!(["SENT"]));
+        let mut quiet = message("quiet", "No answer yet.");
+        at(&mut quiet, "t3", "1700000000000", json!(["INBOX"]));
+        for resource in [&asked, &first, &second, &elsewhere, &quiet] {
+            store.put(resource, 1).unwrap();
+        }
+        let replies = store.replies(&["asked".into(), "quiet".into(), "missing".into()]).unwrap();
+        assert_eq!(
+            replies,
+            vec![("asked".into(), "t1".into(), Some("second".into())), ("quiet".into(), "t3".into(), None)],
+            "the newest sent message of the email's own thread; an email this copy lacks is left out"
+        );
+    }
+    std::fs::remove_dir_all(path).unwrap();
+}

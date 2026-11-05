@@ -12,6 +12,8 @@ pub(crate) mod calendar;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod todos;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod rewrites;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod picker;
 #[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
 pub(crate) mod point_eval;
@@ -196,6 +198,7 @@ impl Inbox {
         if prefs["paused"] == true {
             return Ok(());
         }
+        let _ = rewrites::check(account, &local_mail).await;
         let candidates = local_mail.overview_candidates(account).await?;
         let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
         let ids: Vec<_> = candidates
@@ -338,6 +341,14 @@ impl Inbox {
             let account = crate::mail::resolve_account(account)?.id;
             store::update(&store::key(&["overviews", &account]), forgive_attempts)
         })
+    }
+    /// Marks the account's Inbox Points whose thread or linked todos changed since they were
+    /// written, so the app asks for them again (at most once a minute).
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn check_rewrites(&self, account: &str, local_mail: &crate::local_mail::LocalMail) {
+        if let Ok(account) = crate::mail::resolve_account(account) {
+            let _ = rewrites::check(&account.id, local_mail).await;
+        }
     }
     /// The saved descriptions for one page of the app's mail.
     #[cfg(feature = "mobile")]
@@ -641,12 +652,20 @@ fn finish_overviews_protected(
                 if let Some(tier) = row["tier"].as_str().filter(|tier| ["haiku", "sonnet", "opus"].contains(tier)) {
                     ready["tier"] = json!(tier);
                 }
+                if row["contextKey"]["sent"].is_string() {
+                    ready["contextKey"] = row["contextKey"].clone();
+                }
                 ready
             }
             None if overview_current(&saved[id], now()) => {
                 let mut previous = saved[id].clone();
                 previous["rewriteState"] = json!("failed");
                 previous["rewriteAt"] = json!(now());
+                // A rewrite that failed for the message's own reasons counts, so one that can never be
+                // written again stops being asked after RETRY_LIMIT and keeps its Point.
+                if own {
+                    previous["rewriteAttempts"] = json!(previous["rewriteAttempts"].as_u64().unwrap_or(0) + 1);
+                }
                 if error == Some(WAITS_FOR_APP) {
                     previous["foreground"] = json!(true);
                 }
@@ -839,6 +858,14 @@ async fn overview_batch(
         }
         let prepared = json!(prepared);
         let shared = if personal { point_context::shared(local_mail, gmail, !background).await } else { json!({}) };
+        // What each Point is written against, taken after the shared context read the todos, so a
+        // later reply in the thread or change to a linked todo has it written again.
+        let keys = if personal {
+            let ids: Vec<String> = prepared.as_array().into_iter().flatten().filter_map(|message| message["id"].as_str().map(str::to_owned)).collect();
+            rewrites::keys(account, &ids, local_mail).await
+        } else {
+            std::collections::HashMap::new()
+        };
         // Invariant: when the app left while the mail was being prepared, nothing is sent; the
         // messages are returned as not asked and are described when it returns.
         let generated = if suspensions() != left_before {
@@ -863,6 +890,9 @@ async fn overview_batch(
                 for row in rows.as_array_mut().into_iter().flatten() {
                     if !row["personal"].is_boolean() {
                         row["personal"] = json!(personal);
+                    }
+                    if let Some(key) = row["id"].as_str().and_then(|id| keys.get(id)).filter(|_| row["personal"] == true) {
+                        row["contextKey"] = key.clone();
                     }
                 }
                 rows
@@ -1073,9 +1103,12 @@ fn valid_description(text: &str) -> bool {
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 fn overview_due(value: &Value, retry: bool, at: i64) -> bool {
     if overview_current(value, at) {
+        // Written under earlier rules, without the owner's context, or before the owner answered in
+        // its thread or a linked todo changed (rewrites.rs).
         let behind = value["promptRevision"] != POINT_REVISION
-            || (value["personal"] == false && PERSONAL.load(std::sync::atomic::Ordering::Acquire));
-        if !behind {
+            || (value["personal"] == false && PERSONAL.load(std::sync::atomic::Ordering::Acquire))
+            || value["contextChanged"] == true;
+        if !behind || (!retry && value["rewriteAttempts"].as_u64().unwrap_or(0) >= RETRY_LIMIT) {
             return false;
         }
         let age = at.saturating_sub(value["rewriteAt"].as_i64().unwrap_or(0));
@@ -1108,6 +1141,9 @@ fn forgive_attempts(saved: &mut Value) -> Result<(), &'static str> {
     for row in saved.as_object_mut().ok_or("inbox_storage_invalid")?.values_mut() {
         if row["state"] == "failed" && row.get("attempts").is_some() {
             row["attempts"] = json!(0);
+        }
+        if row.get("rewriteAttempts").is_some() {
+            row["rewriteAttempts"] = json!(0);
         }
         // Retry means now: a failed or waiting message is due on the next poll, not after its wait.
         if matches!(row["state"].as_str(), Some("failed" | "waiting")) {
@@ -1373,6 +1409,56 @@ mod overview_attempt_tests {
         assert_eq!(saved["with"]["personal"], true);
         assert_eq!(saved["without"]["personal"], false);
         assert!(saved["unmarked"].get("personal").is_none());
+    }
+
+    #[test]
+    fn a_point_whose_thread_or_todo_changed_is_written_again_and_keeps_its_new_key() {
+        let at = now();
+        let written = json!({"sent":"aaaa","todos":"bbbb"});
+        let point = json!({"state":"ready","text":"Maeve needs your receipts by Sunday.","version":2,"promptRevision":POINT_REVISION,"personal":true,"updated":at,"expiresAt":0,"contextKey":written});
+        assert!(!overview_due(&point, false, at));
+        let mut changed = point.clone();
+        changed["contextChanged"] = json!(true);
+        assert!(overview_due(&changed, false, at), "written again");
+        let shown = overview_snapshot(json!({"m":changed.clone()}), at).unwrap();
+        assert_eq!(shown["m"]["refresh"], true, "the app asks for it");
+        assert_eq!(shown["m"]["text"], "Maeve needs your receipts by Sunday.", "the old Point stays in view meanwhile");
+
+        let fresh = json!({"sent":"cccc","todos":"bbbb"});
+        let ids = ["m".to_string(), "odd".to_string(), "loose".to_string()];
+        let mut saved = json!({"m":changed,"odd":{"state":"running","updated":at,"version":2},"loose":{"state":"running","updated":at,"version":2}});
+        let rows = json!([
+            {"id":"m","text":"You sent Maeve the receipts.","expiresAt":0,"personal":true,"contextKey":fresh},
+            {"id":"odd","text":"Pay the invoice by Friday.","expiresAt":0,"personal":true,"contextKey":{"sent":5}},
+            {"id":"loose","text":"Pay the invoice by Friday.","expiresAt":0,"personal":true,"contextKey":"aaaa"},
+        ]);
+        finish_overviews_protected(&mut saved, &ids, &Ok(rows), &Default::default()).unwrap();
+        assert_eq!(saved["m"]["text"], "You sent Maeve the receipts.");
+        assert_eq!(saved["m"]["contextKey"], fresh, "the new Point keeps what it was written against");
+        assert!(saved["m"].get("contextChanged").is_none());
+        assert!(!overview_due(&saved["m"], false, now()));
+        assert!(saved["odd"].get("contextKey").is_none() && saved["loose"].get("contextKey").is_none(), "only a key of the right shape is kept");
+    }
+
+    #[test]
+    fn a_rewrite_that_keeps_failing_stops_until_retry_and_the_point_stays() {
+        let at = now();
+        let mut saved = json!({"m":{"state":"ready","text":"Maeve needs your receipts by Sunday.","version":2,"promptRevision":POINT_REVISION,"personal":true,"updated":at,"expiresAt":0,"contextKey":{"sent":"a"},"contextChanged":true}});
+        let ids = ["m".to_string()];
+        for attempt in 1..=RETRY_LIMIT {
+            saved["m"]["rewriteState"] = json!("running");
+            saved["m"]["rewriteAt"] = json!(now());
+            finish_overviews_protected(&mut saved, &ids, &Ok(json!([{"id":"m","error":"overview_invalid"}])), &Default::default()).unwrap();
+            assert_eq!(saved["m"]["rewriteAttempts"], attempt);
+            assert_eq!(saved["m"]["text"], "Maeve needs your receipts by Sunday.", "the Point stays");
+        }
+        let later = now() + 16 * 60_000;
+        assert!(!overview_due(&saved["m"], false, later), "not asked again by itself");
+        assert!(overview_due(&saved["m"], true, later), "Retry asks again");
+        saved["m"]["rewriteState"] = json!("running");
+        saved["m"]["rewriteAt"] = json!(now());
+        finish_overviews_protected(&mut saved, &ids, &Err("ai_unavailable"), &Default::default()).unwrap();
+        assert_eq!(saved["m"]["rewriteAttempts"], RETRY_LIMIT, "a failure that says nothing about the message is not counted");
     }
 }
 

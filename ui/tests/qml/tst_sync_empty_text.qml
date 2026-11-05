@@ -47,7 +47,6 @@ Item {
     property bool listLoaded: true
     property string searchQuery: ""
     property var searchStatus: ({})
-    property int preparingInbox: 0
     property string selectedId: ""
     property bool canArchive: true
     property string contentDirection: "auto"

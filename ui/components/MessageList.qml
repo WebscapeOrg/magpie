@@ -151,8 +151,7 @@ ListView {
       snoozeOpen: root.snoozeId === modelData.id
       avatarData: root.service.inboxTools ? root.service.inboxTools.avatarFor(modelData) : ""
       overview: root.service.inboxTools && root.service.inboxTools.descriptionsEnabled !== false ? String(overviewDetails.text || "") : ""
-      overviewReason: root.service.inboxTools ? (root.service.inboxTools.available === false ? (!root.service.backend || !root.service.backend.ready ? "mail backend is disconnected" : "backend update required") : String(overviewDetails.reason || "")) : ""
-      overviewState: root.service.inboxTools ? (root.service.inboxTools.available === false ? "unavailable" : root.service.inboxTools.paused === true ? "paused" : String(overviewDetails.state || "")) : ""
+      writing: !!root.service.inboxTools && root.service.inboxTools.status(modelData) === "writing"
       onUnreadRequested: root.rowActionRequested(modelData.id, "markUnread")
       onSnoozeRequested: function(sceneX, sceneY) { root.snoozeRequested(modelData.id, sceneX, sceneY) }
       summary: modelData
@@ -190,19 +189,6 @@ ListView {
     textColor: root.textColor
   }
 
-  Text {
-    width: parent.width - MailStyle.space(20)
-    x: MailStyle.space(10)
-    visible: text !== ""
-    text: root.service && root.service.inboxTools ? root.service.inboxTools.preparationProblem : ""
-    textFormat: Text.PlainText
-    color: root.dimColor
-    font.family: root.panelFontFamily
-    font.pixelSize: MailStyle.bodySmall
-    wrapMode: Text.WordWrap
-    bottomPadding: visible ? MailStyle.space(12) : 0
-  }
-
   Item {
     width: parent.width
     visible: root.service.messages.length === 0
@@ -217,8 +203,7 @@ ListView {
       horizontalAlignment: Text.AlignHCenter
       readonly property var syncText: SyncHealth.emptyFor(root.service.localMailbox,
         root.service.searchQuery !== "", root.service.listLoading)
-      text: root.service.preparingInbox > 0 ? "Inbox messages appear when their Point is ready. All mail includes messages still being prepared."
-        : syncText !== null ? syncText
+      text: syncText !== null ? syncText
         : SearchPresentation.emptyText(root.service.searchStatus, root.service.listLoading,
           root.service.listLoaded, root.service.searchQuery !== "")
       textFormat: Text.PlainText

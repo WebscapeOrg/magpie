@@ -1693,6 +1693,14 @@ Item {
                 dimColor: root.dim
                 panelFontFamily: MailStyle.listFamily
               }
+              PointProgress {
+                width: parent.width
+                tools: root.service ? root.service.inboxTools : null
+                textColor: root.foreground
+                accentColor: root.accent
+                dimColor: root.dim
+                panelFontFamily: MailStyle.listFamily
+              }
             }
           }
           MessageList {

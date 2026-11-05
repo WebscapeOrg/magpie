@@ -81,16 +81,51 @@ Item {
     && !!service.backend.protocolInfo && service.backend.protocolInfo.engineService === true
   property bool retryFailed: false
   property string error: ""
-  readonly property string preparationProblem: {
-    if (!service || !service.preparingInbox) return ""
-    if (paused) return "New Inbox messages are paused. Choose Menu → Resume new Points, or open All mail."
+  // Invariant: Points are written for this view only in the curated Inbox, with Show the Point on and
+  // an engine that writes them; anywhere else every row shows its subject.
+  readonly property bool writesPoints: !!service && preparesInbox && available && descriptionsEnabled && service.curatedInbox === true
+  // When Claude or the AI worker stopped answering, cleared by the next Point written.
+  property double unansweredSince: 0
+  // The earliest silence still unbroken: Claude's, or the engine's own calls failing.
+  readonly property double failingSince: {
+    var since = unansweredSince
+    for (var name in preparationFailures) if (!since || preparationFailures[name] < since) since = preparationFailures[name]
+    return since
+  }
+  // Invariant: a lasting problem that stops every new Point, named in one line above the Inbox:
+  // "paused", "subscriptions" (every Claude subscription out) or "unanswered" (no answer for 15
+  // minutes while Points wait). Anything shorter shows as Points being written.
+  readonly property string hold: {
+    if (!writesPoints) return ""
     var rows = service.rawMessages || []
-    for (var name in preparationFailures) if (overviewClock - preparationFailures[name] >= 900000) return "Inbox preparation has been unavailable for a while. Choose Menu → Retry Points, or read these messages in All mail."
+    var unfinished = false, writing = false, spent = 0, written = 0
     for (var i=0;i<rows.length;i++) {
-      var value = overviewFor(rows[i]); var since = Number(value.pendingSince || value.updated || 0)
-      if (!value.text && since > 0 && overviewClock-since >= 900000) return "Some Inbox messages are taking longer to prepare. Choose Menu → Retry Points, or read them in All mail."
+      var value = overviewFor(rows[i]), updated = Number(value.updated || 0)
+      if (Readiness.ready(value, overviewClock)) { written = Math.max(written, updated); continue }
+      unfinished = true
+      if (Readiness.problem(value) === Readiness.SUBSCRIPTIONS_OUT) spent = Math.max(spent, updated)
+      if (Readiness.status(value, overviewClock, false) === "writing") writing = true
     }
-    return ""
+    if (!unfinished) return ""
+    if (paused) return "paused"
+    // A Point written since the last refusal means a subscription is back.
+    if (spent > written) return "subscriptions"
+    return writing && failingSince > 0 && overviewClock - failingSince >= 900000 ? "unanswered" : ""
+  }
+  readonly property string holdText: hold === "paused" ? "New Points are paused."
+    : hold === "subscriptions" ? "Your Claude subscriptions are all used up for now. Points continue when one resets."
+    : hold === "unanswered" ? "Claude has not answered for " + Readiness.waited(overviewClock - failingSince) + ". Magpie keeps trying."
+    : ""
+  function status(row) {
+    if (!writesPoints) return "plain"
+    return Readiness.status(overviewFor(row), overviewClock, hold !== "")
+  }
+  // How many Inbox rows show moving lines while Magpie writes their Point.
+  readonly property int writingCount: {
+    if (!writesPoints || hold !== "") return 0
+    var rows = service.rawMessages || [], count = 0
+    for (var i=0;i<rows.length;i++) if (Readiness.status(overviewFor(rows[i]), overviewClock, false) === "writing") count++
+    return count
   }
   property string notice: ""
   property var snoozes: []
@@ -111,10 +146,6 @@ Item {
     if (!preparesInbox) return rows
     var values = overviews; var at = overviewClock
     return rows.filter(function(row) { return Readiness.ready(values[key(account, id(row))], at) })
-  }
-  function inboxRows(rows) {
-    if (!preparesInbox) return rows
-    return rows.filter(function(row) { var host = owner(row); return host && Readiness.ready(overviews[key(host.accountId,id(row))], overviewClock) })
   }
   function savePreparationPreferences(field,value) {
     if (service.windowPrefsLoaded === false) return
@@ -161,7 +192,17 @@ Item {
         root.paused = (service.accountSummaries || []).some(function(row) { return prefs[row.id] && prefs[row.id].paused === true })
       }
       var values = result.overviews || ({})
-      for (var message in values) next[root.key(account,message)] = values[message]
+      var written = false, silent = false
+      for (var message in values) {
+        var name = root.key(account,message), value = values[message]
+        if (!Readiness.ready(root.overviews[name], root.overviewClock) && Readiness.ready(value, root.overviewClock)) written = true
+        // Asked in the last two minutes and Claude or the worker did not answer.
+        else if (value && value.state === "failed" && Readiness.UNANSWERED.indexOf(Readiness.problem(value)) >= 0
+          && Date.now() - Number(value.updated || 0) < 120000) silent = true
+        next[name] = value
+      }
+      if (written) root.unansweredSince = 0
+      else if (silent && !root.unansweredSince) root.unansweredSince = Date.now()
       root.overviews = next
       var kept = root.snoozes.filter(function(snooze) { return snooze.accountId !== account })
       root.snoozes = kept.concat(result.snoozes || [])
@@ -220,9 +261,10 @@ Item {
     var rows = service.accountSummaries || []
     for (var rowIndex=0;rowIndex<rows.length;rowIndex++) snapshot(rows[rowIndex].id)
     drain()
-    if (browsing && service.curatedInbox && service.rawMessages.length && !service.messages.length && service.hasMore && !service.listLoading) service.loadMore()
   }
-  onBrowsingChanged: if (browsing) refresh()
+  // Invariant: Claude's silence counts only while the window is open and asking, so an opened window
+  // never starts with an old one.
+  onBrowsingChanged: { unansweredSince = 0; if (browsing) refresh() }
   onVisibleRowsChanged: refreshSoon.restart()
   function retry() { retryFailed = true; error = ""; refresh() }
   function drain() {
@@ -256,7 +298,7 @@ Item {
         root.error = "Magpie could not start writing Points. Check the AI connection, then choose Menu → Retry Points."
         var next = Object.assign({},root.overviews)
         for (var messageIndex=0;messageIndex<batch.ids.length;messageIndex++)
-          next[root.key(batch.accountId,batch.ids[messageIndex])] = {state:"failed",reason:"AI request could not start; retry from Menu",updated:Date.now()}
+          next[root.key(batch.accountId,batch.ids[messageIndex])] = {state:"failed",reason:"AI request could not start; retry from Menu",problem:"overview_start_failed",updated:Date.now()}
         root.overviews = next
       }
       root.retryFailed = false

@@ -623,9 +623,10 @@ fn finish_overviews_protected(
                 previous
             }
             None if PHONE_WRITER => phone_unfinished(&saved[id], error, own, asked, attempts, pending_since, now()),
-            None => {
-                json!({"state":"failed","reason":overview_failure(error),"updated":now(),"pendingSince":pending_since,"version":2,"attempts":attempts})
-            }
+            None => with_problem(
+                json!({"state":"failed","reason":overview_failure(error),"updated":now(),"pendingSince":pending_since,"version":2,"attempts":attempts}),
+                error,
+            ),
         };
         match saved[id]["state"].as_str() {
             Some("ready") => tally.described += 1,
@@ -662,6 +663,20 @@ struct Tally {
     problem: Option<String>,
 }
 
+/// Codes a failed or waiting row keeps beside its reason, so an app can tell a problem that holds
+/// every Point (every Claude subscription out) or a pause in Claude's answers from the message's own
+/// failure. Invariant: only these fixed codes, never an error's text.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+const ROW_PROBLEMS: [&str; 6] = ["overview_ai_paused", "overview_ai_unavailable", "overview_start_failed", "ai_rate_limited", "ai_unavailable", "ai_unreachable"];
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn with_problem(mut row: Value, error: Option<&str>) -> Value {
+    if let Some(code) = error.and_then(|error| ROW_PROBLEMS.into_iter().find(|known| *known == error)) {
+        row["problem"] = json!(code);
+    }
+    row
+}
+
 /// What a message the phone could not describe becomes.
 /// Invariant: its own failure counts and is asked again after OWN_WAITS, until RETRY_LIMIT. A message
 /// that was not asked because Claude or the key failed first (or the app left) waits only for
@@ -672,13 +687,13 @@ struct Tally {
 fn phone_unfinished(previous: &Value, error: Option<&str>, own: bool, asked: bool, attempts: u64, pending_since: i64, at: i64) -> Value {
     let reason = overview_failure(error);
     if own {
-        let mut row = json!({"state":"failed","reason":reason,"updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts});
+        let mut row = with_problem(json!({"state":"failed","reason":reason,"updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts}), error);
         if let Some(wait) = OWN_WAITS.get(attempts.saturating_sub(1) as usize).filter(|_| attempts < RETRY_LIMIT) {
             row["retryAt"] = json!(at.saturating_add(*wait));
         }
         return row;
     }
-    let mut row = json!({"state":"waiting","reason":reason,"updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts});
+    let mut row = with_problem(json!({"state":"waiting","reason":reason,"updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts}), error);
     if error == Some(WAITS_FOR_APP) {
         row["foreground"] = json!(true);
     }
@@ -1670,6 +1685,19 @@ mod tier_tests {
         assert_eq!(account.unwrap_err(), "gmail_account_unknown", "an account's failure stops the batch");
         assert!(service_failure("overview_ai_paused"), "every subscription being out is not the message's attempt");
         assert!(overview_failure(Some("overview_ai_paused")).contains("subscription"));
+    }
+
+    #[test]
+    fn an_unfinished_row_names_a_problem_that_holds_every_point_but_not_the_messages_own() {
+        for (error, problem) in [("overview_ai_paused", json!("overview_ai_paused")), ("overview_ai_unavailable", json!("overview_ai_unavailable")), ("overview_unsupported_claim", Value::Null), ("gmail_account_unknown", Value::Null)] {
+            let mut saved = json!({"a":{"state":"running","updated":1,"version":2,"pendingSince":1}});
+            finish_overviews(&mut saved, &["a".to_owned()], &Ok(json!([{"id":"a","error":error,"stage":"batch"}]))).unwrap();
+            assert_ne!(saved["a"]["state"], "ready", "{error}");
+            assert_eq!(saved["a"]["problem"], problem, "{error}: {}", saved["a"]);
+        }
+        let mut saved = json!({"a":{"state":"running","updated":1,"version":2}});
+        finish_overviews(&mut saved, &["a".to_owned()], &Err("overview_ai_paused")).unwrap();
+        assert_eq!(saved["a"]["problem"], "overview_ai_paused", "a batch-wide failure is named too");
     }
 
     #[test]

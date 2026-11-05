@@ -8,6 +8,8 @@ pub(crate) mod describe;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod point_context;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod calendar;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod picker;
 #[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
 pub(crate) mod point_eval;
@@ -428,6 +430,21 @@ impl Inbox {
                 }
                 point_context::about_you_page()
             }
+            // Whether The Point may read each account's Google Calendar; `accountId` reads that one again.
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.calendarAccess" => {
+                fields(params, &["accountId"])?;
+                let accounts = point_context::accounts();
+                let recheck = match params.get("accountId") {
+                    Some(value) => Some(value.as_str().filter(|id| accounts.iter().any(|known| known == id)).ok_or("invalid_params")?),
+                    None => None,
+                };
+                // A token cached from before the owner allowed it would be refused again.
+                if let Some(account) = recheck {
+                    let _ = gmail.call("gmail.invalidate", &json!({"accountId":account})).await;
+                }
+                Ok(json!({"accounts":calendar::check(&gmail, &accounts, recheck).await}))
+            }
             "inbox.preferences" => {
                 fields(params, &["accountId", "paused", "allowRemoteImages"])?;
                 for field in ["paused", "allowRemoteImages"] {
@@ -808,7 +825,7 @@ async fn overview_batch(
             return Ok(json!(failed));
         }
         let prepared = json!(prepared);
-        let shared = if personal { point_context::shared(local_mail).await } else { json!({}) };
+        let shared = if personal { point_context::shared(local_mail, gmail, !background).await } else { json!({}) };
         // Invariant: when the app left while the mail was being prepared, nothing is sent; the
         // messages are returned as not asked and are described when it returns.
         let generated = if suspensions() != left_before {
@@ -1691,12 +1708,12 @@ mod tier_tests {
     fn an_unfinished_row_names_a_problem_that_holds_every_point_but_not_the_messages_own() {
         for (error, problem) in [("overview_ai_paused", json!("overview_ai_paused")), ("overview_ai_unavailable", json!("overview_ai_unavailable")), ("overview_unsupported_claim", Value::Null), ("gmail_account_unknown", Value::Null)] {
             let mut saved = json!({"a":{"state":"running","updated":1,"version":2,"pendingSince":1}});
-            finish_overviews(&mut saved, &["a".to_owned()], &Ok(json!([{"id":"a","error":error,"stage":"batch"}]))).unwrap();
+            finish_overviews_protected(&mut saved, &["a".to_owned()], &Ok(json!([{"id":"a","error":error,"stage":"batch"}])), &Default::default()).unwrap();
             assert_ne!(saved["a"]["state"], "ready", "{error}");
             assert_eq!(saved["a"]["problem"], problem, "{error}: {}", saved["a"]);
         }
         let mut saved = json!({"a":{"state":"running","updated":1,"version":2}});
-        finish_overviews(&mut saved, &["a".to_owned()], &Err("overview_ai_paused")).unwrap();
+        finish_overviews_protected(&mut saved, &["a".to_owned()], &Err("overview_ai_paused"), &Default::default()).unwrap();
         assert_eq!(saved["a"]["problem"], "overview_ai_paused", "a batch-wide failure is named too");
     }
 

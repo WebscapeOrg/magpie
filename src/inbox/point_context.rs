@@ -108,20 +108,21 @@ fn newest(mut rows: Vec<Value>, limit: usize) -> Vec<Value> {
 }
 
 /// The accounts on this device.
-fn accounts() -> Vec<String> {
+pub(crate) fn accounts() -> Vec<String> {
     crate::account::list_readonly()
         .ok()
         .and_then(|list| {
             list["accounts"]
                 .as_array()
-                .map(|accounts| accounts.iter().filter_map(|account| account["id"].as_str().map(str::to_owned)).collect())
+                .map(|accounts| accounts.iter().filter_map(|account| account["id"].as_str().filter(|id| !id.is_empty()).map(str::to_owned)).collect())
         })
         .unwrap_or_default()
 }
 
 /// The context every email in a run shares, ordered from what changes least to what changes most,
 /// so a cached request stays the same for as long as possible.
-pub(crate) async fn shared(local_mail: &crate::local_mail::LocalMail) -> Value {
+/// With `network` false (the iPhone's short background run) the calendar is what was read before.
+pub(crate) async fn shared(local_mail: &crate::local_mail::LocalMail, gmail: &crate::providers::gmail::Session, network: bool) -> Value {
     let accounts = accounts();
     let mut sent = Vec::new();
     let mut inbox = Vec::new();
@@ -130,6 +131,10 @@ pub(crate) async fn shared(local_mail: &crate::local_mail::LocalMail) -> Value {
         inbox.extend(listed(local_mail, account, "in:inbox", INBOX).await);
     }
     let mut context = json!({"sent":newest(sent, SENT),"inbox":newest(inbox, INBOX)});
+    let calendar = super::calendar::events(gmail, &accounts, network).await;
+    if !calendar.is_empty() {
+        context["calendar"] = json!(calendar);
+    }
     if let Ok(Some(about)) = about_you() {
         context["aboutYou"] = json!(clipped(&about, ABOUT_YOU_LIMIT));
     }

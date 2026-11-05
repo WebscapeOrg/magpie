@@ -13,6 +13,7 @@
     "inbox.setPictureKey",
     "inbox.removePictureKey",
     "inbox.aboutYou",
+    "inbox.calendarAccess",
     "ai.spending",
     "inbox.snooze",
     "inbox.wake",
@@ -2262,6 +2263,31 @@
       }
     },
     {
+      "name": "Inbox calendar access rejects unknown fields",
+      "method": "inbox.calendarAccess",
+      "params": {
+        "accountId": "contract@example.org",
+        "check": true
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox calendar access refuses an account that is not signed in",
+      "method": "inbox.calendarAccess",
+      "params": {
+        "accountId": "stranger@example.org"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox calendar access names each account's state",
+      "method": "inbox.calendarAccess",
+      "params": {},
+      "types": {
+        "accounts": "object"
+      }
+    },
+    {
       "name": "AI spending needs the starts of today, this week and this month",
       "method": "ai.spending",
       "params": {
@@ -2320,6 +2346,7 @@
       "inbox.setPictureKey",
       "inbox.removePictureKey",
       "inbox.aboutYou",
+      "inbox.calendarAccess",
       "ai.spending",
       "inbox.snooze",
       "inbox.wake",
@@ -2431,7 +2458,10 @@
       "Local status counts mail that cannot be saved",
       "Inbox about you rejects unknown fields",
       "Inbox about you refuses markup and invisible characters",
-      "Inbox about you returns the saved bio and its limit"
+      "Inbox about you returns the saved bio and its limit",
+      "Inbox calendar access rejects unknown fields",
+      "Inbox calendar access refuses an account that is not signed in",
+      "Inbox calendar access names each account's state"
     ]
   },
   "releasedContract": {

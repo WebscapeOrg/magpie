@@ -74,17 +74,75 @@ Item {
       compare(second.delivered.length,0)
       compare(Object.keys(tools.notificationRows[first.accountId]).join(","),"pending")
     }
-    function test_hidden_inbox_rows_are_prepared_and_only_current_owned_rows_are_admitted() {
-      service.curatedInbox=true;tools.visibleRows=[]
+    function test_every_inbox_row_shows_moving_lines_only_while_its_point_is_written() {
+      service.curatedInbox=true;tools.visibleRows=[];tools.preparationFailures=({});tools.unansweredSince=0
       backend.apiVersion=8;backend.ready=true
       verify(backend.calls.some(function(request){return request.method==="inbox.overviews"}))
-      compare(tools.inboxRows(service.rawMessages).length,0)
-      tools.overviews={"one@example.org\nshared-id":{state:"ready",version:2,text:"Prepared mail",expiresAt:0},"two@example.org\nshared-id":{state:"failed",version:2,text:"Unverified text",expiresAt:0}}
-      compare(tools.inboxRows(service.rawMessages).length,1)
-      compare(tools.inboxRows(service.rawMessages)[0].id,"one-message")
-      tools.descriptionsEnabled=false;tools.paused=true
-      compare(tools.inboxRows(service.rawMessages).length,1)
+      compare(tools.status(service.rawMessages[0]),"writing");compare(tools.writingCount,2)
+      tools.overviews={"one@example.org\nshared-id":{state:"ready",version:2,text:"Prepared mail",expiresAt:0},"two@example.org\nshared-id":{state:"failed",version:2,text:"Unverified text",expiresAt:0,attempts:1}}
+      compare(tools.status(service.rawMessages[0]),"ready")
+      compare(tools.status(service.rawMessages[1]),"plain","a message whose own attempt failed shows its subject")
+      compare(tools.writingCount,0);compare(tools.hold,"","a message's own failure is no warning")
+      tools.overviews={"two@example.org\nshared-id":{state:"running",version:2,updated:Date.now()}}
+      compare(tools.status(service.rawMessages[0]),"writing","a message not asked yet is being written")
+      compare(tools.status(service.rawMessages[1]),"writing");compare(tools.writingCount,2)
+      tools.overviews={"two@example.org\nshared-id":{state:"running",version:2,updated:Date.now(),attempts:1}}
+      compare(tools.status(service.rawMessages[1]),"plain","asking again after its own failure is quiet");compare(tools.writingCount,1)
+      tools.overviews={"two@example.org\nshared-id":{state:"failed",version:2,problem:"overview_ai_unavailable",updated:Date.now()}}
+      compare(tools.status(service.rawMessages[1]),"writing","Claude not answering once still counts as being written")
+      tools.paused=true
+      compare(tools.hold,"paused");compare(tools.holdText,"New Points are paused.");compare(tools.status(service.rawMessages[1]),"plain");compare(tools.writingCount,0)
+      tools.paused=false;tools.descriptionsEnabled=false
+      compare(tools.status(service.rawMessages[0]),"plain");compare(tools.writingCount,0);compare(tools.hold,"")
+      tools.descriptionsEnabled=true;service.curatedInbox=false
+      compare(tools.status(service.rawMessages[0]),"plain","All mail and search show subjects");compare(tools.writingCount,0)
+      service.curatedInbox=true;tools.overviews=({});compare(tools.writingCount,2)
+      backend.ready=false
+      compare(tools.status(service.rawMessages[0]),"plain","no engine, nothing being written");compare(tools.writingCount,0);compare(tools.hold,"")
+      backend.ready=true;backend.apiVersion=7
+      compare(tools.status(service.rawMessages[0]),"plain","an engine too old to write Points");compare(tools.writingCount,0)
+      backend.apiVersion=8;service.curatedInbox=false
       compare(tools.admitted(second.accountId,[{id:"shared-id"}]).length,0)
+    }
+    function test_every_subscription_out_holds_the_points_and_a_lasting_silence_is_named() {
+      service.curatedInbox=true;tools.preparationFailures=({});tools.unansweredSince=0
+      backend.apiVersion=8;backend.ready=true
+      tools.overviews={"one@example.org\nshared-id":{state:"failed",version:2,problem:"overview_ai_paused",updated:Date.now()}}
+      compare(tools.hold,"subscriptions");compare(tools.holdText,"Your Claude subscriptions are all used up for now. Points continue when one resets.")
+      compare(tools.status(service.rawMessages[1]),"plain","nothing is being written while every subscription is out");compare(tools.writingCount,0)
+      var refused=Date.now()-60000
+      tools.overviews={"one@example.org\nshared-id":{state:"failed",version:2,problem:"overview_ai_paused",updated:refused},"two@example.org\nshared-id":{state:"ready",version:2,text:"Prepared",expiresAt:0,updated:refused-1}}
+      compare(tools.hold,"subscriptions","a Point written before the refusal does not end it")
+      tools.overviews={"one@example.org\nshared-id":{state:"failed",version:2,problem:"overview_ai_paused",updated:refused},"two@example.org\nshared-id":{state:"ready",version:2,text:"Prepared",expiresAt:0,updated:refused+1}}
+      compare(tools.hold,"","a Point written since means a subscription is back");compare(tools.status(service.rawMessages[0]),"writing")
+      tools.overviews={"one@example.org\nshared-id":{state:"failed",version:2,problem:"ai_unreachable",updated:Date.now()}}
+      var now=Date.now();tools.overviewClock=now
+      tools.unansweredSince=now-14*60000;compare(tools.hold,"","a short silence shows as Points being written");compare(tools.writingCount,2)
+      tools.unansweredSince=now-25*60000-1000;compare(tools.hold,"unanswered");compare(tools.holdText,"Claude has not answered for 25 minutes. Magpie keeps trying.")
+      compare(tools.status(service.rawMessages[0]),"plain")
+      tools.overviews={"one@example.org\nshared-id":{state:"ready",version:2,text:"Prepared",expiresAt:0},"two@example.org\nshared-id":{state:"ready",version:2,text:"Prepared",expiresAt:0}}
+      compare(tools.hold,"","nothing unfinished, nothing to report")
+      tools.unansweredSince=0
+    }
+    function test_claudes_silence_starts_with_a_fresh_failure_and_ends_with_the_next_point() {
+      service.curatedInbox=true;tools.preparationFailures=({});tools.unansweredSince=0
+      backend.apiVersion=8;backend.ready=true
+      function snapshotDone(overviews) {
+        var calls=backend.calls.filter(function(request){return request.method==="inbox.snapshot" && request.params.accountId==="one@example.org"})
+        verify(calls.length);calls[calls.length-1].done({overviews:overviews,snoozes:[]},null)
+      }
+      snapshotDone({"shared-id":{state:"failed",version:2,problem:"ai_unreachable",updated:Date.now()-600000}})
+      compare(tools.unansweredSince,0,"an old failure does not start the clock")
+      tools.snapshot("one@example.org")
+      snapshotDone({"shared-id":{state:"failed",version:2,problem:"ai_unreachable",updated:Date.now()}})
+      verify(tools.unansweredSince>0)
+      var started=tools.unansweredSince
+      tools.snapshot("one@example.org")
+      snapshotDone({"shared-id":{state:"failed",version:2,problem:"overview_unsupported_claim",updated:Date.now()}})
+      compare(tools.unansweredSince,started,"a message's own failure neither starts nor ends it")
+      tools.snapshot("one@example.org")
+      snapshotDone({"shared-id":{state:"ready",version:2,text:"Prepared",expiresAt:0}})
+      compare(tools.unansweredSince,0,"a new Point ends it")
     }
     function test_cached_relative_words_expire_while_disconnected() {
       wait(400)

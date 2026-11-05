@@ -162,6 +162,14 @@ impl Engine {
         let params = params.clone();
         tokio::task::spawn_blocking(move || crate::inbox::calendar::set_apple(&params)).await.map_err(|_| "mobile_request_failed")?
     }
+    /// The reminders the app read from Apple Reminders, as context for The Point (`todos` only).
+    pub async fn mobile_apple_reminders(&self, params: &Value) -> Result<Value, &'static str> {
+        if params.as_object().is_none_or(|fields| fields.len() != 1 || !fields.contains_key("todos")) {
+            return Err("invalid_params");
+        }
+        let params = params.clone();
+        tokio::task::spawn_blocking(move || crate::inbox::todos::set_apple(&params)).await.map_err(|_| "mobile_request_failed")?
+    }
     pub async fn mobile_overview_settings(&self, params: &Value) -> Result<Value, &'static str> {
         self.dispatch("inbox.preferences", params).await
     }

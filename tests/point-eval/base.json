@@ -14,7 +14,7 @@
       {"id": "i-base-2", "account": "sam@example.test", "from": {"name": "Hockey Club", "email": "club@hockey.example.test"}, "to": [{"email": "sam@example.test"}], "cc": [], "date": "2026-11-02T12:00:00Z", "subject": "Training times", "snippet": "Under-17 training stays on Wednesdays at 6pm.", "threadId": "t-base-4", "hasAttachments": false}
     ],
     "todos": [
-      {"id": "td-base-1", "title": "Renew car insurance", "list": "next", "status": "open", "start_on": null, "deadline_on": "2026-11-20", "done_at": null, "binned_at": null, "source_ref": null}
+      {"id": "td-base-1", "title": "Renew car insurance", "status": "open", "side": "dave", "list": "next", "deadline_on": "2026-11-20"}
     ],
     "calendar": [
       {"id": "ev-base-1", "title": "Ada hockey match", "start": "2026-11-07T10:00:00Z", "end": "2026-11-07T11:30:00Z", "location": "Mardyke", "organizer": "club@hockey.example.test", "response": "accepted"}

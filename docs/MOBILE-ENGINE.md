@@ -83,3 +83,12 @@ Apple documents discretionary scheduling in [background task guidance](https://d
 Interview calls use Ask Magpie's existing reservation ledger and daily limit. Missing or malformed usage retains the reservation, and provider output is bounded and checked before the app sees it. Cancellation dismisses the UI and ignores a late result; a call already admitted may still finish and count toward spending.
 
 The overview page also returns `writingIds`, the IDs in the engine’s live working batch for that account. This list is empty when no worker owns the batch and is never restored from saved running flags. The phone uses it only to choose the current Inbox card; raw mail remains available to scheduling, search and selection. A request response contains the current overview rows, including any valid old Point that is being rewritten.
+
+
+### Point details
+
+Overview rows may carry `details`: `gmailMs`, `decideMs`, `createMs`, `requestedModel`, `model`, `batchSize` and `choice` (`decisions` or `default`). Durations are whole milliseconds, absent when not measured. Old `tier` says the requested tier; it cannot establish the actual fallback model for old Points. A failed rewrite retains the displayed Point's `details`; any new attempt measurements live separately in `lastAttempt`. Clients show known fields only.
+
+`gmailMs` is the original full-message retrieval (credentials, pacing, retries and text-part hydration), stored in the account's mail database and reused across cached reads. It excludes remote images, non-text attachments, shared calendar/todo context and queue waits. `decideMs` measures that email's picker call, including a failed attempt; no-key defaults have no picker time. `createMs` includes fitting/counting, drafts, edits, repairs and model fallback. Phone times are per message. Enterprise writes tier groups together, so `batchSize` labels shared writing time; durations are never divided or summed into an end-to-end total.
+
+`previousPoint: true` marks a queued/unfinished rewrite. The UI keeps it out of new-Point progress and the waiting stack. Expired text is not displayed; the original subject and preview remain usable until a replacement arrives. Reading Point details does not call a provider or start work.

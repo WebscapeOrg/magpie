@@ -19,13 +19,24 @@ Item {
   required property string panelFontFamily
 
   property string messageId: ""
+  property bool armed: false
+  property string targetIdentity: ""
+  readonly property string currentIdentity: JSON.stringify([service ? service.activeAccountId || "" : "", summary ? summary.accountId || "" : "", messageId])
+  readonly property bool validTarget: armed && menu.visible && !!summary && currentIdentity === targetIdentity
+  onCurrentIdentityChanged: { if (armed && currentIdentity !== targetIdentity) close() }
+  onSummaryChanged: { if (armed && !summary) close() }
+  Connections {
+    target: root.service
+    ignoreUnknownSignals: true
+    function onAccountSummariesChanged() { root.close() }
+  }
   // Invariant: a rail stop targets one member, while a conversation row targets its counted
   // members.
   property bool memberOnly: false
   property real anchorX: 0
   property real anchorY: 0
   property int cursorIndex: -1
-  readonly property var menuRows: [continueRow, replyRow, replyAllRow, forwardRow, archiveRow,
+  readonly property var menuRows: [continueRow, pointRow, replyRow, replyAllRow, forwardRow, archiveRow,
     unarchiveRow, moveRow,
     trashRow, spamRow, readRow, starRow, aiRow, browserRow]
   readonly property bool archived: !!root.summary
@@ -52,6 +63,7 @@ Item {
     return null
   }
 
+  signal pointDetailsRequested(string id)
   signal agentRequested(string id, real sceneX, real sceneY)
   signal composeRequested(string mode, string id)
   signal actionRequested(string action, string id)
@@ -72,11 +84,14 @@ Item {
   }
 
   function openMenu(id, sceneX, sceneY) {
+    root.armed = false
     root.messageId = String(id || "")
     if (!root.summary) return
     var local = root.mapFromGlobal(sceneX, sceneY)
     anchorX = local.x
     anchorY = local.y
+    root.targetIdentity = root.currentIdentity
+    root.armed = true
     menu.open()
   }
 
@@ -91,26 +106,29 @@ Item {
   function moveCursor(step) { cursorIndex = Menu.nextSelectable(menuRows, cursorIndex, step) }
   function runCursor() { if (cursorIndex >= 0) menuRows[cursorIndex].activated() }
 
-  function close() { menu.close() }
+  function close() { armed = false; menu.close() }
 
   function run(action) {
+    if (!validTarget) return
     var id = root.messageId
     var member = root.memberOnly
-    menu.close()
+    root.close()
     if (member) root.memberActionRequested(action, id)
     else root.actionRequested(action, id)
   }
 
   function compose(mode) {
+    if (!validTarget) return
     var id = root.messageId
     var member = root.memberOnly
-    menu.close()
+    root.close()
     if (member) root.memberComposeRequested(mode, id)
     else root.composeRequested(mode, id)
   }
 
   QQC.Popup {
     id: menu
+    onClosed: root.armed = false
     width: MailStyle.space(200)
     implicitHeight: rows.implicitHeight + MailStyle.space(8)
     padding: MailStyle.space(4)
@@ -152,6 +170,13 @@ Item {
         text: "Continue editing"
         onActivated: root.compose("draft")
       }
+      MenuRow {
+        id: pointRow
+        objectName: "message-menu-point-details"
+        text: "Point details..."
+        visible: !!root.service && !!root.service.backend && root.service.backend.apiVersion >= 8
+        onActivated: { if (!root.validTarget) return; var id = root.messageId; root.close(); root.pointDetailsRequested(id) }
+      }
       MenuRow { id: replyRow; visible: !root.summary || !root.summary.isDraft; text: "Reply"; onActivated: root.compose("reply") }
       MenuRow { id: replyAllRow; visible: !root.summary || !root.summary.isDraft; text: "Reply all"; onActivated: root.compose("replyAll") }
       MenuRow { id: forwardRow; visible: !root.summary || !root.summary.isDraft; text: "Forward"; onActivated: root.compose("forward") }
@@ -163,6 +188,7 @@ Item {
 
       MenuRow {
         id: archiveRow
+        objectName: "message-menu-archive"
         visible: (!root.service || root.service.canArchive) && !root.archived
         text: "Archive"
         onActivated: root.run("archive")
@@ -170,6 +196,7 @@ Item {
       // Invariant: Adding INBOX does not remove SPAM or TRASH; this action applies only to archived mail.
       MenuRow {
         id: unarchiveRow
+        objectName: "message-menu-unarchive"
         visible: (!root.service || root.service.canArchive) && root.archived
         text: root.inLabelView ? "Move to Inbox and remove label" : "Move to Inbox"
         onActivated: root.run("unarchive")
@@ -218,9 +245,10 @@ Item {
         visible: !!root.service && root.service.hasAgent !== false
         text: "Ask AI..."
         onActivated: {
+          if (!root.validTarget) return
           var id = root.messageId
           var scene = root.mapToGlobal(root.anchorX, root.anchorY)
-          menu.close()
+          root.close()
           root.agentRequested(id, scene.x, scene.y)
         }
       }
@@ -231,8 +259,9 @@ Item {
         text: "Open in browser..."
         tone: root.dimColor
         onActivated: {
+          if (!root.validTarget) return
           var id = root.messageId
-          menu.close()
+          root.close()
           if (root.service) root.service.openInBrowser(id)
         }
       }

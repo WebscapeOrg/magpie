@@ -32,6 +32,7 @@ ListView {
   property int viewportRevision: 0
   property bool restoringViewport: false
 
+  signal pointDetailsRequested(string id)
   signal messageActivated(string id)
   signal checkToggled(string id)
   signal checkRangeRequested(string id)
@@ -51,7 +52,41 @@ ListView {
   cacheBuffer: Math.max(0, height)
   topMargin: MailStyle.space(6)
   bottomMargin: MailStyle.space(6)
-  model: root.service ? root.service.messages.length : 0
+  property bool motionEnabled: true
+  readonly property var projectedRows: root.service ? root.service.messages || [] : []
+  readonly property string accountScope: String(root.service ? root.service.activeAccountId || "" : "")
+  property string previousAccountScope: ""
+  onProjectedRowsChanged: reconcileRows()
+  onAccountScopeChanged: reconcileRows()
+  ListModel { id: listedRows }
+  model: listedRows
+  function rowKey(row) { return JSON.stringify([row.accountId || root.accountScope, row.id || ""]) }
+  function reconcileRows() {
+    if (!listedRows) return
+    if (previousAccountScope !== accountScope) listedRows.clear()
+    previousAccountScope = accountScope
+    var rows = projectedRows
+    for (var i = 0; i < rows.length; i++) {
+      var key = rowKey(rows[i]), found = -1
+      for (var j = i; j < listedRows.count; j++) if (listedRows.get(j).entryKey === key) { found = j; break }
+      if (found < 0) listedRows.insert(i, {entryKey:key, record:JSON.stringify(rows[i])})
+      else {
+        if (found !== i) listedRows.move(found, i, 1)
+        var record = JSON.stringify(rows[i])
+        if (listedRows.get(i).record !== record) listedRows.setProperty(i, "record", record)
+      }
+    }
+    if (listedRows.count > rows.length) listedRows.remove(rows.length, listedRows.count - rows.length)
+  }
+  move: Transition {
+    NumberAnimation { properties: "x,y"; duration: root.motionEnabled ? 500 : 0; easing.type: Easing.OutCubic }
+  }
+  moveDisplaced: Transition {
+    NumberAnimation { properties: "x,y"; duration: root.motionEnabled ? 500 : 0; easing.type: Easing.OutCubic }
+  }
+  addDisplaced: Transition {
+    NumberAnimation { properties: "x,y"; duration: root.motionEnabled ? 500 : 0; easing.type: Easing.OutCubic }
+  }
 
   function updateVisibleRows() {
     if (!visible || !service || !service.inboxTools) return
@@ -66,6 +101,7 @@ ListView {
   onCountChanged: Qt.callLater(updateVisibleRows)
   onVisibleChanged: Qt.callLater(updateVisibleRows)
   Component.onCompleted: {
+    reconcileRows()
     viewportIds = SearchPresentation.rowIds(searchActive && service ? service.messages : [])
     Qt.callLater(rememberViewport)
     Qt.callLater(updateVisibleRows)
@@ -140,9 +176,9 @@ ListView {
   delegate: MessageRow {
       width: root.width
       required property int index
-      // Invariant: the summary array and count can update between bindings; recycled rows need an
-      // empty summary during that transition.
-      readonly property var modelData: root.service.messages[index] || ({})
+      required property string entryKey
+      required property string record
+      readonly property var modelData: JSON.parse(record)
       readonly property var overviewDetails: root.service.inboxTools
         ? root.service.inboxTools.overviewFor(modelData) : ({})
 
@@ -153,12 +189,15 @@ ListView {
       avatarData: root.service.inboxTools ? root.service.inboxTools.avatarFor(modelData) : ""
       overview: root.service.inboxTools && root.service.inboxTools.descriptionsEnabled !== false ? String(overviewDetails.text || "") : ""
       writing: !!root.service.inboxTools && root.service.inboxTools.status(modelData) === "writing"
+      departing: !!root.service.inboxTools && root.service.inboxTools.departingId === modelData.id
+      motionEnabled: root.motionEnabled
       backgroundColor: root.backgroundColor
       pendingCount: root.service.inboxTools && root.service.inboxTools.stack && root.service.inboxTools.stack.currentId === modelData.id
         ? root.service.inboxTools.stack.count : 0
       onUnreadRequested: root.rowActionRequested(modelData.id, "markUnread")
       onSnoozeRequested: function(sceneX, sceneY) { root.snoozeRequested(modelData.id, sceneX, sceneY) }
       summary: modelData
+      interactionScope: JSON.stringify([root.accountScope, root.projectedRows.map(root.rowKey).indexOf(entryKey), pendingCount > 0])
       ownerAccountId: String(modelData.accountId || root.service.activeAccountId || "")
       textColor: root.textColor
       accentColor: root.accentColor
@@ -172,7 +211,8 @@ ListView {
       ctrlHeld: root.ctrlHeld
       canArchive: root.service.canArchive
       conversations: Unified.rowIsConversation(modelData)
-      contentDirection: root.service.contentDirection
+      contentDirection: String(root.service.contentDirection || "auto")
+      onPointDetailsRequested: root.pointDetailsRequested(modelData.id)
       onActivated: root.messageActivated(modelData.id)
       onCheckToggled: root.checkToggled(modelData.id)
       onCheckRangeRequested: root.checkRangeRequested(modelData.id)
@@ -247,7 +287,7 @@ ListView {
 
   function loadMoreIfAtFoot() {
     if (!root.scroller || !root.service || root.restoringViewport) return false
-    var atFoot = root.scroller.atYEnd || root.scroller.contentY + root.scroller.height >= root.scroller.contentHeight - 1
+    var atFoot = root.scroller.atYEnd || root.scroller.contentY + root.scroller.height >= root.scroller.originY + root.scroller.contentHeight - 1
     if (!atFoot || !root.service.hasMore || root.service.listLoading || !(root.service.rawMessages || root.service.messages).length || root.lastAutoCount === (root.service.rawMessages || root.service.messages).length) return false
     root.lastAutoCount = (root.service.rawMessages || root.service.messages).length
     root.service.loadMore()

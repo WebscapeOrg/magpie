@@ -847,3 +847,26 @@ fn replies_name_the_newest_message_the_owner_sent_in_each_thread() {
     }
     std::fs::remove_dir_all(path).unwrap();
 }
+
+#[test]
+fn download_measurements_survive_reopen_but_old_resource_fields_are_not_provenance() {
+    let path = directory();
+    let mut resource = message("timed", "Synthetic body");
+    resource[crate::providers::gmail::DOWNLOAD_MS] = json!(999_999);
+    {
+        let store = Store::open(open_directory(&path)).unwrap();
+        store.put_cached(&resource, 1).unwrap();
+        assert!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_MS].is_null());
+        store.put_downloaded(&resource, 1, true, Some(125)).unwrap();
+        assert_eq!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_MS], 125);
+        store.put_cached(&resource, 1).unwrap();
+        assert_eq!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_MS], 125);
+    }
+    {
+        let store = Store::open(open_directory(&path)).unwrap();
+        assert_eq!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_MS], 125);
+        store.delete("timed").unwrap();
+        assert_eq!(store.read(|db| store::sql(db.query_row("SELECT COUNT(*) FROM message_downloads", [], |r| r.get::<_, i64>(0)))).unwrap(), 0);
+    }
+    std::fs::remove_dir_all(path).unwrap();
+}

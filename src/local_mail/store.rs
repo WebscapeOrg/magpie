@@ -713,10 +713,12 @@ impl Store {
             let hash: Option<String> = sql(db
                 .query_row("SELECT blob FROM messages WHERE id=?1", [id], |r| r.get(0))
                 .optional())?;
-            hash.map(|hash| Ok((hash, current_labels(db, id)?)))
-                .transpose()
+            hash.map(|hash| {
+                let millis: Option<i64> = sql(db.query_row("SELECT milliseconds FROM message_downloads WHERE id=?1", [id], |r| r.get(0)).optional())?;
+                Ok((hash, current_labels(db, id)?, millis))
+            }).transpose()
         })?;
-        let Some((hash, labels)) = row else {
+        let Some((hash, labels, millis)) = row else {
             return Ok(None);
         };
         let directory = self
@@ -737,6 +739,8 @@ impl Store {
         }
         let mut resource = resource;
         resource["labelIds"] = labels;
+        resource.as_object_mut().unwrap().remove(crate::providers::gmail::DOWNLOAD_MS);
+        if let Some(ms) = millis { resource[crate::providers::gmail::DOWNLOAD_MS] = json!(ms); }
         Ok(Some(resource))
     }
     pub(super) fn complete_resource(&self, id: &str) -> Result<Option<Value>> {
@@ -762,17 +766,22 @@ impl Store {
         })
     }
     pub(super) fn put(&self, resource: &Value, generation: i64) -> Result<()> {
-        self.save(resource, generation, true)
+        self.save(resource, generation, true, None)
     }
     pub(super) fn put_cached(&self, resource: &Value, generation: i64) -> Result<()> {
-        self.save(resource, generation, false)
+        self.save(resource, generation, false, None)
     }
-    fn save(&self, resource: &Value, generation: i64, authoritative: bool) -> Result<()> {
+    pub(super) fn put_downloaded(&self, resource: &Value, generation: i64, authoritative: bool, millis: Option<u64>) -> Result<()> {
+        self.save(resource, generation, authoritative, millis.filter(|ms| *ms <= 86_400_000))
+    }
+    fn save(&self, resource: &Value, generation: i64, authoritative: bool, millis: Option<u64>) -> Result<()> {
         let id = resource["id"].as_str().ok_or("local_content_invalid")?;
         if id.is_empty() || !resource["payload"].is_object() {
             return Err("local_content_invalid");
         }
-        let bytes = serde_json::to_vec(resource).map_err(|_| "local_content_invalid")?;
+        let mut content = resource.clone();
+        content.as_object_mut().unwrap().remove(crate::providers::gmail::DOWNLOAD_MS);
+        let bytes = serde_json::to_vec(&content).map_err(|_| "local_content_invalid")?;
         if bytes.len() > 128 * 1024 * 1024 {
             return Err("local_content_too_large");
         }
@@ -807,6 +816,9 @@ impl Store {
             sql(db.execute("INSERT INTO messages(id,thread_id,date,summary,blob,server_labels,sender,recipients,copied,subject,filenames,has_attachment,text_complete,generation) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id,date=excluded.date,summary=excluded.summary,blob=excluded.blob,server_labels=excluded.server_labels,sender=excluded.sender,recipients=excluded.recipients,copied=excluded.copied,subject=excluded.subject,filenames=excluded.filenames,has_attachment=excluded.has_attachment,text_complete=excluded.text_complete,generation=max(messages.generation,excluded.generation)",
                 params![id,resource["threadId"].as_str().unwrap_or(""),resource["internalDate"].as_str().and_then(|v|v.parse::<i64>().ok()).unwrap_or(0),
                     summary.to_string(),hash,base.to_string(),sender.to_lowercase(),recipients.to_lowercase(),copied.to_lowercase(),subject,text.filenames.to_lowercase(),summary["hasAttachments"]==true,text.complete(),generation]))?;
+            if let Some(ms) = millis {
+                sql(db.execute("INSERT INTO message_downloads VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET milliseconds=excluded.milliseconds", params![id,ms as i64]))?;
+            }
             replace_labels(db,id,&base)?;
             if authoritative {
                 super::inbox::resource(db,id,&base)?;
@@ -960,6 +972,7 @@ pub(super) fn delete(db: &Connection, id: &str) -> Result<()> {
         "DELETE FROM search WHERE rowid=(SELECT rowid FROM messages WHERE id=?1)",
         [id],
     ))?;
+    sql(db.execute("DELETE FROM message_downloads WHERE id=?1", [id]))?;
     sql(db.execute("DELETE FROM messages WHERE id=?1", [id]))?;
     sql(db.execute("DELETE FROM jobs WHERE id=?1", [id]))?;
     sql(db.execute("DELETE FROM unsaved WHERE id=?1", [id]))?;

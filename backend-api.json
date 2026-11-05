@@ -2426,6 +2426,34 @@
       "equals": {
         "writingIds": []
       }
+    },
+    {
+      "name": "Inbox snapshot carries bounded Point model and step timings",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "overviews.ready.details": {
+          "gmailMs": 125,
+          "decideMs": 40,
+          "createMs": 1500,
+          "requestedModel": "sonnet",
+          "model": "sonnet",
+          "batchSize": 2,
+          "choice": "decisions"
+        }
+      }
+    },
+    {
+      "name": "Inbox snapshot keeps an expired rewrite separate from new Point work",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "overviews.rewriting.previousPoint": true
+      }
     }
   ],
   "unreleased": {
@@ -2564,7 +2592,9 @@
       "Interview refuses invalid answer fields",
       "Interview offer is remembered separately from the bio",
       "Interview offer refuses an invalid acknowledgement",
-      "Inbox snapshot has no writing IDs without a live worker"
+      "Inbox snapshot has no writing IDs without a live worker",
+      "Inbox snapshot carries bounded Point model and step timings",
+      "Inbox snapshot keeps an expired rewrite separate from new Point work"
     ]
   },
   "releasedContract": {

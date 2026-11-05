@@ -7,6 +7,8 @@ Item {
   width: 600
   height: 400
   property var actions: []
+  property var inspected: []
+  property var opened: []
   QtObject {
     id: mail
     property var messages: [{id:"old",subject:"Old current",from:{display:"Original sender"}}]
@@ -27,6 +29,8 @@ Item {
     dimColor: Qt.rgba(0.5,0.5,0.5,1)
     urgentColor: Qt.rgba(0.7,0,0,1)
     panelFontFamily: "sans-serif"
+    onPointDetailsRequested: function(id) { canvas.inspected = canvas.inspected.concat([id]) }
+    onMessageActivated: function(id) { canvas.opened = canvas.opened.concat([id]) }
     onRowActionRequested: function(id, action) {
       canvas.actions = canvas.actions.concat([{id:id,action:action}])
     }
@@ -37,9 +41,47 @@ Item {
     function init() {
       mail.activeAccountId="personal"
       mail.messages=[{id:"old",subject:"Old current",from:{display:"Original sender"}}]
-      canvas.actions=[]
+      canvas.actions=[]; canvas.inspected=[]; canvas.opened=[]
       waitForRendering(list)
       list.forceLayout()
+    }
+    function test_stable_rows_move_smoothly_and_keep_identity() {
+      mail.messages=[{id:"old",subject:"Completed Point",from:{display:"Original sender"}},{id:"next",subject:"Next current",from:{display:"Next sender"}},{id:"read",subject:"Readable",from:{display:"Reader"}}]
+      list.forceLayout();waitForRendering(list)
+      var completed=list.itemAtIndex(0), next=list.itemAtIndex(1)
+      var before=completed.y
+      mail.messages=[mail.messages[1],mail.messages[0],mail.messages[2]]
+      list.forceLayout();wait(100)
+      compare(completed.summary.id,"old");compare(next.summary.id,"next")
+      verify(completed.y>before,"the same card has started moving toward the list")
+      verify(completed.y<next.height+list.spacing,"the card passes through an intermediate position")
+      wait(550)
+      compare(list.itemAtIndex(1),completed,"moving a card keeps its delegate identity")
+      list.motionEnabled=false
+      mail.messages=[mail.messages[1],mail.messages[0],mail.messages[2]]
+      list.forceLayout();waitForRendering(list)
+      compare(list.itemAtIndex(0),completed)
+      compare(completed.y,0)
+      list.motionEnabled=true
+    }
+    function test_hold_opens_details_without_opening_mail() {
+      var row=list.itemAtIndex(0)
+      mousePress(row,50,25,Qt.LeftButton)
+      wait(1000)
+      mouseRelease(row,50,25,Qt.LeftButton)
+      compare(JSON.stringify(canvas.inspected),'["old"]')
+      compare(JSON.stringify(canvas.opened),'[]')
+      mouseClick(row,50,25,Qt.LeftButton)
+      compare(JSON.stringify(canvas.opened),'["old"]',"a fresh tap still opens mail")
+    }
+    function test_hold_cannot_follow_a_reused_row_or_an_account_switch() {
+      var row=list.itemAtIndex(0)
+      mousePress(row,50,25,Qt.LeftButton)
+      mail.activeAccountId="work"
+      wait(1000)
+      mouseRelease(row,50,25,Qt.LeftButton)
+      compare(JSON.stringify(canvas.inspected),'[]')
+      compare(JSON.stringify(canvas.opened),'[]')
     }
     function test_rotation_during_press_does_not_archive_new_current() {
       waitForRendering(list)

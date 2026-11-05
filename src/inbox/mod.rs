@@ -1,5 +1,6 @@
 mod avatars;
 mod progress;
+pub(crate) mod point_details;
 #[cfg(test)]
 include!("readiness_tests.rs");
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
@@ -302,12 +303,7 @@ impl Inbox {
                     store::update(&name, |saved| {
                         for id in &ids {
                             if overview_claimed(&saved[id], claimed_at) {
-                                if overview_current(&saved[id], now()) {
-                                    saved[id]["rewriteState"] = json!("failed");
-                                    saved[id]["rewriteAt"] = json!(0);
-                                } else {
-                                    saved[id] = json!({"state":"failed","version":2,"updated":0,"reason":"Account settings changed; preparation will retry"});
-                                }
+                                reset_overview_after_account_change(&mut saved[id], now());
                             }
                         }
                         Ok(())
@@ -606,14 +602,28 @@ fn claim_overviews(
             .unwrap_or(at);
         let attempts = old["attempts"].as_u64().unwrap_or(0);
         let waits = old["waits"].as_u64();
+        let previous_point = old["previousPoint"] == true || matches!(old["state"].as_str(), Some("ready" | "stale"));
         saved[id] =
             json!({"state":"running","updated":at,"pendingSince":pending_since,"version":2,"attempts":attempts});
         if let Some(waits) = waits {
             saved[id]["waits"] = json!(waits);
         }
+        if previous_point { saved[id]["previousPoint"] = json!(true); }
         chosen.push(id.clone());
     }
     Ok(chosen)
+}
+
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn reset_overview_after_account_change(value: &mut Value, at: i64) {
+    if overview_current(value, at) {
+        value["rewriteState"] = json!("failed");
+        value["rewriteAt"] = json!(0);
+        return;
+    }
+    let previous = value["previousPoint"] == true || matches!(value["state"].as_str(), Some("ready" | "stale"));
+    *value = json!({"state":"failed","version":2,"updated":0,"reason":"Account settings changed; preparation will retry"});
+    if previous { value["previousPoint"] = json!(true); }
 }
 
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
@@ -647,7 +657,9 @@ fn finish_overviews_protected(
         let own = result.is_ok() && stage.is_none_or(|stage| PHONE_WRITER && stage == "prepare") && !error.is_some_and(service_failure);
         let asked = result.is_ok() && stage.is_none();
         let attempts = saved[id]["attempts"].as_u64().unwrap_or(0) + u64::from(own);
-        saved[id] = match row.filter(|row| row["text"].as_str().is_some_and(valid_description)) {
+        let previous_point = saved[id]["previousPoint"] == true || matches!(saved[id]["state"].as_str(), Some("ready" | "stale"));
+        let accepted = row.filter(|row| row["text"].as_str().is_some_and(valid_description));
+        saved[id] = match accepted {
             Some(row) => {
                 let at = now();
                 // The writer's own expiry, which counts from when the Point was written, even when
@@ -688,6 +700,17 @@ fn finish_overviews_protected(
                 error,
             ),
         };
+        if previous_point && saved[id]["state"] != "ready" { saved[id]["previousPoint"] = json!(true); }
+        if let Some(row) = row {
+            let details = point_details::clean(&row["details"]);
+            if !details.as_object().unwrap().is_empty() {
+                if saved[id]["state"] != "ready" || accepted.is_some() {
+                    saved[id]["details"] = details;
+                } else {
+                    saved[id]["lastAttempt"] = details;
+                }
+            }
+        }
         match saved[id]["state"].as_str() {
             Some("ready") => tally.described += 1,
             Some("waiting") => tally.waiting += 1,
@@ -883,11 +906,14 @@ async fn overview_batch(
             Ok(json!(prepared.as_array().into_iter().flatten().map(|message| json!({"id":message["id"],"error":INTERRUPTED,"stage":"batch"})).collect::<Vec<_>>()))
         } else {
             // A writer that cannot take the owner's context writes nothing, so the picker is not asked.
-            let (tiers, spent) = if personal {
-                picker::choose(&prepared, &shared).await
+            let (choices, spent) = if personal {
+                picker::choose_detailed(&prepared, &shared).await
             } else {
-                (vec![picker::Tier::Sonnet; prepared.as_array().map_or(0, Vec::len)], 0)
+                (prepared.as_array().into_iter().flatten().map(|_| picker::Choice {
+                    tier: picker::Tier::Sonnet, millis: None, defaulted: true
+                }).collect(), 0)
             };
+            let tiers: Vec<_> = choices.iter().map(|choice| choice.tier).collect();
             spending::record("descriptions", spent).await;
             writer::charge(spent);
             tiered(&prepared, &tiers, background, |group, tier| {
@@ -899,6 +925,12 @@ async fn overview_batch(
                 // The writer marks each row with whether context went with it (the desktop's writer
                 // decides that again when it writes); a row it leaves unmarked had the batch's answer.
                 for row in rows.as_array_mut().into_iter().flatten() {
+                    if let Some(index) = prepared.as_array().unwrap().iter().position(|message| message["id"] == row["id"]) {
+                        let choice = &choices[index];
+                        let mut details = json!({"choice": if choice.defaulted { "default" } else { "decisions" }});
+                        if let Some(ms) = choice.millis { details["decideMs"] = json!(ms); }
+                        point_details::merge(row, &details);
+                    }
                     if !row["personal"].is_boolean() {
                         row["personal"] = json!(personal);
                     }
@@ -940,8 +972,6 @@ where
         .collect();
     let not_asked = |group: &[Value], error: &str| group.iter().map(|message| json!({"id":message["id"],"error":error,"stage":"batch"})).collect::<Vec<_>>();
     let mut rows = Vec::new();
-    let mut only_failure = None;
-    let single = groups.len() == 1;
     for (tier, group) in groups {
         if background && tier != picker::Tier::Haiku {
             rows.extend(not_asked(&group, WAITS_FOR_APP).into_iter().map(|mut row| {
@@ -950,23 +980,28 @@ where
             }));
             continue;
         }
-        match write(json!(group), tier).await {
-            Ok(answer) => rows.extend(answer.as_array().into_iter().flatten().map(|row| {
-                let mut row = row.clone();
-                if row["error"].is_null() {
-                    row["tier"] = json!(tier.name());
-                }
-                row
-            })),
+        let started = std::time::Instant::now();
+        let answer = write(json!(group), tier).await;
+        let elapsed = point_details::elapsed(started);
+        let mut answer = match answer {
+            Ok(answer) => answer.as_array().cloned().unwrap_or_default(),
             Err(error) if account_failure(error) => return Err(error),
-            Err(error) if single => only_failure = Some(error),
-            Err(error) => rows.extend(not_asked(&group, error)),
+            Err(error) => not_asked(&group, error),
+        };
+        for row in &mut answer {
+            if row["error"].is_null() && row["tier"].is_null() { row["tier"] = json!(tier.name()); }
+            let requested = if PHONE_WRITER { tier.model() } else { tier.name() };
+            let mut details = json!({"requestedModel": requested});
+            if !PHONE_WRITER {
+                details["createMs"] = json!(elapsed);
+                details["batchSize"] = json!(group.len());
+                details["model"] = json!(requested);
+            }
+            point_details::merge(row, &details);
         }
+        rows.extend(answer);
     }
-    match only_failure {
-        Some(error) => Err(error),
-        None => Ok(json!(rows)),
-    }
+    Ok(json!(rows))
 }
 
 /// Joins the writer's rows for the messages it was given with the rows of messages that could not be prepared.
@@ -999,11 +1034,14 @@ where
     Fut: std::future::Future<Output = Result<Value, &'static str>>,
 {
     let mut messages = Vec::new();
+    let mut downloads = std::collections::HashMap::new();
     let mut failed = Vec::new();
     for id in ids {
         let prepared = async {
             let raw = local_mail.read(account, id, gmail).await?;
-            overview_message(id, &raw)
+            let message = overview_message(id, &raw)?;
+            downloads.insert(id.clone(), point_details::duration(&raw[crate::providers::gmail::DOWNLOAD_MS]));
+            Ok::<_, &'static str>(message)
         }
         .await;
         match prepared {
@@ -1019,8 +1057,13 @@ where
         return Ok(json!(failed));
     }
     let messages = json!(messages);
-    let generated = generate(messages.clone()).await;
-    merge_rows(generated, &messages, failed)
+    let mut result = merge_rows(generate(messages.clone()).await, &messages, failed)?;
+    for row in result.as_array_mut().into_iter().flatten() {
+        if let Some(ms) = row["id"].as_str().and_then(|id| downloads.get(id)).copied().flatten() {
+            point_details::merge(row, &json!({"gmailMs":ms}));
+        }
+    }
+    Ok(result)
 }
 
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
@@ -1212,6 +1255,9 @@ fn overview_snapshot(mut saved: Value, at: i64) -> Result<Value, &'static str> {
         .ok_or("inbox_storage_invalid")?
         .values_mut()
     {
+        for key in ["details", "lastAttempt"] {
+            if value.get(key).is_some() { value[key] = point_details::clean(&value[key]); }
+        }
         // A Point written under earlier rules is still shown, and marked so the app asks for it
         // again when the engine would take it: not while a rewrite is running or has just failed.
         if overview_current(value, at) && rewrite_due(value, at) {
@@ -1804,7 +1850,12 @@ mod tier_tests {
         let error_of = |id: &str| rows.as_array().unwrap().iter().find(|row| row["id"] == id).unwrap()["error"].clone();
         assert_eq!([error_of("news"), error_of("friend"), error_of("clinic")], [Value::Null, json!("overview_ai_paused"), json!("overview_ai_paused")]);
         let single = tiered(&prepared(), &[Tier::Sonnet; 4], false, |_, _| std::future::ready(Err("overview_ai_unavailable"))).await;
-        assert_eq!(single.unwrap_err(), "overview_ai_unavailable");
+        let single = single.unwrap();
+        assert!(single.as_array().unwrap().iter().all(|row| row["error"] == "overview_ai_unavailable" && row["stage"] == "batch"));
+        let mut saved = json!({});
+        finish_overviews_protected(&mut saved, &["news".into()], &Ok(single), &Default::default()).unwrap();
+        assert_eq!(saved["news"]["attempts"], 0, "a whole-batch failure still does not count against the message");
+        if !PHONE_WRITER { assert!(saved["news"]["details"]["createMs"].is_u64()); }
         let account = tiered(&prepared(), &tiers, false, |group, tier| {
             std::future::ready(if tier == Tier::Opus { Err("gmail_account_unknown") } else { Ok(written(&group)) })
         })
@@ -1846,5 +1897,60 @@ mod tier_tests {
             assert_eq!((row["state"].as_str(), row["foreground"].as_bool()), (Some("waiting"), Some(true)));
             assert!(row.get("retryAt").is_none(), "due as soon as the app is in the foreground");
         }
+    }
+}
+
+#[cfg(all(test, any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+mod point_detail_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn fallback_models_are_not_overwritten_and_group_time_is_shared() {
+        let prepared = json!([{"id":"a"},{"id":"b"}]);
+        let rows = tiered(&prepared, &[picker::Tier::Sonnet; 2], false, |_,_| async {
+            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+            Ok(json!([{"id":"a","text":"Payment arrived.","tier":"haiku"}, {"id":"b","text":"Reply to Sam.","tier":"haiku"}]))
+        }).await.unwrap();
+        for row in rows.as_array().unwrap() {
+            assert_eq!(row["tier"], "haiku");
+            assert_eq!(row["details"]["requestedModel"], if PHONE_WRITER { "claude-sonnet-5-5" } else { "sonnet" });
+            if !PHONE_WRITER {
+                assert!(row["details"]["createMs"].as_u64().unwrap() >= 50);
+                assert_eq!(row["details"]["batchSize"],2);
+            }
+        }
+    }
+
+    #[test]
+    fn expired_rewrites_remain_quiet_through_claim_failure_and_account_change() {
+        for state in ["ready", "stale", "running"] {
+            let mut value = json!({"state":state,"version":2,"text":"Expired.","expiresAt":1,"previousPoint":true});
+            reset_overview_after_account_change(&mut value, 1000);
+            assert_eq!(value["previousPoint"],true);
+            let mut saved = json!({"a":value});
+            assert_eq!(claim_overviews(&mut saved,&["a".into()],true,1001).unwrap(),["a"]);
+            assert_eq!(saved["a"]["previousPoint"],true);
+            finish_overviews_protected(&mut saved,&["a".into()],&Err("overview_ai_unavailable"),&Default::default()).unwrap();
+            assert_eq!(saved["a"]["previousPoint"],true);
+        }
+    }
+
+    #[test]
+    fn failed_rewrite_keeps_the_displayed_points_details_and_success_replaces_them() {
+        let mut saved = json!({"a":{"state":"ready","version":2,"promptRevision":POINT_REVISION,"expiresAt":0,"text":"Your payment arrived.","details":{"requestedModel":"opus","createMs":900}}});
+        let failed = Ok(json!([{"id":"a","error":"overview_ai_unavailable","stage":"batch","details":{"requestedModel":"haiku","createMs":22}}]));
+        finish_overviews_protected(&mut saved,&["a".into()],&failed,&Default::default()).unwrap();
+        assert_eq!(saved["a"]["details"]["createMs"],900);
+        assert_eq!(saved["a"]["lastAttempt"]["createMs"],22);
+        let malformed = Ok(json!([{"id":"a","text":"Bad\u{200b} text.","details":{"createMs":7}}]));
+        finish_overviews_protected(&mut saved,&["a".into()],&malformed,&Default::default()).unwrap();
+        assert_eq!(saved["a"]["details"]["createMs"],900,"rejected provider text cannot replace the retained Point's provenance");
+        assert_eq!(saved["a"]["lastAttempt"]["createMs"],7);
+        let success = Ok(json!([{"id":"a","text":"Sam wants a reply.","details":{"requestedModel":"sonnet","createMs":23,"private":"not stored"}}]));
+        finish_overviews_protected(&mut saved,&["a".into()],&success,&Default::default()).unwrap();
+        assert_eq!(saved["a"]["details"], json!({"requestedModel":"sonnet","createMs":23}));
+        assert!(saved["a"]["lastAttempt"].is_null());
+        let snapshot = overview_snapshot(saved,now()).unwrap();
+        assert_eq!(snapshot["a"]["details"]["createMs"],23);
     }
 }

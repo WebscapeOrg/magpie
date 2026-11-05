@@ -110,12 +110,14 @@ pub(crate) fn request(summary: &Value) -> Value {
 
 /// The tier an answer chooses, leaning upward when the picker is unsure, or Sonnet when the answer
 /// is a refusal, malformed or for another question.
-pub(crate) fn decide(reply: &Value) -> Tier {
+pub(crate) fn decide(reply: &Value) -> Tier { decision(reply).unwrap_or(Tier::Sonnet) }
+
+fn decision(reply: &Value) -> Option<Tier> {
     let Some(answer) = reply["answers"].as_array().into_iter().flatten().find(|answer| answer["name"] == QUESTION) else {
-        return Tier::Sonnet;
+        return None;
     };
     if answer["type"] != "choice" {
-        return Tier::Sonnet;
+        return None;
     }
     let chance = |value: &str| {
         answer["probabilities"].as_array().into_iter().flatten().find(|entry| entry["value"] == value).and_then(|entry| entry["probability"].as_f64()).filter(|p| (0.0..=1.0).contains(p))
@@ -123,17 +125,18 @@ pub(crate) fn decide(reply: &Value) -> Tier {
     match (chance("haiku"), chance("sonnet"), chance("opus")) {
         (Some(_), Some(sonnet), Some(opus)) => {
             if opus >= OPUS_AT {
-                Tier::Opus
+                Some(Tier::Opus)
             } else if sonnet + opus >= SONNET_AT {
-                Tier::Sonnet
+                Some(Tier::Sonnet)
             } else {
-                Tier::Haiku
+                Some(Tier::Haiku)
             }
         }
         _ => match answer["choice"].as_str() {
-            Some("haiku") => Tier::Haiku,
-            Some("opus") => Tier::Opus,
-            _ => Tier::Sonnet,
+            Some("haiku") => Some(Tier::Haiku),
+            Some("opus") => Some(Tier::Opus),
+            Some("sonnet") => Some(Tier::Sonnet),
+            _ => None,
         },
     }
 }
@@ -145,19 +148,37 @@ fn cost(reply: &Value, sent: usize) -> u64 {
     tokens.saturating_mul(INPUT_PRICE)
 }
 
-/// One tier per message, in order, and what the decisions cost. Without a key nothing is sent.
-pub(crate) async fn choose(messages: &Value, context: &Value) -> (Vec<Tier>, u64) {
-    let messages = messages.as_array().cloned().unwrap_or_default();
-    let Ok(key) = credentials::get(super::pictures::slot()).await else {
-        return (vec![Tier::Sonnet; messages.len()], 0);
-    };
-    choose_with(&key, &messages, context).await
+pub(crate) struct Choice {
+    pub(crate) tier: Tier,
+    pub(crate) millis: Option<u64>,
+    pub(crate) defaulted: bool,
 }
 
-pub(crate) async fn choose_with(key: &Secret, messages: &[Value], context: &Value) -> (Vec<Tier>, u64) {
-    let answers = futures_util::future::join_all(messages.iter().map(|message| ask(key, message, context))).await;
+pub(crate) async fn choose_detailed(messages: &Value, context: &Value) -> (Vec<Choice>, u64) {
+    let messages = messages.as_array().cloned().unwrap_or_default();
+    let Ok(key) = credentials::get(super::pictures::slot()).await else {
+        return (messages.iter().map(|_| Choice { tier: Tier::Sonnet, millis: None, defaulted: true }).collect(), 0);
+    };
+    choose_detailed_with(&key, &messages, context).await
+}
+
+async fn choose_detailed_with(key: &Secret, messages: &[Value], context: &Value) -> (Vec<Choice>, u64) {
+    let answers = futures_util::future::join_all(messages.iter().map(|message| async {
+        let started = std::time::Instant::now();
+        let (answer, cost) = ask(key, message, context).await;
+        let picked = answer.as_ref().ok().and_then(decision);
+        let choice = Choice { tier: picked.unwrap_or(Tier::Sonnet),
+            millis: Some(super::point_details::elapsed(started)), defaulted: picked.is_none() };
+        (choice, cost)
+    })).await;
     let spent = answers.iter().map(|(_, cost)| cost).sum();
-    (answers.into_iter().map(|(answer, _)| answer.map_or(Tier::Sonnet, |reply| decide(&reply))).collect(), spent)
+    (answers.into_iter().map(|(choice, _)| choice).collect(), spent)
+}
+
+#[cfg(test)]
+pub(crate) async fn choose_with(key: &Secret, messages: &[Value], context: &Value) -> (Vec<Tier>, u64) {
+    let (choices, spent) = choose_detailed_with(key, messages, context).await;
+    (choices.into_iter().map(|choice| choice.tier).collect(), spent)
 }
 
 /// OpenAI's answer about one email, or why there is none, and what asking cost.
@@ -247,6 +268,10 @@ mod tests {
     /// A stand-in for OpenAI: answers each request with `reply` (status 200 unless given) and
     /// returns the bodies it received.
     async fn stand_in(status: u16, reply: Value) -> (String, tokio::sync::mpsc::UnboundedReceiver<(String, Value)>) {
+        stand_in_delayed(status, reply, false).await
+    }
+
+    async fn stand_in_delayed(status: u16, reply: Value, delayed: bool) -> (String, tokio::sync::mpsc::UnboundedReceiver<(String, Value)>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let (seen, received) = tokio::sync::mpsc::unbounded_channel();
@@ -264,7 +289,12 @@ mod tests {
                     let length = head.lines().find_map(|line| line.split_once(':').filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))).map_or(0, |(_, value)| value.trim().parse::<usize>().unwrap());
                     let mut body = vec![0; length];
                     socket.read_exact(&mut body).await.unwrap();
-                    let _ = seen.send((head, serde_json::from_slice(&body).unwrap()));
+                    let request: Value = serde_json::from_slice(&body).unwrap();
+                    if delayed {
+                        let ms = if request["input"].as_str().unwrap_or("").contains("Results") { 240 } else { 40 };
+                        tokio::time::sleep(Duration::from_millis(ms)).await;
+                    }
+                    let _ = seen.send((head, request));
                     let text = reply.to_string();
                     let answer = format!("HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}", text.len());
                     let _ = socket.write_all(answer.as_bytes()).await;
@@ -283,6 +313,30 @@ mod tests {
             json!({"id":"a","owner":"sam@example.test","from":{"email":"news@shop.test"},"subject":"Sale","body":"20% off"}),
             json!({"id":"b","owner":"sam@example.test","from":{"email":"clinic@health.test"},"subject":"Results","body":"Your results"}),
         ]
+    }
+
+    #[tokio::test]
+    async fn valid_json_refusals_and_unknown_answers_are_recorded_as_defaults() {
+        for reply in [json!({}), json!({"answers":[{"name":"model","type":"refusal"}]}), json!({"answers":[{"name":"model","type":"choice","choice":"unknown"}]})] {
+            let (origin, _seen) = stand_in(200, reply).await;
+            let client = reqwest::Client::builder().no_proxy().build().unwrap();
+            let (choices, _) = super::super::pictures::openai::with_test_transport(client, origin, choose_detailed_with(&key(), &messages()[..1], &json!({}))).await;
+            assert!(choices[0].defaulted);
+            assert_eq!(choices[0].tier,Tier::Sonnet);
+            assert!(choices[0].millis.is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_decisions_keep_each_requests_measured_duration() {
+        let (origin, _received) = stand_in_delayed(200, choice(0.1, 0.3, 0.6), true).await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let (choices, _) = super::super::pictures::openai::with_test_transport(client, origin, choose_detailed_with(&key(), &messages(), &json!({}))).await;
+        assert_eq!(choices.len(), 2);
+        let fast = choices[0].millis.unwrap();
+        let slow = choices[1].millis.unwrap();
+        assert!(fast >= 30 && slow >= 230 && slow > fast + 100, "per-request durations: {fast}, {slow}");
+        assert!(choices.iter().all(|choice| choice.tier == Tier::Opus && !choice.defaulted));
     }
 
     #[tokio::test]

@@ -1074,6 +1074,13 @@ Item {
     return true
   }
 
+  function openPointDetails(id) {
+    if (!service || !service.inboxTools || !service.backend || service.backend.apiVersion < 8) return
+    var row = Model.summariesById(service.rawMessages || [], [id])[0]
+    if (!row && service.memberSummaries) row = service.memberSummaries[id]
+    if (row) pointDetails.openFor(row, service.inboxTools.overviewFor(row))
+  }
+
   function switchAccount(index) {
     if (!service) return false
     var mailbox = service.mailboxKey
@@ -1758,6 +1765,7 @@ Item {
               onRowActionRequested: function(id, action) { root.actFromRow(id, action) }
               onCheckToggled: function(id) { root.toggleCheck(id) }
               onCheckRangeRequested: function(id) { root.checkRange(id) }
+              onPointDetailsRequested: function(id) { root.openPointDetails(id) }
               onMenuRequested: function(id, sceneX, sceneY) {
                 root.cursorId = id
                 rowMenu.openAt(id, sceneX, sceneY)
@@ -2523,7 +2531,24 @@ Item {
         onConfirmed: function(request) { root.confirmDelete(request) }
       }
 
+      PointDetails {
+        id: pointDetails
+        accentColor: root.accent
+        textColor: root.foreground
+        dimColor: root.dim
+        backgroundColor: root.popupBackground
+        borderColor: root.popupBorder
+        panelFontFamily: root.fontFamily
+        Connections {
+          target: root.service
+          ignoreUnknownSignals: true
+          function onActiveAccountIdChanged() { pointDetails.close() }
+          function onAccountSummariesChanged() { pointDetails.close() }
+        }
+      }
+
       MessageMenu {
+        onPointDetailsRequested: function(id) { root.openPointDetails(id) }
         onAgentRequested: function(id, sceneX, sceneY) { root.openAgentAt(id, sceneX, sceneY) }
         id: rowMenu
         objectName: "rowMenu"

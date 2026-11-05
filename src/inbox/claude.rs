@@ -223,8 +223,20 @@ pub(crate) async fn ready() -> Result<(), &'static str> {
 pub(crate) async fn generate(messages: &Value, context: &Value, tier: Tier, left_before: u64) -> Result<Value, &'static str> {
     let key = key().await?;
     let client = client()?;
-    let (client, key) = (&client, &key);
-    each_message(messages, |message| async move { describe_tiered(client, key, &message, context, tier).await }, diagnostics::suspensions, left_before).await
+    generate_with_client(&client, &key, messages, context, tier, left_before).await
+}
+
+async fn generate_with_client(client: &reqwest::Client, key: &Secret, messages: &Value, context: &Value, tier: Tier, left_before: u64) -> Result<Value, &'static str> {
+    let mut rows = each_message(messages, |message| async move { describe_tiered(client, key, &message, context, tier).await }, diagnostics::suspensions, left_before).await?;
+    for row in rows.as_array_mut().into_iter().flatten() {
+        if row["stage"].is_null() {
+            let actual = match row["tier"].as_str() { Some("haiku") => Tier::Haiku, _ => tier };
+            let mut details = json!({"requestedModel":tier.model(),"batchSize":1});
+            if row["error"].is_null() { details["model"] = json!(actual.model()); }
+            super::point_details::merge(row, &details);
+        }
+    }
+    Ok(rows)
 }
 
 /// Invariant: a key or workspace that cannot use Sonnet or Opus gets the message written by Haiku
@@ -259,6 +271,8 @@ where
             continue;
         }
         let before = suspensions();
+        let started = std::time::Instant::now();
+        let first = rows.len();
         match describe(message.clone()).await {
             Ok(answer) => rows.extend(answer.as_array().cloned().unwrap_or_default()),
             // A request that iOS froze when the app left says nothing about Claude or the message, so
@@ -273,6 +287,9 @@ where
                     stopped = Some(error);
                 }
             }
+        }
+        for row in &mut rows[first..] {
+            super::point_details::merge(row, &json!({"createMs":super::point_details::elapsed(started)}));
         }
     }
     Ok(json!(rows))
@@ -1175,6 +1192,7 @@ mod tests {
                         (200, json!({"stop_reason":"end_turn","content":[{"type":"text","text":text}],"usage":{"input_tokens":1000,"output_tokens":20}}).to_string())
                     };
                     let answer = format!("HTTP/1.1 {code} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len());
+                    tokio::time::sleep(Duration::from_millis(5)).await;
                     let _ = socket.write_all(answer.as_bytes()).await;
                 });
             }
@@ -1196,7 +1214,10 @@ mod tests {
             let client = reqwest::Client::builder().no_proxy().build().unwrap();
             let key = Secret::new(synthetic_key().into_bytes()).unwrap();
             let message = json!({"id":"a","body":"Payment received: R780."});
-            let rows = TEST_ORIGIN.scope(origin, describe_tiered(&client, &key, &message, &json!({}), Tier::Sonnet)).await.unwrap();
+            let rows = TEST_ORIGIN.scope(origin, generate_with_client(&client, &key, &json!([message]), &json!({}), Tier::Sonnet, diagnostics::suspensions())).await.unwrap();
+            assert_eq!(rows[0]["details"]["requestedModel"], Tier::Sonnet.model());
+            assert_eq!(rows[0]["details"]["model"], Tier::Haiku.model());
+            assert!(rows[0]["details"]["createMs"].as_u64().unwrap() >= 10);
             assert_eq!(rows[0]["text"], "Your R780 payment arrived.");
             assert_eq!(rows[0]["tier"], "haiku", "the row says which model wrote it");
             let models = seen.lock().unwrap().clone();
@@ -1249,7 +1270,12 @@ mod tests {
                 async move { next.map(|text| json!([{"id":message["id"],"text":text}])) }
             }
         };
-        let rows = each_message(&messages, script(vec![Ok("Paid"), Err("overview_invalid_response"), Err("ai_unreachable")]), left, left()).await.unwrap();
+        let mut rows = each_message(&messages, script(vec![Ok("Paid"), Err("overview_invalid_response"), Err("ai_unreachable")]), left, left()).await.unwrap();
+        for row in &mut rows.as_array_mut().unwrap()[..3] {
+            assert!(row["details"]["createMs"].is_u64());
+            row.as_object_mut().unwrap().remove("details");
+        }
+        assert!(rows[3]["details"].is_null(), "a message never asked has no writing time");
         assert_eq!(*asked.lock().unwrap(), ["a", "b", "c"], "the message after Claude failed is not sent");
         assert_eq!(rows[0]["text"], "Paid");
         assert_eq!(rows[1], json!({"id":"b","error":"overview_invalid_response"}), "a message's own failure does not stop the others");
@@ -1278,7 +1304,8 @@ mod tests {
             assert_eq!((row["error"].as_str(), row["stage"].as_str()), (Some(INTERRUPTED), Some("batch")), "a request iOS froze is not the message's or Claude's failure");
         }
         let rows = each_message(&messages, frozen("ai_key_invalid"), left, left()).await.unwrap();
-        assert_eq!(rows[0], json!({"id":"a","error":"ai_key_invalid"}), "a refused key is reported even when the app left");
+        assert_eq!(rows[0]["error"], "ai_key_invalid", "a refused key is reported even when the app left");
+        assert!(rows[0]["details"]["createMs"].is_u64());
     }
 
     #[test]

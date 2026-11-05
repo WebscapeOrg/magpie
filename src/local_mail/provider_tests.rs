@@ -1085,3 +1085,42 @@ async fn opening_an_account_repairs_text_saved_under_the_old_rules() {
     assert!(store.complete_resource("mixed").unwrap().is_some(), "the account's store repairs itself when it opens");
     local.shutdown().await;
 }
+
+#[tokio::test]
+async fn gmail_download_duration_is_measured_at_transport_and_reused_without_refetch() {
+    if isolated() { return; }
+    let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    {
+        let mut world = provider.world.lock().unwrap();
+        world.messages.get_mut("one").unwrap()[gmail::DOWNLOAD_MS] = json!(99_999);
+        world.messages.get_mut("two").unwrap()[gmail::DOWNLOAD_MS] = json!(99_999);
+        world.pause = "/messages/one?".into();
+    }
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        let delayed = async {
+            provider.paused.notified().await;
+            tokio::time::sleep(Duration::from_millis(90)).await;
+            provider.world.lock().unwrap().pause.clear();
+        };
+        let (raw, ()) = tokio::join!(local.read(ACCOUNT,"one",&gmail), delayed);
+        let raw = raw.unwrap();
+        let millis = raw[gmail::DOWNLOAD_MS].as_u64().unwrap();
+        assert!((80..10_000).contains(&millis), "measured transport interval: {millis}");
+        let requests = provider.world.lock().unwrap().requests.len();
+        let cached = local.read(ACCOUNT,"one",&gmail).await.unwrap();
+        assert_eq!(cached[gmail::DOWNLOAD_MS], millis);
+        assert_eq!(provider.world.lock().unwrap().requests.len(), requests, "details/rewrite never refetch for a timer");
+        let replica = gmail.replica_call(ACCOUNT,"content",&json!({"id":"two"})).await.unwrap();
+        assert!(replica[gmail::DOWNLOAD_MS].as_u64().unwrap() < 99_999);
+        let minimal = gmail.replica_call(ACCOUNT,"minimal",&json!({"id":"two"})).await.unwrap();
+        assert!(minimal[gmail::DOWNLOAD_MS].is_null());
+        let metadata = gmail.call("gmail.read", &json!({"accountId":ACCOUNT,"id":"two","full":false})).await.unwrap();
+        assert!(metadata[gmail::DOWNLOAD_MS].is_null());
+        local.shutdown().await;
+    }).await;
+}

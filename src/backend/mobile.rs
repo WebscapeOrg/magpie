@@ -153,6 +153,15 @@ impl Engine {
         }
         Ok(answer)
     }
+    /// The events the app read from Apple Calendar, which The Point reads mail against beside Google
+    /// Calendar; an empty list (Apple Calendar turned off) removes them.
+    pub async fn mobile_apple_calendar(&self, params: &Value) -> Result<Value, &'static str> {
+        if params.as_object().is_none_or(|fields| fields.len() != 1 || !fields.contains_key("events")) {
+            return Err("invalid_params");
+        }
+        let params = params.clone();
+        tokio::task::spawn_blocking(move || crate::inbox::calendar::set_apple(&params)).await.map_err(|_| "mobile_request_failed")?
+    }
     pub async fn mobile_overview_settings(&self, params: &Value) -> Result<Value, &'static str> {
         self.dispatch("inbox.preferences", params).await
     }

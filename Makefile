@@ -5,7 +5,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/tests/qml/tst_unified_batch.qml ui/tests/qml/tst_clipboard_arguments.qml \
 	ui/tests/qml/tst_reader_subject_menu.qml \
 	ui/tests/qml/tst_local_mail_status.qml \
-	ui/tests/qml/tst_point_progress.qml \
+	ui/tests/qml/tst_point_progress.qml ui/tests/qml/tst_calendar_settings.qml \
 	ui/backend/Backend.qml ui/backend/Runtime.qml ui/diagnostics/Diagnostics.qml \
 	ui/components/BackendSetup.qml ui/components/LocalMailStatus.qml ui/components/PointProgress.qml ui/components/MagpieLogo.qml ui/components/DisplaySettings.qml ui/settings/MailStyle.qml \
 	ui/account/MailAccount.qml ui/account/LocalMailbox.qml ui/account/AccountResources.qml ui/account/BackendSync.qml ui/account/SendQueue.qml ui/account/Intents.qml ui/account/BatchAction.qml ui/account/UnifiedBatchAction.qml ui/account/UnifiedBatchSelection.qml  ui/account/LabelActions.qml ui/account/Unsubscribe.qml ui/account/NewMailNotification.qml \
@@ -56,7 +56,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/components/AccountRemovalDialog.qml \
 	ui/components/ComposeExitDialog.qml \
 	ui/components/BackBar.qml \
-	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/AboutYouSettings.qml ui/components/PictureSettings.qml \
+	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/AboutYouSettings.qml ui/components/CalendarSettings.qml ui/components/PictureSettings.qml \
 	ui/components/SpendingSettings.qml ui/components/SyncSettings.qml \
 	ui/components/SettingsSidebar.qml \
 	ui/components/ConfirmDeleteDialog.qml \

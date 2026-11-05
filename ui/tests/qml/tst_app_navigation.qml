@@ -1,4 +1,5 @@
 import "../../settings/Display.js" as Display
+import "../../inbox/Readiness.js" as Readiness
 import "../../settings"
 import QtQuick 2.15
 import QtTest 1.3
@@ -84,6 +85,7 @@ Item {
     property string activeAccountId: "me@example.com"
     property string mailboxKey: "inbox"
     property string searchQuery: ""
+    property string contentDirection: "auto"
     property bool searchAssistanceAvailable: false
     property bool listLoading: false
     property bool serverSearchLoading: false
@@ -101,6 +103,7 @@ Item {
     property var mailboxes: []
     property var labels: []
     property var messages: [{ id: "message-1", subject: "One" }]
+    property var inboxTools: null
     property var selectedAttachments: []
     property var selectedInvite: null
     property var selectedResponse: ""
@@ -210,6 +213,23 @@ Item {
     }
   }
 
+  QtObject {
+    id: stackTools
+    property bool selecting: false
+    property bool paused: false
+    property var snoozes: []
+    property string holdText: ""
+    property bool descriptionsEnabled: true
+    property var visibleRows: []
+    property string hold: ""
+    property int writingCount: 2
+    property var rows: [{id:"one",subject:"One"},{id:"two",subject:"Two"}]
+    property var stack: Readiness.stack(rows, overviewFor, function() { return false }, Date.now(), !selecting)
+    function overviewFor(row) { return {state:"running"} }
+    function status(row) { return "writing" }
+    function avatarFor(row) { return "" }
+  }
+
   Omamail.App {
     id: app
     service: mailService
@@ -291,6 +311,31 @@ Item {
       app.resetNavigation()
       waitForRendering(app)
       compare(kinds(), "list", "every test starts on the list")
+    }
+
+    function test_reader_keeps_every_checked_waiting_message_without_binding_loop() {
+      failOnWarning(/Binding loop/)
+      var oldMessages=mailService.messages
+      try {
+        mailService.displayPreferences=Display.normalize({layout:"Single pane"})
+        mailService.inboxTools=stackTools
+        mailService.messages=Qt.binding(function() { return stackTools.stack.messages })
+        app.checkedAccountId=mailService.activeAccountId
+        app.checkedIds=["one","two"]
+        wait(20)
+        compare(mailService.messages.length,2)
+        app.openMessage("one")
+        wait(20)
+        compare(app.listOnScreen,false)
+        compare(app.checkedIds.join(","),"one,two")
+        compare(stackTools.selecting,true)
+        app.backToList()
+        compare(app.checkedIds.join(","),"one,two")
+      } finally {
+        app.checkedIds=[]
+        mailService.inboxTools=null
+        mailService.messages=oldMessages
+      }
     }
 
     function test_control_comma_opens_settings_data() {

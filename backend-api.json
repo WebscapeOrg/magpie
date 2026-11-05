@@ -2416,6 +2416,16 @@
         "interviewOffered": "true"
       },
       "errorCode": -32602
+    },
+    {
+      "name": "Inbox snapshot has no writing IDs without a live worker",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "writingIds": []
+      }
     }
   ],
   "unreleased": {
@@ -2553,7 +2563,8 @@
       "Interview refuses unexpected routing fields",
       "Interview refuses invalid answer fields",
       "Interview offer is remembered separately from the bio",
-      "Interview offer refuses an invalid acknowledgement"
+      "Interview offer refuses an invalid acknowledgement",
+      "Inbox snapshot has no writing IDs without a live worker"
     ]
   },
   "releasedContract": {

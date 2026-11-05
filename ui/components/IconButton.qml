@@ -40,6 +40,9 @@ Item {
     event.accepted = true
     root.clicked()
   }
+  property string activationKey: ""
+  property int activationRevision: 0
+  onActivationKeyChanged: activationRevision++
   signal clicked()
 
   readonly property bool hot: (mouse.containsMouse || hasCursor || activeFocus) && enabled
@@ -101,7 +104,10 @@ Item {
     id: mouse
     anchors.fill: parent
     hoverEnabled: true
-    onClicked: root.clicked()
+    property int pressedRevision: -1
+    onPressed: pressedRevision = root.activationRevision
+    onCanceled: pressedRevision = -1
+    onClicked: if (pressedRevision === root.activationRevision) root.clicked()
   }
 
   Widgets.PanelToolTip {

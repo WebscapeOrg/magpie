@@ -23,9 +23,30 @@ Item {
       failOnWarning(/Unable to assign|TypeError|ReferenceError/)
       mouseMove(row,-20,-20)
       row.width=600;row.hasCursor=false;row.checked=false;row.conversations=false
-      row.attachmentIndicatorEnabled=true;row.overview="";row.writing=false
+      row.attachmentIndicatorEnabled=true;row.overview="";row.writing=false;row.pendingCount=0;row.motionEnabled=true
       row.summary={id:"one",subject:"Title",from:{display:"Sender"},time:"09:14",unread:false,starred:false}
       waitForRendering(row)
+    }
+    function test_stack_cards_fit_and_the_lines_move_data() {
+      var cases = []
+      for (var width of [280, 600]) for (var count of [1, 2, 3, 7]) cases.push({tag:width+"-"+count,width:width,count:count})
+      return cases
+    }
+    function test_stack_cards_fit_and_the_lines_move(data) {
+      row.width=data.width;row.pendingCount=data.count;row.writing=true
+      waitForRendering(row)
+      compare(row.stackDepth,Math.min(3,data.count))
+      var front=findChild(row,"point-card-"+(row.stackDepth-1))
+      verify(front);verify(front.x>=0);verify(front.x+front.width<=row.width)
+      var placeholder=findChild(row,"point-placeholder"),avatar=findChild(row,"message-avatar")
+      verify(avatar.x>=front.x+8)
+      verify(placeholder.mapToItem(row,placeholder.width,placeholder.height).x<=front.x+front.width-4)
+      verify(placeholder.mapToItem(row,0,placeholder.height).y<=front.y+front.height-6)
+      var phase=placeholder.phase
+      wait(130)
+      verify(placeholder.phase!==phase,"the highlight moves through the lines")
+      row.motionEnabled=false;wait(30);phase=placeholder.phase;wait(130)
+      compare(placeholder.phase,phase,"the still state does not animate")
     }
     function test_attachment_indicator_keeps_line_height_and_text_gap_data() {
       return [{tag:"wide",width:600,actions:false},{tag:"narrow-actions",width:360,actions:true}]

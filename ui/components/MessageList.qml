@@ -12,6 +12,7 @@ ListView {
   id: root
 
   required property var service
+  property color backgroundColor: "transparent"
   required property color textColor
   required property color accentColor
   required property color dimColor
@@ -152,9 +153,13 @@ ListView {
       avatarData: root.service.inboxTools ? root.service.inboxTools.avatarFor(modelData) : ""
       overview: root.service.inboxTools && root.service.inboxTools.descriptionsEnabled !== false ? String(overviewDetails.text || "") : ""
       writing: !!root.service.inboxTools && root.service.inboxTools.status(modelData) === "writing"
+      backgroundColor: root.backgroundColor
+      pendingCount: root.service.inboxTools && root.service.inboxTools.stack && root.service.inboxTools.stack.currentId === modelData.id
+        ? root.service.inboxTools.stack.count : 0
       onUnreadRequested: root.rowActionRequested(modelData.id, "markUnread")
       onSnoozeRequested: function(sceneX, sceneY) { root.snoozeRequested(modelData.id, sceneX, sceneY) }
       summary: modelData
+      ownerAccountId: String(modelData.accountId || root.service.activeAccountId || "")
       textColor: root.textColor
       accentColor: root.accentColor
       dimColor: root.dimColor

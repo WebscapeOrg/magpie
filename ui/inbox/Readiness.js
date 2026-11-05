@@ -32,3 +32,17 @@ function waited(ms) {
   var hours = Math.floor(minutes / 60), rest = minutes % 60
   return rest ? count(hours, "hour") + " " + count(rest, "minute") : count(hours, "hour")
 }
+
+function stack(rows, valueFor, activeFor, at, enabled) {
+  if (!enabled) return {messages: rows, currentId: "", count: 0, depth: 0}
+  var pending = [], messages = [], current = null
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i]
+    if (status(valueFor(row), at, false) !== "writing") { messages.push(row); continue }
+    pending.push(row)
+    if (!current && activeFor(row)) current = row
+  }
+  current = current || pending[0]
+  return {messages: current ? [current].concat(messages) : messages,
+    currentId: current ? current.id : "", count: pending.length, depth: Math.min(3, pending.length)}
+}

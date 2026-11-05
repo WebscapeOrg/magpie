@@ -207,6 +207,13 @@ Item {
   readonly property bool listOnScreen: currentView === "list"
     || (currentView === "reader" && !singleContent)
   readonly property bool selectionActive: checkedIds.length > 0 && listOnScreen
+  Binding {
+    target: root.service && root.service.inboxTools && root.service.inboxTools.selecting !== undefined ? root.service.inboxTools : null
+    property: "selecting"
+    value: root.checkedIds.length > 0 || focusScope.ctrlHeld
+    when: target !== null
+  }
+
 
   function toggleCheck(id) {
     var key = String(id || "")
@@ -1029,8 +1036,9 @@ Item {
       root.clearChecksIfForeign()
       root.cursorId = Model.cursorAfterReload(
         root.service ? root.service.messages : [], root.cursorId)
-      root.checkedIds = Model.retainIds(root.checkedIds,
+      var retained = Model.retainIds(root.checkedIds,
         root.service ? root.service.messages : [])
+      if (retained.length !== root.checkedIds.length) root.checkedIds = retained
     }
     function onDuplicateAccount(email) {
       root.notice = email + " is already added"
@@ -1738,6 +1746,7 @@ Item {
               accentColor: root.accent
               dimColor: root.dim
               panelFontFamily: MailStyle.listFamily
+              backgroundColor: root.background
               cursorId: root.cursorId
               checkedIds: root.checkedIds
               ctrlHeld: focusScope.ctrlHeld

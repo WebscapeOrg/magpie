@@ -1514,7 +1514,7 @@ Item {
   readonly property var rawMessages: unified
     ? unifiedMessages : (current ? current.messages : [])
   readonly property bool curatedInbox: hasAgent && mailboxKey === "inbox" && !searchActive
-  readonly property var messages: rawMessages
+  readonly property var messages: inboxController.stack.messages
   // Invariant: Labels belong to one account and are unavailable in unified view.
   readonly property var labels: unified ? [] : (current ? current.labels : [])
   readonly property bool canMoveToLabel: !unified
@@ -1870,8 +1870,7 @@ Item {
   }
   function unsubscribe() { if (reading) reading.unsubscribe() }
   function cursorOffset(cursorId, delta) {
-    if (unified) return Unified.cursorOffset(unifiedMessages, cursorId, delta)
-    return current ? current.cursorOffset(cursorId, delta) : ""
+    return Unified.cursorOffset(messages, cursorId, delta)
   }
   function selectMailbox(key) {
     searchPreparationSerial++

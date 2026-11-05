@@ -11,6 +11,10 @@ Rectangle {
   id: root
 
   required property var summary
+  property string ownerAccountId: ""
+  readonly property string messageIdentity: JSON.stringify([summary.accountId || ownerAccountId, summary.id || ""])
+  property int identityRevision: 0
+  onMessageIdentityChanged: identityRevision++
   required property color textColor
   required property color accentColor
   required property color dimColor
@@ -37,6 +41,12 @@ Rectangle {
   // In the Inbox, a message whose Point Magpie is writing shows moving lines where the Point goes,
   // and the Point fades in when it is ready.
   property bool writing: false
+  property int pendingCount: 0
+  property color backgroundColor: "transparent"
+  property bool motionEnabled: true
+  readonly property int stackDepth: Math.min(3, Math.max(0, pendingCount))
+  readonly property real stackInset: Math.max(0, stackDepth - 1) * MailStyle.space(6)
+  readonly property real cardGutter: stackDepth ? MailStyle.space(8) : 0
   property string writingId: ""
   onWritingChanged: {
     if (!writing && writingId === String(summary.id || "")) pointFade.restart()
@@ -73,11 +83,34 @@ Rectangle {
   }
 
   width: parent ? parent.width : 0
-  implicitHeight: Math.max(body.implicitHeight, actions.visible ? actions.height : 0, avatar.height + avatarTopInset) + MailStyle.space(14)
+  implicitHeight: Math.max(body.implicitHeight, actions.visible ? actions.height : 0, avatar.height + avatarTopInset) + MailStyle.space(14) + stackInset + cardGutter
   radius: Style.cornerRadius
-  color: selected || hasCursor || checked
+  readonly property color rowFill: selected || hasCursor || checked
     ? Style.selectedFillFor(textColor, accentColor)
     : (hot ? Style.hoverFillFor(textColor, accentColor) : "transparent")
+
+  color: stackDepth ? "transparent" : rowFill
+  Repeater {
+    model: root.stackDepth
+    Rectangle {
+      required property int index
+      objectName: "point-card-" + index
+      z: -1
+      x: root.cardGutter + index * MailStyle.space(6)
+      y: index * MailStyle.space(6)
+      width: Math.max(0, root.width - root.stackInset - 2 * root.cardGutter)
+      height: root.height - root.stackInset - root.cardGutter
+      radius: Math.max(Style.cornerRadius, MailStyle.space(10))
+      color: root.backgroundColor
+      border.width: 1
+      border.color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.2)
+      Rectangle {
+        anchors.fill: parent
+        radius: parent.radius
+        color: index === root.stackDepth - 1 ? root.rowFill : "transparent"
+      }
+    }
+  }
 
   MouseArea {
     id: mouse
@@ -87,7 +120,11 @@ Rectangle {
     hoverEnabled: false
     acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
     onWheel: function(wheel) { wheel.accepted = false }
+    property int pressedRevision: -1
+    onPressed: pressedRevision = root.identityRevision
+    onCanceled: pressedRevision = -1
     onClicked: function(event) {
+      if (pressedRevision !== root.identityRevision) return
       if (event.button === Qt.RightButton) {
         var scene = mapToGlobal(event.x, event.y)
         root.menuRequested(scene.x, scene.y)
@@ -107,7 +144,7 @@ Rectangle {
     id: avatar
     objectName: "message-avatar"
     anchors.left: parent.left
-    anchors.leftMargin: MailStyle.space(14)
+    anchors.leftMargin: MailStyle.space(14) + root.stackInset + root.cardGutter
     y: body.y + root.avatarTopInset
     width: MailStyle.space(36)
     height: width
@@ -128,9 +165,9 @@ Rectangle {
     id: body
     anchors.left: parent.left
     anchors.right: parent.right
-    anchors.leftMargin: MailStyle.space(14) + avatar.width + MailStyle.space(10)
-    anchors.rightMargin: MailStyle.space(6) + (MailStyle.space(24) - Style.font.iconSmall) / 2
-    y: MailStyle.space(7)
+    anchors.leftMargin: MailStyle.space(14) + avatar.width + MailStyle.space(10) + root.stackInset + root.cardGutter
+    anchors.rightMargin: MailStyle.space(6) + (MailStyle.space(24) - Style.font.iconSmall) / 2 + root.cardGutter
+    y: MailStyle.space(7) + root.stackInset
     spacing: MailStyle.space(2)
 
     Item {
@@ -203,24 +240,38 @@ Rectangle {
       topPadding: MailStyle.space(3)
       bottomPadding: MailStyle.space(3)
       spacing: MailStyle.space(6)
-      property real pulse: 0.45
-      // The same pulse as the list's loading rows (ListSkeleton).
-      SequentialAnimation on pulse {
-        running: pointPlaceholder.visible
+      property real phase: -0.6
+      NumberAnimation on phase {
+        running: pointPlaceholder.visible && root.visible && root.motionEnabled
+        from: -0.6; to: 1.0; duration: 1800
         loops: Animation.Infinite
-        NumberAnimation { to: 1.0; duration: 900; easing.type: Easing.InOutQuad }
-        NumberAnimation { to: 0.45; duration: 900; easing.type: Easing.InOutQuad }
       }
       Accessible.role: Accessible.StaticText
       Accessible.name: "Point being written. " + String(root.summary.subject || "")
+      Accessible.description: root.pendingCount ? root.pendingCount + " messages waiting for their Point" : ""
       Repeater {
         model: [1.0, 0.62]
         Rectangle {
           required property real modelData
           width: Math.max(1, pointPlaceholder.width * modelData)
           height: MailStyle.space(9)
-          radius: Style.cornerRadius
-          color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.05 + 0.05 * pointPlaceholder.pulse)
+          radius: height / 2
+          clip: true
+          color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.12)
+          Rectangle {
+            visible: root.motionEnabled
+            x: parent.width * pointPlaceholder.phase
+            y: 1
+            width: parent.width * 0.6
+            height: parent.height - 2
+            radius: height / 2
+            gradient: Gradient {
+              orientation: Gradient.Horizontal
+              GradientStop { position: 0; color: "transparent" }
+              GradientStop { position: 0.5; color: Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.65) }
+              GradientStop { position: 1; color: "transparent" }
+            }
+          }
         }
       }
     }
@@ -286,6 +337,7 @@ Rectangle {
     visible: root.hot || root.selectionMode || root.snoozeOpen
 
     IconButton {
+      activationKey: root.messageIdentity
       objectName: "message-mark-unread"
       visible: !root.selectionMode
       iconName: "unread"
@@ -298,6 +350,7 @@ Rectangle {
       onClicked: root.unreadRequested()
     }
     IconButton {
+      activationKey: root.messageIdentity
       objectName: "message-snooze"
       visible: !root.selectionMode
       iconName: "snooze"
@@ -312,6 +365,7 @@ Rectangle {
     }
 
     IconButton {
+      activationKey: root.messageIdentity
       // Invariant: an account without an archive destination must not expose an action that cannot
       // move the message.
       visible: root.hot && root.canArchive && !root.selectionMode
@@ -326,6 +380,7 @@ Rectangle {
     }
 
     IconButton {
+      activationKey: root.messageIdentity
       visible: root.hot && !root.selectionMode
       objectName: "message-trash"
       iconName: "trash"
@@ -377,7 +432,11 @@ Rectangle {
         id: checkMouse
         anchors.fill: parent
         hoverEnabled: true
+        property int pressedRevision: -1
+        onPressed: pressedRevision = root.identityRevision
+        onCanceled: pressedRevision = -1
         onClicked: function(event) {
+          if (pressedRevision !== root.identityRevision) return
           if (event.modifiers & Qt.ShiftModifier) root.checkRangeRequested()
           else root.checkToggled()
         }

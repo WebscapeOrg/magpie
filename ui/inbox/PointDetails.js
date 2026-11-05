@@ -23,9 +23,9 @@ function rows(value) {
   value = value || {}
   var details = value.details || {}
   var historical = value.state === "ready" || value.state === "stale"
-  var requested = model(details.requestedModel) || (historical ? model(value.tier) : "")
+  var requested = model(details.requestedModel)
   var rows = [{title: "Requested model", value: requested || "Not recorded"}]
-  var actual = model(details.model)
+  var actual = model(details.model) || (historical ? model(value.tier) : "")
   if (actual && actual !== requested) rows.push({title: "Created with", value: actual})
   return rows.concat([
     {title: "Get from Gmail", value: duration(details.gmailMs) || "Not recorded"},

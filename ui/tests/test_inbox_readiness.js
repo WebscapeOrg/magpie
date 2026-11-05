@@ -48,7 +48,9 @@ for (let count=0;count<=5;count++) {
 }
 
 const details = load("inbox/PointDetails.js");
-assert.deepStrictEqual(Array.from(details.rows({state:"ready",tier:"opus"}), row=>row.value), ["Claude Opus","Not recorded","Not recorded","Not recorded"]);
+assert.deepStrictEqual(Array.from(details.rows({state:"stale",tier:"haiku"}), row=>row.title).slice(0,2), ["Requested model","Created with"]);
+assert.deepStrictEqual(Array.from(details.rows({state:"stale",tier:"haiku"}), row=>row.value).slice(0,2), ["Not recorded","Claude Haiku"]);
+assert.deepStrictEqual(Array.from(details.rows({state:"ready",tier:"opus"}), row=>row.value), ["Not recorded","Claude Opus","Not recorded","Not recorded","Not recorded"]);
 assert.deepStrictEqual(Array.from(details.rows({state:"ready",details:{requestedModel:"claude-sonnet-5-5",model:"claude-haiku-5-5",gmailMs:0,decideMs:42,createMs:2500}}), row=>row.value), ["Claude Sonnet 5.5","Claude Haiku 5.5","0 ms","42 ms","2.5 seconds"]);
 for (const value of [null,undefined,-1,0.5,86400001,"125"]) assert.strictEqual(details.duration(value), "");
 for (const value of ["__proto__","constructor","<b>Sonnet</b>"]) assert.strictEqual(details.model(value), "");

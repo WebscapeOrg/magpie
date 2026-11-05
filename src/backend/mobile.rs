@@ -141,12 +141,17 @@ impl Engine {
         let ids: Vec<&str> = ids.iter().filter_map(Value::as_str).collect();
         self.inbox.check_rewrites(account, &self.local_mail).await;
         let page = self.inbox.overview_page(account, &ids)?;
-        let keys = ["text", "state", "updated", "version", "expiresAt", "reason", "pendingSince", "attempts", "retryAt", "refresh"];
+        let keys = ["text", "state", "updated", "version", "expiresAt", "reason", "pendingSince", "attempts", "retryAt", "refresh", "details"];
         let rows: serde_json::Map<String, Value> = page["overviews"]
             .as_object()
             .into_iter()
             .flatten()
-            .map(|(id, row)| (id.clone(), json!(keys.iter().filter_map(|key| row.get(*key).map(|value| (key.to_string(), value.clone()))).collect::<serde_json::Map<_, _>>())))
+            .map(|(id, row)| {
+                let mut fields: serde_json::Map<_, _> = keys.iter().filter_map(|key| row.get(*key).map(|value| (key.to_string(), value.clone()))).collect();
+                if let Some(tier) = crate::inbox::point_details::model(&row["tier"]) { fields.insert("tier".into(), json!(tier)); }
+                if let Some(previous) = row["previousPoint"].as_bool() { fields.insert("previousPoint".into(), json!(previous)); }
+                (id.clone(), Value::Object(fields))
+            })
             .collect();
         let mut answer = json!({"overviews":rows,"accepted":submitted["accepted"],"preferences":page["preferences"],"writingIds":page["writingIds"]});
         if let Some(problem) = submitted["problem"].as_str() {

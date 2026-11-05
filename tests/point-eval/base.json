@@ -17,7 +17,7 @@
       {"id": "td-base-1", "title": "Renew car insurance", "list": "next", "status": "open", "start_on": null, "deadline_on": "2026-11-20", "done_at": null, "binned_at": null, "source_ref": null}
     ],
     "calendar": [
-      {"id": "ev-base-1", "title": "Ada hockey match", "start": "2026-11-07T10:00:00Z", "end": "2026-11-07T11:30:00Z", "location": "Mardyke", "organizer": "club@hockey.example.test", "attendees": [], "response": "accepted"}
+      {"id": "ev-base-1", "title": "Ada hockey match", "start": "2026-11-07T10:00:00Z", "end": "2026-11-07T11:30:00Z", "location": "Mardyke", "organizer": "club@hockey.example.test", "response": "accepted"}
     ]
   }
 }

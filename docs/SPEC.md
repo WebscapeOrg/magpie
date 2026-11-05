@@ -43,7 +43,9 @@ guided by an in-app four-step walkthrough.
 - Authorization Code + PKCE, loopback redirect `http://127.0.0.1:9481/oauth2callback`
 - Rust owns the bounded, single-use loopback callback; the browser handles Google sign-in
 - Scopes: `gmail.modify` (read, label, archive, trash — cannot permanently
-  delete), `gmail.send` and `calendar.events` (read calendars, write events)
+  delete) and `gmail.send`, plus two optional read-only ones that a sign-in may leave unticked:
+  `contacts.readonly` (sender pictures) and `calendar.readonly` (The Point's calendar context).
+  Magpie never writes calendars.
 - Refresh token → system credential store through the typed native boundary, keyed by client and account
 - Client id/secret → `~/.config/omamail/credentials.json`, mode 0600.
   Not plugin settings: `shell.json` is world-readable.
@@ -89,7 +91,7 @@ guided by an in-app four-step walkthrough.
 - Actions: read/unread, star, archive, trash, untrash, report spam, mark all read
 - Compose, reply, reply-all, forward
 - Calendar invitations: full meeting detail, RSVP, and one-click Meet join
-- Calendar: month and week views over Google Calendar, including discovered shared calendars, read-only permissions, event creation/editing/deletion, recurrence and reminders. Calendars follow the current account by default; a setting combines connected accounts.
+- Calendar: views, event editing, attendance and reminders belong to Magpie Calendar; Magpie reads Google Calendar only as context for The Point (Settings → Calendar).
 - One-click unsubscribe from mailing lists that support it
 - Search using Gmail's own operator syntax
 - Unread dot in the bar, deliberately without a count; merged desktop notification for new mail

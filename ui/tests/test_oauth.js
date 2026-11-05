@@ -33,7 +33,9 @@ assert.ok(url.indexOf("include_granted_scopes=true") > 0,
 assert.ok(url.indexOf("prompt=consent") > 0)
 assert.ok(url.indexOf("redirect_uri=http%3A%2F%2F127.0.0.1%3A9481%2Foauth2callback") > 0)
 assert.ok(url.indexOf("scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.modify%20") > 0)
-assert.ok(!oauth.SCOPES.some(scope => scope.includes("/calendar")), "Magpie requests mail permissions only")
+// Magpie Calendar owns calendars (e7b6832); Magpie only reads them as context for The Point
+// (C-050, 4 November 2026), so the one calendar scope is read-only.
+assert.strictEqual(JSON.stringify(oauth.SCOPES.filter(scope => scope.includes("/calendar"))), JSON.stringify(["https://www.googleapis.com/auth/calendar.readonly"]), "Magpie never asks to change a calendar")
 assert.ok(url.indexOf("login_hint") < 0, "an absent hint is omitted, not sent empty")
 
 const hinted = oauth.authorizationUrl({
@@ -135,6 +137,8 @@ assert.strictEqual(oauth.missingScopeMessage([]), "")
 
 assert(oauth.SCOPES.includes("https://www.googleapis.com/auth/contacts.readonly"), "new sign-ins request optional contact photos")
 assert(!oauth.requiredScopes(oauth.SCOPES).includes("https://www.googleapis.com/auth/contacts.readonly"), "denying optional contacts does not disable mail")
+assert(oauth.SCOPES.includes("https://www.googleapis.com/auth/calendar.readonly"), "new sign-ins ask to read the calendar for The Point")
+assert(!oauth.requiredScopes(oauth.SCOPES).includes("https://www.googleapis.com/auth/calendar.readonly"), "denying the calendar does not disable mail")
 
 // Invariant: Google echoes request parameters back in error descriptions, so anything
 // heading for a label goes through this first.

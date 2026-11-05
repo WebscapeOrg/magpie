@@ -20,7 +20,8 @@ var CALLBACK_PATH = "/oauth2callback"
 
 // Invariant: gmail.modify is read plus label/trash changes — it deliberately cannot
 // permanently delete. gmail.send is what reply and compose need.
-var OPTIONAL_SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"]
+// Contacts give sender pictures; the calendar is read, never changed, as context for The Point.
+var OPTIONAL_SCOPES = ["https://www.googleapis.com/auth/contacts.readonly", "https://www.googleapis.com/auth/calendar.readonly"]
 var SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.send"

@@ -68,14 +68,14 @@ Item {
       mockTools.writingCount = 2
       waitForRendering(progress)
       var line = findChild(progress, "point-progress"), dot = findChild(progress, "point-progress-dot")
-      compare(line.text, "Magpie is working through 2 new messages")
+      compare(line.text, "Magpie is reading 2 messages")
       verify(dot.visible)
       verify(progress.height >= line.height, "the line has room")
       verify(dot.x + dot.width + 8 <= line.x, "the dot and the words do not touch")
       verify(dot.y >= line.y && dot.y + dot.height <= line.y + line.contentHeight / line.lineCount + 1, "the dot sits beside the first line")
       verify(line.x + line.width <= progress.width, "the line fits at " + data.width)
       mockTools.writingCount = 1
-      compare(line.text, "Magpie is working through 1 new message")
+      compare(line.text, "Magpie is reading 1 message")
       mockTools.writingCount = 0
       compare(progress.height, 0, "the line goes when nothing is being written")
     }

@@ -17,6 +17,7 @@ import "../providers/OAuth.js" as OAuth
 // Performance: Every account polls unread counts; list refreshes follow visibility, baseline checks, unread-count changes and actions. Bodies load on demand.
 Item {
   id: root
+  property bool retired: false
   readonly property var local: localMailbox
   LocalMailbox { id: localMailbox; account: root }
   readonly property var submittedSearch: submittedSearchSession
@@ -477,7 +478,7 @@ Item {
     if (cacheStore.loaded && cacheStore.store.labels.length > 0 && labels.length === 0)
       labels = cacheStore.store.labels
     api.getLabels(function(result, error) {
-      if (error) return
+      if (!root || root.retired || error) return
       root.labels = result
       cacheStore.putLabels(result)
     })
@@ -2274,6 +2275,7 @@ Item {
     for (var callbackIndex = 0; callbackIndex < callbacks.length; callbackIndex++) callbacks[callbackIndex]()
   }
   Component.onDestruction: {
+    retired = true
     cancelConversation()
     cancelActionCompletions()
   }

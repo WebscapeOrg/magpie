@@ -218,7 +218,7 @@ pub(super) async fn receive(
             Ok(resource) if resource["id"] != id => Err("gmail_invalid_response"),
             Ok(mut resource) => match hydrate_text(gmail, account, &id, &mut resource, false).await
             {
-                Ok(()) => disk(store, move |s| s.put(&resource, generation)).await,
+                Ok(()) => disk(store, move |s| s.put_downloaded(&resource, generation, true, resource[gmail::DOWNLOAD_MS].as_u64())).await,
                 Err(e) => Err(e),
             },
             Err(error) => Err(error),
@@ -462,6 +462,7 @@ pub(super) async fn hydrate_text(
     resource: &mut Value,
     foreground: bool,
 ) -> Result<()> {
+    let started = std::time::Instant::now();
     let mut pending = vec!["/payload".to_owned()];
     while let Some(path) = pending.pop() {
         let part = resource.pointer(&path).ok_or("gmail_invalid_response")?;
@@ -499,6 +500,9 @@ pub(super) async fn hydrate_text(
         resource
             .pointer_mut(&path)
             .ok_or("gmail_invalid_response")?["body"]["data"] = json!(data);
+    }
+    if let Some(ms) = resource[gmail::DOWNLOAD_MS].as_u64() {
+        resource[gmail::DOWNLOAD_MS] = json!(ms.saturating_add(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)));
     }
     Ok(())
 }

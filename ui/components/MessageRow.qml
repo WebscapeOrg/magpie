@@ -12,7 +12,8 @@ Rectangle {
 
   required property var summary
   property string ownerAccountId: ""
-  readonly property string messageIdentity: JSON.stringify([summary.accountId || ownerAccountId, summary.id || ""])
+  property string interactionScope: ""
+  readonly property string messageIdentity: JSON.stringify([summary.accountId || ownerAccountId, summary.id || "", interactionScope])
   property int identityRevision: 0
   onMessageIdentityChanged: identityRevision++
   required property color textColor
@@ -32,6 +33,7 @@ Rectangle {
   readonly property color secondaryTextColor: selected || hasCursor || checked ? textColor : dimColor
   property string contentDirection: Direction.MODE_DEFAULT
 
+  signal pointDetailsRequested()
   signal activated()
   signal checkToggled()
   signal checkRangeRequested()
@@ -44,6 +46,11 @@ Rectangle {
   property int pendingCount: 0
   property color backgroundColor: "transparent"
   property bool motionEnabled: true
+  property bool departing: false
+  transform: Translate {
+    y: root.departing && root.motionEnabled ? -MailStyle.space(18) : 0
+    Behavior on y { NumberAnimation { duration: root.motionEnabled ? 220 : 0; easing.type: Easing.OutCubic } }
+  }
   readonly property int stackDepth: Math.min(3, Math.max(0, pendingCount))
   readonly property real stackInset: Math.max(0, stackDepth - 1) * MailStyle.space(6)
   readonly property real cardGutter: stackDepth ? MailStyle.space(8) : 0
@@ -121,10 +128,16 @@ Rectangle {
     acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
     onWheel: function(wheel) { wheel.accepted = false }
     property int pressedRevision: -1
-    onPressed: pressedRevision = root.identityRevision
+    property bool held: false
+    onPressed: { pressedRevision = root.identityRevision; held = false }
+    onPressAndHold: function(event) {
+      if (event.button !== Qt.LeftButton || pressedRevision !== root.identityRevision) return
+      held = true
+      root.pointDetailsRequested()
+    }
     onCanceled: pressedRevision = -1
     onClicked: function(event) {
-      if (pressedRevision !== root.identityRevision) return
+      if (held || pressedRevision !== root.identityRevision) return
       if (event.button === Qt.RightButton) {
         var scene = mapToGlobal(event.x, event.y)
         root.menuRequested(scene.x, scene.y)

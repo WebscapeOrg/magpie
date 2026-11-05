@@ -380,7 +380,11 @@ impl LocalMail {
             None => crate::cache::resource::read(account, id)
                 .await
                 .ok()
-                .flatten(),
+                .flatten()
+                .map(|mut resource| {
+                    if let Some(fields) = resource.as_object_mut() { fields.remove(crate::providers::gmail::DOWNLOAD_MS); }
+                    resource
+                }),
         };
         let mut resource = match cached {
             Some(resource) => resource,
@@ -401,7 +405,7 @@ impl LocalMail {
         let saved = sync::disk(store, move |s| {
             let generation =
                 s.read(|db| Ok(store::state(db, "generation")?.parse().unwrap_or(1)))?;
-            s.put_cached(&saved, generation)
+            s.put_downloaded(&saved, generation, false, saved[crate::providers::gmail::DOWNLOAD_MS].as_u64())
         })
         .await;
         match saved {

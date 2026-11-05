@@ -1,5 +1,6 @@
 import QtQuick
 import "Readiness.js" as Readiness
+import "PointArrivals.js" as Arrivals
 Item {
   id: root
   required property var service
@@ -105,6 +106,7 @@ Item {
     for (var i=0;i<rows.length;i++) {
       var value = overviewFor(rows[i]), updated = Number(value.updated || 0)
       if (Readiness.ready(value, overviewClock)) { written = Math.max(written, updated); continue }
+      if (Readiness.previousPoint(value)) continue
       unfinished = true
       if (Readiness.problem(value) === Readiness.SUBSCRIPTIONS_OUT) spent = Math.max(spent, updated)
       if (Readiness.status(value, overviewClock, false) === "writing") writing = true
@@ -132,11 +134,42 @@ Item {
   }
   property bool selecting: false
   property var writingIds: ({})
-  readonly property var stack: Readiness.stack(service ? service.rawMessages || [] : [], overviewFor,
-    function(row) {
-      var host = owner(row)
-      return !!host && (writingIds[host.accountId] || []).indexOf(id(row)) >= 0
-    }, overviewClock, writesPoints && hold === "" && !selecting)
+  property bool motionEnabled: true
+  property var arrivalState: ({queued:[], delivered:[], scope:""})
+  readonly property bool arrivalEnabled: writesPoints && hold === "" && !selecting
+  readonly property string arrivalScope: JSON.stringify([service ? service.activeAccountId : "", service ? service.mailboxKey : "", service ? service.rawLabelId : "", service ? service.searchQuery : "", arrivalEnabled])
+  function activePoint(row) {
+    var host = owner(row)
+    return !!host && (writingIds[host.accountId] || []).indexOf(id(row)) >= 0
+  }
+  readonly property string arrivalSignature: JSON.stringify((service ? service.rawMessages || [] : []).map(function(row) {
+    return [row.id, Readiness.status(root.overviewFor(row), root.overviewClock, false), root.activePoint(row)]
+  })) + arrivalScope
+  onArrivalSignatureChanged: reconcileArrivals()
+  function reconcileArrivals() {
+    arrivalState = Arrivals.update(arrivalState, service ? service.rawMessages || [] : [], overviewFor, activePoint, overviewClock, arrivalEnabled, arrivalScope)
+  }
+  readonly property var stack: Arrivals.projection(arrivalState, service ? service.rawMessages || [] : [], arrivalEnabled)
+  readonly property string readyArrivalId: {
+    var rows = service ? service.rawMessages || [] : []
+    var row = rows.find(function(row) { return row.id === root.arrivalState.queued[0] })
+    return row && Readiness.ready(overviewFor(row), overviewClock) ? row.id : ""
+  }
+  property string departingId: ""
+  onReadyArrivalIdChanged: {
+    arrivalTimer.stop()
+    departingId = readyArrivalId
+    if (readyArrivalId !== "") arrivalTimer.restart()
+  }
+  Timer {
+    id: arrivalTimer
+    interval: root.motionEnabled ? 220 : 0
+    onTriggered: {
+      var id = root.departingId
+      root.departingId = ""
+      root.arrivalState = Arrivals.finish(root.arrivalState, id)
+    }
+  }
   property string notice: ""
   property var snoozes: []
   property var lastSnoozed: null

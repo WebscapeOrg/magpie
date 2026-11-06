@@ -166,6 +166,13 @@ fn answer(world: &mut World, line: &str, url: &reqwest::Url, body: Value) -> (u1
     if path.ends_with("/labels") {
         return (200, json!({"labels":[{"id":"INBOX","name":"INBOX"}]}));
     }
+    if path.contains("/attachments/") {
+        use base64::Engine as _;
+        return (200, json!({"data":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("Downloaded body text"),"size":20}));
+    }
+    if path.contains("/threads/") {
+        return (200, json!({"id":"thread","messages":world.messages.values().cloned().collect::<Vec<_>>()}));
+    }
     if path.ends_with("/messages") {
         if url
             .query_pairs()
@@ -1095,7 +1102,9 @@ async fn gmail_download_duration_is_measured_at_transport_and_reused_without_ref
     {
         let mut world = provider.world.lock().unwrap();
         world.messages.get_mut("one").unwrap()[gmail::DOWNLOAD_MS] = json!(99_999);
+        world.messages.get_mut("one").unwrap()[gmail::DOWNLOAD_RUN] = json!({"origin":"forged"});
         world.messages.get_mut("two").unwrap()[gmail::DOWNLOAD_MS] = json!(99_999);
+        world.messages.get_mut("two").unwrap()[gmail::DOWNLOAD_RUN] = json!({"origin":"forged"});
         world.pause = "/messages/one?".into();
     }
     let client = reqwest::Client::builder().no_proxy().build().unwrap();
@@ -1110,17 +1119,115 @@ async fn gmail_download_duration_is_measured_at_transport_and_reused_without_ref
         let (raw, ()) = tokio::join!(local.read(ACCOUNT,"one",&gmail), delayed);
         let raw = raw.unwrap();
         let millis = raw[gmail::DOWNLOAD_MS].as_u64().unwrap();
+        assert_eq!(raw[gmail::DOWNLOAD_RUN]["origin"], if cfg!(feature="mobile") { "app" } else { "desktop" });
+        assert!(raw[gmail::DOWNLOAD_RUN]["finishedAt"].as_i64().unwrap() >= raw[gmail::DOWNLOAD_RUN]["startedAt"].as_i64().unwrap());
         assert!((80..10_000).contains(&millis), "measured transport interval: {millis}");
         let requests = provider.world.lock().unwrap().requests.len();
         let cached = local.read(ACCOUNT,"one",&gmail).await.unwrap();
         assert_eq!(cached[gmail::DOWNLOAD_MS], millis);
+        assert_eq!(cached[gmail::DOWNLOAD_RUN], raw[gmail::DOWNLOAD_RUN]);
+        assert!(cached[gmail::DOWNLOAD_START].is_null(), "in-flight lifecycle token is not persisted");
         assert_eq!(provider.world.lock().unwrap().requests.len(), requests, "details/rewrite never refetch for a timer");
         let replica = gmail.replica_call(ACCOUNT,"content",&json!({"id":"two"})).await.unwrap();
         assert!(replica[gmail::DOWNLOAD_MS].as_u64().unwrap() < 99_999);
         let minimal = gmail.replica_call(ACCOUNT,"minimal",&json!({"id":"two"})).await.unwrap();
         assert!(minimal[gmail::DOWNLOAD_MS].is_null());
+        assert!(minimal[gmail::DOWNLOAD_RUN].is_null());
         let metadata = gmail.call("gmail.read", &json!({"accountId":ACCOUNT,"id":"two","full":false})).await.unwrap();
         assert!(metadata[gmail::DOWNLOAD_MS].is_null());
+        assert!(metadata[gmail::DOWNLOAD_RUN].is_null());
+        local.shutdown().await;
+    }).await;
+}
+
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn background_refresh_records_download_origin_independently_of_later_app_reads() {
+    if isolated() { return; }
+    let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let engine = crate::backend::Engine::default();
+        let result = engine.mobile_background_refresh(&json!({})).await.unwrap();
+        assert!(result["accounts"][0]["error"].is_null(), "{result}");
+        let before = provider.world.lock().unwrap().requests.len();
+        let raw = engine.fetch_resource(ACCOUNT,"one").await.unwrap();
+        assert_eq!(raw[gmail::DOWNLOAD_RUN]["origin"], "backgroundRefresh");
+        assert_eq!(provider.world.lock().unwrap().requests.len(),before,"reading the recorded context must not redownload mail");
+    }).await;
+}
+
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn download_context_includes_a_delayed_body_fetch_and_later_partial_hydration() {
+    if isolated() { return; }
+    let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    {
+        let mut world = provider.world.lock().unwrap();
+        world.messages.get_mut("one").unwrap()["payload"]["body"] = json!({"attachmentId":"body","size":20});
+        world.pause = "/attachments/body".into();
+    }
+    struct Restore;
+    impl Drop for Restore { fn drop(&mut self) { crate::inbox::claude::diagnostics::foreground(true); } }
+    let _restore = Restore;
+    crate::inbox::claude::diagnostics::foreground(true);
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        let leave = async {
+            provider.paused.notified().await;
+            crate::inbox::claude::diagnostics::foreground(false);
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            provider.world.lock().unwrap().pause.clear();
+        };
+        let (raw, ()) = tokio::join!(local.read(ACCOUNT,"one",&gmail), leave);
+        let raw = raw.unwrap();
+        assert_eq!(raw[gmail::DOWNLOAD_RUN]["startedActive"],true);
+        assert_eq!(raw[gmail::DOWNLOAD_RUN]["finishedActive"],false);
+        assert_eq!(raw[gmail::DOWNLOAD_RUN]["leftApp"],true);
+        assert!(raw[gmail::DOWNLOAD_RUN]["remainingText"].is_null());
+        let interval = raw[gmail::DOWNLOAD_RUN]["finishedAt"].as_i64().unwrap() - raw[gmail::DOWNLOAD_RUN]["startedAt"].as_i64().unwrap();
+        assert!(interval >= 35,"body fetch must be inside the recorded download interval: {interval}");
+        crate::inbox::claude::diagnostics::foreground(true);
+        let store = local.store(ACCOUNT).await.unwrap();
+        let mut partial = message("partial","");
+        partial["payload"]["body"] = json!({"attachmentId":"body","size":20});
+        store.put_cached(&partial,1).unwrap();
+        let later = local.read(ACCOUNT,"partial",&gmail).await.unwrap();
+        assert_eq!(later[gmail::DOWNLOAD_RUN]["origin"],"app");
+        assert_eq!(later[gmail::DOWNLOAD_RUN]["remainingText"],true);
+        assert!(later[gmail::DOWNLOAD_MS].is_u64());
+        let cached = local.read(ACCOUNT,"partial",&gmail).await.unwrap();
+        assert_eq!(cached[gmail::DOWNLOAD_RUN],later[gmail::DOWNLOAD_RUN]);
+        local.shutdown().await;
+    }).await;
+}
+
+#[tokio::test]
+async fn direct_and_thread_downloads_are_recorded_without_storing_or_copying_mail_bodies() {
+    if isolated() { return; }
+    let fixture = account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let engine = crate::backend::Engine::default();
+        let raw = engine.dispatch("gmail.read", &json!({"accountId":ACCOUNT,"id":"one","full":true})).await.unwrap();
+        assert!(raw[gmail::DOWNLOAD_RUN]["startedAt"].is_i64());
+        let rows = engine.fetch_thread_resources(ACCOUNT,"thread").await.unwrap();
+        assert_eq!(rows.len(),2);
+        drop(engine);
+        let local = LocalMail::default();
+        let store = local.store(ACCOUNT).await.unwrap();
+        let recorded = store.read(|db| store::sql(db.query_row("SELECT COUNT(*) FROM message_download_runs",[],|row| row.get::<_,i64>(0)))).unwrap();
+        assert_eq!(recorded,2,"both thread message IDs have their own local download record");
+        assert_eq!(store.read(|db| store::sql(db.query_row("SELECT COUNT(*) FROM messages",[],|row| row.get::<_,i64>(0)))).unwrap(),0,"metadata recording does not copy the bodies into the local mail store");
+        drop(store);
         local.shutdown().await;
     }).await;
 }

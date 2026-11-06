@@ -74,6 +74,10 @@ pub struct LocalMail {
     events: std::sync::OnceLock<tokio::sync::broadcast::Sender<Value>>,
 }
 impl LocalMail {
+    pub(crate) async fn record_downloads(&self, account: &str, resources: Vec<Value>) -> Result<(), &'static str> {
+        let store = self.store(account).await?;
+        sync::disk(&store, move |store| store.record_downloads(&resources)).await
+    }
     #[cfg(feature = "mobile")]
     pub(crate) async fn phone_summaries(
         &self,
@@ -382,7 +386,11 @@ impl LocalMail {
                 .ok()
                 .flatten()
                 .map(|mut resource| {
-                    if let Some(fields) = resource.as_object_mut() { fields.remove(crate::providers::gmail::DOWNLOAD_MS); }
+                    if let Some(fields) = resource.as_object_mut() {
+                        fields.remove(crate::providers::gmail::DOWNLOAD_MS);
+                        fields.remove(crate::providers::gmail::DOWNLOAD_RUN);
+                        fields.remove(crate::providers::gmail::DOWNLOAD_START);
+                    }
                     resource
                 }),
         };

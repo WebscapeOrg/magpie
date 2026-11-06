@@ -44,7 +44,9 @@ fn display<'a>(id: &'a str, raw: &'a str) -> &'a str {
 }
 
 pub(super) fn normalize(method: &str, mut answer: Value) -> Value {
-    if let Some(fields) = answer.as_object_mut() { fields.remove("_magpieDownloadMs"); }
+    if let Some(fields) = answer.as_object_mut() {
+        for field in [super::DOWNLOAD_MS, super::DOWNLOAD_RUN, super::DOWNLOAD_START] { fields.remove(field); }
+    }
     match method {
         "gmail.labels" => Value::Array(answer["labels"].as_array().into_iter().flatten().filter_map(|label| {
             let id = text(&label["id"]);

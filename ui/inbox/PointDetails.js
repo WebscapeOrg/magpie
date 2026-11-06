@@ -8,6 +8,14 @@ function model(value) {
     case "claude-haiku-5-5": return "Claude Haiku 5.5"
     case "claude-sonnet-5-5": return "Claude Sonnet 5.5"
     case "claude-opus-5-5": return "Claude Opus 5.5"
+    case "gpt-6-luna": return "GPT-6 Luna"
+    case "gpt-6.1-sol": return "GPT-6.1 Sol"
+    case "gpt-6-astra": return "GPT-6 Astra"
+    case "gemini-3.8-flash":
+    case "gemini-3.8-flash-low": return "Gemini 3.8 Flash"
+    case "gemini-4-argon":
+    case "gemini-4-argon-low":
+    case "gemini-4-argon-high": return "Gemini 4 Argon"
     default: return ""
   }
 }

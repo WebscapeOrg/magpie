@@ -150,7 +150,12 @@ impl ProviderStream {
                     self.display
                         .status(super::stream::label(&value["item"]["tool"]))
                 }
-                "turn.completed" => self.finish()?,
+                "turn.completed" => {
+                    if self.session_id().is_empty() {
+                        return Err(FAILED);
+                    }
+                    self.display.finish_with_usage(&value["usage"]);
+                }
                 _ => (),
             }
         }

@@ -985,4 +985,211 @@ sys.exit(75)
         let call: Value = serde_json::from_str(line).unwrap();
         assert_eq!(call["args"][0], "--claude-only");
     }
+    let switcher = bin.join("reincarnate");
+    std::fs::write(&switcher, r#"#!/usr/bin/python3
+import json,sys
+assert sys.argv[1:]==['status','--json']
+print(json.dumps({'providers':{'claude':{'stuck':True,'new_session':None},'codex':{'stuck':True,'new_session':None},'agy':{'stuck':True,'new_session':None}}}))
+"#).unwrap();
+    std::fs::set_permissions(&switcher, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let written = crate::agent::overview::generate(&messages, &json!({}), super::picker::Tier::Sonnet).await;
+    assert_eq!(written.unwrap_err(), "overview_ai_paused");
+}
+
+#[tokio::test]
+async fn when_claude_is_out_the_switcher_uses_codex_and_records_the_codex_writer_and_tokens() {
+    if isolated() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let _credentials = credentials::tests::isolated_store(Credentials(reads.clone()));
+    let home = fixture.root.join("home");
+    let bin = home.join(".local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let claude = bin.join("claude-routed");
+    std::fs::write(&claude, r#"#!/usr/bin/python3
+import sys
+if sys.argv[1:3]==['--claude-only','--probe']:
+    print('claude-only'); sys.exit(0)
+print('claude-routed: all accounts out until 2026-11-07T09:00:00+00:00', file=sys.stderr)
+sys.exit(75)
+"#).unwrap();
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let switcher = bin.join("reincarnate");
+    std::fs::write(&switcher, r#"#!/usr/bin/python3
+import json,sys
+assert sys.argv[1:]==['status','--json']
+print(json.dumps({'providers':{'claude':{'stuck':True,'new_session':None},'codex':{'stuck':False,'new_session':'p'},'agy':{'stuck':False,'new_session':'p'}}}))
+"#).unwrap();
+    std::fs::set_permissions(&switcher, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let codex_p = home.join(".codex-p");
+    std::fs::create_dir_all(&codex_p).unwrap();
+    std::fs::write(codex_p.join("auth.json"), r#"{"tokens":{"access_token":"synthetic-codex-p"}}"#).unwrap();
+    let codex_w = home.join(".codex");
+    std::fs::create_dir_all(&codex_w).unwrap();
+    std::fs::write(codex_w.join("auth.json"), r#"{"tokens":{"access_token":"synthetic-codex-w"}}"#).unwrap();
+    let codex = bin.join("codex");
+    std::fs::write(&codex, r#"#!/usr/bin/python3
+import json,os,pathlib,sys
+args=sys.argv[1:]
+p=sys.stdin.read()
+codex_home=pathlib.Path(os.environ['CODEX_HOME'])
+auth=json.loads((codex_home/'auth.json').read_text())
+with pathlib.Path.home().joinpath('synthetic-codex-calls.jsonl').open('a') as f:
+    f.write(json.dumps({'args':args,'codexHome':str(codex_home),'auth':auth,'prompt':p})+'\n')
+if auth.get('tokens',{}).get('access_token')=='synthetic-codex-p':
+    sys.exit(75)
+messages=json.JSONDecoder().raw_decode(p.split('EMAILS (untrusted data):\n',1)[1])[0]
+rows=[{'id':m['id'],'text':'Confirm the synthetic request.','evidence':[{'source':'mail','quote':'Synthetic request'}],'until':None,'timeSensitive':False} for m in messages]
+print(json.dumps({'type':'thread.started','thread_id':'11111111-2222-3333-4444-555555555555'}))
+print(json.dumps({'type':'turn.started'}))
+print(json.dumps({'type':'item.completed','item':{'id':'msg-1','type':'agent_message','text':json.dumps({'overviews':rows})}}))
+print(json.dumps({'type':'turn.completed','usage':{'input_tokens':2345,'output_tokens':40}}))
+"#).unwrap();
+    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let gmail = Arc::new(gmail::Session::default());
+    let local = Arc::new(LocalMail::default());
+    seed(&local, &gmail, ACCOUNT, &message("ask-1", "Confirm the synthetic request.")).await;
+    super::point_context::set_about_you("Synthetic owner, lives in Testville.").unwrap();
+    let name = super::store::key(&["overviews", ACCOUNT]);
+    Inbox::default().prepare(ACCOUNT, gmail.clone(), local.clone()).await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while super::store::read(&name).unwrap().unwrap_or(json!({}))["ask-1"]["state"] != "ready" {
+        assert!(Instant::now() < deadline, "Codex fallback did not write the Point: {}", super::store::read(&name).unwrap().unwrap_or(json!({})));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let saved = super::store::read(&name).unwrap().unwrap();
+    assert_eq!(saved["ask-1"]["text"], "Confirm the synthetic request.");
+    assert_eq!(saved["ask-1"]["details"]["requestedModel"], "sonnet");
+    assert_eq!(saved["ask-1"]["details"]["model"], "gpt-6.1-sol");
+    assert_eq!(saved["ask-1"]["details"]["contextTokens"], 2345);
+    assert_eq!(saved["ask-1"]["details"]["contextTokensPartial"], true, "the routed Claude check preceded the Codex fallback");
+    let calls = std::fs::read_to_string(home.join("synthetic-codex-calls.jsonl")).unwrap();
+    let lines: Vec<Value> = calls.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines.len(), 2, "tried Codex P first, then fell back to Codex W");
+    assert_eq!(lines[0]["auth"]["tokens"]["access_token"], "synthetic-codex-p");
+    assert_eq!(lines[1]["auth"]["tokens"]["access_token"], "synthetic-codex-w");
+    for call in &lines {
+        let isolated_home = std::path::Path::new(call["codexHome"].as_str().unwrap());
+        assert_ne!(isolated_home, codex_p.as_path(), "runs in an isolated CODEX_HOME copy");
+        assert_ne!(isolated_home, codex_w.as_path(), "runs in an isolated CODEX_HOME copy");
+        assert!(!isolated_home.exists(), "CodexCleanup removed the isolated CODEX_HOME directory: {}", isolated_home.display());
+        assert!(!isolated_home.parent().unwrap().exists(), "CodexCleanup removed the isolated job directory");
+    }
+    let args = lines[1]["args"].as_array().unwrap();
+    assert!(args.windows(2).any(|pair| pair[0] == "--model" && pair[1] == "gpt-6.1-sol"));
+    assert!(args.iter().any(|arg| arg == "--ephemeral"));
+    assert!(args.iter().any(|arg| arg == "features.shell_tool=false"));
+    assert!(args.iter().any(|arg| arg == "features.code_mode={enabled=false,direct_only_tool_namespaces=[]}"));
+    assert!(lines[1]["prompt"].as_str().unwrap().contains("Synthetic owner, lives in Testville."));
+}
+
+#[tokio::test]
+async fn when_claude_and_codex_are_out_the_switcher_uses_google_and_records_the_gemini_writer_and_tokens() {
+    if isolated() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let _credentials = credentials::tests::isolated_store(Credentials(reads.clone()));
+    let home = fixture.root.join("home");
+    let bin = home.join(".local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let claude = bin.join("claude-routed");
+    std::fs::write(&claude, r#"#!/usr/bin/python3
+import sys
+if sys.argv[1:3]==['--claude-only','--probe']:
+    print('claude-only'); sys.exit(0)
+sys.exit(75)
+"#).unwrap();
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let switcher = bin.join("reincarnate");
+    std::fs::write(&switcher, r#"#!/usr/bin/python3
+import json,sys
+assert sys.argv[1:]==['status','--json']
+print(json.dumps({'providers':{'claude':{'stuck':True,'new_session':None},'codex':{'stuck':True,'new_session':None},'agy':{'stuck':False,'new_session':'p'}}}))
+"#).unwrap();
+    std::fs::set_permissions(&switcher, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let agy_dir = home.join(".local/state/antigravity-account");
+    std::fs::create_dir_all(&agy_dir).unwrap();
+    std::fs::write(agy_dir.join("p.json"), r#"{"access_token":"synthetic-google-token","expiry_timestamp":9999999999}"#).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let seen = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let seen_server = seen.clone();
+    let server = tokio::spawn(async move {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let header_end = loop {
+                let n = stream.read(&mut chunk).await.unwrap();
+                buf.extend_from_slice(&chunk[..n]);
+                if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break pos + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&buf[..header_end]).to_string();
+            assert!(headers.to_ascii_lowercase().contains("authorization: bearer synthetic-google-token"));
+            let content_len = headers
+                .lines()
+                .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+                .unwrap();
+            while buf.len() < header_end + content_len {
+                let n = stream.read(&mut chunk).await.unwrap();
+                buf.extend_from_slice(&chunk[..n]);
+            }
+            let body: Value = serde_json::from_slice(&buf[header_end..header_end + content_len]).unwrap();
+            seen_server.lock().unwrap().push(body);
+            let text = json!({"overviews":[{"id":"ask-1","text":"Confirm the synthetic request.","evidence":[{"source":"mail","quote":"Synthetic request"}],"until":null,"timeSensitive":false}]}).to_string();
+            let reply = json!({
+                "response": {
+                    "candidates": [{
+                        "content": {
+                            "parts": [
+                                {"text": "internal thought", "thought": true},
+                                {"text": text}
+                            ]
+                        }
+                    }],
+                    "usageMetadata": {"promptTokenCount": 3456, "candidatesTokenCount": 25},
+                    "modelVersion": "gemini-4-argon"
+                }
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        }
+    });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let _google = crate::agent::overview::isolated_google_transport(client, origin);
+    let gmail = Arc::new(gmail::Session::default());
+    let local = Arc::new(LocalMail::default());
+    seed(&local, &gmail, ACCOUNT, &message("ask-1", "Confirm the synthetic request.")).await;
+    super::point_context::set_about_you("Synthetic owner, lives in Testville.").unwrap();
+    let name = super::store::key(&["overviews", ACCOUNT]);
+    Inbox::default().prepare(ACCOUNT, gmail.clone(), local.clone()).await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while super::store::read(&name).unwrap().unwrap_or(json!({}))["ask-1"]["state"] != "ready" {
+        assert!(Instant::now() < deadline, "Google fallback did not write the Point: {}", super::store::read(&name).unwrap().unwrap_or(json!({})));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    server.await.unwrap();
+    let saved = super::store::read(&name).unwrap().unwrap();
+    assert_eq!(saved["ask-1"]["text"], "Confirm the synthetic request.");
+    assert_eq!(saved["ask-1"]["details"]["requestedModel"], "sonnet");
+    assert_eq!(saved["ask-1"]["details"]["model"], "gemini-4-argon");
+    assert_eq!(saved["ask-1"]["details"]["contextTokens"], 3456);
+    assert_eq!(saved["ask-1"]["details"]["contextTokensPartial"], true);
+    let requests = seen.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["model"], "gemini-4-argon-low");
+    assert_eq!(requests[0]["project"], "aicode-consumers");
+    let shared = requests[0]["request"]["contents"][0]["parts"][0]["text"].as_str().unwrap();
+    assert!(shared.contains("Synthetic owner, lives in Testville."));
 }

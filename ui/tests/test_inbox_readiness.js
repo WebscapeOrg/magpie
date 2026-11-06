@@ -106,3 +106,6 @@ assert.strictEqual(details.tokens({contextTokens:12345}),"12,345");
 assert.strictEqual(details.tokens({contextTokens:12345,contextTokensPartial:true}),"At least 12,345");
 for (const n of [null,"123",-1,1.5,9007199254740992]) assert.strictEqual(details.tokens({contextTokens:n}),"Not recorded");
 assert.ok(details.note({details:{contextTokens:10,batchSize:3}}).includes("token count are shared by 3"));
+assert.deepStrictEqual(Array.from(details.rows({state:"ready",details:{requestedModel:"sonnet",model:"gpt-6.1-sol"}}), row=>row.value).slice(0,2), ["Claude Sonnet","GPT-6.1 Sol"]);
+assert.deepStrictEqual(Array.from(details.rows({state:"ready",details:{requestedModel:"haiku",model:"gemini-3.8-flash"}}), row=>row.value).slice(0,2), ["Claude Haiku","Gemini 3.8 Flash"]);
+assert.deepStrictEqual(Array.from(details.rows({state:"ready",details:{requestedModel:"opus",model:"gemini-4-argon"}}), row=>row.value).slice(0,2), ["Claude Opus","Gemini 4 Argon"]);

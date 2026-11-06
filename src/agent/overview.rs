@@ -105,7 +105,8 @@ async fn turn(prompt: &Prompt, model: &str, messages: &Value) -> Result<Value, &
     // Invariant: Enterprise's headless router owns subscription selection; every request asks for
     // its Claude-only mode, which moves between P, W, S and H and never falls back to another
     // provider. Other installations keep the normal Claude executable and login.
-    if let Some(router) = router() {
+    let routed = router();
+    if let Some(router) = &routed {
         {
             let mut routed = std::process::Command::new(router);
             routed.arg("--claude-only");
@@ -130,6 +131,8 @@ async fn turn(prompt: &Prompt, model: &str, messages: &Value) -> Result<Value, &
     let input = media_input(prompt, messages)?;
     let outcome =
         worker::execute_multimodal(command, &input, &mut parser, Duration::from_secs(180)).await;
+    crate::inbox::context_tokens::record(parser.context_tokens());
+    if routed.is_some() { crate::inbox::context_tokens::record(None); }
     // The router exits 75 (EX_TEMPFAIL) when every Claude subscription is out for this model.
     if outcome.exit == Some(PAUSED_EXIT) && router().is_some() {
         return Err("overview_ai_paused");

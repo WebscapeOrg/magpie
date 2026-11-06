@@ -1,3 +1,4 @@
+pub(crate) mod context_tokens;
 mod avatars;
 mod progress;
 pub(crate) mod point_details;
@@ -982,7 +983,7 @@ where
             continue;
         }
         let run = crate::processing::Run::start();
-        let answer = write(json!(group), tier).await;
+        let (answer, tokens) = context_tokens::measure(write(json!(group), tier)).await;
         let elapsed = run.millis();
         let record = run.finish();
         let mut answer = match answer {
@@ -999,6 +1000,7 @@ where
                 details["batchSize"] = json!(group.len());
                 details["model"] = json!(requested);
                 details["createRun"] = record.clone();
+                point_details::merge(row, &tokens);
             }
             point_details::merge(row, &details);
         }
@@ -1945,21 +1947,26 @@ mod point_detail_tests {
 
     #[test]
     fn failed_rewrite_keeps_the_displayed_points_details_and_success_replaces_them() {
-        let mut saved = json!({"a":{"state":"ready","version":2,"promptRevision":POINT_REVISION,"expiresAt":0,"text":"Your payment arrived.","details":{"requestedModel":"opus","createMs":900}}});
-        let failed = Ok(json!([{"id":"a","error":"overview_ai_unavailable","stage":"batch","details":{"requestedModel":"haiku","createMs":22}}]));
+        let mut saved = json!({"a":{"state":"ready","version":2,"promptRevision":POINT_REVISION,"expiresAt":0,"text":"Your payment arrived.","details":{"requestedModel":"opus","createMs":900,"contextTokens":1000,"contextTokensPartial":false}}});
+        let failed = Ok(json!([{"id":"a","error":"overview_ai_unavailable","stage":"batch","details":{"requestedModel":"haiku","createMs":22,"contextTokens":25,"contextTokensPartial":true}}]));
         finish_overviews_protected(&mut saved,&["a".into()],&failed,&Default::default()).unwrap();
         assert_eq!(saved["a"]["details"]["createMs"],900);
         assert_eq!(saved["a"]["lastAttempt"]["createMs"],22);
+        assert_eq!(saved["a"]["details"]["contextTokens"],1000);
+        assert_eq!(saved["a"]["details"]["contextTokensPartial"],false);
+        assert_eq!(saved["a"]["lastAttempt"]["contextTokens"],25);
+        assert_eq!(saved["a"]["lastAttempt"]["contextTokensPartial"],true);
         let malformed = Ok(json!([{"id":"a","text":"Bad\u{200b} text.","details":{"createMs":7}}]));
         finish_overviews_protected(&mut saved,&["a".into()],&malformed,&Default::default()).unwrap();
         assert_eq!(saved["a"]["details"]["createMs"],900,"rejected provider text cannot replace the retained Point's provenance");
         assert_eq!(saved["a"]["lastAttempt"]["createMs"],7);
-        let success = Ok(json!([{"id":"a","text":"Sam wants a reply.","details":{"requestedModel":"sonnet","createMs":23,"private":"not stored"}}]));
+        let success = Ok(json!([{"id":"a","text":"Sam wants a reply.","details":{"requestedModel":"sonnet","createMs":23,"contextTokens":250,"contextTokensPartial":false,"private":"not stored"}}]));
         finish_overviews_protected(&mut saved,&["a".into()],&success,&Default::default()).unwrap();
-        assert_eq!(saved["a"]["details"], json!({"requestedModel":"sonnet","createMs":23}));
+        assert_eq!(saved["a"]["details"], json!({"requestedModel":"sonnet","createMs":23,"contextTokens":250,"contextTokensPartial":false}));
         assert!(saved["a"]["lastAttempt"].is_null());
         let snapshot = overview_snapshot(saved,now()).unwrap();
         assert_eq!(snapshot["a"]["details"]["createMs"],23);
+        assert_eq!(snapshot["a"]["details"]["contextTokens"],250);
     }
 }
 
@@ -1975,7 +1982,7 @@ mod mobile_overview_tests {
             {"provider":"gmail","email":"owner@example.test"}, {"provider":"gmail","email":"other@example.test"}
         ]}));
         let id = "18c2f0a1b2c3d4e5";
-        let details = json!({"requestedModel":"sonnet","model":"claude-opus-5-5","gmailMs":125,"decideMs":230,"createMs":4567,"choice":"decisions",
+        let details = json!({"requestedModel":"sonnet","model":"claude-opus-5-5","gmailMs":125,"decideMs":230,"createMs":4567,"choice":"decisions","contextTokens":12345,"contextTokensPartial":false,
             "downloadRun":{"origin":"backgroundRefresh","startedAt":100,"finishedAt":200,"startedActive":false,"finishedActive":false,"leftApp":false},
             "createRun":{"origin":"app","startedAt":300,"finishedAt":400,"startedActive":true,"finishedActive":false,"leftApp":true}});
         let mut row = json!({"state":"ready","text":"Sam needs your reply.","version":2,"promptRevision":POINT_REVISION,"expiresAt":0,"updated":now(),"tier":"sonnet","details":details,"contextKey":{"private":"not for the phone"},"lastAttempt":{"createMs":4},"internal":"private"});

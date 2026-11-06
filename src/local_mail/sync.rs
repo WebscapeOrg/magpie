@@ -463,6 +463,8 @@ pub(super) async fn hydrate_text(
     foreground: bool,
 ) -> Result<()> {
     let started = std::time::Instant::now();
+    let run = crate::processing::Run::continuing(&resource[gmail::DOWNLOAD_RUN], &resource[gmail::DOWNLOAD_START]);
+    let mut fetched = false;
     let mut pending = vec!["/payload".to_owned()];
     while let Some(path) = pending.pop() {
         let part = resource.pointer(&path).ok_or("gmail_invalid_response")?;
@@ -497,12 +499,15 @@ pub(super) async fn hydrate_text(
                 .await?
         };
         let data = answer["data"].as_str().ok_or("gmail_invalid_response")?;
+        fetched = true;
         resource
             .pointer_mut(&path)
             .ok_or("gmail_invalid_response")?["body"]["data"] = json!(data);
     }
-    if let Some(ms) = resource[gmail::DOWNLOAD_MS].as_u64() {
+    if fetched {
+        let ms = if run.is_remaining_text() { 0 } else { resource[gmail::DOWNLOAD_MS].as_u64().unwrap_or(0) };
         resource[gmail::DOWNLOAD_MS] = json!(ms.saturating_add(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)));
+        resource[gmail::DOWNLOAD_RUN] = run.finish();
     }
     Ok(())
 }

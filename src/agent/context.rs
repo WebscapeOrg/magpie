@@ -227,8 +227,7 @@ impl Contexts {
                 let mut preceding = Vec::new();
                 if !text(selected, "threadId").is_empty() {
                     let resources = session
-                        .gmail
-                        .thread_resources(&request.account, text(selected, "threadId"))
+                        .fetch_thread_resources(&request.account, text(selected, "threadId"))
                         .await?;
                     let mut found = false;
                     for resource in resources {

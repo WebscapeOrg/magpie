@@ -74,3 +74,4 @@ CREATE TABLE IF NOT EXISTS inbox_dirty(id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS inbox_pages(token TEXT PRIMARY KEY);
 
 CREATE TABLE IF NOT EXISTS message_downloads (id TEXT PRIMARY KEY, milliseconds INTEGER NOT NULL CHECK(milliseconds >= 0 AND milliseconds <= 86400000));
+CREATE TABLE IF NOT EXISTS message_download_runs (id TEXT PRIMARY KEY, record TEXT NOT NULL);

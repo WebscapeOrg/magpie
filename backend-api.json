@@ -2454,6 +2454,33 @@
       "equals": {
         "overviews.rewriting.previousPoint": true
       }
+    },
+    {
+      "name": "Inbox snapshot keeps download and analysis activity separate",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "overviews.tracked.details": {
+          "downloadRun": {
+            "origin": "backgroundRefresh",
+            "startedAt": 100,
+            "finishedAt": 200,
+            "startedActive": false,
+            "finishedActive": false,
+            "leftApp": false
+          },
+          "createRun": {
+            "origin": "app",
+            "startedAt": 300,
+            "finishedAt": 400,
+            "startedActive": true,
+            "finishedActive": false,
+            "leftApp": true
+          }
+        }
+      }
     }
   ],
   "unreleased": {
@@ -2594,7 +2621,8 @@
       "Interview offer refuses an invalid acknowledgement",
       "Inbox snapshot has no writing IDs without a live worker",
       "Inbox snapshot carries bounded Point model and step timings",
-      "Inbox snapshot keeps an expired rewrite separate from new Point work"
+      "Inbox snapshot keeps an expired rewrite separate from new Point work",
+      "Inbox snapshot keeps download and analysis activity separate"
     ]
   },
   "releasedContract": {

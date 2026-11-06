@@ -267,7 +267,8 @@ impl Inbox {
             return Ok(json!({"accepted":true}));
         }
         let running = self.overview_progress.begin(&account, &chosen);
-        let task = tokio::spawn(async move {
+        let origin = if PHONE_WRITER && limit.is_some() { crate::processing::Origin::BackgroundRefresh } else { crate::processing::Origin::current() };
+        let task = tokio::spawn(crate::processing::scope(origin, async move {
             let _permit = permit;
             let _running = running;
             let started = std::time::Instant::now();
@@ -310,7 +311,7 @@ impl Inbox {
                     })
                 });
             }
-        });
+        }));
         if let Some(limit) = limit {
             let finished = tokio::time::timeout(limit, task).await.is_ok();
             return Ok(json!({"accepted":true,"finished":finished}));
@@ -980,9 +981,10 @@ where
             }));
             continue;
         }
-        let started = std::time::Instant::now();
+        let run = crate::processing::Run::start();
         let answer = write(json!(group), tier).await;
-        let elapsed = point_details::elapsed(started);
+        let elapsed = run.millis();
+        let record = run.finish();
         let mut answer = match answer {
             Ok(answer) => answer.as_array().cloned().unwrap_or_default(),
             Err(error) if account_failure(error) => return Err(error),
@@ -996,6 +998,7 @@ where
                 details["createMs"] = json!(elapsed);
                 details["batchSize"] = json!(group.len());
                 details["model"] = json!(requested);
+                details["createRun"] = record.clone();
             }
             point_details::merge(row, &details);
         }
@@ -1035,12 +1038,14 @@ where
 {
     let mut messages = Vec::new();
     let mut downloads = std::collections::HashMap::new();
+    let mut download_runs = std::collections::HashMap::new();
     let mut failed = Vec::new();
     for id in ids {
         let prepared = async {
             let raw = local_mail.read(account, id, gmail).await?;
             let message = overview_message(id, &raw)?;
             downloads.insert(id.clone(), point_details::duration(&raw[crate::providers::gmail::DOWNLOAD_MS]));
+            download_runs.insert(id.clone(), crate::processing::clean(&raw[crate::providers::gmail::DOWNLOAD_RUN]));
             Ok::<_, &'static str>(message)
         }
         .await;
@@ -1061,6 +1066,9 @@ where
     for row in result.as_array_mut().into_iter().flatten() {
         if let Some(ms) = row["id"].as_str().and_then(|id| downloads.get(id)).copied().flatten() {
             point_details::merge(row, &json!({"gmailMs":ms}));
+        }
+        if let Some(run) = row["id"].as_str().and_then(|id| download_runs.get(id)).and_then(Option::as_ref) {
+            point_details::merge(row, &json!({"downloadRun":run}));
         }
     }
     Ok(result)
@@ -1967,7 +1975,9 @@ mod mobile_overview_tests {
             {"provider":"gmail","email":"owner@example.test"}, {"provider":"gmail","email":"other@example.test"}
         ]}));
         let id = "18c2f0a1b2c3d4e5";
-        let details = json!({"requestedModel":"sonnet","model":"claude-opus-5-5","gmailMs":125,"decideMs":230,"createMs":4567,"choice":"decisions"});
+        let details = json!({"requestedModel":"sonnet","model":"claude-opus-5-5","gmailMs":125,"decideMs":230,"createMs":4567,"choice":"decisions",
+            "downloadRun":{"origin":"backgroundRefresh","startedAt":100,"finishedAt":200,"startedActive":false,"finishedActive":false,"leftApp":false},
+            "createRun":{"origin":"app","startedAt":300,"finishedAt":400,"startedActive":true,"finishedActive":false,"leftApp":true}});
         let mut row = json!({"state":"ready","text":"Sam needs your reply.","version":2,"promptRevision":POINT_REVISION,"expiresAt":0,"updated":now(),"tier":"sonnet","details":details,"contextKey":{"private":"not for the phone"},"lastAttempt":{"createMs":4},"internal":"private"});
         row["details"]["private"] = json!("not for the phone");
         store::write(&store::key(&["overviews","owner@example.test"]), &json!({id:row,"ab12":{"state":"ready","text":"Not requested."}})).unwrap();

@@ -2478,8 +2478,21 @@
             "startedActive": true,
             "finishedActive": false,
             "leftApp": true
-          }
+          },
+          "contextTokens": 12345,
+          "contextTokensPartial": false
         }
+      }
+    },
+    {
+      "name": "Inbox snapshot preserves reported context tokens",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "overviews.tracked.details.contextTokens": 12345,
+        "overviews.tracked.details.contextTokensPartial": false
       }
     }
   ],
@@ -2622,7 +2635,8 @@
       "Inbox snapshot has no writing IDs without a live worker",
       "Inbox snapshot carries bounded Point model and step timings",
       "Inbox snapshot keeps an expired rewrite separate from new Point work",
-      "Inbox snapshot keeps download and analysis activity separate"
+      "Inbox snapshot keeps download and analysis activity separate",
+      "Inbox snapshot preserves reported context tokens"
     ]
   },
   "releasedContract": {

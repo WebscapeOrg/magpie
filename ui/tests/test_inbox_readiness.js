@@ -50,8 +50,8 @@ for (let count=0;count<=5;count++) {
 const details = load("inbox/PointDetails.js");
 assert.deepStrictEqual(Array.from(details.rows({state:"stale",tier:"haiku"}), row=>row.title).slice(0,2), ["Requested model","Created with"]);
 assert.deepStrictEqual(Array.from(details.rows({state:"stale",tier:"haiku"}), row=>row.value).slice(0,2), ["Not recorded","Claude Haiku"]);
-assert.deepStrictEqual(Array.from(details.rows({state:"ready",tier:"opus"}), row=>row.value), ["Not recorded","Claude Opus","Not recorded","Not recorded","Not recorded","Not recorded","Not recorded"]);
-assert.deepStrictEqual(Array.from(details.rows({state:"ready",details:{requestedModel:"claude-sonnet-5-5",model:"claude-haiku-5-5",gmailMs:0,decideMs:42,createMs:2500}}), row=>row.value), ["Claude Sonnet 5.5","Claude Haiku 5.5","0 ms","42 ms","2.5 seconds","Not recorded","Not recorded"]);
+assert.deepStrictEqual(Array.from(details.rows({state:"ready",tier:"opus"}), row=>row.value), ["Not recorded","Claude Opus","Not recorded","Not recorded","Not recorded","Not recorded","Not recorded","Not recorded"]);
+assert.deepStrictEqual(Array.from(details.rows({state:"ready",details:{requestedModel:"claude-sonnet-5-5",model:"claude-haiku-5-5",gmailMs:0,decideMs:42,createMs:2500}}), row=>row.value), ["Claude Sonnet 5.5","Claude Haiku 5.5","0 ms","42 ms","2.5 seconds","Not recorded","Not recorded","Not recorded"]);
 for (const value of [null,undefined,-1,0.5,86400001,"125"]) assert.strictEqual(details.duration(value), "");
 for (const value of ["__proto__","constructor","<b>Sonnet</b>"]) assert.strictEqual(details.model(value), "");
 assert.strictEqual(details.duration(62100),"1 min 2 sec");
@@ -101,3 +101,8 @@ console.log("Per-email processing context checks passed");
 
 assert.strictEqual(details.activity({...backgroundRun,startedActive:true,finishedActive:true}),"Background refresh; app already open");
 assert.strictEqual(details.activity({origin:"desktop",startedAt:100,finishedAt:200,remainingText:true}),"Enterprise (remaining text)");
+
+assert.strictEqual(details.tokens({contextTokens:12345}),"12,345");
+assert.strictEqual(details.tokens({contextTokens:12345,contextTokensPartial:true}),"At least 12,345");
+for (const n of [null,"123",-1,1.5,9007199254740992]) assert.strictEqual(details.tokens({contextTokens:n}),"Not recorded");
+assert.ok(details.note({details:{contextTokens:10,batchSize:3}}).includes("token count are shared by 3"));

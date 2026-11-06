@@ -19,6 +19,10 @@ pub(crate) fn clean(value: &Value) -> Value {
     for key in ["gmailMs", "decideMs", "createMs"] {
         if let Some(ms) = duration(&value[key]) { details[key] = json!(ms); }
     }
+    if let Some(tokens) = value["contextTokens"].as_u64().filter(|n| *n <= super::context_tokens::MAX) {
+        details["contextTokens"] = json!(tokens);
+        if let Some(partial) = value["contextTokensPartial"].as_bool() { details["contextTokensPartial"] = json!(partial); }
+    }
     for key in ["requestedModel", "model"] {
         if let Some(name) = model(&value[key]) { details[key] = json!(name); }
     }
@@ -48,8 +52,13 @@ mod tests {
 
     #[test]
     fn persisted_details_are_bounded_and_do_not_accept_provider_text() {
-        let value = json!({"gmailMs":0,"decideMs":-1,"createMs":1.5,"requestedModel":"<img>","model":"claude-haiku-5-5","batchSize":200,"choice":"password","secret":"never"});
+        let value = json!({"gmailMs":0,"decideMs":-1,"createMs":1.5,"requestedModel":"<img>","model":"claude-haiku-5-5","batchSize":200,"choice":"password","secret":"never","contextTokens":-1,"contextTokensPartial":true});
         assert_eq!(clean(&value), json!({"gmailMs":0,"model":"claude-haiku-5-5"}));
         assert_eq!(clean(&json!({"gmailMs":86_400_001,"decideMs":"12","createMs":null})), json!({}));
+        for count in [json!(-1), json!(1.5), json!("100"), json!(super::super::context_tokens::MAX + 1), Value::Null] {
+            assert_eq!(clean(&json!({"contextTokens":count,"contextTokensPartial":true})), json!({}));
+        }
+        assert_eq!(clean(&json!({"contextTokens":12345,"contextTokensPartial":true})), json!({"contextTokens":12345,"contextTokensPartial":true}));
+        assert_eq!(clean(&json!({"contextTokens":0,"contextTokensPartial":"true"})), json!({"contextTokens":0}));
     }
 }

@@ -175,6 +175,12 @@ impl ClaudeStream {
         self.complete = true;
         self.final_seen = true;
     }
+    pub(super) fn finish_with_usage(&mut self, usage: &Value) {
+        if !self.final_seen {
+            self.context_tokens = crate::inbox::context_tokens::input(usage);
+        }
+        self.finish();
+    }
     pub(super) fn status(&mut self, text: &'static str) {
         self.transcript.push(json!({"role":"status","text":text}));
         self.progress = text;

@@ -16,10 +16,10 @@ impl Engine {
             .filter(|account| account["provider"] == "gmail")
             .filter_map(|account| account["id"].as_str().filter(|id| !id.is_empty()))
             .collect();
-        let pages = futures_util::future::join_all(accounts.iter().map(|account| async move {
+        let pages = crate::processing::scope(crate::processing::Origin::BackgroundRefresh, futures_util::future::join_all(accounts.iter().map(|account| async move {
             self.local_mail.background_refresh(account, &self.gmail).await
                 .unwrap_or_else(|error| json!({"accountId":account,"changed":false,"checked":false,"error":error,"ids":[]}))
-        })).await;
+        }))).await;
         Ok(json!({"accounts":pages}))
     }
     /// Starts painting sender pictures for the next signed-in account that is due, and returns at
@@ -412,7 +412,7 @@ impl Engine {
         if thread.is_empty() || thread.len() > 1024 {
             return Err("invalid_params");
         }
-        let resources = match self.gmail.thread_resources(account, thread).await {
+        let resources = match self.fetch_thread_resources(account, thread).await {
             Ok(value) => value,
             Err(error) => {
                 let mut cached = self

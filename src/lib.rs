@@ -17,6 +17,7 @@ pub mod mail;
 pub mod message;
 pub mod outbox;
 pub mod platform;
+pub(crate) mod processing;
 #[cfg(not(target_os = "ios"))]
 pub mod process;
 pub mod providers;

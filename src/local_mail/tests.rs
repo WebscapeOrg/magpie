@@ -853,11 +853,15 @@ fn download_measurements_survive_reopen_but_old_resource_fields_are_not_provenan
     let path = directory();
     let mut resource = message("timed", "Synthetic body");
     resource[crate::providers::gmail::DOWNLOAD_MS] = json!(999_999);
+    let run = json!({"origin":"desktop","startedAt":100,"finishedAt":200});
+    resource[crate::providers::gmail::DOWNLOAD_RUN] = run.clone();
     {
         let store = Store::open(open_directory(&path)).unwrap();
         store.put_cached(&resource, 1).unwrap();
         assert!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_MS].is_null());
+        assert!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_RUN].is_null());
         store.put_downloaded(&resource, 1, true, Some(125)).unwrap();
+        assert_eq!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_RUN], run);
         assert_eq!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_MS], 125);
         store.put_cached(&resource, 1).unwrap();
         assert_eq!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_MS], 125);
@@ -865,7 +869,18 @@ fn download_measurements_survive_reopen_but_old_resource_fields_are_not_provenan
     {
         let store = Store::open(open_directory(&path)).unwrap();
         assert_eq!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_MS], 125);
+        assert_eq!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_RUN], run);
+        let later = json!({"origin":"desktop","startedAt":300,"finishedAt":400});
+        let mut newest = resource.clone();
+        newest[crate::providers::gmail::DOWNLOAD_RUN] = later.clone();
+        newest[crate::providers::gmail::DOWNLOAD_MS] = json!(50);
+        store.record_downloads(&[newest]).unwrap();
+        store.put_downloaded(&resource, 1, true, Some(125)).unwrap();
+        assert_eq!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_RUN], later);
+        assert_eq!(store.resource("timed").unwrap().unwrap()[crate::providers::gmail::DOWNLOAD_MS], 50);
         store.delete("timed").unwrap();
+        store.record_downloads(&[resource.clone()]).unwrap();
+        assert_eq!(store.read(|db| store::sql(db.query_row("SELECT COUNT(*) FROM message_download_runs", [], |r| r.get::<_, i64>(0)))).unwrap(), 0);
         assert_eq!(store.read(|db| store::sql(db.query_row("SELECT COUNT(*) FROM message_downloads", [], |r| r.get::<_, i64>(0)))).unwrap(), 0);
     }
     std::fs::remove_dir_all(path).unwrap();

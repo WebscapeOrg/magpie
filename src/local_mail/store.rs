@@ -236,6 +236,18 @@ fn search_fingerprint(input: &str, account: &str, anchor: i64) -> String {
     format!("{:x}", Sha256::digest(encoded.as_bytes()))
 }
 impl Store {
+    pub(super) fn record_downloads(&self, resources: &[Value]) -> Result<()> {
+        self.write(|db| {
+            for resource in resources {
+                let id = super::sync::valid_id(&resource["id"])?;
+                if sql(db.query_row("SELECT EXISTS(SELECT 1 FROM deleted_messages WHERE id=?1)", [id], |row| row.get::<_,bool>(0)))? { continue; }
+                if let Some(ms) = resource[crate::providers::gmail::DOWNLOAD_MS].as_u64().filter(|ms| *ms <= 86_400_000) {
+                    remember_download(db, id, ms, &resource[crate::providers::gmail::DOWNLOAD_RUN])?;
+                }
+            }
+            Ok(())
+        })
+    }
     pub(super) fn open(directory: File) -> Result<Arc<Self>> {
         if rusqlite::version_number() < 3_051_003 {
             return Err("local_sqlite_update_required");
@@ -715,10 +727,11 @@ impl Store {
                 .optional())?;
             hash.map(|hash| {
                 let millis: Option<i64> = sql(db.query_row("SELECT milliseconds FROM message_downloads WHERE id=?1", [id], |r| r.get(0)).optional())?;
-                Ok((hash, current_labels(db, id)?, millis))
+                let run: Option<String> = sql(db.query_row("SELECT record FROM message_download_runs WHERE id=?1", [id], |r| r.get(0)).optional())?;
+                Ok((hash, current_labels(db, id)?, millis, run))
             }).transpose()
         })?;
-        let Some((hash, labels, millis)) = row else {
+        let Some((hash, labels, millis, run)) = row else {
             return Ok(None);
         };
         let directory = self
@@ -740,7 +753,12 @@ impl Store {
         let mut resource = resource;
         resource["labelIds"] = labels;
         resource.as_object_mut().unwrap().remove(crate::providers::gmail::DOWNLOAD_MS);
+        resource.as_object_mut().unwrap().remove(crate::providers::gmail::DOWNLOAD_RUN);
+        resource.as_object_mut().unwrap().remove(crate::providers::gmail::DOWNLOAD_START);
         if let Some(ms) = millis { resource[crate::providers::gmail::DOWNLOAD_MS] = json!(ms); }
+        if let Some(run) = run.and_then(|text| serde_json::from_str::<Value>(&text).ok()).and_then(|value| crate::processing::clean(&value)) {
+            resource[crate::providers::gmail::DOWNLOAD_RUN] = run;
+        }
         Ok(Some(resource))
     }
     pub(super) fn complete_resource(&self, id: &str) -> Result<Option<Value>> {
@@ -781,6 +799,8 @@ impl Store {
         }
         let mut content = resource.clone();
         content.as_object_mut().unwrap().remove(crate::providers::gmail::DOWNLOAD_MS);
+        content.as_object_mut().unwrap().remove(crate::providers::gmail::DOWNLOAD_RUN);
+        content.as_object_mut().unwrap().remove(crate::providers::gmail::DOWNLOAD_START);
         let bytes = serde_json::to_vec(&content).map_err(|_| "local_content_invalid")?;
         if bytes.len() > 128 * 1024 * 1024 {
             return Err("local_content_too_large");
@@ -817,7 +837,7 @@ impl Store {
                 params![id,resource["threadId"].as_str().unwrap_or(""),resource["internalDate"].as_str().and_then(|v|v.parse::<i64>().ok()).unwrap_or(0),
                     summary.to_string(),hash,base.to_string(),sender.to_lowercase(),recipients.to_lowercase(),copied.to_lowercase(),subject,text.filenames.to_lowercase(),summary["hasAttachments"]==true,text.complete(),generation]))?;
             if let Some(ms) = millis {
-                sql(db.execute("INSERT INTO message_downloads VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET milliseconds=excluded.milliseconds", params![id,ms as i64]))?;
+                remember_download(db, id, ms, &resource[crate::providers::gmail::DOWNLOAD_RUN])?;
             }
             replace_labels(db,id,&base)?;
             if authoritative {
@@ -964,6 +984,22 @@ impl Drop for Store {
         }
     }
 }
+fn remember_download(db: &Connection, id: &str, ms: u64, value: &Value) -> Result<()> {
+    let incoming = crate::processing::clean(value);
+    let previous: Option<String> = sql(db.query_row("SELECT record FROM message_download_runs WHERE id=?1", [id], |row| row.get(0)).optional())?;
+    let previous = previous.and_then(|text| serde_json::from_str::<Value>(&text).ok()).and_then(|value| crate::processing::clean(&value));
+    if let (Some(previous), Some(incoming)) = (&previous, &incoming) {
+        if previous["finishedAt"].as_i64() > incoming["finishedAt"].as_i64() { return Ok(()); }
+    }
+    sql(db.execute("INSERT INTO message_downloads VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET milliseconds=excluded.milliseconds", params![id,ms as i64]))?;
+    if let Some(run) = incoming {
+        sql(db.execute("INSERT INTO message_download_runs VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET record=excluded.record", params![id,run.to_string()]))?;
+    } else {
+        sql(db.execute("DELETE FROM message_download_runs WHERE id=?1", [id]))?;
+    }
+    Ok(())
+}
+
 pub(super) fn delete(db: &Connection, id: &str) -> Result<()> {
     super::inbox::deleted(db, id)?;
     sql(db.execute("INSERT OR IGNORE INTO deleted_messages VALUES(?1)", [id]))?;
@@ -973,6 +1009,7 @@ pub(super) fn delete(db: &Connection, id: &str) -> Result<()> {
         [id],
     ))?;
     sql(db.execute("DELETE FROM message_downloads WHERE id=?1", [id]))?;
+    sql(db.execute("DELETE FROM message_download_runs WHERE id=?1", [id]))?;
     sql(db.execute("DELETE FROM messages WHERE id=?1", [id]))?;
     sql(db.execute("DELETE FROM jobs WHERE id=?1", [id]))?;
     sql(db.execute("DELETE FROM unsaved WHERE id=?1", [id]))?;

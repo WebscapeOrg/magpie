@@ -32,6 +32,8 @@ Magpie on the iPhone and iPad paints pictures the same way with its own OpenAI k
 
 ## The Point
 
+Press and hold a message on the phone, or open its menu on the main machine, and choose **Point details**. **Downloaded during** and **Analysed during** record the two steps separately: background refresh, using Magpie, or the main machine. If you leave or reopen the phone app during a step, the details say so. Background work that continues after you reopen Magpie keeps its background origin and says the app was already open. Older mail says **Not recorded** where the app has no history. Cached reads keep the original record; a later fetch of missing body text is labelled **remaining text**. Failed rewrites keep the details of the Point still displayed.
+
 Dave's product vision (4 November 2026), word for word:
 
 > 🐦 Magpie Mail

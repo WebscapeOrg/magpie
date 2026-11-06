@@ -85,6 +85,22 @@ impl Default for Engine {
 }
 
 impl Engine {
+    async fn remember_downloads(&self, account: &str, resources: &[Value]) {
+        let records = resources.iter().map(|resource| json!({
+            "id":resource["id"],
+            crate::providers::gmail::DOWNLOAD_MS:resource[crate::providers::gmail::DOWNLOAD_MS],
+            crate::providers::gmail::DOWNLOAD_RUN:resource[crate::providers::gmail::DOWNLOAD_RUN],
+        })).collect();
+        if let Err(error) = self.local_mail.record_downloads(account, records).await {
+            eprintln!("Magpie could not save download activity: {error}");
+        }
+    }
+
+    pub(crate) async fn fetch_thread_resources(&self, account: &str, thread: &str) -> Result<Vec<Value>, &'static str> {
+        let resources = self.gmail.thread_resources(account, thread).await?;
+        self.remember_downloads(account, &resources).await;
+        Ok(resources)
+    }
     #[cfg(target_os = "linux")]
     pub(super) fn frontend(&self) -> Self {
         Self {
@@ -520,7 +536,13 @@ impl Engine {
             };
         }
         if method.starts_with("gmail.") {
-            return Box::pin(self.gmail.call(method, params)).await;
+            let result = Box::pin(self.gmail.call(method, params)).await?;
+            if method == "gmail.read" && result["id"] == params["id"] && result[crate::providers::gmail::DOWNLOAD_MS].is_u64() {
+                if let Some(account) = params["accountId"].as_str() {
+                    self.remember_downloads(account, std::slice::from_ref(&result)).await;
+                }
+            }
+            return Ok(result);
         }
         if method.starts_with("mail.") {
             let result = Box::pin(self.mail.call(method, params)).await?;

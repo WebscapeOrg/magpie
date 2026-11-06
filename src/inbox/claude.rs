@@ -274,7 +274,8 @@ where
         let started = std::time::Instant::now();
         let run = crate::processing::Run::start();
         let first = rows.len();
-        match describe(message.clone()).await {
+        let (answer, tokens) = super::context_tokens::measure(describe(message.clone())).await;
+        match answer {
             Ok(answer) => rows.extend(answer.as_array().cloned().unwrap_or_default()),
             // A request that iOS froze when the app left says nothing about Claude or the message, so
             // the message is described as soon as the app returns.
@@ -293,6 +294,7 @@ where
         for row in &mut rows[first..] {
             super::point_details::merge(row, &json!({"createMs":super::point_details::elapsed(started)}));
             super::point_details::merge(row, &json!({"createRun":record}));
+            super::point_details::merge(row, &tokens);
         }
     }
     Ok(json!(rows))
@@ -713,6 +715,12 @@ async fn exchange(
             Some(request) => send(client, request).await,
             None => Err(Fault { code: "ai_unavailable", class: "request" }),
         };
+        if operation == "describe" {
+            let tokens = answer.as_ref().ok().filter(|reply| reply.status == 200)
+                .and_then(|reply| serde_json::from_slice::<Value>(&reply.body).ok())
+                .and_then(|reply| super::context_tokens::input(&reply["usage"]));
+            super::context_tokens::record(tokens);
+        }
         let count = diagnostics::suspensions();
         let suspended = count != seen;
         seen = count;
@@ -1192,7 +1200,7 @@ mod tests {
                         (200, json!({"input_tokens":1000}).to_string())
                     } else {
                         let text = json!({"overviews":[{"id":"a","text":"Your R780 payment arrived.","evidence":[{"source":"mail","quote":"Payment received: R780."}],"until":null,"timeSensitive":false}]}).to_string();
-                        (200, json!({"stop_reason":"end_turn","content":[{"type":"text","text":text}],"usage":{"input_tokens":1000,"output_tokens":20}}).to_string())
+                        (200, json!({"stop_reason":"end_turn","content":[{"type":"text","text":text}],"usage":{"input_tokens":1000,"cache_creation_input_tokens":300,"cache_read_input_tokens":700,"output_tokens":20}}).to_string())
                     };
                     let answer = format!("HTTP/1.1 {code} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len());
                     tokio::time::sleep(Duration::from_millis(5)).await;
@@ -1221,6 +1229,8 @@ mod tests {
             assert_eq!(rows[0]["details"]["requestedModel"], Tier::Sonnet.model());
             assert_eq!(rows[0]["details"]["model"], Tier::Haiku.model());
             assert!(rows[0]["details"]["createMs"].as_u64().unwrap() >= 10);
+            assert_eq!(rows[0]["details"]["contextTokens"], 4000, "two Haiku writing passes; preflight counting excluded");
+            assert_eq!(rows[0]["details"]["contextTokensPartial"], false);
             assert_eq!(rows[0]["text"], "Your R780 payment arrived.");
             assert_eq!(rows[0]["tier"], "haiku", "the row says which model wrote it");
             let models = seen.lock().unwrap().clone();

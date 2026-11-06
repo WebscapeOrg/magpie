@@ -31,6 +31,8 @@ impl ProviderStream {
     pub fn session_id(&self) -> &str {
         self.display.session_id()
     }
+    pub(crate) fn context_tokens(&self) -> Option<u64> { self.display.context_tokens() }
+
     pub fn final_seen(&self) -> bool {
         self.display.final_seen()
     }

@@ -152,12 +152,14 @@ pub(crate) struct Choice {
     pub(crate) tier: Tier,
     pub(crate) millis: Option<u64>,
     pub(crate) defaulted: bool,
+    /// What asking about this email cost, in billionths of a dollar; 0 when it was not asked.
+    pub(crate) cost: u64,
 }
 
 pub(crate) async fn choose_detailed(messages: &Value, context: &Value) -> (Vec<Choice>, u64) {
     let messages = messages.as_array().cloned().unwrap_or_default();
     let Ok(key) = credentials::get(super::pictures::slot()).await else {
-        return (messages.iter().map(|_| Choice { tier: Tier::Sonnet, millis: None, defaulted: true }).collect(), 0);
+        return (messages.iter().map(|_| Choice { tier: Tier::Sonnet, millis: None, defaulted: true, cost: 0 }).collect(), 0);
     };
     choose_detailed_with(&key, &messages, context).await
 }
@@ -168,7 +170,7 @@ async fn choose_detailed_with(key: &Secret, messages: &[Value], context: &Value)
         let (answer, cost) = ask(key, message, context).await;
         let picked = answer.as_ref().ok().and_then(decision);
         let choice = Choice { tier: picked.unwrap_or(Tier::Sonnet),
-            millis: Some(super::point_details::elapsed(started)), defaulted: picked.is_none() };
+            millis: Some(super::point_details::elapsed(started)), defaulted: picked.is_none(), cost };
         (choice, cost)
     })).await;
     let spent = answers.iter().map(|(_, cost)| cost).sum();

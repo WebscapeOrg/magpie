@@ -273,6 +273,16 @@ fn google_model(tier: Tier) -> &'static str {
     }
 }
 
+/// The model a Gemini request names and the thinking level its suffix asks for.
+fn google_pass(request_model: &str) -> (&str, &str) {
+    for effort in ["low", "high"] {
+        if let Some(model) = request_model.strip_suffix(effort).and_then(|model| model.strip_suffix('-')) {
+            return (model, effort);
+        }
+    }
+    (request_model, "")
+}
+
 fn log_headless(entry: &str) {
     let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
         return;
@@ -451,10 +461,11 @@ async fn claude_turn(prompt: &Prompt, model: &str, messages: &Value) -> Result<V
     let input = media_input(prompt, messages)?;
     let outcome =
         worker::execute_multimodal(command, &input, &mut parser, Duration::from_secs(180)).await;
-    crate::inbox::context_tokens::record(parser.context_tokens());
-    if routed.is_some() { crate::inbox::context_tokens::record(None); }
+    let paused = outcome.exit == Some(PAUSED_EXIT) && routed.is_some();
+    crate::inbox::context_tokens::turn(model, "low", parser.usage(), paused, outcome.failure.is_some() || outcome.cancelled);
+    if routed.is_some() && !paused { crate::inbox::context_tokens::unreported(); }
     // The router exits 75 (EX_TEMPFAIL) when every Claude subscription is out for this model.
-    if outcome.exit == Some(PAUSED_EXIT) && routed.is_some() {
+    if paused {
         return Err("overview_ai_paused");
     }
     if outcome.failure.is_some() || outcome.cancelled {
@@ -625,7 +636,7 @@ async fn codex_turn(
     let mut parser = ProviderStream::new(Provider::Codex, vec![])?;
     let outcome =
         worker::execute_multimodal(command, &input, &mut parser, Duration::from_secs(180)).await;
-    crate::inbox::context_tokens::record(parser.context_tokens());
+    crate::inbox::context_tokens::turn(model, "low", parser.usage(), outcome.exit == Some(PAUSED_EXIT), outcome.failure.is_some() || outcome.cancelled);
     log_headless(&format!(
         "codex {} ({model}), exit {}",
         account.to_uppercase(),
@@ -758,22 +769,20 @@ async fn google_turn(
 ) -> Result<Value, &'static str> {
     let token = google_token(account)?;
     let (parts, has_media) = google_parts(prompt, messages, true)?;
+    let (model, effort) = google_pass(request_model);
     let (mut status, mut reply) = match google_exchange(&token, request_model, parts).await {
         Ok(result) => result,
         Err(error) => {
-            crate::inbox::context_tokens::record(None);
+            crate::inbox::context_tokens::unreported();
             return Err(error);
         }
     };
+    // An error status is not billed and names no model.
     let record_usage = |code: u16, body: &[u8]| {
-        let tokens = (code == 200)
-            .then(|| serde_json::from_slice::<Value>(body).ok())
-            .flatten()
-            .and_then(|v| {
-                let count = &v["response"]["usageMetadata"]["promptTokenCount"];
-                crate::inbox::context_tokens::input(&json!({"input_tokens": count}))
-            });
-        crate::inbox::context_tokens::record(tokens);
+        if code != 200 { return; }
+        let usage = serde_json::from_slice::<Value>(body).ok()
+            .and_then(|v| crate::inbox::prices::gemini(&v["response"]["usageMetadata"]));
+        crate::inbox::context_tokens::record(model, effort, usage);
     };
     record_usage(status, &reply);
     if status == 400 && has_media {
@@ -785,7 +794,7 @@ async fn google_turn(
                 record_usage(status, &reply);
             }
             Err(error) => {
-                crate::inbox::context_tokens::record(None);
+                crate::inbox::context_tokens::unreported();
                 return Err(error);
             }
         }

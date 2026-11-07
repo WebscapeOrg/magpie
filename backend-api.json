@@ -2480,7 +2480,16 @@
             "leftApp": true
           },
           "contextTokens": 12345,
-          "contextTokensPartial": false
+          "contextTokensPartial": false,
+          "costNanos": 41200000,
+          "costPartial": false,
+          "decideCostNanos": 40000,
+          "passes": [
+            {
+              "model": "claude-sonnet-5-5",
+              "effort": "low"
+            }
+          ]
         }
       }
     },
@@ -2493,6 +2502,24 @@
       "equals": {
         "overviews.tracked.details.contextTokens": 12345,
         "overviews.tracked.details.contextTokensPartial": false
+      }
+    },
+    {
+      "name": "Inbox snapshot carries a Point's models, effort and estimated API cost",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "equals": {
+        "overviews.tracked.details.costNanos": 41200000,
+        "overviews.tracked.details.costPartial": false,
+        "overviews.tracked.details.decideCostNanos": 40000,
+        "overviews.tracked.details.passes": [
+          {
+            "model": "claude-sonnet-5-5",
+            "effort": "low"
+          }
+        ]
       }
     }
   ],
@@ -2636,7 +2663,8 @@
       "Inbox snapshot carries bounded Point model and step timings",
       "Inbox snapshot keeps an expired rewrite separate from new Point work",
       "Inbox snapshot keeps download and analysis activity separate",
-      "Inbox snapshot preserves reported context tokens"
+      "Inbox snapshot preserves reported context tokens",
+      "Inbox snapshot carries a Point's models, effort and estimated API cost"
     ]
   },
   "releasedContract": {

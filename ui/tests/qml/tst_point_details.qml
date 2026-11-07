@@ -16,7 +16,7 @@ Item {
     function test_details_fit_and_close(data) {
       failOnWarning(/TypeError|ReferenceError|Unable to assign/)
       canvas.width=data.width;canvas.height=data.height
-      details.openFor({from:{display:"<b>Untrusted sender</b>"}}, {state:"ready",details:{requestedModel:"sonnet",model:"haiku",gmailMs:125,decideMs:42,createMs:2500,batchSize:3}})
+      details.openFor({from:{display:"<b>Untrusted sender</b>"}}, {state:"ready",details:{requestedModel:"sonnet",model:"haiku",gmailMs:125,decideMs:42,createMs:2500,batchSize:3,contextTokens:48211,passes:[{model:"claude-sonnet-5-5",effort:"low"},{model:"claude-haiku-5-5",effort:"low"}],choice:"decisions",costNanos:41200000,decideCostNanos:40000}})
       tryCompare(details,"opened",true)
       waitForRendering(canvas)
       var popup=findChild(details,"point-details"), done=findChild(details,"point-details-done")

@@ -18,7 +18,7 @@ pub struct ClaudeStream {
     snapshot_seen: bool,
     progress: &'static str,
     final_seen: bool,
-    context_tokens: Option<u64>,
+    usage: Option<crate::inbox::prices::Usage>,
 }
 
 pub fn valid_text(value: &str) -> Result<()> {
@@ -114,7 +114,7 @@ impl ClaudeStream {
             snapshot_seen: false,
             progress: "Thinking...",
             final_seen: false,
-            context_tokens: None,
+            usage: None,
         })
     }
     pub fn display(&self) -> Value {
@@ -126,7 +126,7 @@ impl ClaudeStream {
     pub fn session_id(&self) -> &str {
         &self.session_id
     }
-    pub(crate) fn context_tokens(&self) -> Option<u64> { self.context_tokens }
+    pub(crate) fn usage(&self) -> Option<crate::inbox::prices::Usage> { self.usage }
 
     pub fn final_seen(&self) -> bool {
         self.final_seen
@@ -154,7 +154,7 @@ impl ClaudeStream {
             *self = candidate;
         } else if candidate.final_seen {
             self.final_seen = true;
-            self.context_tokens = candidate.context_tokens;
+            self.usage = candidate.usage;
         }
         result
     }
@@ -177,7 +177,7 @@ impl ClaudeStream {
     }
     pub(super) fn finish_with_usage(&mut self, usage: &Value) {
         if !self.final_seen {
-            self.context_tokens = crate::inbox::context_tokens::input(usage);
+            self.usage = crate::inbox::prices::codex(usage);
         }
         self.finish();
     }
@@ -306,7 +306,7 @@ impl ClaudeStream {
                 }
             }
             "result" => {
-                if !self.final_seen { self.context_tokens = crate::inbox::context_tokens::input(&value["usage"]); }
+                if !self.final_seen { self.usage = crate::inbox::prices::anthropic(&value["usage"]); }
                 self.final_seen = true;
                 if truthy(&value["is_error"]) || value["subtype"] != "success" {
                     return Err(

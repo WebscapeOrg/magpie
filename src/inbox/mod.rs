@@ -1,4 +1,5 @@
 pub(crate) mod context_tokens;
+pub(crate) mod prices;
 mod avatars;
 mod progress;
 pub(crate) mod point_details;
@@ -912,7 +913,7 @@ async fn overview_batch(
                 picker::choose_detailed(&prepared, &shared).await
             } else {
                 (prepared.as_array().into_iter().flatten().map(|_| picker::Choice {
-                    tier: picker::Tier::Sonnet, millis: None, defaulted: true
+                    tier: picker::Tier::Sonnet, millis: None, defaulted: true, cost: 0
                 }).collect(), 0)
             };
             let tiers: Vec<_> = choices.iter().map(|choice| choice.tier).collect();
@@ -931,6 +932,7 @@ async fn overview_batch(
                         let choice = &choices[index];
                         let mut details = json!({"choice": if choice.defaulted { "default" } else { "decisions" }});
                         if let Some(ms) = choice.millis { details["decideMs"] = json!(ms); }
+                        if choice.cost > 0 { details["decideCostNanos"] = json!(choice.cost); }
                         point_details::merge(row, &details);
                     }
                     if !row["personal"].is_boolean() {

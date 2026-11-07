@@ -107,7 +107,7 @@ assert.strictEqual(details.tokens({contextTokens:12345,contextTokensPartial:true
 for (const n of [null,"123",-1,1.5,9007199254740992]) assert.strictEqual(details.tokens({contextTokens:n}),"Not recorded");
 assert.ok(details.note({details:{contextTokens:10,batchSize:3}}).includes("token count are shared by 3"));
 assert.ok(details.note({details:{contextTokens:10,costNanos:5,batchSize:3}}).includes("token count and writing cost are shared by 3"));
-assert.strictEqual(details.passes({passes:[{model:"claude-sonnet-5-5",effort:"low"},{model:"claude-haiku-5-5",effort:"low"}],choice:"decisions"}),"Claude Sonnet 5.5, low effort; Claude Haiku 5.5, low effort; GPT-6 Luna, to choose the model");
+assert.strictEqual(details.passes({passes:[{model:"claude-sonnet-5-5",effort:"low"},{model:"claude-haiku-5-5",effort:"low"}],choice:"decisions"}),"Claude Sonnet 5.5, low effort\nClaude Haiku 5.5, low effort\nGPT-6 Luna, to choose the model");
 assert.strictEqual(details.passes({passes:[{model:"gemini-4-argon",effort:"high"},{model:"<b>x</b>",effort:"low"},{model:"opus",effort:"SECRET"}]}),"Gemini 4 Argon, high effort");
 for (const value of [undefined,{},{passes:"opus"},{passes:[{model:"<b>x</b>",effort:"low"}]},{choice:"decisions"}]) assert.strictEqual(details.passes(value),"Not recorded");
 assert.strictEqual(details.cost({costNanos:4200000}),"$0.0042");

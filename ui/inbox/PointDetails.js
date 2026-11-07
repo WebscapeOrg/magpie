@@ -74,7 +74,7 @@ function passes(details) {
   }
   if (!names.length) return "Not recorded"
   if (details.choice === "decisions") names.push("GPT-6 Luna, to choose the model")
-  return names.join("; ")
+  return names.join("\n")
 }
 
 // Dollars from billionths of a dollar, to two significant figures below a dollar so a Point's

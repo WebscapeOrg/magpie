@@ -19,7 +19,7 @@ function bridge() {
     shutdownCallbacks: [], shutdownFailure: null,
     processExitConfirmed: false, restarting: false, restartCallback: null,
     restartExecutable: '', restartSequence: 0,
-    restartDeadline: {restart(){}, stop(){}},
+    restartDeadline: {restart(){}, stop(){}}, reconnectDelay: {restart(){}, stop(){}}, reconnectGrace: {restart(){}, stop(){}}, reconnectStable: {restart(){}, stop(){}},
     shutdownDeadline: {restart(){}, stop(){}}, stopConfirmationDeadline: {restart(){}, stop(){}},
     child: {running: true, write(line) { sent.push(JSON.parse(line)) }},
     requestFailed(method, error) { errors.push({method, error}) },

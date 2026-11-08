@@ -320,7 +320,7 @@ Column {
     id: backendSetup
     width: parent.width
     runtime: root.service ? root.service.backendRuntime || null : null
-    backendError: root.service && root.service.backend ? root.service.backend.failure : ""
+    backendError: root.service && root.service.backend && !root.service.backend.reconnecting ? root.service.backend.failure : ""
     diagnosisAvailable: !!root.service && root.service.hasAgent === true
       && typeof root.service.diagnoseError === "function"
     diagnosing: !!root.service && !!root.service.diagnosing

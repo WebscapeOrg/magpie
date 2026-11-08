@@ -46,7 +46,7 @@ Item {
   property bool composeRecoveryUpdateNoticePending: false
   readonly property string draftSavedNotice: composeRecoveryNotice || draftSavedToast
   readonly property bool backendUnavailable: !!service && !!service.backendRuntime
-    && (service.backendRuntime.state !== "ready" || !service.backend.ready)
+    && (service.backendRuntime.state !== "ready" || (!service.backend.ready && !service.backend.reconnecting))
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "magpie-mail"

@@ -14,6 +14,18 @@ QtObject {
   property bool resumeWrites: false
   property int prepareTimeout: 15000
   property double expires: 0
+  readonly property string couldNotRestart: "Mail could not restart. Your window and draft are still open. Try Restart again."
+  // Invariant: a failed Restart stops being reported once mail has reconnected by itself.
+  property Connections reconnectedWatch: Connections {
+    target: root.service ? root.service.backend : null
+    ignoreUnknownSignals: true
+    function onReadyChanged() {
+      if (root.phase === "idle" && root.failed && root.message === root.couldNotRestart && root.service.backend.ready) {
+        root.failed = false
+        root.message = ""
+      }
+    }
+  }
 
   function finish(message, failed) {
     phase = "idle"
@@ -102,7 +114,7 @@ QtObject {
         return
       }
       root.finish(error
-        ? "Mail could not restart. Your window and draft are still open. Try Restart again."
+        ? root.couldNotRestart
         : "Mail restarted. Your window and draft stayed in place.", !!error)
     })
   }

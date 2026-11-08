@@ -467,9 +467,9 @@ grep -q 'MAX_SUMMARIES_PER_QUERY' cache/Cache.js \
 
 # Invariant: New-mail notifications use the application's own mark, not the desktop's generic
 # unread-mail glyph.
-grep -q 'assets/magpie.svg' ../scripts/notify-mail.py \
-  || fail "new-mail notifications need the Omamail app icon"
-[ -f assets/magpie.svg ] || fail "the notification app icon is missing"
+grep -q 'assets/magpie-mail.png' ../scripts/notify-mail.py \
+  || fail "new-mail notifications need Magpie Mail's ✉️ icon"
+[ -f assets/magpie-mail.png ] || fail "the notification app icon is missing"
 
 # Invariant: Account actions live on the account's edit page. The switcher only changes accounts and
 # leads to management; the management list only leads to editing.

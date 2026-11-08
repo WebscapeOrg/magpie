@@ -103,14 +103,14 @@ PROFILE_DIRECTORY = re.compile(r'Default|Profile [0-9]{1,4}')
 WINDOW_ADDRESS = re.compile(r'0x[0-9a-f]{1,16}')
 DESKTOP_ENTRY = re.compile(r'[A-Za-z0-9._-]{1,200}\.desktop')
 MAILBOX = re.compile(r'[^@\s]{1,64}@[^@\s]{1,255}')
-NOT_PUBLIC = 'Magpie did not open the link, because it is not a public web address.'
+NOT_PUBLIC = 'Magpie Mail did not open the link, because it is not a public web address.'
 NO_ANSWER = 'The browser did not answer, so the link did not open.'
 NOT_ANSWERED = 'The browser has not answered, so the link may not open.'
 NO_WINDOW = 'The link window is slow to open, so it may still appear.'
-TOO_LONG = 'Magpie did not open the link, because it is too long for the browser.'
-SPLIT_NAME = ("Magpie did not open the link, because the config folder Chrome reads its flags from has a space "
+TOO_LONG = 'Magpie Mail did not open the link, because it is too long for the browser.'
+SPLIT_NAME = ("Magpie Mail did not open the link, because the config folder Chrome reads its flags from has a space "
               "or one of * ? [ ( in its name.")
-NO_BROWSER = 'Magpie could not open the link. Check that a browser is installed.'
+NO_BROWSER = 'Magpie Mail could not open the link. Check that a browser is installed.'
 
 
 class Browser(NamedTuple):
@@ -730,7 +730,7 @@ def hyprland(query):
     try:
         return json.loads(hyprctl('-j', query))
     except (ValueError, RecursionError) as error:
-        raise Unplaced('Hyprland gave an answer Magpie could not read.') from error
+        raise Unplaced('Hyprland gave an answer Magpie Mail could not read.') from error
 
 
 def whole(value):
@@ -870,7 +870,7 @@ def place(addresses, desk, size):
                 # it again wins.
                 hyprctl('eval', placement(address, desk, size, client, focus=False))
     if steady:
-        raise Unplaced('The link window did not stay where Magpie put it.')
+        raise Unplaced('The link window did not stay where Magpie Mail put it.')
 
 
 def wait_seconds():
@@ -886,7 +886,7 @@ def tell(text):
     print(text, file=sys.stderr)
     if shutil.which('notify-send'):
         try:
-            start_detached(['notify-send', '-a', 'Magpie', text])
+            start_detached(['notify-send', '-a', 'Magpie Mail', text])
         except OSError:
             pass
 
@@ -896,7 +896,7 @@ def show_site(host):
     # as it opens (Q-014): the host the reader and the browser agree on, never the rest of the link.
     if shutil.which('notify-send'):
         try:
-            start_detached(['notify-send', '-a', 'Magpie', '-t', str(SITE_NOTICE_MILLISECONDS), f'Opening {host}'])
+            start_detached(['notify-send', '-a', 'Magpie Mail', '-t', str(SITE_NOTICE_MILLISECONDS), f'Opening {host}'])
         except OSError:
             pass
 
@@ -971,7 +971,7 @@ def open_in_window(browser, link, host, address, pages_path, pages):
         show_site(host)
         place(opened, desk, size)
     except Unplaced as problem:
-        print(f'Magpie could not float the link window: {problem}', file=sys.stderr)
+        print(f'Magpie Mail could not float the link window: {problem}', file=sys.stderr)
         return 3
     return 0
 

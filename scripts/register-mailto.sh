@@ -24,7 +24,7 @@ while [ "$#" -gt 0 ]; do
 done
 plugin_dir=$(cd "$plugin_dir" && pwd)
 [ -x "$plugin_dir/scripts/mailto.sh" ] || fail 'register-mailto.sh: mailto.sh is missing'
-[ -f "$plugin_dir/ui/assets/magpie.svg" ] || fail 'register-mailto.sh: magpie.svg is missing'
+[ -f "$plugin_dir/ui/assets/magpie-mail.png" ] || fail 'register-mailto.sh: magpie-mail.png is missing'
 
 data_home=${XDG_DATA_HOME:-${HOME:?}/.local/share}
 apps="$data_home/applications"
@@ -56,10 +56,10 @@ def command(text):
 launch = command('exec "$0" "$@"')
 content = f"""[Desktop Entry]
 Type=Application
-Name=🐦 Magpie
+Name=✉️ Magpie Mail
 Comment=Email client for Omarchy
 Exec=/bin/sh -c {launch} {command(plugin + '/scripts/mailto.sh')} %u
-Icon={value(plugin + '/ui/assets/magpie.svg')}
+Icon={value(plugin + '/ui/assets/magpie-mail.png')}
 Terminal=false
 StartupNotify=false
 MimeType=x-scheme-handler/mailto;

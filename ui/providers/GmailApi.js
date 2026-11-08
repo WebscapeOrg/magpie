@@ -4,7 +4,7 @@ function localEditError(error) {
   if (!error) return ""
   var code = String(error.message || "")
   if (code === "backend_needs_update" || code === "Invalid params" || code === "Method not found")
-    return "Magpie Mail’s mail components do not match. Update the app and its backend together, then try again."
+    return "Magpie Mail’s parts do not match. Update the app and its backend together, then try again."
   if (code === "local_disk_full" || code === "local_disk_low")
     return "There is not enough free disk space to save this change. Free some space, then try again."
   if (code === "local_account_unknown" || code === "auth_signed_out")

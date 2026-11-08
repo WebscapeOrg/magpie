@@ -2279,8 +2279,6 @@ Item {
         return index < accounts.length ? accounts[index] : null
       }
 
-      notificationForeground: Commons.Color.foreground
-      notificationAccent: Commons.Color.accent
       pluginDir: root.pluginDir
       accountId: entry ? entry.id : ""
       backend: root.backend

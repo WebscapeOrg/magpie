@@ -21,7 +21,7 @@ class MailtoRegistration(unittest.TestCase):
             plugin = root / 'space "quote" $dollar `tick` \\slash %u equals=literal'
             (plugin / 'scripts').mkdir(parents=True)
             (plugin / 'ui/assets').mkdir(parents=True)
-            (plugin / 'ui/assets/magpie.svg').touch()
+            (plugin / 'ui/assets/magpie-mail.png').touch()
             marker = root / 'received.json'
             handler = plugin / 'scripts/mailto.sh'
             handler.write_text(f'#!{sys.executable}\nimport json,sys\nfrom pathlib import Path\nPath({str(marker)!r}).write_text(json.dumps(sys.argv))\n')

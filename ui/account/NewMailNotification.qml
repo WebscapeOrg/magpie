@@ -7,8 +7,6 @@ Item {
   id: root
   visible: false
 
-  required property string notificationForeground
-  required property string notificationAccent
   required property string pluginDir
   required property string accountId
   property bool nativeNotifications: false
@@ -54,8 +52,7 @@ Item {
     var request = notificationProcessComponent.createObject(root, {
       targetAccountId: root.accountId,
       messageId: String(list[0].id || ""),
-      command: ["python3", root.pluginDir + "/scripts/notify-mail.py",
-        root.notificationForeground, root.notificationAccent, "--", title, body]
+      command: ["python3", root.pluginDir + "/scripts/notify-mail.py", "--", title, body]
     })
     if (request) request.running = true
   }

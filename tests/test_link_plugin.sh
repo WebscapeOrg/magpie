@@ -113,7 +113,7 @@ grep -q '^MimeType=x-scheme-handler/mailto;$' "$desktop" \
   || fail "omamail.desktop must claim mailto"
 grep -F "\"$(pwd)/scripts/mailto.sh\" %u" "$desktop" >/dev/null \
   || fail "omamail.desktop Exec must be the plugin mailto handler"
-grep -q "^Icon=$(pwd)/ui/assets/magpie.svg$" "$desktop" \
+grep -q "^Icon=$(pwd)/ui/assets/magpie-mail.png$" "$desktop" \
   || fail "omamail.desktop must use the Omamail mark"
 # A second run with the file already there must not require --claim-default
 # just to keep the desktop file current.

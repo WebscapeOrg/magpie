@@ -191,7 +191,7 @@ const gmailErrors = JSON.parse(fs.readFileSync(require("path").join(__dirname,".
 context.backend.apiVersion = 8
 for (const fixture of gmailErrors) {
   const text = context.backendError({message:fixture.equals.error}, "gmail.get")
-  assert(text.includes(fixture.equals.error === "gmail_request_deferred" ? "Magpie is spacing out" : "Gmail is limiting"))
+  assert(text.includes(fixture.equals.error === "gmail_request_deferred" ? "Magpie Mail is spacing out" : "Gmail is limiting"))
 }
 assert(!context.backendError({message:"gmail_rate_limited"},"gmail.get").includes("Gmail"), "ambiguous legacy errors do not blame Gmail")
 context.backend.apiVersion = 7

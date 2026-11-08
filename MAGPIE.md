@@ -1,6 +1,6 @@
 # ✉️ Magpie Mail
 
-Magpie Mail, called Magpie until 8 November 2026 (Dave, C-065), is Dave's MIT-licensed fork of [Omamail](https://github.com/huacnlee/omamail). It uses Omarchy's theme with proportional fonts and offers a single-pane reading flow alongside the original split view. The name people see is Magpie Mail and its icon is Apple's ✉️; the repository, plugin id `magpie`, `magpie-engine.service`, `magpie://` links, the iPhone bundle id `net.anotherdave.magpie` and the install addresses keep `magpie`, so installs, links and saved data carry on. The rest of these docs say Magpie for short.
+Magpie Mail, called Magpie until 8 November 2026 (Dave, C-065), is Dave's MIT-licensed fork of [Omamail](https://github.com/huacnlee/omamail). It uses Omarchy's theme with proportional fonts and offers a single-pane reading flow alongside the original split view. The name people see is Magpie Mail and its icon is Apple's ✉️. The repository (`WebscapeOrg/magpie-mail`, `magpie-mail`), plugin id `magpie-mail`, `magpie-mail-engine.service` and the iPhone install address (`/installs/magpie-mail/`) carry the new name too (Dave, Q-017). Kept on purpose, so that sign-ins, links and saved mail carry on: the iPhone bundle id `net.anotherdave.magpie`, `magpie://` links, the engine binary and data folders named `omamail`, keyring entries, Gmail's hidden `Magpie-snooze-…` labels and the `# Managed by Magpie` marker on units. The rest of these docs say Magpie for short.
 
 Open a message with a click or Enter. **Back**, Escape, or Left returns to the list. **Menu → Split view / Single pane** changes layouts. The first launch uses single pane; the choice is saved.
 
@@ -91,7 +91,7 @@ Getting the point across comes first and brevity second. Most Points fit on one 
 
 ## Installation on the main machine
 
-The maintained checkout is `magpie`. The main machine's `omarchy/install.sh` copies its runtime files into the `magpie` plugin and `script/omarchy-selfheal` verifies those copies. There are no development symlinks. The installer checks the session lock before every watched write and never restarts Quickshell. See the main machine's living machine map for the migration and account setup.
+The maintained checkout is `magpie-mail`. The main machine's `omarchy/install.sh` copies its runtime files into the `magpie` plugin and `script/omarchy-selfheal` verifies those copies. There are no development symlinks. The installer checks the session lock before every watched write and never restarts Quickshell. See the main machine's living machine map for the migration and account setup.
 
 Install the supplied font archive locally with `python3 scripts/install-font.py /path/to/Chillax_Complete.zip`. The font and its Fontshare license stay in the user's font directory; they are not redistributed in this repository. The UI loads the installed face through FontLoader, so it does not need a shell restart to recognize the new font.
 
@@ -99,7 +99,7 @@ The upstream release remains the fallback pin in `backend-version`. Phase 2 requ
 
 ## Development
 
-Keep `upstream` pointing at huacnlee/omamail and `origin` at WebscapeOrg/magpie. Changes go through a branch and PR in this fork. `make validate` runs the inherited backend, UI, and packaging checks. Magpie's behavior tests are `ui/tests/test_display.js`, `ui/tests/qml/tst_display_settings.qml`, and the single-pane navigation test in `tst_app_compose_pending.qml`.
+Keep `upstream` pointing at huacnlee/omamail and `origin` at WebscapeOrg/magpie-mail. Changes go through a branch and PR in this fork. `make validate` runs the inherited backend, UI, and packaging checks. Magpie's behavior tests are `ui/tests/test_display.js`, `ui/tests/qml/tst_display_settings.qml`, and the single-pane navigation test in `tst_app_compose_pending.qml`.
 
 The font-aware primitives in `ui/controls` are copies of the installed Omarchy Quattro toolkit with local typography bindings. Their upstream MIT notice is in `ui/controls/LICENSE`. They keep Omarchy's theme and interaction conventions while letting Magpie's interface size differ from the rest of the shell.
 

@@ -1,7 +1,7 @@
 .pragma library
 
 // Presentation rules for Settings → AI spending, the same rules as the iPhone's page
-// (magpie-ios Core/Sources/MagpieCore/Spending.swift). The amounts come from ai.spending, in
+// (magpie-mail-ios Core/Sources/MagpieCore/Spending.swift). The amounts come from ai.spending, in
 // billionths of a dollar. On Linux only sender pictures are counted: AI descriptions and Ask
 // Magpie run through the selected agent, not Magpie's own key.
 

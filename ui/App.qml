@@ -49,7 +49,7 @@ Item {
     && (service.backendRuntime.state !== "ready" || !service.backend.ready)
 
   readonly property string pluginId: manifest && manifest.id
-    ? String(manifest.id) : "magpie"
+    ? String(manifest.id) : "magpie-mail"
   property var composeRecovery: Recovery.empty()
   property bool composeRecoveryLoaded: false
   property bool composeRecoveryRestoring: false

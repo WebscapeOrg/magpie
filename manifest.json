@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "magpie",
+  "id": "magpie-mail",
   "name": "✉️ Magpie Mail",
   "version": "1.0.0",
   "author": "dreinecke (fork of huacnlee/omamail)",
   "license": "MIT",
-  "homepage": "https://github.com/dreinecke/magpie",
+  "homepage": "https://github.com/WebscapeOrg/magpie-mail",
   "description": "Mail for Omarchy with single-pane and split layouts and independent interface, list and message fonts.",
   "kinds": [
     "service",

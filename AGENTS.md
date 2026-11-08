@@ -1,8 +1,8 @@
 # Magpie Mail
 
-Magpie Mail (Magpie for short, and in every identifier) is Dave's mail app. On Linux it is an Omarchy shell plugin (QML under `ui/`) over a Rust engine, the
+Magpie Mail (Magpie for short) is Dave's mail app. On Linux it is an Omarchy shell plugin (QML under `ui/`) over a Rust engine, the
 `omamail` binary built from `src/`; the same engine, built from `mobile/`, runs inside Magpie for iPhone and iPad
-(`magpie-ios`). Magpie began as a fork of [Omamail](https://github.com/huacnlee/omamail), and omamail's rules
+(`magpie-mail-ios`). Magpie began as a fork of [Omamail](https://github.com/huacnlee/omamail), and omamail's rules
 for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) first.**
 
 ## Rules
@@ -26,20 +26,20 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
 - **A change that touches mail, credentials, AI calls, network requests, subprocesses or files gets a hostile review**
   that states Security: PASS, BLOCK or NOT VERIFIED, on top of the independent review every change gets (Dave's rule
   below). Only PASS is installed.
-- **Security fixes stay quiet in public.** WebscapeOrg/magpie is public and shares most of its code with omamail, whose
+- **Security fixes stay quiet in public.** WebscapeOrg/magpie-mail is public and shares most of its code with omamail, whose
   users run it. A security fix's commit and pull request say what it protects, not how to exploit it; the detail goes
   in its Peacock note. Before anyone tells omamail about a fault Magpie inherited, ask Dave through Pickle.
 - **Magpie on Linux is installed only by the main machine's installer.** `magpie-mail-install` from the private machine repo
-  copies the plugin files from `magpie` (not from a worktree) and the engine from its `target/release/omamail`
-  (built there with `make backend`) to `~/.local/share/omamail/bin/omamail`, which `magpie-engine.service` runs. It
+  copies the plugin files from `magpie-mail` (not from a worktree) and the engine from its `target/release/omamail`
+  (built there with `make backend`) to `~/.local/share/omamail/bin/omamail`, which `magpie-mail-engine.service` runs. It
   installs nothing, and says so, while the desktop is locked or `~/.local/state/magpie/install-hold` exists, and it
-  never restarts the engine: run `systemctl --user restart magpie-engine.service` yourself afterwards. Do not run
+  never restarts the engine: run `systemctl --user restart magpie-mail-engine.service` yourself afterwards. Do not run
   `make install-backend-local`, `make install` or `make install-plugin`: the first two overwrite the running engine
   file directly, without the installer's checks; `install` and `install-plugin` then run the main machine's whole
   installer; and `install-plugin` stops and disables the engine service and deletes the engine. Do not run
   `make publish` either: it is omamail's release process and opens a pull request in omamail's repository. The install
   steps in docs/BACKEND.md and docs/BACKEND-RUNTIME.md are omamail's too. The iPhone and iPad app installs from
-  magpie-ios. [MAGPIE.md](MAGPIE.md#installation-on-the-main-machine) has the rest.
+  magpie-mail-ios. [MAGPIE.md](MAGPIE.md#installation-on-the-main-machine) has the rest.
 - **The QML relies only on what `backend-api.json` lists.** A method the desktop engine adds goes into its `methods`
   and `unreleased.methods`, and a parameter, answer or error the QML or the iPhone app newly depends on gets a contract
   case, named under `unreleased.cases`. A Rust test fails when the engine's methods and the list differ, and the QML
@@ -57,9 +57,9 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
 - **Run `make validate` after a QML or behaviour change**, and the iPhone engine's tests (`cargo test --locked --lib
   --no-default-features --features mobile`) after an engine change, and read their exit codes. qmllint's warnings about
   `qs.Ui` and `qs.Commons` are expected; the exit code is the gate.
-- **Work goes on a branch and a draft pull request in WebscapeOrg/magpie, never on `main`.** The branches stack: each
+- **Work goes on a branch and a draft pull request in WebscapeOrg/magpie-mail, never on `main`.** The branches stack: each
   pull request's base is the branch before it. Plain `gh` in this repository resolves to huacnlee/omamail, in
-  `magpie` and in every worktree, so pass `--repo WebscapeOrg/magpie` to every `gh` command. A pull request that
+  `magpie-mail` and in every worktree, so pass `--repo WebscapeOrg/magpie-mail` to every `gh` command. A pull request that
   changes a screen links the Peacock note with its pictures; nobody uploads screenshots to GitHub.
 
 ## Asking Dave for decisions: Pickle
@@ -112,12 +112,12 @@ every agent.
 
 ## Environment
 
-- Repo: `magpie`, GitHub `WebscapeOrg/magpie` (public, as omamail's fork). The `upstream` remote keeps
+- Repo: `magpie-mail`, GitHub `WebscapeOrg/magpie-mail` (public, as omamail's fork). The `upstream` remote keeps
   huacnlee/omamail for reference; Magpie holds omamail's history up to 11 October 2026.
-- The main machine runs copies made from `magpie`: the plugin files, and its `target/release/omamail` as
-  `~/.local/share/omamail/bin/omamail` under `magpie-engine.service`. Data and keyring entries keep omamail's names
+- The main machine runs copies made from `magpie-mail`: the plugin files, and its `target/release/omamail` as
+  `~/.local/share/omamail/bin/omamail` under `magpie-mail-engine.service`. Data and keyring entries keep omamail's names
   (`~/.local/share/omamail` and the rest), so Google sign-ins survive ([MAGPIE.md](MAGPIE.md#installation-on-the-main-machine)).
 - Branch work trees live under `${XDG_STATE_HOME:-~/.local/state}/magpie-work/`, not `/tmp`, and so do Cargo target folders.
-- Siblings: `magpie-ios` (Magpie for iPhone and iPad, which bundles `mobile/`), `magpie-calendar`
+- Siblings: `magpie-mail-ios` (Magpie for iPhone and iPad, which bundles `mobile/`), `magpie-calendar`
   (Magpie Calendar, which took the calendars out of Magpie), `the private machine repo` (installs and heals Magpie on this
   machine), `marmalade` (whose avatar style sender pictures follow).

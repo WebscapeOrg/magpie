@@ -33,7 +33,7 @@ function setupHeadline(state) {
 function setupDetail(state, missingTools) {
   if (state === "tools_missing") {
     var tools = Array.isArray(missingTools) ? missingTools.join(", ") : ""
-    return "Omamail needs " + (tools || "a few base tools")
+    return "Magpie Mail needs " + (tools || "a few base tools")
       + " on PATH before it can sign in."
   }
   if (state === "no_credentials")
@@ -43,7 +43,7 @@ function setupDetail(state, missingTools) {
   if (state === "signed_out")
     return "Your OAuth client is ready. Sign in to let it read this mailbox."
   if (state === "reconnecting")
-    return "The saved session is intact. Omamail will retry automatically when the network is available."
+    return "The saved session is intact. Magpie Mail will retry automatically when the network is available."
   return ""
 }
 

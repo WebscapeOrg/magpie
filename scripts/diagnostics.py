@@ -348,7 +348,7 @@ def main(mode):
             return
         # Invariant: reports exclude task contents, configuration, URLs, stderr and environment values.
         manifest = json.loads((ROOT / 'manifest.json').read_text())
-        report = 'Omamail diagnostics\n'
+        report = 'Magpie Mail diagnostics\n'
         report += 'plugin: ' + str(manifest['version']) + '\n'
         report += 'pinned backend: ' + (ROOT / 'backend-version').read_text().strip() + '\n'
         report += 'API revision: ' + str(json.loads((ROOT / 'backend-api.json').read_text())['apiVersion']) + '\n'

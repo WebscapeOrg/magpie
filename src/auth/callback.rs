@@ -295,7 +295,7 @@ async fn receive(listener: TcpListener, state: &str, port: u16) -> Result<String
         )
         .await
         .unwrap_or(Err("auth_invalid_callback"));
-        let body = "Sign-in received. You can close this page and return to Omamail.";
+        let body = "Sign-in received. You can close this page and return to Magpie Mail.";
         let response = if result.is_ok() {
             format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

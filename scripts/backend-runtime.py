@@ -406,7 +406,7 @@ def restart_engine():
     if engine_marker() is None:
         return
     try:
-        subprocess.run(["/usr/bin/systemctl", "--user", "restart", "magpie-engine.service"],
+        subprocess.run(["/usr/bin/systemctl", "--user", "restart", "magpie-mail-engine.service"],
                        check=True, timeout=210, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except (subprocess.SubprocessError, OSError):
         raise Refused("The mail service could not restart. Your saved work is preserved.")
@@ -436,7 +436,7 @@ def manage(command, required, architecture):
                         output.flush()
                         os.fsync(output.fileno())
                 try:
-                    subprocess.run(["/usr/bin/systemctl", "--user", "disable", "--now", "magpie-engine.service"],
+                    subprocess.run(["/usr/bin/systemctl", "--user", "disable", "--now", "magpie-mail-engine.service"],
                                    check=True, timeout=210, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 except (subprocess.SubprocessError, OSError):
                     if marker is not None:

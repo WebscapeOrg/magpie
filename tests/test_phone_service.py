@@ -82,7 +82,7 @@ class ServiceTests(unittest.TestCase):
         marker = service.STATE/'engine-enabled'
         self.assertEqual(marker.read_bytes(),b'1\n')
         self.assertEqual(marker.stat().st_mode & 0o777,0o600)
-        self.assertEqual(self.calls,[['systemctl','--user','enable','--now','magpie-engine.service','magpie-certificate.timer']])
+        self.assertEqual(self.calls,[['systemctl','--user','enable','--now','magpie-mail-engine.service','magpie-mail-certificate.timer']])
         unit = (service.CONFIG/'systemd/user'/service.UNIT).read_text()
         self.assertIn('KillMode=control-group',unit)
         self.assertIn('Environment=MAGPIE_WORKER_SERVICES=1',unit)
@@ -94,17 +94,50 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse((service.STATE/'engine-enabled').exists())
         self.assertFalse((service.PHONE/'server.json').exists())
         self.assertFalse((service.CONFIG/'systemd/user'/service.UNIT).exists())
-        self.assertEqual(self.calls,[['systemctl','--user','daemon-reload'],['systemctl','--user','enable','--now','magpie-certificate.timer']])
+        self.assertEqual(self.calls,[['systemctl','--user','daemon-reload'],['systemctl','--user','enable','--now','magpie-mail-certificate.timer']])
         self.assertEqual((service.DATA/'phone-service.py').stat().st_mode & 0o777,0o700)
+
+    def test_rename_units_moves_an_enabled_engine_to_the_new_names(self):
+        units = service.CONFIG/'systemd/user'
+        units.mkdir(parents=True)
+        for name in service.OLD_UNITS:
+            (units/name).write_text('# Managed by Magpie\n[Service]\n')
+        service.write(service.STATE/'engine-enabled',b'1\n')
+        self.assertTrue(service.rename_units())
+        self.assertEqual([name for name in service.OLD_UNITS if (units/name).exists()],[])
+        for name in [service.UNIT,service.CERTIFICATE,service.TIMER]:
+            self.assertTrue((units/name).read_text().startswith('# Managed by Magpie\n'),name)
+        self.assertIn('RuntimeDirectory=magpie-mail-engine',(units/service.UNIT).read_text())
+        self.assertEqual(self.calls[-3:],[['systemctl','--user','disable','--now','magpie-engine.service','magpie-certificate.timer'],
+                                          ['systemctl','--user','daemon-reload'],
+                                          ['systemctl','--user','enable','--now','magpie-mail-engine.service','magpie-mail-certificate.timer']])
+        self.calls.clear()
+        self.assertFalse(service.rename_units(),'running it again changes nothing')
+        self.assertEqual(self.calls,[])
+
+    def test_rename_units_without_the_engine_keeps_it_off_and_refuses_unrelated_units(self):
+        units = service.CONFIG/'systemd/user'
+        units.mkdir(parents=True)
+        (units/'magpie-certificate.timer').write_text('# Managed by Magpie\n[Timer]\n')
+        with patch.object(service,'runtime',side_effect=AssertionError('no engine to prepare')):
+            self.assertTrue(service.rename_units())
+        self.assertFalse((units/service.UNIT).exists())
+        self.assertEqual(self.calls[-1],['systemctl','--user','enable','--now','magpie-mail-certificate.timer'])
+        (units/'magpie-engine.service').write_text('# Someone else\n[Service]\n')
+        self.calls.clear()
+        with self.assertRaises(RuntimeError):
+            service.rename_units()
+        self.assertEqual(self.calls,[])
+        self.assertTrue((units/'magpie-engine.service').exists())
 
     def test_certificate_renewal_restarts_only_the_installation_page(self):
         units = service.CONFIG/'systemd/user'
         units.mkdir(parents=True)
-        for name in [service.UNIT,'magpie-ota.service']:
+        for name in [service.UNIT,'magpie-mail-ota.service']:
             (units/name).write_text('[Service]\n')
         with patch.object(service,'certificate',return_value=True), patch('sys.argv',['phone-service.py','certificate']):
             service.main()
-        self.assertEqual(self.calls,[['systemctl','--user','try-restart','magpie-ota.service']])
+        self.assertEqual(self.calls,[['systemctl','--user','try-restart','magpie-mail-ota.service']])
         self.calls.clear()
         with patch.object(service,'certificate',return_value=False), patch('sys.argv',['phone-service.py','certificate']):
             service.main()
@@ -182,7 +215,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.calls,[])
 
     def test_certificate_install_preserves_unrelated_timer(self):
-        timer=service.CONFIG/'systemd/user/magpie-certificate.timer'
+        timer=service.CONFIG/'systemd/user/magpie-mail-certificate.timer'
         service.write(timer,b'# another owner\n')
         with self.assertRaises(RuntimeError): service.install_certificate()
         self.assertEqual(timer.read_bytes(),b'# another owner\n')
@@ -200,7 +233,7 @@ class ServiceTests(unittest.TestCase):
         with patch.dict(os.environ, PATH=str(self.root) + ':/old/mise/installs/claude/1.0'):
             service.prepare()
         paths = []
-        for name in [service.UNIT, 'magpie-certificate.service']:
+        for name in [service.UNIT, 'magpie-mail-certificate.service']:
             text = (service.CONFIG/'systemd/user'/name).read_text()
             value = next(line.removeprefix('Environment=') for line in text.splitlines()
                          if line.startswith('Environment="PATH='))

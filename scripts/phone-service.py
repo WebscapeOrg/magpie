@@ -218,16 +218,19 @@ def rename_units():
             if not path.read_bytes().startswith(b"# Managed by Magpie\n"):
                 raise RuntimeError("Refusing to retire an unrelated service: " + name)
             old.append(name)
-    if not old:
+    engine = (STATE / "engine-enabled").exists()
+    new_units_present = (units / TIMER).exists() and (not engine or (units / UNIT).exists())
+    if not old and new_units_present:
         return False
-    engine = (STATE / "engine-enabled").exists() and (units / OLD_UNITS[0]).exists()
     if engine:
         prepare()
     else:
         install_certificate()
-    command(["systemctl", "--user", "disable", "--now", *[name for name in old if not name.endswith("certificate.service")]])
+    to_disable = [name for name in old if not name.endswith("certificate.service")]
+    if to_disable:
+        command(["systemctl", "--user", "disable", "--now", *to_disable])
     for name in old:
-        (units / name).unlink()
+        (units / name).unlink(missing_ok=True)
     command(["systemctl", "--user", "daemon-reload"])
     command(["systemctl", "--user", "enable", "--now", *([UNIT] if engine else []), TIMER])
     return True

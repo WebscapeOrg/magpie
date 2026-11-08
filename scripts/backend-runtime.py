@@ -405,8 +405,12 @@ def restart_engine():
             "Finish uninstalling the mail service before restarting it.")
     if engine_marker() is None:
         return
+    unit = "magpie-mail-engine.service"
+    units_dir = Path.home() / ".config/systemd/user"
+    if not (units_dir / unit).is_file() and (units_dir / "magpie-engine.service").is_file():
+        unit = "magpie-engine.service"
     try:
-        subprocess.run(["/usr/bin/systemctl", "--user", "restart", "magpie-mail-engine.service"],
+        subprocess.run(["/usr/bin/systemctl", "--user", "restart", unit],
                        check=True, timeout=210, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except (subprocess.SubprocessError, OSError):
         raise Refused("The mail service could not restart. Your saved work is preserved.")

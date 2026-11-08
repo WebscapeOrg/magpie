@@ -115,6 +115,30 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(service.rename_units(),'running it again changes nothing')
         self.assertEqual(self.calls,[])
 
+    def test_rename_units_recovers_from_partial_failure(self):
+        units = service.CONFIG/'systemd/user'
+        units.mkdir(parents=True)
+        # Case 1: only magpie-certificate.service remains, engine-enabled is set
+        (units/'magpie-certificate.service').write_text('# Managed by Magpie\n[Service]\n')
+        service.write(service.STATE/'engine-enabled',b'1\n')
+        self.assertTrue(service.rename_units())
+        self.assertFalse((units/'magpie-certificate.service').exists())
+        self.assertTrue((units/service.UNIT).exists())
+        self.assertTrue((units/service.TIMER).exists())
+        # Disable was not called with empty arguments; daemon-reload and enable were called
+        self.assertEqual(self.calls,[['systemctl','--user','daemon-reload'],
+                                     ['systemctl','--user','daemon-reload'],
+                                     ['systemctl','--user','enable','--now','magpie-mail-engine.service','magpie-mail-certificate.timer']])
+        # Case 2: all old units removed, new units removed, rename_units prepares and enables again
+        for name in [service.UNIT, service.CERTIFICATE, service.TIMER]:
+            (units/name).unlink()
+        self.calls.clear()
+        self.assertTrue(service.rename_units())
+        self.assertTrue((units/service.UNIT).exists())
+        self.assertTrue((units/service.TIMER).exists())
+        self.calls.clear()
+        self.assertFalse(service.rename_units())
+
     def test_rename_units_without_the_engine_keeps_it_off_and_refuses_unrelated_units(self):
         units = service.CONFIG/'systemd/user'
         units.mkdir(parents=True)

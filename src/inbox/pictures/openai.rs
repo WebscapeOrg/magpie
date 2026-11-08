@@ -303,7 +303,7 @@ fn classify(status: u16, body: &[u8], retry: Option<i64>) -> Fault {
     }
 }
 
-/// The first picture of a 200 reply and what it cost, from the reply's usage at gpt-image-2.5
+/// The first picture of a 200 reply and what it cost, from the reply's usage at gpt-image-2.6
 /// Sunburst's list prices (text in $5, image in $8, image out $30 per million tokens), or the estimate.
 fn parse(body: &[u8]) -> Result<Painted, Fault> {
     let reply: Value = serde_json::from_slice(body).map_err(|_| Fault::Lost { charged: true })?;
@@ -346,8 +346,8 @@ mod tests {
     async fn tests_without_a_local_server_send_nothing() {
         let key = Secret::new(b"sk-synthetic-test-key-0000000000".to_vec()).unwrap();
         let request = Request::Generate { prompt: "x".into() };
-        assert!(matches!(paint(&key, "gpt-image-2.5-sunburst", &request).await, Err(Fault::Lost { charged: false })));
-        assert_eq!(check(&key, "gpt-image-2.5-sunburst").await.unwrap_err(), Fault::Lost { charged: false });
+        assert!(matches!(paint(&key, "gpt-image-2.6-sunburst", &request).await, Err(Fault::Lost { charged: false })));
+        assert_eq!(check(&key, "gpt-image-2.6-sunburst").await.unwrap_err(), Fault::Lost { charged: false });
     }
 
     #[test]
@@ -403,9 +403,9 @@ mod tests {
 
     #[test]
     fn edits_send_fields_then_one_png() {
-        let body = multipart("--b", &[("model", "gpt-image-2.5-sunburst"), ("prompt", "line one\nline two")], b"\x89PNG");
+        let body = multipart("--b", &[("model", "gpt-image-2.6-sunburst"), ("prompt", "line one\nline two")], b"\x89PNG");
         let text = String::from_utf8_lossy(&body);
-        assert!(text.starts_with("----b\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-2.5-sunburst\r\n"));
+        assert!(text.starts_with("----b\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-2.6-sunburst\r\n"));
         assert!(text.contains("name=\"prompt\"\r\n\r\nline one\nline two\r\n"));
         assert!(text.contains("name=\"image\"; filename=\"reference.png\"\r\nContent-Type: image/png\r\n\r\n\u{FFFD}PNG\r\n----b--\r\n"));
         assert_ne!(boundary(), boundary());

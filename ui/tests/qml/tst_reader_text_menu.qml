@@ -182,7 +182,7 @@ Item {
       compare(mailService.opened, [])
       compare(mailService.notes.length, links.length)
       for (var noteIndex = 0; noteIndex < links.length; noteIndex++)
-        compare(mailService.notes[noteIndex], "Magpie did not open the link, because it is not a public web address.")
+        compare(mailService.notes[noteIndex], "Magpie Mail did not open the link, because it is not a public web address.")
     }
   }
 }

@@ -97,7 +97,7 @@ Item {
    var name="a@example.test\nsnapshot",start=Date.now()-901000
    var values=({});values[name]=start;tools.preparationFailures=values;tools.preparationResult("a@example.test","snapshot",true)
    compare(tools.preparationFailures[name],start);service.rawMessages=[{id:"raw"}];tools.overviewClock=Date.now()
-   compare(tools.hold,"unanswered");compare(tools.holdText,"Claude has not answered for 15 minutes. Magpie keeps trying.")
+   compare(tools.hold,"unanswered");compare(tools.holdText,"Claude has not answered for 15 minutes. Magpie Mail keeps trying.")
    tools.preparationResult("a@example.test","snapshot",false);compare(Object.keys(tools.preparationFailures).length,0);compare(tools.hold,"");service.rawMessages=[]
   }
 

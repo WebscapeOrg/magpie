@@ -89,11 +89,11 @@ Item {
       verify(panel.visible)
       compare(statusOf("sam@example.com"), "Not allowed yet.")
       compare(statusOf("work@example.com"), "Read for The Point.")
-      compare(statusOf("old@example.com"), "Could not be read just now. Magpie tries again in a few minutes.")
+      compare(statusOf("old@example.com"), "Could not be read just now. Magpie Mail tries again in a few minutes.")
       verify(allowOf("sam@example.com").visible)
       verify(!allowOf("work@example.com").visible, "an allowed calendar offers nothing to do")
       verify(!allowOf("old@example.com").visible)
-      verify(findChild(panel, "settings-calendar-caption").text.indexOf("Magpie never changes it") > 0)
+      verify(findChild(panel, "settings-calendar-caption").text.indexOf("Magpie Mail never changes it") > 0)
     }
     function test_allowing_signs_in_again_and_reads_the_calendar_at_once() {
       last().done({accounts: {"sam@example.com": "permission_required"}}, null)
@@ -117,7 +117,7 @@ Item {
       auth.loginBusy = false
       auth.loginSucceeded()
       last().done({accounts: {"sam@example.com": "permission_required"}}, null)
-      compare(statusOf("sam@example.com"), "Google did not give Magpie the calendar. Allow it again and leave the calendar ticked.")
+      compare(statusOf("sam@example.com"), "Google did not give Magpie Mail the calendar. Allow it again and leave the calendar ticked.")
       verify(allowOf("sam@example.com").visible)
     }
     function test_a_sign_in_that_ends_without_an_answer_can_be_tried_again() {
@@ -125,16 +125,16 @@ Item {
       allowOf("sam@example.com").clicked()
       auth.loginBusy = false
       wait(0)
-      compare(statusOf("sam@example.com"), "Magpie did not get the permission. Try again.")
+      compare(statusOf("sam@example.com"), "Magpie Mail did not get the permission. Try again.")
       verify(allowOf("sam@example.com").visible)
       allowOf("sam@example.com").clicked()
       compare(host.signIns, 2)
       auth.loginBusy = false
       auth.sessionUnavailable("Google sign-in failed. Please try again")
-      compare(statusOf("sam@example.com"), "Magpie did not get the permission. Try again.")
+      compare(statusOf("sam@example.com"), "Magpie Mail did not get the permission. Try again.")
       auth.opens = false
       allowOf("sam@example.com").clicked()
-      compare(statusOf("sam@example.com"), "Magpie could not open Google sign-in. Try again.")
+      compare(statusOf("sam@example.com"), "Magpie Mail could not open Google sign-in. Try again.")
       var rechecks = backend.calls.filter(function(row) { return row.params.accountId !== undefined })
       compare(rechecks.length, 0, "only a sign-in that succeeded reads the calendar again")
     }

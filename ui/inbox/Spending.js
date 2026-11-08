@@ -77,7 +77,7 @@ function note(since, periodStarts, now) {
   else if (days === 1) when = "yesterday at " + time
   else if (days < 7) when = "on " + WEEKDAYS[at.getDay()] + " at " + time
   else when = "on " + at.getDate() + " " + MONTHS[at.getMonth()]
-  return "Magpie began counting " + when + ", so spending before then is not included."
+  return "Magpie Mail began counting " + when + ", so spending before then is not included."
 }
 
 function footer(reply, periodStarts, now) {
@@ -85,7 +85,7 @@ function footer(reply, periodStarts, now) {
   var counted = note(reply && typeof reply === "object" ? reply.since : null, periodStarts, now)
   if (counted !== "") parts.push(counted)
   parts.push("Sender pictures painted on this computer, estimated at OpenAI's list prices; your OpenAI "
-    + "account shows the exact amounts. Descriptions and Ask Magpie use the agent chosen under AI, and "
+    + "account shows the exact amounts. Descriptions and Ask Magpie Mail use the agent chosen under AI, and "
     + "the iPhone and iPad count their own.")
   return parts.join(" ")
 }

@@ -130,7 +130,7 @@ Column {
     text: root.error !== "" ? root.error
       : root.busy ? "Saving"
       : root.justSaved ? "Saved."
-      : "Magpie reads each email against this to tell you what it means for you. It stays on this computer and goes to Claude with the mail it reads."
+      : "Magpie Mail reads each email against this to tell you what it means for you. It stays on this computer and goes to Claude with the mail it reads."
         + (root.length > root.limit * 0.9 ? " " + root.length + " of " + root.limit + " characters." : "")
     color: root.error !== "" ? root.accentColor : root.dimColor
     font.family: root.panelFontFamily
@@ -151,7 +151,7 @@ Column {
   Widgets.Button {
     objectName: "settings-interview"
     visible: !interview.active
-    text: "Magpie interviews you..."
+    text: "Magpie Mail interviews you..."
     foreground: root.textColor
     fontFamily: root.panelFontFamily
     fontSize: MailStyle.caption

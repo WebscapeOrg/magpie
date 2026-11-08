@@ -1,6 +1,6 @@
-# 🐦 Magpie
+# ✉️ Magpie Mail
 
-Magpie is Dave's MIT-licensed fork of [Omamail](https://github.com/huacnlee/omamail). It uses Omarchy's theme with proportional fonts and offers a single-pane reading flow alongside the original split view.
+Magpie Mail, called Magpie until 8 November 2026 (Dave, C-065), is Dave's MIT-licensed fork of [Omamail](https://github.com/huacnlee/omamail). It uses Omarchy's theme with proportional fonts and offers a single-pane reading flow alongside the original split view. The name people see is Magpie Mail and its icon is Apple's ✉️; the repository, plugin id `magpie`, `magpie-engine.service`, `magpie://` links, the iPhone bundle id `net.anotherdave.magpie` and the install addresses keep `magpie`, so installs, links and saved data carry on. The rest of these docs say Magpie for short.
 
 Open a message with a click or Enter. **Back**, Escape, or Left returns to the list. **Menu → Split view / Single pane** changes layouts. The first launch uses single pane; the choice is saved.
 

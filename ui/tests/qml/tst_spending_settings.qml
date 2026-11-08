@@ -132,13 +132,13 @@ Item {
     function test_partial_periods_say_when_counting_began() {
       last("ai.spending").done(reply(0, 0, 0, Date.now() - 60000), null)
       var note = findChild(panel, "settings-spending-note")
-      verify(note.text.indexOf("Magpie began counting today at ") === 0)
+      verify(note.text.indexOf("Magpie Mail began counting today at ") === 0)
     }
     function test_a_failure_is_explained_and_a_later_answer_replaces_it() {
       last("ai.spending").done(null, {code: -32000, message: "inbox_storage_unavailable"})
       verify(panel.visible)
       var note = findChild(panel, "settings-spending-note")
-      compare(note.text, "Magpie could not read what it has spent. It tries again in a minute.")
+      compare(note.text, "Magpie Mail could not read what it has spent. It tries again in a minute.")
       verify(!findChild(panel, "settings-spending-table").visible)
       verify(findChild(panel, "settings-spending-refresh").running)
       panel.load()

@@ -1196,7 +1196,7 @@ Item {
 
   FloatingWindow {
     id: window
-    title: "🐦 Magpie"
+    title: "✉️ Magpie Mail"
     color: root.background
     implicitWidth: MailStyle.space(980)
     implicitHeight: MailStyle.space(720)
@@ -2174,7 +2174,7 @@ Item {
       Dialog {
         id: interviewOffer
         objectName: "interview-offer"
-        title: "Help Magpie understand your mail"
+        title: "Help Magpie Mail understand your mail"
         anchors.centerIn: parent
         width: Math.min(parent.width - MailStyle.space(32), MailStyle.space(480))
         modal: true
@@ -2184,7 +2184,7 @@ Item {
           spacing: MailStyle.space(16)
           Text {
             width: parent.width
-            text: "Magpie can ask a few optional questions and draft an About you bio. You can edit it before saving."
+            text: "Magpie Mail can ask a few optional questions and draft an About you bio. You can edit it before saving."
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
             color: root.foreground
@@ -2195,7 +2195,7 @@ Item {
             width: parent.width
             spacing: MailStyle.space(8)
             Widgets.Button {
-              text: "Magpie interviews you..."
+              text: "Magpie Mail interviews you..."
               focusable: true
               maximumWidth: parent.width
               foreground: root.foreground

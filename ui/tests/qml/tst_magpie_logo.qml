@@ -12,31 +12,22 @@ Rectangle {
   Components.MagpieLogo {
     id: logo
     anchors.centerIn: parent
-    foreground: Qt.rgba(0.6,0.6,0.6,1)
-    accent: Qt.rgba(0.9,0.25,0.25,1)
   }
   TestCase {
     name: "MagpieLogo"
     when: windowShown
-    function test_ink_uses_the_supplied_foreground() {
-      logo.foreground = Qt.rgba(0.1, 0.2, 0.3, 1)
-      wait(50)
-      var rendered = grabImage(logo)
-      var sampleX = Math.floor(logo.width * 39 / 64)
-      var sampleY = Math.floor(logo.height * 24 / 64)
-      verify(Math.abs(rendered.red(sampleX, sampleY) - 26) <= 1)
-      verify(Math.abs(rendered.green(sampleX, sampleY) - 51) <= 1)
-      verify(Math.abs(rendered.blue(sampleX, sampleY) - 77) <= 1)
-      logo.foreground = Qt.rgba(0.8, 0.9, 1, 1)
-      wait(50)
-      rendered = grabImage(logo)
-      verify(Math.abs(rendered.red(sampleX, sampleY) - 204) <= 1)
-    }
-    function test_identity_is_static_and_labeled() {
-      compare(logo.animated, false)
-      compare(logo.Accessible.name, "Magpie")
-      verify(String(logo.children[0].source).endsWith("magpie.svg"), "identity uses the monochrome vector asset")
+    function test_identity_is_apples_envelope_and_labeled() {
+      tryCompare(logo, "status", Image.Ready)
+      compare(logo.Accessible.name, "Magpie Mail")
+      verify(String(logo.source).endsWith("magpie-mail.png"), "identity uses Apple's ✉️ drawing")
+      compare(logo.sourceSize.width, 160)
       verify(logo.width > 0 && logo.height > 0)
+    }
+    function test_it_draws_the_envelope_in_its_own_colours() {
+      tryCompare(logo, "status", Image.Ready)
+      var rendered = grabImage(logo)
+      var x = Math.floor(logo.width / 2), y = Math.floor(logo.height / 2)
+      verify(rendered.red(x, y) > 200 && rendered.green(x, y) > 200 && rendered.blue(x, y) > 200, "the envelope's middle is near white, not tinted by the theme")
     }
   }
 }

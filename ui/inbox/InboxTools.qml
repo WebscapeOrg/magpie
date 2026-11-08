@@ -119,7 +119,7 @@ Item {
   }
   readonly property string holdText: hold === "paused" ? "New Points are paused."
     : hold === "subscriptions" ? "Your Claude subscriptions are all used up for now. Points continue when one resets."
-    : hold === "unanswered" ? "Claude has not answered for " + Readiness.waited(overviewClock - failingSince) + ". Magpie keeps trying."
+    : hold === "unanswered" ? "Claude has not answered for " + Readiness.waited(overviewClock - failingSince) + ". Magpie Mail keeps trying."
     : ""
   function status(row) {
     if (!writesPoints) return "plain"
@@ -209,7 +209,7 @@ Item {
     preferenceWrites = 1
     service.backend.call("inbox.preferences",Object.assign({accountId:account},values),function(result,failure) {
       root.preferenceWrites = 0
-      if (failure) { root.error = "The main machine has not received this setting yet and may still use its previous setting. Magpie will retry."; return }
+      if (failure) { root.error = "The main machine has not received this setting yet and may still use its previous setting. Magpie Mail will retry."; return }
       var queue = Object.assign({},root.preferenceQueue); var own = Object.assign({},queue[account] || {})
       for (var field in values) if (own[field] === values[field]) delete own[field]
       if (Object.keys(own).length) queue[account] = own; else delete queue[account]
@@ -341,7 +341,7 @@ Item {
       if (!(service.accountSummaries || []).some(function(row) { return row.id === batch.accountId })) return
       root.preparationResult(batch.accountId,"request",!!failure)
       if (failure) {
-        root.error = "Magpie could not start writing Points. Check the AI connection, then choose Menu → Retry Points."
+        root.error = "Magpie Mail could not start writing Points. Check the AI connection, then choose Menu → Retry Points."
         var next = Object.assign({},root.overviews)
         for (var messageIndex=0;messageIndex<batch.ids.length;messageIndex++)
           next[root.key(batch.accountId,batch.ids[messageIndex])] = {state:"failed",reason:"AI request could not start; retry from Menu",problem:"overview_start_failed",updated:Date.now()}
@@ -373,13 +373,13 @@ Item {
     })
   }
   function snooze(rowId, until) {
-    if (!available) { error = "Update the Magpie backend to use Snooze."; return false }
+    if (!available) { error = "Update the Magpie Mail backend to use Snooze."; return false }
     var host = service.hostForId(rowId)
     if (!host || host.providerId !== "gmail") { error = "Snooze needs a Gmail mailbox."; return false }
     notice = "Snoozing"; error = ""
     var request = {accountId:host.accountId,id:service.sourceIdFor(rowId),until:until}
     service.backend.call("inbox.snooze",request,function(result,failure) {
-      if (failure) { root.notice = ""; root.error = "Snooze could not finish. The schedule is saved if Gmail's response was interrupted; Magpie will retry."; return }
+      if (failure) { root.notice = ""; root.error = "Snooze could not finish. The schedule is saved if Gmail's response was interrupted; Magpie Mail will retry."; return }
       root.lastSnoozed = request
       root.notice = "Snoozed until " + new Date(until).toLocaleString(Qt.locale(),"ddd, d MMM, HH:mm")
       host.refresh(); root.refresh()
@@ -398,7 +398,7 @@ Item {
     ticking = true
     service.backend.call("inbox.tick",{},function(result,failure) {
       root.ticking = false
-      if (failure || (result && result.failures>0)) root.error = "Some snoozed messages could not return yet. Magpie will retry; you can also use Menu → Snoozed mail."
+      if (failure || (result && result.failures>0)) root.error = "Some snoozed messages could not return yet. Magpie Mail will retry; you can also use Menu → Snoozed mail."
       else {
         if (root.error.indexOf("Some snoozed messages") === 0) root.error = ""
         if (result && result.woke>0) { service.refresh(); root.refresh() }

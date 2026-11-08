@@ -156,7 +156,7 @@ Item {
       compare(texts(), ["Checking Gmail…", "Checking Gmail…"])
       offline.status = ({inventoryComplete: true, error: "gmail_rate_limited"})
       compare(texts(), ["Checking for mail. Saved messages will appear here.", "Checking for mail. Saved messages will appear here."])
-      offline.problem = "Some mail downloads are still failing. Magpie will keep trying."
+      offline.problem = "Some mail downloads are still failing. Magpie Mail will keep trying."
       compare(texts(), ["", ""], "the problem above the Inbox says it")
     }
 

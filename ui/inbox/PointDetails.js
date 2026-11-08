@@ -106,7 +106,7 @@ function activity(run) {
   if (run.origin === "desktop") return run.startedActive === undefined && run.finishedActive === undefined && run.leftApp === undefined ? "The main machine" + (run.remainingText === true ? " (remaining text)" : "") : "Not recorded"
   if (run.origin !== "app" && run.origin !== "backgroundRefresh") return "Not recorded"
   if (typeof run.startedActive !== "boolean" || typeof run.finishedActive !== "boolean" || typeof run.leftApp !== "boolean") return "Not recorded"
-  var label = run.origin === "backgroundRefresh" ? "Background refresh" : run.startedActive ? "While using Magpie" : "After leaving Magpie"
+  var label = run.origin === "backgroundRefresh" ? "Background refresh" : run.startedActive ? "While using Magpie Mail" : "After leaving Magpie Mail"
   if (run.origin === "backgroundRefresh" && run.startedActive) label += "; app already open"
   if (run.remainingText === true) label += " (remaining text)"
   if (run.leftApp) return label + "; app left during this step"

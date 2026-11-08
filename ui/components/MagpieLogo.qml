@@ -1,37 +1,13 @@
 import QtQuick
 import qs.Commons
-Item {
-  id: root
-  required property color foreground
-  required property color accent
-  property bool animated: false
+// Apple's ✉️, the same 160 px drawing as the iPhone app's icon (magpie-ios scripts/emoji.sh), smoothed down to size.
+Image {
   implicitWidth: Style.space(64)
   implicitHeight: implicitWidth
+  source: "../assets/magpie-mail.png"
+  fillMode: Image.PreserveAspectFit
+  smooth: true
+  mipmap: true
   Accessible.role: Accessible.Graphic
-  Accessible.name: "Magpie"
-  Canvas {
-    id: ink
-    anchors.fill: parent
-    antialiasing: true
-    readonly property url source: "../assets/magpie.svg"
-    onImageLoaded: requestPaint()
-    onWidthChanged: requestPaint()
-    onHeightChanged: requestPaint()
-    Component.onCompleted: loadImage(source)
-    Connections {
-      target: root
-      function onForegroundChanged() { ink.requestPaint() }
-    }
-    onPaint: {
-      if (!isImageLoaded(source)) return
-      var context = getContext("2d")
-      context.reset()
-      context.clearRect(0, 0, width, height)
-      var size = Math.min(width, height)
-      context.drawImage(source, (width - size) / 2, (height - size) / 2, size, size)
-      context.globalCompositeOperation = "source-in"
-      context.fillStyle = root.foreground
-      context.fillRect(0, 0, width, height)
-    }
-  }
+  Accessible.name: "Magpie Mail"
 }

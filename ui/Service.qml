@@ -115,7 +115,7 @@ Item {
     .replace(/^file:\/\//, "")).replace(/\/$/, "")
   // Invariant: An absent manifest version stays empty rather than reporting a guessed build.
   readonly property string pluginName: manifest && manifest.name
-    ? String(manifest.name) : "Magpie"
+    ? String(manifest.name) : "Magpie Mail"
   readonly property string version: manifest && manifest.version
     ? String(manifest.version) : ""
 
@@ -1233,10 +1233,10 @@ Item {
 
   // Invariant: The bar unread count spans all accounts.
   readonly property string barTooltip: {
-    if (!ready) return "Magpie · Not connected"
+    if (!ready) return "Magpie Mail · Not connected"
     var suffix = unreadTotal === 0 ? "No unread mail"
       : (unreadTotal === 1 ? "1 unread message" : unreadTotal + " unread messages")
-    return (accountEmail !== "" ? accountEmail : "Magpie") + " · " + suffix
+    return (accountEmail !== "" ? accountEmail : "Magpie Mail") + " · " + suffix
   }
 
   // Invariant: Signature editor models depend on account entries only; live polling state must not rebuild editable fields.

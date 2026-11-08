@@ -52,7 +52,7 @@ Item {
     var requested = openRequested || mode === "open"
     openRequested = false
     if (requested) failed(message)
-    else console.warn("Magpie could not save diagnostic errors.")
+    else console.warn("Magpie Mail could not save diagnostic errors.")
   }
   Timer {
     interval: 250

@@ -65,7 +65,7 @@ Item {
     if (code === "gmail_forbidden") return "Gmail refused this request (HTTP 403). Check account permissions."
     if (code === "gmail_length_required") return "Gmail rejected the request format (HTTP 411)."
     if (code === "gmail_request_deferred" && backend && Number(backend.apiVersion) >= 8)
-      return "Magpie is spacing out mail requests. Try again shortly."
+      return "Magpie Mail is spacing out mail requests. Try again shortly."
     if (code === "gmail_server_rate_limited" && backend && Number(backend.apiVersion) >= 8)
       return "Gmail is limiting requests. Try again later."
     if (code === "gmail_rate_limited") return "Mail requests are temporarily limited. Try again later."

@@ -113,7 +113,7 @@ Column {
 
   Text {
     width: parent.width
-    text: root.phase === "review" ? "Review your bio" : "Magpie interviews you"
+    text: root.phase === "review" ? "Review your bio" : "Magpie Mail interviews you"
     textFormat: Text.PlainText
     color: root.textColor
     font.family: root.panelFontFamily
@@ -122,7 +122,7 @@ Column {
   Text {
     width: parent.width
     text: root.phase === "consent"
-      ? "Answer a few questions so Magpie can understand what your mail means for you. Your answers and your current bio go to Claude, Anthropic’s AI. Skip anything you prefer. You will edit the draft before saving it."
+      ? "Answer a few questions so Magpie Mail can understand what your mail means for you. Your answers and your current bio go to Claude, Anthropic’s AI. Skip anything you prefer. You will edit the draft before saving it."
       : root.phase === "review" ? "Check and edit this before saving. Only the bio you save is used with your mail."
       : "Question " + (root.answers.length + 1) + " of 6 · Every answer is optional."
     textFormat: Text.PlainText

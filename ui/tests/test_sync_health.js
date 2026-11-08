@@ -10,7 +10,7 @@ const routine = { complete: false, inventoryComplete: true, pending: 4, pendingE
 assert.strictEqual(sync.problem(routine, sync.observe(null, routine, start), start), "")
 
 // A problem only Dave can solve shows at once.
-const changeFailed = "A mailbox change could not reach Gmail. Magpie will keep trying while sync is paused."
+const changeFailed = "A mailbox change could not reach Gmail. Magpie Mail will keep trying while sync is paused."
 for (const [code, text, whilePaused] of [
   ["gmail_unauthorized", "Sign in to Gmail again to resume syncing. Saved mail and queued changes are kept."],
   ["gmail_invalid_token", "Sign in to Gmail again to resume syncing. Saved mail and queued changes are kept."],
@@ -48,11 +48,11 @@ function watch(statuses, step) {
   return { warnings, now: now - step }
 }
 for (const [code, text] of [
-  ["gmail_request_deferred", "Mail sync has stalled. New mail may be delayed. Magpie will keep trying."],
-  ["gmail_rate_limited", "Google is still limiting mail requests. New mail may be delayed. Magpie will keep trying."],
-  ["gmail_server_rate_limited", "Google is still limiting mail requests. New mail may be delayed. Magpie will keep trying."],
-  ["gmail_http_failed", "Magpie still cannot reach Gmail. New mail may be delayed. Check your connection; Magpie will keep trying."],
-  ["gmail_timeout", "Magpie still cannot reach Gmail. New mail may be delayed. Check your connection; Magpie will keep trying."]
+  ["gmail_request_deferred", "Mail sync has stalled. New mail may be delayed. Magpie Mail will keep trying."],
+  ["gmail_rate_limited", "Google is still limiting mail requests. New mail may be delayed. Magpie Mail will keep trying."],
+  ["gmail_server_rate_limited", "Google is still limiting mail requests. New mail may be delayed. Magpie Mail will keep trying."],
+  ["gmail_http_failed", "Magpie Mail still cannot reach Gmail. New mail may be delayed. Check your connection; Magpie Mail will keep trying."],
+  ["gmail_timeout", "Magpie Mail still cannot reach Gmail. New mail may be delayed. Check your connection; Magpie Mail will keep trying."]
 ]) {
   const stuck = { error: code, updated: "100" }
   const early = watch(Array(20).fill(stuck), 30000)
@@ -80,7 +80,7 @@ for (const [code, text] of [
   const early = watch(Array(20).fill(failing), 30000)
   assert.strictEqual(sync.problem(failing, early.warnings, early.now), "")
   const late = watch(Array(21).fill(failing), 30000)
-  assert.strictEqual(sync.problem(failing, late.warnings, late.now), "Some mail downloads are still failing. Magpie will keep trying.")
+  assert.strictEqual(sync.problem(failing, late.warnings, late.now), "Some mail downloads are still failing. Magpie Mail will keep trying.")
   const paused = sync.observe(late.warnings, { failed: 3, paused: true }, late.now + 1000)
   assert.deepStrictEqual({ ...paused }, { episode: null, downloads: null })
   const cleared = sync.observe(late.warnings, { failed: 0 }, late.now + 1000)
@@ -101,7 +101,7 @@ assert.strictEqual(sync.inbox(healthy, now), "Fully updated")
 assert.strictEqual(sync.otherMail(healthy, now), "Fully downloaded")
 assert.strictEqual(sync.changes(healthy), "All synced")
 assert.strictEqual(sync.summary({ ...healthy, paused: true }, "", false, now), "Sync paused")
-assert.strictEqual(sync.summary(healthy, "Some mail downloads are still failing. Magpie will keep trying.", false, now), "Needs attention")
+assert.strictEqual(sync.summary(healthy, "Some mail downloads are still failing. Magpie Mail will keep trying.", false, now), "Needs attention")
 assert.strictEqual(sync.summary({ ...healthy, editConflicts: 1 }, "", false, now), "Needs attention")
 assert.strictEqual(sync.summary({}, "", false, now), "Checking Gmail…")
 assert.strictEqual(sync.lastChecked({}, now), "Not yet checked")
@@ -135,7 +135,7 @@ assert.strictEqual(sync.emptyFor(mailbox({ paused: true }), false, false), "Sync
 assert.strictEqual(sync.emptyFor(mailbox({ error: "gmail_rate_limited" }), false, false), "Checking for mail. Saved messages will appear here.")
 assert.strictEqual(sync.emptyFor(mailbox({ inventoryComplete: false, error: "" }), false, false), "Checking Gmail…")
 assert.strictEqual(sync.emptyFor(mailbox({ inventoryComplete: true, error: "" }), false, false), null)
-assert.strictEqual(sync.emptyFor(mailbox({ inventoryComplete: false }, { problem: "Some mail downloads are still failing. Magpie will keep trying." }), false, false), "", "the problem above says it")
+assert.strictEqual(sync.emptyFor(mailbox({ inventoryComplete: false }, { problem: "Some mail downloads are still failing. Magpie Mail will keep trying." }), false, false), "", "the problem above says it")
 assert.strictEqual(sync.emptyFor(mailbox({ paused: true }), true, false), null, "searching keeps the search text")
 assert.strictEqual(sync.emptyFor(mailbox({ paused: true }), false, true), null, "loading keeps its text")
 assert.strictEqual(sync.emptyFor(null, false, false), null)

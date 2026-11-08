@@ -46,8 +46,8 @@ Item {
     width: Math.max(0, root.width - x - (resume.shown ? resume.width + MailStyle.space(10) : 0))
     anchors.verticalCenter: parent.verticalCenter
     text: root.holdText !== "" ? root.holdText
-      : root.writing === 1 ? "Magpie is reading 1 message"
-      : "Magpie is reading " + root.writing + " messages"
+      : root.writing === 1 ? "Magpie Mail is reading 1 message"
+      : "Magpie Mail is reading " + root.writing + " messages"
     textFormat: Text.PlainText
     // A problem reads like the offline-mail line; progress is quieter.
     color: root.holdText !== "" ? root.textColor : root.dimColor

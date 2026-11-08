@@ -20,8 +20,6 @@ Column {
     if (visible && runtime && !runtime.busy && typeof runtime.refresh === "function") runtime.refresh()
   }
   MagpieLogo {
-    foreground: root.dimColor
-    accent: root.accentColor
   }
   Text {
     text: "Mail backend"
@@ -46,7 +44,7 @@ Column {
           ? "Bundled backend " + root.runtime.installedVersion + " is ready."
           : "Backend " + root.runtime.installedVersion + " is installed.")
         : root.runtime.bundled ? "The bundled mail backend could not start."
-        : "Magpie needs backend " + (root.runtime.requiredVersion || "matching this plugin")
+        : "Magpie Mail needs backend " + (root.runtime.requiredVersion || "matching this plugin")
           + (root.runtime.installedVersion ? ". Installed: " + root.runtime.installedVersion : ". It is not installed yet.")
       color: root.dimColor
       font.family: root.panelFontFamily

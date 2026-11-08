@@ -256,7 +256,7 @@ Item {
       account.selectedMessage = account.messages[0]
       app.open()
       app.pushEntry("reader", { id: account.selectedId })
-      var window = having(app, function(item) { return item.title === "🐦 Magpie" })
+      var window = having(app, function(item) { return item.title === "✉️ Magpie Mail" })
       var reader = having(app, function(item) { return item.forceRichAnyway !== undefined })
       verify(window !== null && reader !== null)
       window.width = MailStyle.space(980)
@@ -403,7 +403,7 @@ Item {
       account.selectedId = data.outside ? "message-3" : "message-1"
       account.selectedMessage = messages[data.outside ? 2 : 0]
       app.open()
-      var window = having(app, function(item) { return item.title === "🐦 Magpie" })
+      var window = having(app, function(item) { return item.title === "✉️ Magpie Mail" })
       verify(window !== null)
       window.width = Style.space(data.compact ? 600 : 980)
       app.pushEntry("reader", { id: account.selectedId })

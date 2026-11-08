@@ -51,7 +51,7 @@ Column {
     host.signIn()
     if (!host.auth.loginBusy) {
       asking = ""
-      note(account, "Magpie could not open Google sign-in. Try again.")
+      note(account, "Magpie Mail could not open Google sign-in. Try again.")
     }
   }
   function recheck(account) {
@@ -59,12 +59,12 @@ Column {
     service.backend.call("inbox.calendarAccess", {accountId: account}, function(result, failure) {
       root.checking = ""
       if (failure || !result || !result.accounts) {
-        root.note(account, "Magpie could not read this calendar. Try again in a few minutes.")
+        root.note(account, "Magpie Mail could not read this calendar. Try again in a few minutes.")
         return
       }
       root.states = result.accounts
       if (result.accounts[account] === "permission_required")
-        root.note(account, "Google did not give Magpie the calendar. Allow it again and leave the calendar ticked.")
+        root.note(account, "Google did not give Magpie Mail the calendar. Allow it again and leave the calendar ticked.")
     })
   }
   function status(account) {
@@ -74,7 +74,7 @@ Column {
     var state = states ? states[account] : ""
     if (state === "ready") return "Read for The Point."
     if (state === "permission_required") return "Not allowed yet."
-    if (state === "unavailable") return "Could not be read just now. Magpie tries again in a few minutes."
+    if (state === "unavailable") return "Could not be read just now. Magpie Mail tries again in a few minutes."
     return "Checking"
   }
   onReadyChanged: load()
@@ -91,7 +91,7 @@ Column {
     function onSessionUnavailable() {
       var account = root.asking
       root.asking = ""
-      root.note(account, "Magpie did not get the permission. Try again.")
+      root.note(account, "Magpie Mail did not get the permission. Try again.")
     }
     function onLoginBusyChanged() {
       // A sign-in closed or timed out without an answer ends here; success and refusal end above.
@@ -99,7 +99,7 @@ Column {
         if (root.asking !== "" && root.askingAuth && !root.askingAuth.loginBusy) {
           var account = root.asking
           root.asking = ""
-          root.note(account, "Magpie did not get the permission. Try again.")
+          root.note(account, "Magpie Mail did not get the permission. Try again.")
         }
       })
     }
@@ -117,7 +117,7 @@ Column {
     objectName: "settings-calendar-caption"
     width: parent.width
     textFormat: Text.PlainText
-    text: "The Point reads your Google Calendar, from a week back to a month ahead, so it knows what you have planned. Magpie never changes it, and the events go to Claude with the mail it reads."
+    text: "The Point reads your Google Calendar, from a week back to a month ahead, so it knows what you have planned. Magpie Mail never changes it, and the events go to Claude with the mail it reads."
     color: root.dimColor
     font.family: root.panelFontFamily
     font.pixelSize: MailStyle.caption

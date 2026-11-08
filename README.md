@@ -1,4 +1,4 @@
-> **This is 🐦 Magpie, Dave’s fork of Omamail.** See [Magpie’s controls and installation](MAGPIE.md). Magpie supports Gmail and Google Workspace mailboxes. Calendars run in the separate Magpie Calendar app. Upstream release installers below install Omamail; they do not install this development fork.
+> **This is ✉️ Magpie Mail, Dave’s fork of Omamail.** See [Magpie’s controls and installation](MAGPIE.md). Magpie supports Gmail and Google Workspace mailboxes. Calendars run in the separate Magpie Calendar app. Upstream release installers below install Omamail; they do not install this development fork.
 
 # Omamail
 

@@ -1312,7 +1312,7 @@ fn overview_failure(error: Option<&str>) -> &'static str {
     match error {
         Some("overview_start_failed") => "AI worker could not start; retry from Menu",
         Some("overview_ai_unavailable") => "AI service did not respond; retry from Menu",
-        Some("overview_ai_paused") => "Every Claude subscription is out for now; Magpie will try again",
+        Some("overview_ai_paused") => "Every Claude subscription is out for now; Magpie Mail will try again",
         Some("overview_invalid_response") => {
             "AI response failed format or length checks; retry from Menu"
         }
@@ -1327,11 +1327,11 @@ fn overview_failure(error: Option<&str>) -> &'static str {
         }
         Some("ai_billing") => "Claude API billing needs attention in the Claude Console",
         Some("ai_rate_limited" | "ai_unavailable" | "ai_unreachable" | "ai_daily_limit") => {
-            "Claude could not take more requests just now; Magpie will retry"
+            "Claude could not take more requests just now; Magpie Mail will retry"
         }
         Some("overview_ai_refused") => "Claude declined to describe this message",
-        Some(INTERRUPTED) => "Magpie left the foreground before this message; it will be described next",
-        Some(WAITS_FOR_APP) => "Its Point is written when you next open Magpie",
+        Some(INTERRUPTED) => "Magpie Mail left the foreground before this message; it will be described next",
+        Some(WAITS_FOR_APP) => "Its Point is written when you next open Magpie Mail",
         None => "AI response omitted this message; retry from Menu",
         _ => "Mail could not be prepared for AI; retry from Menu",
     }

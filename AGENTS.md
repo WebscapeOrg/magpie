@@ -33,7 +33,9 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
   copies the plugin files from `magpie-mail` (not from a worktree) and the engine from its `target/release/omamail`
   (built there with `make backend`) to `~/.local/share/omamail/bin/omamail`, which `magpie-mail-engine.service` runs. It
   installs nothing, and says so, while the desktop is locked or `~/.local/state/magpie-mail/install-hold` exists, and it
-  never restarts the engine: run `systemctl --user restart magpie-mail-engine.service` yourself afterwards. Do not run
+  never restarts the engine: run `systemctl --user restart magpie-mail-engine.service` yourself afterwards. The open
+  app does not reconnect by itself after that restart, so then run `omarchy-restart-shell` while unlocked, and check
+  with `ps -o lstart= -p $(pgrep -x quickshell)` that it restarted. Do not run
   `make install-backend-local`, `make install` or `make install-plugin`: the first two overwrite the running engine
   file directly, without the installer's checks; `install` and `install-plugin` then run the main machine's whole
   installer; and `install-plugin` stops and disables the engine service and deletes the engine. Do not run

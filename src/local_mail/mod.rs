@@ -522,7 +522,7 @@ fn validate(method: &str, params: &Value, internal: bool) -> Result<(), &'static
             "addLabelIds",
             "removeLabelIds",
         ],
-        "local.cancelEdit" | "local.dismissConflict" => &["accountId", "ticket"],
+        "local.cancelEdit" | "local.undoEdit" | "local.dismissConflict" => &["accountId", "ticket"],
         "local.resource" | "local.revision" if internal => &["accountId", "id"],
         _ => return Err("unknown_method"),
     };
@@ -655,6 +655,10 @@ fn execute(store: &Store, method: &str, params: &Value) -> Result<Value, &'stati
         "local.cancelEdit" => {
             store.cancel_edit(field(&params, "ticket")?)?;
             Ok(json!({"cancelled":true}))
+        }
+        "local.undoEdit" => {
+            store.undo_edit(field(&params, "ticket")?)?;
+            Ok(json!({"undone":true}))
         }
         _ => Err("unknown_method"),
     }

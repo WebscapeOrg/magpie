@@ -734,6 +734,7 @@ async fn wake(
     account: &str,
     row: &Value,
     chosen: bool,
+    restore: bool,
     known: &[Slot],
 ) -> Result<Woke> {
     let wanted = wanted_ids(row)?;
@@ -790,12 +791,17 @@ async fn wake(
     if !back.is_empty() {
         // Invariant: the mark never holds up a wake; a network failure retries the wake, and a
         // failure that would not go away returns the mail without the mark and says why.
-        let add = match returned_mark(gmail, account).await {
-            Ok(mark) => vec!["INBOX".to_owned(), "UNREAD".to_owned(), mark],
-            Err(error) if transient(error) => return Err(error),
-            Err(error) => {
-                eprintln!("magpie: snooze return mark unavailable: {error}");
-                vec!["INBOX".to_owned(), "UNREAD".to_owned()]
+        // Invariant: Undo puts mail back as it was, so it is neither unread nor marked as returned.
+        let add = if restore {
+            vec!["INBOX".to_owned()]
+        } else {
+            match returned_mark(gmail, account).await {
+                Ok(mark) => vec!["INBOX".to_owned(), "UNREAD".to_owned(), mark],
+                Err(error) if transient(error) => return Err(error),
+                Err(error) => {
+                    eprintln!("magpie: snooze return mark unavailable: {error}");
+                    vec!["INBOX".to_owned(), "UNREAD".to_owned()]
+                }
             }
         };
         gmail.modify(account, &back, &add, &remove).await?;
@@ -870,10 +876,14 @@ fn row_for(account: &str, id: &str) -> Result<(String, Value)> {
 }
 
 async fn wake_chosen(gmail: &impl Mail, p: &Value) -> Result<Value> {
-    fields(p, &["accountId", "id"])?;
+    fields(p, &["accountId", "id", "restore"])?;
     let account = account(p)?;
     let id = p["id"].as_str().ok_or("invalid_params")?;
     crate::mail::action::validate_message_id(crate::mail::Provider::Gmail, id)?;
+    let restore = match p.get("restore") {
+        None => false,
+        Some(value) => value.as_bool().ok_or("invalid_params")?,
+    };
     let (key, row) = row_for(&account, id)?;
     advance(&account, row["threadId"].as_str().ok_or("inbox_storage_invalid")?)?;
     // An unresolved snooze ends here without Gmail, so it can be cancelled offline.
@@ -882,7 +892,7 @@ async fn wake_chosen(gmail: &impl Mail, p: &Value) -> Result<Value> {
     } else {
         listing(gmail.labels(&account).await)?
     };
-    wake(gmail, &account, &row, true, &known).await?;
+    wake(gmail, &account, &row, true, restore, &known).await?;
     forget(&key)?;
     Ok(json!({"ok":true}))
 }
@@ -1211,7 +1221,7 @@ async fn tick(gmail: &impl Mail, seconds: u64) -> Result<Value> {
         }
         let slots = &known[account];
         let outcome = match job {
-            Work::Wake => match wake(gmail, account, &row, false, slots).await {
+            Work::Wake => match wake(gmail, account, &row, false, false, slots).await {
                 Ok(Woke::Moved(slot)) => advance(account, thread)
                     .and_then(|generation| readopt(&key, &slot, &generation)),
                 Ok(outcome) => {

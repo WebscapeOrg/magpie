@@ -304,6 +304,28 @@ fn skip_discovery() {
     )
     .unwrap();
 }
+#[tokio::test]
+async fn undo_of_a_snooze_returns_the_mail_as_it_was() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("u1", "t1", &["INBOX"])]);
+    let until = now() + 2 * HOUR;
+    let (_, name) = slot(until).unwrap();
+    assert_eq!(snooze_at(&fake, "u1", until).await.unwrap()["ok"], true);
+    let label = fake.label_id(&name).unwrap();
+    call("inbox.wake", &json!({"accountId":ACCOUNT,"id":"u1","restore":true}), &fake)
+        .await
+        .unwrap();
+    assert_eq!(fake.writes().last().unwrap(), &format!("modify u1 +INBOX -{label}"));
+    assert_eq!(fake.label_id(RETURNED_LABEL), None, "Undo leaves no return mark");
+    assert_eq!(
+        call("inbox.wake", &json!({"accountId":ACCOUNT,"id":"u1","restore":"yes"}), &fake).await,
+        Err("invalid_params")
+    );
+}
+
 async fn snooze_at(fake: &Fake, id: &str, until: i64) -> Result<Value> {
     call(
         "inbox.snooze",

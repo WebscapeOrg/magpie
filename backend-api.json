@@ -145,6 +145,7 @@
     "local.edit",
     "local.pause",
     "local.cancelEdit",
+    "local.undoEdit",
     "local.dismissConflict",
     "local.watch",
     "local.unwatch",
@@ -2577,6 +2578,24 @@
         "name": "Courier"
       },
       "errorCode": -32602
+    },
+    {
+      "name": "Local edit undo requires a ticket",
+      "method": "local.undoEdit",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Snooze wake rejects a restore that is not true or false",
+      "method": "inbox.wake",
+      "params": {
+        "accountId": "contract@example.org",
+        "id": "message-1",
+        "restore": "yes"
+      },
+      "errorCode": -32602
     }
   ],
   "unreleased": {
@@ -2605,6 +2624,7 @@
       "local.edit",
       "local.pause",
       "local.cancelEdit",
+      "local.undoEdit",
       "local.dismissConflict",
       "local.watch",
       "local.unwatch",
@@ -2731,7 +2751,9 @@
       "Inbox bundle approval rejects an unsafe message id",
       "Inbox bundle refusal rejects an empty selection",
       "Inbox approved senders take no fields",
-      "Inbox approved sender removal requires an address and name"
+      "Inbox approved sender removal requires an address and name",
+      "Local edit undo requires a ticket",
+      "Snooze wake rejects a restore that is not true or false"
     ]
   },
   "releasedContract": {

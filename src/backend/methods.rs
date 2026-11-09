@@ -142,6 +142,7 @@ pub const ALL: &[&str] = &[
     "local.edit",
     "local.pause",
     "local.cancelEdit",
+    "local.undoEdit",
     "local.dismissConflict",
     "local.watch",
     "local.unwatch",

@@ -82,7 +82,7 @@ Rectangle {
   readonly property bool bundleProposal: root.summary.bundleProposal === true
   // On a narrow row the question's two buttons and the tools cannot share the line; the buttons win,
   // and the tools stay in the row's menu.
-  readonly property bool proposalCrowded: bundleProposal && bundleLane.parent.width
+  readonly property bool proposalCrowded: bundleProposal && !writing && bundleLane.parent.width
     < actions.implicitWidth + MailStyle.space(4) + bundleApprove.implicitWidth + bundleDismiss.implicitWidth + MailStyle.space(10)
   readonly property real avatarTopInset: Math.max(0, sender.baselineOffset + senderMetrics.tightBoundingRect.y)
 
@@ -433,6 +433,8 @@ Rectangle {
       objectName: "bundle-proposal"
       visible: root.bundleProposal && !root.writing
       width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
+      // Selection or the snooze picker keep the tools showing; the buttons then stop short of them.
+      clip: root.proposalCrowded
       implicitHeight: Math.max(bundleQuestion.implicitHeight, bundleApprove.implicitHeight)
 
       Row {

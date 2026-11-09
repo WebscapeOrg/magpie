@@ -14,6 +14,7 @@ QtObject {
 
   function run(ids, action, completion, options) {
     var silent = !!options && options.silent === true
+    var hideFailure = !!options && options.hideFailure === true
     var groups = Unified.groupByAccount(ids)
     if (groups.length === 0) return false
     clear()
@@ -22,6 +23,7 @@ QtObject {
     var remaining = groups.length
     var failed = []
     var ticketGroups = []
+    var actedRows = 0
     var notes = new Array(groups.length)
     var total = 0
     var label = "Done"
@@ -42,19 +44,20 @@ QtObject {
           failed.push(Unified.unifiedId(group.accountId, id))
         }
         var count = group.ids.length - localFailures.length
+        actedRows += result && typeof result.acted === "number" ? result.acted : group.ids.length
         if (result && Array.isArray(result.tickets) && result.tickets.length > 0)
           ticketGroups.push({accountId: group.accountId, tickets: result.tickets})
         var name = group.accountId
         notes[index] = name + ": " + Math.max(0, count) + " completed, " + localFailures.length + " failed"
         if (--remaining !== 0) return
-        if (!silent && generation === serial && service.unified && scope === originalScope) {
+        if ((!silent || (failed.length > 0 && !hideFailure)) && generation === serial && service.unified && scope === originalScope) {
           status = label + ": " + (total - failed.length) + " of " + total
             + " selected across " + groups.length + " mailboxes. " + notes.join("; ")
           error = failed.length > 0 ? status : ""
           service.note(status)
           noticeTimer.restart()
         }
-        if (typeof completion === "function") completion({failedIds: failed, ticketGroups: ticketGroups})
+        if (typeof completion === "function") completion({failedIds: failed, ticketGroups: ticketGroups, acted: actedRows})
       }
     }
     for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {

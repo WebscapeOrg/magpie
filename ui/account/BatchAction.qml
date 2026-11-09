@@ -7,6 +7,7 @@ QtObject {
 
   // A completion normally means one mail per id with no note. options.wholeConversations keeps what
   // the same action does on one row, and options.silent drops the note where a toast says it instead.
+  // options.hideFailure only matters in the unified view, where a failed batch otherwise still notes.
   function run(ids, action, completion, options) {
     var whole = !!options && options.wholeConversations === true
     return account.runNativeAction(Array.isArray(ids) ? ids : [], action,

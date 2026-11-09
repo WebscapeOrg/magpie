@@ -1461,11 +1461,11 @@ Item {
     if (refuseUnavailableAction(action)) return false
     var reported = false
     var cancel = function() { finish(ids, "Account signed out") }
-    function finish(failedIds, error, tickets) {
+    function finish(failedIds, error, tickets, acted) {
       if (reported) return
       reported = true
       root.actionCompletions = root.actionCompletions.filter(function(callback) { return callback !== cancel })
-      if (typeof completion === "function") completion({failedIds: failedIds || [], error: String(error || ""), tickets: tickets || []})
+      if (typeof completion === "function") completion({failedIds: failedIds || [], error: String(error || ""), tickets: tickets || [], acted: acted})
     }
     if (typeof completion === "function") actionCompletions = actionCompletions.concat([cancel])
     var account = accountId
@@ -1562,7 +1562,7 @@ Item {
             else root.note(rows.length > 1 ? Model.batchNote(rows.length, root.actionLabel(action)) : root.actionLabel(action))
           }
           root.refreshCounts()
-          finish(settleError ? ids : failed, message, tickets)
+          finish(settleError ? ids : failed, message, tickets, rows.length)
           root.runQueuedAction()
           if (root.resumeDeferredListLoad(actionQuery, message)) return
           if (root.cacheKey === actionQuery && (interrupted || invalidates || message !== ""))

@@ -12,7 +12,8 @@ QtObject {
   property Timer noticeTimer: Timer { interval: 5000; onTriggered: root.status = "" }
   function clear() { serial++; status = ""; error = ""; noticeTimer.stop() }
 
-  function run(ids, action, completion) {
+  function run(ids, action, completion, options) {
+    var silent = !!options && options.silent === true
     var groups = Unified.groupByAccount(ids)
     if (groups.length === 0) return false
     clear()
@@ -20,6 +21,7 @@ QtObject {
     var originalScope = scope
     var remaining = groups.length
     var failed = []
+    var ticketGroups = []
     var notes = new Array(groups.length)
     var total = 0
     var label = "Done"
@@ -40,24 +42,26 @@ QtObject {
           failed.push(Unified.unifiedId(group.accountId, id))
         }
         var count = group.ids.length - localFailures.length
+        if (result && Array.isArray(result.tickets) && result.tickets.length > 0)
+          ticketGroups.push({accountId: group.accountId, tickets: result.tickets})
         var name = group.accountId
         notes[index] = name + ": " + Math.max(0, count) + " completed, " + localFailures.length + " failed"
         if (--remaining !== 0) return
-        if (generation === serial && service.unified && scope === originalScope) {
+        if (!silent && generation === serial && service.unified && scope === originalScope) {
           status = label + ": " + (total - failed.length) + " of " + total
             + " selected across " + groups.length + " mailboxes. " + notes.join("; ")
           error = failed.length > 0 ? status : ""
           service.note(status)
           noticeTimer.restart()
         }
-        if (typeof completion === "function") completion({failedIds: failed})
+        if (typeof completion === "function") completion({failedIds: failed, ticketGroups: ticketGroups})
       }
     }
     for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
       var host = service.findAccount(groups[groupIndex].accountId)
       if (host && typeof host.actionLabel === "function") label = host.actionLabel(action)
       var reply = replyFor(groups[groupIndex], groupIndex)
-      if (host && host.actMany(groups[groupIndex].ids, action, reply)) acted = true
+      if (host && host.actMany(groups[groupIndex].ids, action, reply, options)) acted = true
       else reply({failedIds: groups[groupIndex].ids})
     }
     return acted

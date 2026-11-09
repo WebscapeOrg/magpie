@@ -539,7 +539,16 @@ Item {
   }
 
   function stepMember(delta) {
-    if (!service || !service.showsRail) return
+    if (!service) return
+    var bundles = service.inboxTools ? service.inboxTools.bundles : null
+    var group = bundles ? bundles.groupFor(service.selectedId) : null
+    if (group) {
+      var ids = group.members.map(function(member) { return String(member.id) })
+      var neighbour = ids[ids.indexOf(String(service.selectedId)) + delta]
+      if (neighbour) openMember(neighbour)
+      return
+    }
+    if (!service.showsRail) return
     var projection = service.conversationProjection || ({})
     var navigation = projection.navigation || ({})
     var stop = navigation[service.selectedId]
@@ -733,6 +742,9 @@ Item {
     return true
   }
 
+  readonly property var undoBundleOffer: service && service.inboxTools && service.inboxTools.bundles ? service.inboxTools.bundles.undoOffer : null
+  function undoBundle() { if (service && service.inboxTools && service.inboxTools.bundles) service.inboxTools.bundles.runUndo() }
+
   function undoPendingSend() {
     if (!service) return false
     return service.undoSend(function(id) {
@@ -777,6 +789,12 @@ Item {
     return actOnCursor(action, outside)
   }
 
+  // Selecting a bundled row selects every mail in it (Q-020).
+  function selectedMailIds() {
+    if (!service || !service.inboxTools || !service.inboxTools.bundles) return checkedIds
+    return service.inboxTools.bundles.planAction(checkedIds, "archive").ids
+  }
+
   function agentSubjectFor(id) {
     if (!service) return ""
     var index = Model.indexById(service.messages, id)
@@ -789,7 +807,7 @@ Item {
   function openAgentAt(id, sceneX, sceneY) {
     if (!service || !service.hasAgent || service.agentAvailable === false) return false
     if (selectionActive && checkedIds.indexOf(String(id || "")) >= 0) {
-      agentPrompt.openForSelection(checkedIds, sceneX, sceneY)
+      agentPrompt.openForSelection(selectedMailIds(), sceneX, sceneY)
       return true
     }
     if (String(id || "") === "") return false
@@ -802,7 +820,7 @@ Item {
     if (selectionActive) {
       var centre = root.mapToGlobal(Math.max(0, root.width / 2 - MailStyle.space(190)),
         Math.max(0, root.height / 2 - MailStyle.space(90)))
-      agentPrompt.openForSelection(checkedIds, centre.x, centre.y)
+      agentPrompt.openForSelection(selectedMailIds(), centre.x, centre.y)
       return true
     }
     if (String(id || "") === "") return false
@@ -940,7 +958,11 @@ Item {
       return startCompose("new")
     }
     if (id === "send") return compose.submit()
-    if (id === "undoSend") { undoPendingSend(); return }
+    if (id === "undoSend") {
+      if (undoBundleOffer && !(service && service.sendPending)) { undoBundle(); return }
+      undoPendingSend()
+      return
+    }
     if (id === "search") return searchBar.focusField()
     if (id === "searchSuggestionNext") return searchBar.moveSuggestion(1)
     if (id === "searchSuggestionPrevious") return searchBar.moveSuggestion(-1)
@@ -2112,6 +2134,24 @@ Item {
         popupBorderColor: root.popupBorder
         panelFontFamily: root.fontFamily
         onUndoRequested: root.undoPendingSend()
+      }
+
+      UndoToast {
+        id: bundleUndo
+        anchors.right: parent.right
+        anchors.rightMargin: MailStyle.space(16)
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: MailStyle.space(12) + (root.service && root.service.sendPending ? MailStyle.space(52) : 0)
+        z: 81
+        visible: !!root.undoBundleOffer
+        message: root.undoBundleOffer ? root.undoBundleOffer.text : ""
+        canUndo: !!root.undoBundleOffer && root.undoBundleOffer.canUndo === true
+        textColor: root.foreground
+        accentColor: root.accent
+        popupBackgroundColor: root.popupBackground
+        popupBorderColor: root.popupBorder
+        panelFontFamily: root.fontFamily
+        onUndoRequested: root.undoBundle()
       }
 
       DraftSavedToast {

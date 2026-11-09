@@ -73,7 +73,7 @@ var BINDINGS = [
     group: "Writing", label: "Send", hint: { compose: "send" } },
   { id: "undoSend", keys: ["Alt+Z"], contexts: ANY,
     survivesOverlay: true,
-    group: "Writing", label: "Undo send" },
+    group: "Writing", label: "Undo send, or undo a bundled row's action" },
 
   // Invariant: bare search shortcuts must not intercept typing in text fields.
   { id: "search", keys: ["/"], contexts: MAIL,

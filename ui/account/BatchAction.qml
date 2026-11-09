@@ -5,8 +5,11 @@ QtObject {
   required property var account
   required property var intents
 
-  function run(ids, action, completion) {
+  // A completion normally means one mail per id with no note. options.wholeConversations keeps what
+  // the same action does on one row, and options.silent drops the note where a toast says it instead.
+  function run(ids, action, completion, options) {
+    var whole = !!options && options.wholeConversations === true
     return account.runNativeAction(Array.isArray(ids) ? ids : [], action,
-      typeof completion === "function", false, false, completion)
+      typeof completion === "function" && !whole, false, false, completion, !!options && options.silent === true)
   }
 }

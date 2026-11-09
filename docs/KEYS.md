@@ -135,7 +135,7 @@ used to exist, and they had.
 | `forward` | `f` | mail | Forward |
 | `compose` | `c` | mail | Compose or edit a draft |
 | `send` | `Ctrl+Return`, `Ctrl+Enter` | compose | Send |
-| `undoSend` | `Alt+Z` | all | Undo send |
+| `undoSend` | `Alt+Z` | all | Undo send, or undo a bundled row's action |
 | `search` | `/` | mail | Search |
 | `goMailbox` | `Ctrl+1`, `Ctrl+2`, `Ctrl+3`, `Ctrl+4`, `Ctrl+5`, `Ctrl+6`, `Ctrl+7`, `Ctrl+8`, `Ctrl+9` | mail | Go to that mailbox |
 | `goAccount` | `Alt+1`, `Alt+2`, `Alt+3`, `Alt+4`, `Alt+5`, `Alt+6`, `Alt+7`, `Alt+8`, `Alt+9`, `Alt+0` | mail | Go to that email account |

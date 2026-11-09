@@ -134,6 +134,28 @@ Item {
       if (!failure) root.edits = result || []
     })
   }
+  // Undo for a bundled row's Archive or Trash: each ticket is cancelled if it is still only queued.
+  // The answer counts what Gmail already had and, apart from that, what could not be cancelled, so
+  // the toast never blames Gmail for a failure of Magpie's own.
+  function cancelEdits(tickets, callback) {
+    var identity = account.accountId
+    var remaining = tickets.length, refused = 0, broken = 0
+    function settled() {
+      if (--remaining !== 0) return
+      if (identity === root.account.accountId) { root.refreshEdits(); root.account.loadMessages(false,true) }
+      callback(refused, broken)
+    }
+    tickets.forEach(function(ticket) {
+      backend.call("local.cancelEdit", {accountId:identity,ticket:ticket}, function(result,failure) {
+        if (failure && String(failure.message || "") === "local_edit_already_started") refused++
+        else if (failure) {
+          console.warn("Magpie bundles: undo failed:", String(failure.message || failure))
+          broken++
+        }
+        settled()
+      })
+    })
+  }
   function undo(ticket) {
     var identity = account.accountId
     backend.call("local.cancelEdit", {accountId:identity,ticket:ticket}, function(result,failure) {

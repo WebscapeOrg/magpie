@@ -8,6 +8,7 @@ import qs.Commons as Commons
 import "account"
 import "agent"
 import "inbox"
+import "inbox/Bundles.js" as Bundles
 import "backend"
 import "diagnostics"
 import "agent/Agent.js" as Agent
@@ -1837,6 +1838,7 @@ Item {
   function select(id, previewOnly) {
     if (!unified) {
       if (current) current.select(id, previewOnly)
+      if (previewOnly !== true) inboxController.bundles.markRead(id)
       return
     }
     var host = hostForId(id)
@@ -1845,6 +1847,7 @@ Item {
     eachHost(function(other) { if (other !== host) other.clearSelection() })
     selectionHost = host
     host.select(sourceIdFor(id), previewOnly)
+    if (previewOnly !== true) inboxController.bundles.markRead(id)
   }
   function clearSelection() {
     if (!unified) {
@@ -1856,6 +1859,7 @@ Item {
   }
   function markPreviewRead(id) {
     if (!id) return false
+    inboxController.bundles.markRead(id)
     if (unified) {
       var host = hostForId(id)
       return host ? host.markPreviewRead(sourceIdFor(id)) : false
@@ -2005,6 +2009,8 @@ Item {
   }
   function act(id, action, quiet, memberOnly) {
     unifiedBatchAction.clear()
+    if (memberOnly !== true && Bundles.expandsAction(action) && inboxController.bundles.frontGroup(id))
+      return actMany([id], action, quiet === true ? function() {} : undefined, quiet === true)
     var host = hostForId(id)
     return host ? host.act(sourceIdFor(id), action, quiet, memberOnly) : false
   }
@@ -2021,9 +2027,34 @@ Item {
     eachHost(function(host) { host.markAllRead() })
   }
   UnifiedBatchAction { id: unifiedBatchAction; service: root }
-  function actMany(ids, action, completion) {
-    if (!unified) return current ? current.actMany(ids, action, completion) : false
-    return unifiedBatchAction.run(ids, action, completion)
+  // A bundled row stands for every mail in it, so an action on one in the list reaches them all,
+  // and a failed older mail comes back to the row that held it (Q-020).
+  function actMany(ids, action, completion, quietly) {
+    var plan = inboxController.bundles.planAction(ids, action)
+    var finish = completion
+    var options = {
+      wholeConversations: plan.bundled && quietly !== true,
+      silent: quietly === true || (plan.bundled && (Bundles.undoable(action) || ids.length === 1))
+    }
+    if (plan.bundled) {
+      var prepared = inboxController.bundles.prepare(plan.ids)
+      var actingAccount = current ? current.accountId : ""
+      finish = function(result) {
+        var failed = Array.isArray(result && result.failedIds) ? result.failedIds : []
+        inboxController.bundles.release(prepared)
+        if (Bundles.undoable(action))
+          inboxController.bundles.offerEdits(action, plan.ids.length - failed.length - prepared.unreachable, root.ticketGroups(result, actingAccount))
+        if (typeof completion === "function")
+          completion(Object.assign({}, result || {}, {failedIds: Bundles.mapFailed(failed, plan.frontOf)}))
+      }
+    }
+    if (!unified) return current ? current.actMany(plan.ids, action, finish, options) : false
+    return unifiedBatchAction.run(plan.ids, action, finish, options)
+  }
+  // Invariant: tickets belong to the account the action started in, whichever one is open by now.
+  function ticketGroups(result, actingAccount) {
+    if (result && Array.isArray(result.ticketGroups)) return result.ticketGroups
+    return actingAccount !== "" ? [{accountId: actingAccount, tickets: result && result.tickets || []}] : []
   }
   // Invariant: Sending routes through the account named by the selected From identity.
   function send(fields) {

@@ -1456,16 +1456,16 @@ Item {
     return runNativeAction([String(id || "")], action, quiet === true, memberOnly === true, false)
   }
 
-  function runNativeAction(ids, action, quiet, memberOnly, allRead, completion) {
+  function runNativeAction(ids, action, quiet, memberOnly, allRead, completion, silent) {
     if (!ready || !backend || (!allRead && ids.length === 0) || (allRead && messages.length === 0)) return false
     if (refuseUnavailableAction(action)) return false
     var reported = false
     var cancel = function() { finish(ids, "Account signed out") }
-    function finish(failedIds, error) {
+    function finish(failedIds, error, tickets) {
       if (reported) return
       reported = true
       root.actionCompletions = root.actionCompletions.filter(function(callback) { return callback !== cancel })
-      if (typeof completion === "function") completion({failedIds: failedIds || [], error: String(error || "")})
+      if (typeof completion === "function") completion({failedIds: failedIds || [], error: String(error || ""), tickets: tickets || []})
     }
     if (typeof completion === "function") actionCompletions = actionCompletions.concat([cancel])
     var account = accountId
@@ -1532,8 +1532,10 @@ Item {
       if (root.cacheKey === actionQuery && invalidates) root.nextPageToken = ""
       if (root.cacheKey === actionQuery && !interrupted) root.rememberList()
       var optimisticToken = invalidates ? "" : oldPageToken
-      function done(payload, failure, failedIds) {
+      function done(payload, failure, failedIds, rowTickets) {
         var failed = failure ? (Array.isArray(failedIds) ? failedIds : rows) : []
+        var tickets = Array.isArray(rowTickets) ? rowTickets
+          : (payload && payload.ticket ? [String(payload.ticket)] : [])
         intents.settle(account, actionQuery, prepared.token, failed, function(settled, settleError) {
           if (root.accountId !== account || intents.generation !== prepared.generation) {
             finish(ids, "Account changed")
@@ -1555,12 +1557,12 @@ Item {
             })
           }
           if (message !== "") root.fail(message)
-          else if (!quiet) {
+          else if (!quiet && silent !== true) {
             if (allRead) root.note(Model.markAllReadNote(rows.length, prepared.expanded === true))
             else root.note(rows.length > 1 ? Model.batchNote(rows.length, root.actionLabel(action)) : root.actionLabel(action))
           }
           root.refreshCounts()
-          finish(settleError ? ids : failed, message)
+          finish(settleError ? ids : failed, message, tickets)
           root.runQueuedAction()
           if (root.resumeDeferredListLoad(actionQuery, message)) return
           if (root.cacheKey === actionQuery && (interrupted || invalidates || message !== ""))
@@ -1578,11 +1580,13 @@ Item {
           var remaining = rows.length
           var failures = []
           var firstError = ""
+          var perRowTickets = []
           function replyFor(rowId) {
             return function(payload, error) {
               if (error) { failures.push(rowId); if (firstError === "") firstError = String(error) }
+              else if (payload && payload.ticket) perRowTickets.push(String(payload.ticket))
               remaining--
-              if (remaining === 0) done(null, firstError, failures)
+              if (remaining === 0) done(null, firstError, failures, perRowTickets)
             }
           }
           for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -1661,7 +1665,7 @@ Item {
     return runNativeAction([], "markRead", false, false, true)
   }
 
-  function actMany(ids, action, completion) { return batchAction.run(ids, action, completion) }
+  function actMany(ids, action, completion, options) { return batchAction.run(ids, action, completion, options) }
 
   BatchAction {
     id: batchAction

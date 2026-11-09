@@ -662,7 +662,8 @@ Item {
     if (!service || cursorId === "") return
     pendingComposeReturnTo = Nav.depth(nav)
     // Invariant: A matching preview must become a reader entry before replying, so mark-read and the draft return target are established.
-    if (service.selectedId !== cursorId || service.selectionIsPreview)
+    // Invariant: a reply from an older mail of a bundle answers that mail, not its front row's sender.
+    if ((service.selectedId !== cursorId && coveredMailBehindCursor() === "") || service.selectionIsPreview)
       openMessage(cursorId)
     startCompose(mode)
   }
@@ -757,6 +758,7 @@ Item {
     return group && group.frontId !== open ? open : ""
   }
   function coveredMailBehindCursor() {
+    if (currentView !== "reader") return ""
     var open = coveredOpenMail()
     return open !== "" && bundleBook.groupFor(open).frontId === cursorId ? open : ""
   }

@@ -11,6 +11,8 @@ Rectangle {
 
   property string message: ""
   property bool canUndo: true
+  // Alt+Z undoes a pending send first, so the hint only shows when it would reach this toast.
+  property bool showsKey: true
   required property color textColor
   required property color accentColor
   required property color popupBackgroundColor
@@ -62,7 +64,7 @@ Rectangle {
       visible: root.canUndo
       anchors.verticalCenter: parent.verticalCenter
       focusable: true
-      text: "Undo  alt+z"
+      text: root.showsKey ? "Undo  alt+z" : "Undo"
       foreground: root.accentColor
       accent: root.accentColor
       bordered: true

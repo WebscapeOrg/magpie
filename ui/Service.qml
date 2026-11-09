@@ -2012,7 +2012,13 @@ Item {
     if (memberOnly !== true && Bundles.expandsAction(action) && inboxController.bundles.frontGroup(id))
       return actMany([id], action, quiet === true ? function() {} : undefined, quiet === true)
     var host = hostForId(id)
-    return host ? host.act(sourceIdFor(id), action, quiet, memberOnly) : false
+    if (!host) return false
+    // A covered mail outside the loaded page has to be findable for the action, then taken out again.
+    var prepared = inboxController.bundles.groupFor(id) ? inboxController.bundles.prepare([id]) : null
+    if (prepared && prepared.added.length > 0)
+      return host.actMany([sourceIdFor(id)], action, function() { inboxController.bundles.release(prepared) },
+        {wholeConversations: quiet !== true, silent: quiet === true})
+    return host.act(sourceIdFor(id), action, quiet, memberOnly)
   }
   function toggleStar(id) {
     unifiedBatchAction.clear()
@@ -2034,7 +2040,8 @@ Item {
     var finish = completion
     var options = {
       wholeConversations: plan.bundled && quietly !== true,
-      silent: quietly === true || (plan.bundled && (Bundles.undoable(action) || ids.length === 1))
+      silent: quietly === true || (plan.bundled && (Bundles.undoable(action) || ids.length === 1)),
+      hideFailure: quietly === true
     }
     if (plan.bundled) {
       var prepared = inboxController.bundles.prepare(plan.ids)
@@ -2042,8 +2049,10 @@ Item {
       finish = function(result) {
         var failed = Array.isArray(result && result.failedIds) ? result.failedIds : []
         inboxController.bundles.release(prepared)
+        // Invariant: the toast counts what the engine acted on, never what was only asked for.
+        var acted = result && typeof result.acted === "number" ? result.acted : plan.ids.length
         if (Bundles.undoable(action))
-          inboxController.bundles.offerEdits(action, plan.ids.length - failed.length - prepared.unreachable, root.ticketGroups(result, actingAccount))
+          inboxController.bundles.offerEdits(action, acted - failed.length, root.ticketGroups(result, actingAccount))
         if (typeof completion === "function")
           completion(Object.assign({}, result || {}, {failedIds: Bundles.mapFailed(failed, plan.frontOf)}))
       }

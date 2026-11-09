@@ -148,6 +148,7 @@ Item {
     if (!offer || !supported) return false
     noteChange(offer.accountId)
     backend.call("inbox.approveBundle", {accountId: offer.accountId, front: offer.front}, function(result, failure) {
+      root.noteChange(offer.accountId)
       if (failure) {
         console.warn("Magpie bundles: approve refused:", String(failure.message || failure))
         root.refresh(offer.accountId)
@@ -179,6 +180,7 @@ Item {
       if (parts.length === 0) return
       root.noteChange(account)
       backend.call("inbox.refuseBundle", {accountId: account, ids: parts.shift()}, function(result, failure) {
+        root.noteChange(account)
         if (failure) {
           console.warn("Magpie bundles: refuse failed:", String(failure.message || failure))
           root.refresh(account)
@@ -202,6 +204,17 @@ Item {
     return group && group.frontId === String(id) ? group : null
   }
 
+  function holds(frontId, memberId) {
+    var group = frontGroup(frontId)
+    return !!group && group.memberIds.indexOf(String(memberId)) >= 0
+  }
+
+  // The row an action pressed on any mail of a bundle belongs to, when that action reaches them all.
+  function frontForAction(id, action) {
+    var group = groupFor(id)
+    return group && Bundles.expandsAction(action) ? group.frontId : ""
+  }
+
   function planAction(ids, action) { return Bundles.plan(ids, action, projected.groups) }
 
   function readerStops(openId) { return Bundles.readerStops(groupFor(openId), openId) }
@@ -219,9 +232,8 @@ Item {
     }, true)
   }
 
-  // A covered mail outside the loaded page is put where the action can find it. The answer says how
-  // many mails could not be found, so nothing claims to have acted on them, and which rows were
-  // added, so release() can take them out again and they never reach the bar.
+  // A covered mail outside the loaded page is put where the action can find it. The answer says
+  // which rows were added, so release() can take them out again and they never reach the bar.
   function prepare(ids) {
     var unreachable = 0, added = []
     for (var index = 0; index < ids.length; index++) {
@@ -236,7 +248,7 @@ Item {
       added.push({host: host, id: source})
     }
     if (unreachable > 0) console.warn("Magpie bundles: mail not yet readable was left out of an action:", unreachable)
-    return {unreachable: unreachable, added: added}
+    return {added: added}
   }
 
   function release(prepared) {
@@ -248,6 +260,7 @@ Item {
   // Undo for Archive, Trash and Snooze on a bundled row (Q-020), named by how many mails it covers.
   property var undoOffer: null
   property bool undoing: false
+  property int undoSerial: 0
   Timer {
     id: undoTimer
     interval: 8000
@@ -256,7 +269,7 @@ Item {
 
   function offerUndo(offer) {
     undoing = false
-    undoOffer = Object.assign({canUndo: true}, offer)
+    undoOffer = Object.assign({canUndo: true, serial: ++undoSerial}, offer)
     undoTimer.restart()
   }
 
@@ -283,6 +296,8 @@ Item {
   }
 
   function afterUndo(offer, refused, broken, total) {
+    // A newer toast has taken this one's place while the Undo ran; it stays.
+    if (undoOffer && undoOffer.serial !== offer.serial) return
     if (refused === 0 && broken === 0) { dismissUndo(); return }
     undoing = false
     var text = broken > 0 ? Bundles.undoFailedText(offer.action, total, offer.count)

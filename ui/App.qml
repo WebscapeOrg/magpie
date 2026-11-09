@@ -265,7 +265,8 @@ Item {
     var leaves = !Model.survivesAction(service.mailboxKey, action,
       service.rawQuery, service.hasLabels, service.rawLabelId)
     var next = leaves ? Model.cursorAfterRemovals(service.messages, ids, cursorId) : cursorId
-    var wasOpen = currentView === "reader" && ids.indexOf(service.selectedId) >= 0
+    var wasOpen = currentView === "reader" && (ids.indexOf(service.selectedId) >= 0
+      || ids.some(function(id) { return root.bundleHolds(id, service.selectedId) }))
     var scope = batchSelection.scope
     var completion = service.unified ? function(result) {
       Qt.callLater(function() { batchSelection.restore(result.failedIds, scope) })
@@ -743,6 +744,8 @@ Item {
   }
 
   readonly property var undoBundleOffer: service && service.inboxTools && service.inboxTools.bundles ? service.inboxTools.bundles.undoOffer : null
+  readonly property var bundleBook: service && service.inboxTools ? service.inboxTools.bundles || null : null
+  function bundleHolds(frontId, memberId) { return !!bundleBook && bundleBook.holds(frontId, memberId) }
   function undoBundle() { if (service && service.inboxTools && service.inboxTools.bundles) service.inboxTools.bundles.runUndo() }
 
   function undoPendingSend() {
@@ -841,7 +844,7 @@ Item {
     var row = service.messages[Model.indexById(service.messages, acted)]
     // Invariant: An open reader can show a member of the acted conversation. A preview must not open and mark the next row read after a mutation.
     var wasOpen = currentView === "reader" && !service.selectionIsPreview
-      && (service.selectedId === acted || Model.rowHoldsMember(row, service.selectedId))
+      && (service.selectedId === acted || Model.rowHoldsMember(row, service.selectedId) || bundleHolds(acted, service.selectedId))
     // Invariant: Resolve the next row before the action removes its current neighbor.
     var next = Model.cursorAfterRemoval(service.messages, acted)
     // Invariant: Cursor repair must use the same mailbox, query, label, provider, and conversation facts as MailAccount.act.
@@ -1839,6 +1842,7 @@ Item {
 
         MessageReader {
           id: reader
+          objectName: "message-reader"
           anchors.left: listSplitter.visible ? listSplitter.right : parent.left
           anchors.right: parent.right
           anchors.top: parent.top
@@ -1899,7 +1903,11 @@ Item {
                 root.service.toggleStar(root.service.selectedId)
               return
             }
-            if (((root.service.conversationProjection || ({})).memberIds || []).indexOf(root.service.selectedId) < 0
+            // Invariant: an action that reaches a whole bundle does the same from any mail open in it.
+            var bundleFront = root.bundleBook ? root.bundleBook.frontForAction(root.service.selectedId, action) : ""
+            if (bundleFront !== "")
+              root.cursorId = bundleFront
+            else if (((root.service.conversationProjection || ({})).memberIds || []).indexOf(root.service.selectedId) < 0
                 || root.cursorId === "")
               root.cursorId = root.service.selectedId
             if (action === "moveToLabel") return root.openLabelPicker(outside)
@@ -2146,6 +2154,7 @@ Item {
         visible: !!root.undoBundleOffer
         message: root.undoBundleOffer ? root.undoBundleOffer.text : ""
         canUndo: !!root.undoBundleOffer && root.undoBundleOffer.canUndo === true
+        showsKey: !(root.service && root.service.sendPending)
         textColor: root.foreground
         accentColor: root.accent
         popupBackgroundColor: root.popupBackground

@@ -73,4 +73,8 @@ fi
 [ "$account_mode" = 600 ] \
   || { echo 'config-store.sh: the account list must stay owner-only' >&2; exit 1; }
 
+printf '%s\n' '{"notifyNewMail":"Off"}' | XDG_CONFIG_HOME="$work/settings" sh "$store" settings.json >/dev/null \
+  || { echo 'config-store.sh: settings.json must be accepted' >&2; exit 1; }
+[ "$(stat -c %a "$work/settings/omamail/settings.json")" = 600 ] \
+  || { echo 'config-store.sh: the settings file must stay owner-only' >&2; exit 1; }
 echo 'config-store.sh ok'

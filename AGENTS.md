@@ -53,7 +53,7 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
 - **New files are registered in the Makefile.** New production QML goes into `QML_FILES`, or `make validate` fails. A
   new JavaScript, Python or shell test goes into its Makefile target, or nothing runs it.
 - **The root of `ui/Service.qml` declares no required properties.** The Omarchy shell constructs it and injects only
-  `shell`, `manifest`, `pluginRegistry` and `barWidgetRegistry`; settings reach the bar widget through `applySettings`.
+  `shell`, `manifest`, `pluginRegistry` and `barWidgetRegistry`; the service reads settings from its own `settings.json`.
 - **Screens follow the [design notes](docs/DESIGN.md) and the [keys](docs/KEYS.md).** Colours come from the active
   Omarchy theme through `App.qml`, so Magpie follows Dave's theme; state is never shown by colour alone.
 - **Run `make validate` after a QML or behaviour change**, and the iPhone engine's tests (`cargo test --locked --lib

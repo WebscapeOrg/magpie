@@ -391,6 +391,27 @@ Item {
       compare(app.labelPickerMember, "", "with the cursor elsewhere, the cursor's row is what moves")
     }
 
+    function test_the_move_key_needs_the_reader_on_screen() {
+      seed([entry(ada)], ada)
+      openOlderMail(mailService.accountAt(0))
+      app.resetNavigation()
+      compare(app.currentView, "list")
+      compare(mailService.selectedId, "older", "the selection outlived the reader")
+      app.runShortcut("moveToLabel", "v")
+      compare(app.labelPickerMember, "", "the row on screen is what moves")
+    }
+
+    function test_reply_from_an_older_mail_answers_that_mail() {
+      seed([entry(ada)], ada)
+      openOlderMail(mailService.accountAt(0))
+      app.composeFromCursor("reply")
+      compare(app.pendingComposeMode, "reply", "the draft waits for the open mail's body")
+      wait(50)
+      compare(mailService.selectedId, "older", "not swapped for the front row's mail")
+      app.pendingComposeMode = ""
+      app.pendingComposeReturnTo = -1
+    }
+
     function test_moving_only_the_front_mail_leaves_the_open_older_mail_open() {
       seed([entry(ada)], ada)
       openOlderMail(mailService.accountAt(0))

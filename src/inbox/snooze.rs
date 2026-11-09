@@ -604,7 +604,7 @@ async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
     // Invariant: a snooze this one replaces has already taken its mail out of the Inbox, and Undo
     // must still return that mail.
     let replaced = saved.values().filter(|row| row["accountId"] == *account && row["threadId"] == *thread.id);
-    for id in replaced.flat_map(|row| row["inbox"].as_array().map_or_else(|| vec![&row["id"]], |ids| ids.iter().collect())).filter_map(Value::as_str) {
+    for id in replaced.flat_map(taken_from_inbox).filter_map(Value::as_str) {
         if !inbox.iter().any(|known| known == id) {
             inbox.push(id.to_owned());
         }
@@ -630,6 +630,17 @@ async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
         Err(_) => return Err("snooze_pending_retry"),
     }
     Ok(json!({"ok":true,"until":until}))
+}
+
+/// The mail a saved snooze took out of the Inbox, which Undo must return.
+/// Invariant: a row found from a snooze made elsewhere, saved offline or written by an older engine
+/// has no `inbox` list, so all its mail counts: returning an archived mail can be undone, and mail
+/// left with neither the Inbox nor a snooze label cannot be found again.
+fn taken_from_inbox(row: &Value) -> Vec<&Value> {
+    row["inbox"]
+        .as_array()
+        .or_else(|| row["ids"].as_array().filter(|ids| !ids.is_empty()))
+        .map_or_else(|| vec![&row["id"]], |ids| ids.iter().collect())
 }
 
 /// Applies a saved snooze Gmail has not confirmed. It snoozes only the mail Dave snoozed: the
@@ -788,7 +799,7 @@ async fn wake(
         .take(100)
         .collect();
     let snoozed = |message: &Value| on_thread.iter().any(|slot| has(message, &slot.id));
-    let was_in_inbox = |id: &str| row["inbox"].as_array().map_or(row["id"] == id, |ids| ids.iter().any(|known| known == id));
+    let was_in_inbox = |id: &str| taken_from_inbox(row).into_iter().any(|known| known == id);
     let (mut back, mut clear) = (Vec::new(), Vec::new());
     for message in &messages {
         let Some(id) = id_of(message) else { continue };

@@ -426,78 +426,62 @@ Rectangle {
       }
     }
 
-    // "Bundle these?" stays on the row at rest and under the pointer: the tools' lane narrows it, so
-    // the row never changes height (C-071).
-    Item {
+    // The whole question always shows, whatever the tools do, so Bundle is never offered with part of
+    // the address cut off. Only its buttons share a line with the tools (C-071, C-073).
+    Column {
       id: bundleLane
       objectName: "bundle-proposal"
       visible: root.bundleProposal && !root.writing
-      width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
-      // Selection or the snooze picker keep the tools showing; the buttons then stop short of them.
-      clip: root.proposalCrowded
-      implicitHeight: Math.max(bundleQuestion.implicitHeight, bundleApprove.implicitHeight)
+      width: parent.width
+      spacing: MailStyle.space(6)
 
-      // The question's width on one line; a wrapping Text's implicitWidth depends on its own width.
-      TextMetrics {
-        id: bundleQuestionMetrics
-        font: bundleQuestion.font
-        text: bundleQuestion.text
-      }
-
-      // Counts the question's lines without the tools; the question keeps that many when they appear, so the row stays the same height.
       Text {
-        id: bundleQuestionAtRest
-        visible: false
-        width: Math.max(0, Math.min(Math.ceil(bundleQuestionMetrics.advanceWidth), bundleLane.parent.width - bundleApprove.implicitWidth - bundleDismiss.implicitWidth - 2 * MailStyle.space(10)))
+        id: bundleQuestion
+        objectName: "bundle-question"
+        width: parent.width
         textFormat: Text.PlainText
-        text: actions.visible ? bundleQuestion.text : ""
-        font: bundleQuestion.font
+        text: root.summary.bundleQuestion || "Bundle these?"
+        color: root.secondaryTextColor
+        font.family: root.panelFontFamily
+        font.pixelSize: root.listTextSize
         wrapMode: Text.Wrap
       }
 
-      Row {
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: MailStyle.space(10)
+      Item {
+        id: bundleButtons
+        objectName: "bundle-buttons"
+        width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
+        // Selection or the snooze picker keep the tools showing; the buttons then stop short of them.
+        clip: root.proposalCrowded
+        implicitHeight: Math.max(bundleApprove.implicitHeight, bundleDismiss.implicitHeight)
 
-        Text {
-          id: bundleQuestion
-          objectName: "bundle-question"
+        Row {
           anchors.verticalCenter: parent.verticalCenter
-          width: Math.max(0, Math.min(Math.ceil(bundleQuestionMetrics.advanceWidth), bundleLane.width - bundleApprove.implicitWidth - bundleDismiss.implicitWidth - 2 * parent.spacing))
-          textFormat: Text.PlainText
-          text: root.summary.bundleQuestion || "Bundle these?"
-          color: root.secondaryTextColor
-          font.family: root.panelFontFamily
-          font.pixelSize: root.listTextSize
-          wrapMode: Text.Wrap
-          elide: Text.ElideRight
-          maximumLineCount: actions.visible ? Math.max(1, bundleQuestionAtRest.lineCount) : 2147483647
-        }
+          spacing: MailStyle.space(10)
 
-        Widgets.Button {
-          id: bundleApprove
-          objectName: "bundle-approve"
-          anchors.verticalCenter: parent.verticalCenter
-          text: "Bundle"
-          tooltipText: "Bundle these, and let this address bundle other senders' mail from now on"
-          foreground: root.textColor
-          accent: root.accentColor
-          fontFamily: root.panelFontFamily
-          fontSize: MailStyle.caption
-          onClicked: root.bundleApproveRequested()
-        }
+          Widgets.Button {
+            id: bundleApprove
+            objectName: "bundle-approve"
+            text: "Bundle"
+            tooltipText: "Bundle these, and let this address bundle other senders' mail from now on"
+            foreground: root.textColor
+            accent: root.accentColor
+            fontFamily: root.panelFontFamily
+            fontSize: MailStyle.caption
+            onClicked: root.bundleApproveRequested()
+          }
 
-        Widgets.Button {
-          id: bundleDismiss
-          objectName: "bundle-dismiss"
-          anchors.verticalCenter: parent.verticalCenter
-          text: "Dismiss"
-          tooltipText: "Keep these apart"
-          foreground: root.dimColor
-          accent: root.accentColor
-          fontFamily: root.panelFontFamily
-          fontSize: MailStyle.caption
-          onClicked: root.bundleDismissRequested()
+          Widgets.Button {
+            id: bundleDismiss
+            objectName: "bundle-dismiss"
+            text: "Dismiss"
+            tooltipText: "Keep these apart"
+            foreground: root.dimColor
+            accent: root.accentColor
+            fontFamily: root.panelFontFamily
+            fontSize: MailStyle.caption
+            onClicked: root.bundleDismissRequested()
+          }
         }
       }
     }
@@ -508,7 +492,10 @@ Rectangle {
     objectName: "message-actions"
     anchors.right: parent.right
     anchors.rightMargin: MailStyle.space(6)
-    y: body.y + subjectLane.y + (body.height - subjectLane.y - height) / 2
+    // With an offer showing, the tools share the buttons' line and stay clear of its question.
+    y: bundleLane.visible
+      ? body.y + bundleLane.y + bundleButtons.y + (bundleButtons.height - height) / 2
+      : body.y + subjectLane.y + (body.height - subjectLane.y - height) / 2
     spacing: Math.max(MailStyle.space(24), Style.font.iconSmall * 2.5 + MailStyle.space(8)) * 0.15
     visible: (root.hot && !root.proposalCrowded) || root.selectionMode || root.snoozeOpen
 

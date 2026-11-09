@@ -44,6 +44,10 @@ pub(super) fn sender(raw: &Value) -> Option<Sender> {
     let from = single(header_values(raw, "From"))?;
     let [address] = addresses(from).try_into().ok()?;
     let email = address["email"].as_str()?.to_lowercase();
+    // Invariant: an offer shows Dave the address to trust, so it must read as it really is.
+    if email.chars().any(invisible_or_reordering) {
+        return None;
+    }
     let domain = email.rsplit_once('@').map(|(_, domain)| domain.to_owned()).filter(|domain| !domain.is_empty())?;
     let replies = header_values(raw, "Reply-To");
     if replies.len() > 1 {
@@ -53,6 +57,10 @@ pub(super) fn sender(raw: &Value) -> Option<Sender> {
     reply_to.sort();
     let proven = single_gmail_result(raw).is_some_and(|result| aligned(&result, &domain));
     Some(Sender { email, name: address["name"].as_str().unwrap_or("").trim().to_owned(), reply_to, proven })
+}
+
+fn invisible_or_reordering(character: char) -> bool {
+    matches!(character, '\u{ad}' | '\u{61c}' | '\u{180e}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206f}' | '\u{feff}')
 }
 
 fn single(values: Vec<&str>) -> Option<&str> {
@@ -90,9 +98,13 @@ fn clauses(value: &str) -> Vec<String> {
         }
         match character {
             '\\' if quoted || comment > 0 => escaped = true,
-            '"' if comment == 0 => {
+            // Invariant: a sender's quoted address can sit inside Gmail's comment, so quotes count there too
+            // and a bracket or `;` inside them cannot end the comment.
+            '"' => {
                 quoted = !quoted;
-                parts.last_mut().expect("parts is never empty").push(character);
+                if comment == 0 {
+                    parts.last_mut().expect("parts is never empty").push(character);
+                }
             }
             '(' if !quoted => comment += 1,
             ')' if !quoted && comment > 0 => comment -= 1,
@@ -237,6 +249,21 @@ mod tests {
         let inside = "mx.google.com; spf=pass (domain of \"x) ; dkim=pass header.i=@uptimerobot.example (y\"@evil.example) smtp.mailfrom=evil.example";
         assert!(!proven(&[("Authentication-Results", inside)]), "{inside}");
         assert!(proven(&[("Authentication-Results", "mx.google.com; dkim=pass header.i=@uptimerobot.example; spf=none smtp.mailfrom=a")]));
+    }
+
+    #[test]
+    fn a_result_forged_inside_a_quoted_address_in_gmails_comment_is_refused() {
+        let forged = "mx.google.com; spf=pass (google.com: domain of \"a)b;dmarc=pass header.from=bank.example;c(d\"@attacker.example designates 192.0.2.1 as permitted sender) smtp.mailfrom=\"a\"@attacker.example";
+        assert!(!proven_from("Bank <news@bank.example>", forged));
+    }
+
+    #[test]
+    fn an_address_that_hides_or_reorders_characters_is_not_a_sender() {
+        for address in ["news\u{202e}elpmaxe.knab@bank.example", "news\u{200b}@bank.example", "news\u{2066}@bank.example", "news@ba\u{feff}nk.example"] {
+            let from = format!("Bank <{address}>");
+            assert!(sender(&mail(json!([{"name":"From","value":from}]))).is_none(), "{address:?}");
+        }
+        assert!(sender(&mail(json!([{"name":"From","value":"Bank <news@bank.example>"}]))).is_some());
     }
 
     #[test]

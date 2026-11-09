@@ -619,7 +619,7 @@ Item {
       narrowRow.summary = ({id:"newer",from:{display:"A sender"},time:"09:14",bundleProposal:true})
       waitForRendering(narrowRow)
       verify(narrowRow.proposalCrowded)
-      verify(findChild(narrowRow, "bundle-proposal").clip)
+      verify(findChild(narrowRow, "bundle-buttons").clip)
       narrowRow.writing = true
       verify(!narrowRow.proposalCrowded, "no buttons showing, so nothing to make room for")
       narrowRow.writing = false
@@ -675,6 +675,28 @@ Item {
       verify(!question.truncated)
       verify(lane.height >= question.contentHeight, lane.height + " holds " + question.contentHeight)
       verify(narrowRow.height >= lane.height, narrowRow.height + " holds " + lane.height)
+    }
+
+    function test_the_whole_offer_shows_while_bundle_can_be_pressed() {
+      var address = "news@a-very-long-registered-domain-of-the-sender.courier.example"
+      narrowRow.summary = ({id:"front",from:{display:"A"},time:"09:14",bundleProposal:true,bundleQuestion:"Trust " + address + " to bundle \u201cMonitor is DOWN\u201d?"})
+      waitForRendering(narrowRow)
+      var question = findChild(narrowRow, "bundle-question")
+      var lane = findChild(narrowRow, "bundle-proposal")
+      var tools = findChild(narrowRow, "message-actions")
+      compare(question.width, lane.width)
+      compare(question.elide, Text.ElideNone)
+      compare(question.maximumLineCount, 2147483647)
+      compare(question.textFormat, Text.PlainText)
+      verify(!question.truncated)
+      verify(question.contentHeight <= question.height + 0.5, question.contentHeight + " fits " + question.height)
+      narrowRow.selectionActive = true
+      waitForRendering(narrowRow)
+      verify(tools.visible, "the tools stay showing")
+      compare(question.width, lane.width, "the tools never narrow the question")
+      var bottom = question.mapToItem(narrowRow, 0, question.height).y
+      verify(tools.y >= bottom, "the tools at " + tools.y + " stay below the question ending at " + bottom)
+      narrowRow.selectionActive = false
     }
 
     function test_approved_senders_list_and_remove() {

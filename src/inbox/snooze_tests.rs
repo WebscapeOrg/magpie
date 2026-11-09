@@ -361,6 +361,49 @@ async fn undo_returns_the_mail_when_a_second_snooze_replaced_the_first() {
     assert!(writes.contains(&format!("modify archived + -{label}")), "the other mail only loses the label: {writes:?}");
 }
 
+/// A conversation snoozed on another device, as this engine learns of it: both mails carry the slot
+/// label and neither is in the Inbox.
+async fn snoozed_elsewhere(fake: &Fake, until: i64) -> String {
+    let label = fake.add_label(&slot(until).unwrap().1);
+    fake.tag(&["g1", "g2"], &[&label], &[]);
+    call("inbox.tick", &json!({}), fake).await.unwrap();
+    assert_eq!(row("g1").unwrap()["ids"], json!(["g1", "g2"]));
+    assert!(row("g1").unwrap().get("inbox").is_none(), "discovery cannot know what was in the Inbox");
+    label
+}
+
+#[tokio::test]
+async fn undo_returns_all_the_mail_of_a_snooze_made_elsewhere() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("g1", "t7", &[]), ("g2", "t7", &[])]);
+    let label = snoozed_elsewhere(&fake, now() + 24 * HOUR).await;
+    call("inbox.wake", &json!({"accountId":ACCOUNT,"id":"g1","restore":true}), &fake).await.unwrap();
+    let writes = fake.writes();
+    assert!(writes.contains(&format!("modify g1,g2 +INBOX -{label}")), "{writes:?}");
+}
+
+#[tokio::test]
+async fn undo_returns_the_mail_when_a_new_snooze_replaced_one_made_elsewhere() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("g1", "t7", &[]), ("g2", "t7", &[]), ("later", "t7", &[])]);
+    let until = now() + 24 * HOUR;
+    let label = snoozed_elsewhere(&fake, until).await;
+    fake.tag(&["later"], &["INBOX"], &[]);
+    assert_eq!(snooze_at(&fake, "later", until).await.unwrap()["ok"], true);
+    call("inbox.wake", &json!({"accountId":ACCOUNT,"id":"later","restore":true}), &fake).await.unwrap();
+    let returned = fake.writes().into_iter().find(|write| write.contains("+INBOX")).expect("a write returned the mail");
+    for id in ["g1", "g2", "later"] {
+        assert!(returned.contains(id), "{id} returns too: {returned}");
+    }
+    assert!(returned.ends_with(&format!("-{label}")), "{returned}");
+}
+
 async fn snooze_at(fake: &Fake, id: &str, until: i64) -> Result<Value> {
     call(
         "inbox.snooze",

@@ -291,27 +291,24 @@ Item {
     return true
   }
 
-  function afterUndo(offer, refused, broken, total) {
+  function afterUndo(offer, broken, total) {
     // A newer toast has taken this one's place while the Undo ran; it stays.
     if (undoOffer && undoOffer.serial !== offer.serial) return
-    if (refused === 0 && broken === 0) { dismissUndo(); return }
+    if (broken === 0) { dismissUndo(); return }
     undoing = false
-    var text = broken > 0 ? Bundles.undoFailedText(offer.action, total, offer.count)
-      : Bundles.refusalText(offer.action, refused, total, offer.count)
-    undoOffer = Object.assign({}, offer, {canUndo: false, text: text})
+    undoOffer = Object.assign({}, offer, {canUndo: false, text: Bundles.undoFailedText(offer.action, total, offer.count)})
     undoTimer.restart()
   }
 
   function undoEdits(offer) {
-    var remaining = offer.groups.length, refused = 0, broken = 0, total = 0
+    var remaining = offer.groups.length, broken = 0, total = 0
     offer.groups.forEach(function(group) { total += group.tickets.length })
     offer.groups.forEach(function(group) {
       var host = service.findAccount(group.accountId)
-      if (!host || !host.local) { broken += group.tickets.length; if (--remaining === 0) root.afterUndo(offer, refused, broken, total); return }
-      host.local.cancelEdits(group.tickets, function(refusedCount, brokenCount) {
-        refused += Number(refusedCount || 0)
+      if (!host || !host.local) { broken += group.tickets.length; if (--remaining === 0) root.afterUndo(offer, broken, total); return }
+      host.local.undoEdits(group.tickets, function(brokenCount) {
         broken += Number(brokenCount || 0)
-        if (--remaining === 0) root.afterUndo(offer, refused, broken, total)
+        if (--remaining === 0) root.afterUndo(offer, broken, total)
       })
     })
   }
@@ -319,14 +316,14 @@ Item {
   function undoSnooze(offer) {
     var remaining = offer.entries.length, broken = 0
     offer.entries.forEach(function(entry) {
-      backend.call("inbox.wake", {accountId: entry.accountId, id: entry.id}, function(result, failure) {
+      backend.call("inbox.wake", {accountId: entry.accountId, id: entry.id, restore: true}, function(result, failure) {
         // A snooze that has already ended means the mail is back, which is what Undo was for.
         if (failure && String(failure.message || "").indexOf("snooze_missing") < 0) {
           console.warn("Magpie bundles: undo of snooze failed:", String(failure.message || failure))
           broken++
         }
         if (--remaining !== 0) return
-        root.afterUndo(offer, 0, broken, offer.entries.length)
+        root.afterUndo(offer, broken, offer.entries.length)
         if (typeof root.tools.refresh === "function") root.tools.refresh()
         if (typeof service.refresh === "function") service.refresh()
       })

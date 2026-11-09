@@ -91,7 +91,7 @@ Item {
     readonly property string bob: "bob@example.com"
     readonly property var methods: ["inbox.bundles", "inbox.approveBundle", "inbox.refuseBundle", "inbox.snooze", "inbox.wake",
       "model.intent", "model.apply", "model.unified", "account.identities", "account.conversation", "providers.resolve",
-      "local.cancelEdit", "local.edits", "local.summaries", "system.info"]
+      "local.undoEdit", "local.edits", "local.summaries", "system.info"]
 
     function initTestCase() {
       NativeModel.install(mailService)
@@ -163,29 +163,10 @@ Item {
       compare(mailService.messages.map(function(message) { return message.id }), ["alone"],
         "the bundled mails leave together; none comes back as its own row")
       var cancelled = []
-      fixture.answers["local.cancelEdit"] = function(params) { cancelled.push(params.ticket); return {cancelled:true} }
+      fixture.answers["local.undoEdit"] = function(params) { cancelled.push(params.ticket); return {undone:true} }
       verify(mailService.inboxTools.bundles.runUndo())
       tryVerify(function() { return mailService.inboxTools.bundles.undoOffer === null })
       compare(cancelled, ["ticket-1"], "Undo cancels the same edit the row made")
-    }
-
-    function test_undo_after_the_edit_synced_says_so_plainly() {
-      seed([entry(ada)], ada)
-      var account = mailService.accountAt(0)
-      account.messages = [row("front"), row("older")]
-      bundle(ada, "front", ["older"])
-      tryVerify(function() { return mailService.messages.length === 1 })
-      app.cursorId = "front"
-      verify(app.actOnCursor("archive"))
-      tryVerify(function() { return offerText() === "Archived 2 messages" })
-      fixture.answers["local.cancelEdit"] = function(params, request) {
-        BackendFixture.respond(mailService, request, null, {code: -32000, message: "local_edit_already_started"})
-        return undefined
-      }
-      verify(mailService.inboxTools.bundles.runUndo())
-      tryVerify(function() { return mailService.inboxTools.bundles.undoOffer !== null && mailService.inboxTools.bundles.undoOffer.canUndo === false })
-      compare(offerText(), "Gmail already has this change, so Undo can't bring them back. Find them in All mail and choose Move to Inbox.")
-      fixture.answers["local.cancelEdit"] = undefined
     }
 
     function test_undo_goes_to_the_account_the_action_started_in() {
@@ -201,11 +182,11 @@ Item {
       compare(mailService.activeAccountId, bob)
       tryVerify(function() { return offerText() === "Archived 2 messages" })
       var accounts = []
-      fixture.answers["local.cancelEdit"] = function(params) { accounts.push(params.accountId); return {cancelled:true} }
+      fixture.answers["local.undoEdit"] = function(params) { accounts.push(params.accountId); return {undone:true} }
       verify(mailService.inboxTools.bundles.runUndo())
       tryVerify(function() { return mailService.inboxTools.bundles.undoOffer === null })
       compare(accounts, [ada], "the ticket belongs to the account that made it")
-      fixture.answers["local.cancelEdit"] = undefined
+      fixture.answers["local.undoEdit"] = undefined
     }
 
     function test_undo_that_breaks_does_not_say_gmail_has_it() {
@@ -217,14 +198,14 @@ Item {
       app.cursorId = "front"
       verify(app.actOnCursor("archive"))
       tryVerify(function() { return offerText() === "Archived 2 messages" })
-      fixture.answers["local.cancelEdit"] = function(params, request) {
+      fixture.answers["local.undoEdit"] = function(params, request) {
         BackendFixture.respond(mailService, request, null, {code: -32000, message: "local_disk_full"})
         return undefined
       }
       verify(mailService.inboxTools.bundles.runUndo())
       tryVerify(function() { return mailService.inboxTools.bundles.undoOffer !== null && mailService.inboxTools.bundles.undoOffer.canUndo === false })
       compare(offerText(), "Undo could not finish. Find them in All mail and choose Move to Inbox.")
-      fixture.answers["local.cancelEdit"] = undefined
+      fixture.answers["local.undoEdit"] = undefined
     }
 
     function test_archiving_an_opened_conversation_keeps_the_whole_conversation() {

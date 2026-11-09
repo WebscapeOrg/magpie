@@ -19,11 +19,11 @@ Item {
     property var messages: []
     property var local: QtObject {
       property var cancelled: []
-      property var refuseTickets: []
-      function cancelEdits(tickets, callback) {
+      property var brokenTickets: []
+      function undoEdits(tickets, callback) {
         cancelled = cancelled.concat(tickets)
-        var refused = tickets.filter(function(ticket) { return refuseTickets.indexOf(ticket) >= 0 }).length
-        Qt.callLater(function() { callback(refused) })
+        var broken = tickets.filter(function(ticket) { return brokenTickets.indexOf(ticket) >= 0 }).length
+        Qt.callLater(function() { callback(broken) })
       }
     }
     function hydrateSummary(row) { row.time = "Yesterday"; return row }
@@ -180,7 +180,7 @@ Item {
       tools.bundles.fetchesInflight = ({})
       tools.bundles.dismissUndo()
       host.local.cancelled = []
-      host.local.refuseTickets = []
+      host.local.brokenTickets = []
       host.previewMessages = []
       settings.senders = []
       backend.ready = true
@@ -417,7 +417,7 @@ Item {
       compare(star.ids, ["front"], "star is per mail")
     }
 
-    function test_undo_names_the_count_and_says_so_when_too_late() {
+    function test_undo_names_the_count_and_says_so_when_it_cannot_finish() {
       seedBundle()
       tools.bundles.offerEdits("archive", 3, [{accountId: host.accountId, tickets: ["t1"]}])
       compare(tools.bundles.undoOffer.text, "Archived 3 messages")
@@ -426,10 +426,10 @@ Item {
       tryVerify(function() { return tools.bundles.undoOffer === null })
       tools.bundles.offerEdits("trash", 3, [{accountId: host.accountId, tickets: ["t2","t3"]}])
       compare(tools.bundles.undoOffer.text, "Moved 3 messages to trash")
-      host.local.refuseTickets = ["t2"]
+      host.local.brokenTickets = ["t2"]
       tools.bundles.runUndo()
       tryVerify(function() { return tools.bundles.undoOffer && !tools.bundles.undoOffer.canUndo })
-      compare(tools.bundles.undoOffer.text, "1 of 2 had already reached Gmail, so they stayed. Find them in Trash and restore them.")
+      compare(tools.bundles.undoOffer.text, "Undo could not finish. Find them in Trash and restore them.")
     }
 
     function test_snooze_acts_on_every_mail_once_per_thread_with_undo_naming_the_count() {
@@ -498,7 +498,7 @@ Item {
     function test_undo_pressed_twice_cancels_once() {
       seedBundle()
       host.local.cancelled = []
-      host.local.refuseTickets = []
+      host.local.brokenTickets = []
       tools.bundles.offerEdits("archive", 3, [{accountId: host.accountId, tickets: ["t9"]}])
       verify(tools.bundles.runUndo())
       verify(!tools.bundles.runUndo(), "the second press does nothing while the first runs")
@@ -518,6 +518,7 @@ Item {
       seedBundle()
       tools.bundles.offerSnooze(3, [{accountId: host.accountId, id: "front"}])
       verify(tools.bundles.runUndo())
+      compare(backend.of("inbox.wake").slice(-1)[0].params.restore, true, "Undo asks for the mail back as it was")
       backend.of("inbox.wake").slice(-1)[0].done(null, {message:"engine_gone"})
       compare(tools.bundles.undoOffer.canUndo, false)
       compare(tools.bundles.undoOffer.text, "Undo could not finish. Find them under Snoozed mail.")

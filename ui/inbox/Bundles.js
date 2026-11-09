@@ -38,14 +38,6 @@ function undoFailedText(action, total, mails) {
   return "Undo could not finish. " + whereToFind(action, pronoun(mails, total))
 }
 
-function refusalText(action, refused, total, mails) {
-  var these = pronoun(mails, total)
-  var where = whereToFind(action, these)
-  if (refused >= total)
-    return "Gmail already has this change, so Undo can't bring " + these + " back. " + where
-  return refused + " of " + total + " had already reached Gmail, so they stayed. " + where
-}
-
 function sourceId(row) { return String(row.sourceId || row.id || "") }
 
 function memberRowId(row, account, id) { return row.sourceId ? Unified.unifiedId(account, id) : String(id) }

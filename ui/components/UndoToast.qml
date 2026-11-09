@@ -4,8 +4,8 @@ import "../settings"
 import qs.Commons
 import qs.Ui
 
-// A bundled row's Undo: "Archived 2 messages" (Q-020). Once Gmail already has the change, the same
-// place says so and offers nothing.
+// A bundled row's Undo: "Archived 2 messages" (Q-020). If Undo could not finish, the same place
+// says so and offers nothing.
 Rectangle {
   id: root
 

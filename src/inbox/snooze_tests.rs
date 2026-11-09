@@ -605,6 +605,66 @@ async fn a_mail_whose_earlier_snooze_label_has_gone_returns_on_undo() {
 }
 
 #[tokio::test]
+async fn undo_returns_mail_that_had_gone_back_to_the_inbox_with_its_label() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"]), ("x", "t7", &[])]);
+    let until = now() + 24 * HOUR;
+    assert_eq!(snooze_at(&fake, "a", until).await.unwrap()["ok"], true);
+    let label = fake.label_id(&slot(until).unwrap().1).unwrap();
+    fake.tag(&["x"], &["INBOX"], &[]);
+    assert_eq!(snooze_at(&fake, "x", until).await.unwrap()["ok"], true);
+    undo(&fake, "x").await.unwrap();
+    assert_in_inbox(&fake, "x");
+    assert_asleep(&fake, "a", &label);
+}
+
+#[tokio::test]
+async fn undo_does_not_carry_back_an_earlier_separate_snooze() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"])]);
+    let until = now() + 24 * HOUR;
+    assert_eq!(snooze_at(&fake, "a", until).await.unwrap()["ok"], true);
+    let label = fake.label_id(&slot(until).unwrap().1).unwrap();
+    edit("a", "at", json!(now() - 2 * ONE_ACTION));
+    assert_eq!(snooze_at(&fake, "a", until).await.unwrap()["ok"], true);
+    undo(&fake, "a").await.unwrap();
+    assert_asleep(&fake, "a", &label);
+}
+
+#[tokio::test]
+async fn mail_put_back_under_a_due_label_found_empty_still_returns() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("g1", "t7", &[])]);
+    let label = fake.add_label(&slot(now() - HOUR).unwrap().1);
+    fake.tag(&["g1"], &[&label], &[]);
+    skip_discovery();
+    fake.arrive("c", "t7", &["INBOX"]);
+    assert_eq!(snooze_at(&fake, "c", now() + 24 * HOUR).await.unwrap()["ok"], true);
+    assert!(!fake.labels_of("g1").contains(&label), "the later snooze emptied the due label");
+    let marks = store::key(&["snooze-labels", ACCOUNT]);
+    store::write(&marks, &json!({})).unwrap();
+    call("inbox.tick", &json!({}), &fake).await.unwrap();
+    assert!(store::read(&marks).unwrap().unwrap()["empty"].get(&label).is_some(), "discovery saw it empty");
+    undo(&fake, "c").await.unwrap();
+    assert_asleep(&fake, "g1", &label);
+    let mut seen = store::read(&marks).unwrap().unwrap();
+    seen["checked"] = json!(0);
+    store::write(&marks, &seen).unwrap();
+    call("inbox.tick", &json!({}), &fake).await.unwrap();
+    call("inbox.tick", &json!({}), &fake).await.unwrap();
+    assert_in_inbox(&fake, "g1");
+}
+
+#[tokio::test]
 async fn a_snooze_that_cannot_read_the_labels_cannot_be_undone() {
     if crate::mail::tests::isolated() {
         return;

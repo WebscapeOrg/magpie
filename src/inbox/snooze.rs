@@ -16,6 +16,8 @@ const SLOT: i64 = 300_000;
 const ROWS: usize = 1000;
 const LABELS: usize = 200;
 const DISCOVER_EVERY: i64 = 60_000;
+/// How soon a second snooze of a conversation must follow the first to count as the same action.
+const ONE_ACTION: i64 = 60_000;
 const RELIST_AFTER: i64 = 600_000;
 const LISTS_PER_RUN: usize = 5;
 const READS_PER_RUN: usize = 20;
@@ -652,18 +654,36 @@ fn places(thread: &Thread, known: &[Slot]) -> Value {
 
 /// What Undo puts back for this snooze.
 /// Invariant: a bundle snoozes each of its mails, so one conversation can be snoozed twice in a
-/// single action. When the whole conversation already sleeps under this slot this snooze changes
-/// nothing, and Undo goes back to before the snooze that did.
+/// single action. When the snooze just before this one left the whole conversation asleep under
+/// this slot and none of it has returned to the Inbox, this snooze changes nothing, and Undo goes
+/// back to before the snooze that did.
 fn before_this(thread: &Thread, known: &[Slot], name: &str, replaced: &[&Value]) -> Value {
     let unchanged = known
         .iter()
         .find(|slot| slot.name.eq_ignore_ascii_case(name))
-        .is_some_and(|slot| thread.messages.iter().all(|message| binned(message) || has(message, &slot.id)));
-    let same_slot = |row: &&&Value| row["label"].as_str().is_some_and(|own| own.eq_ignore_ascii_case(name));
+        .is_some_and(|slot| thread.messages.iter().all(|message| binned(message) || (has(message, &slot.id) && !has(message, "INBOX"))));
+    let same_slot = |row: &&&Value| {
+        row["label"].as_str().is_some_and(|own| own.eq_ignore_ascii_case(name))
+            && row["at"].as_i64().is_some_and(|at| at > now() - ONE_ACTION)
+    };
     match replaced.iter().filter(same_slot).find(|row| unchanged && row["before"].is_object()) {
         Some(row) => row["before"].clone(),
         None => places(thread, known),
     }
+}
+
+/// Forgets what discovery last saw of a label.
+/// Invariant: Undo can put mail back under a label discovery has just found empty, and an emptied
+/// label is not listed again for days, so that mail would miss its time.
+fn look_again(account: &str, label: &str) -> Result<()> {
+    let marks_key = store::key(&["snooze-labels", account]);
+    let mut marks = bookkeeping(&marks_key)?;
+    for field in ["empty", "listed"] {
+        if let Some(seen) = marks.get_mut(field).and_then(Value::as_object_mut) {
+            seen.remove(label);
+        }
+    }
+    store::write(&marks_key, &marks)
 }
 
 fn note_before(key: &str, before: Value) -> Result<()> {
@@ -885,6 +905,7 @@ async fn wake(
     for (slot, ids) in asleep {
         let others: Vec<String> = remove.iter().filter(|label| *label != slot).cloned().collect();
         gmail.modify(account, &ids, &[slot.to_owned()], &others).await?;
+        look_again(account, slot)?;
     }
     if !clear.is_empty() {
         gmail.modify(account, &clear, &[], &remove).await?;

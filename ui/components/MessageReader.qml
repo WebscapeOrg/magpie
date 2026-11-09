@@ -54,6 +54,10 @@ Item {
     : (service.conversationProjection ? service.conversationProjection.stops || [] : [])
   readonly property string conversationCaption: !root.showsRail ? ""
     : (service.conversationProjection ? service.conversationProjection.caption || "" : "")
+  // The open mail's bundle, from the Inbox rows: the other mails by sender, time and subject (Q-019).
+  readonly property var bundleStops: !!root.summary && !!service && !!service.inboxTools && !!service.inboxTools.bundles
+    ? service.inboxTools.bundles.readerStops(service.selectedId) : []
+  readonly property bool showsBundle: bundleStops.length > 0
 
   // Invariant: defer rail scrolling until the new conversation’s Column has laid out its stops.
   onConversationStopsChanged: if (root.showsRail) Qt.callLater(root.revealOpenStop)
@@ -476,14 +480,14 @@ Item {
   ConversationRail {
     id: rail
     objectName: "conversationRail"
-    visible: !!root.summary && root.showsRail && root.fitsRail
+    visible: !!root.summary && (root.showsRail || root.showsBundle) && root.fitsRail
     anchors.top: headerBlock.bottom
     anchors.topMargin: MailStyle.space(10)
     anchors.right: parent.right
     anchors.bottom: footerBackdrop.visible ? footerBackdrop.top : parent.bottom
     width: visible ? implicitWidth : 0
-    stops: root.conversationStops
-    caption: root.conversationCaption
+    stops: root.showsBundle ? root.bundleStops : root.conversationStops
+    caption: root.showsBundle ? "Also in this Point" : root.conversationCaption
     textColor: root.textColor
     backgroundColor: root.backgroundColor
     accentColor: root.accentColor
@@ -492,7 +496,7 @@ Item {
     panelFontFamily: root.panelFontFamily
     onMemberActivated: function(id) { root.memberRequested(id) }
     onMemberMenuRequested: function(id, sceneX, sceneY) {
-      root.memberMenuRequested(id, sceneX, sceneY)
+      if (!root.showsBundle) root.memberMenuRequested(id, sceneX, sceneY)
     }
   }
 
@@ -506,6 +510,24 @@ Item {
     anchors.rightMargin: root.pageInset
     anchors.topMargin: height > 0 ? MailStyle.space(8) : 0
     spacing: MailStyle.space(6)
+
+    // A window too narrow for the rail still lists the bundle, above the mail instead.
+    ConversationRail {
+      id: bundleInline
+      objectName: "bundleInline"
+      visible: !!root.summary && root.showsBundle && !root.fitsRail
+      width: parent.width
+      height: visible ? Math.min(MailStyle.space(200), MailStyle.space(44) + root.bundleStops.length * MailStyle.space(64)) : 0
+      stops: root.bundleStops
+      caption: "Also in this Point"
+      textColor: root.textColor
+      backgroundColor: root.backgroundColor
+      accentColor: root.accentColor
+      dimColor: root.dimColor
+      dimmerColor: root.dimmerColor
+      panelFontFamily: root.panelFontFamily
+      onMemberActivated: function(id) { root.memberRequested(id) }
+    }
 
     ReaderNotice {
       width: parent.width

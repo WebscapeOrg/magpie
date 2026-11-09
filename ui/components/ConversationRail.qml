@@ -288,6 +288,19 @@ Item {
           font.pixelSize: MailStyle.caption
         }
       }
+
+      // A bundle lists subjects, never the older mail's stale Points (Q-019).
+      Text {
+        objectName: "rail-subject"
+        visible: String(stop.modelData.subject || "") !== ""
+        width: parent.width
+        textFormat: Text.PlainText
+        text: String(stop.modelData.subject || "")
+        color: root.dimColor
+        font.family: root.panelFontFamily
+        font.pixelSize: MailStyle.caption
+        elide: Text.ElideRight
+      }
     }
   }
 

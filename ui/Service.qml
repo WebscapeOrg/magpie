@@ -2015,9 +2015,12 @@ Item {
     if (!host) return false
     // A covered mail outside the loaded page has to be findable for the action, then taken out again.
     var prepared = inboxController.bundles.groupFor(id) ? inboxController.bundles.prepare([id]) : null
-    if (prepared && prepared.added.length > 0)
-      return host.actMany([sourceIdFor(id)], action, function() { inboxController.bundles.release(prepared) },
+    if (prepared && prepared.added.length > 0) {
+      var began = host.actMany([sourceIdFor(id)], action, function() { inboxController.bundles.release(prepared) },
         {wholeConversations: quiet !== true, silent: quiet === true})
+      if (!began) inboxController.bundles.release(prepared)
+      return began
+    }
     return host.act(sourceIdFor(id), action, quiet, memberOnly)
   }
   function toggleStar(id) {
@@ -2038,13 +2041,14 @@ Item {
   function actMany(ids, action, completion, quietly) {
     var plan = inboxController.bundles.planAction(ids, action)
     var finish = completion
+    var prepared = null
     var options = {
       wholeConversations: plan.bundled && quietly !== true,
       silent: quietly === true || (plan.bundled && (Bundles.undoable(action) || ids.length === 1)),
       hideFailure: quietly === true
     }
     if (plan.bundled) {
-      var prepared = inboxController.bundles.prepare(plan.ids)
+      prepared = inboxController.bundles.prepare(plan.ids)
       var actingAccount = current ? current.accountId : ""
       finish = function(result) {
         var failed = Array.isArray(result && result.failedIds) ? result.failedIds : []
@@ -2057,8 +2061,10 @@ Item {
           completion(Object.assign({}, result || {}, {failedIds: Bundles.mapFailed(failed, plan.frontOf)}))
       }
     }
-    if (!unified) return current ? current.actMany(plan.ids, action, finish, options) : false
-    return unifiedBatchAction.run(plan.ids, action, finish, options)
+    var started = unified ? unifiedBatchAction.run(plan.ids, action, finish, options)
+      : (current ? current.actMany(plan.ids, action, finish, options) : false)
+    if (!started && prepared) inboxController.bundles.release(prepared)
+    return started
   }
   // Invariant: tickets belong to the account the action started in, whichever one is open by now.
   function ticketGroups(result, actingAccount) {

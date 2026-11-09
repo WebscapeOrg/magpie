@@ -204,11 +204,6 @@ Item {
     return group && group.frontId === String(id) ? group : null
   }
 
-  function holds(frontId, memberId) {
-    var group = frontGroup(frontId)
-    return !!group && group.memberIds.indexOf(String(memberId)) >= 0
-  }
-
   // The row an action pressed on any mail of a bundle belongs to, when that action reaches them all.
   function frontForAction(id, action) {
     var group = groupFor(id)
@@ -226,10 +221,11 @@ Item {
     var unread = Bundles.unreadCovered(group)
     if (unread.length === 0) return
     var prepared = prepare(unread)
-    service.actMany(unread, "markRead", function() {
+    var started = service.actMany(unread, "markRead", function() {
       root.release(prepared)
       root.fetchCovered(group.accountId)
     }, true)
+    if (!started) release(prepared)
   }
 
   // A covered mail outside the loaded page is put where the action can find it. The answer says

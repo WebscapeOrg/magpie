@@ -266,7 +266,7 @@ Item {
       service.rawQuery, service.hasLabels, service.rawLabelId)
     var next = leaves ? Model.cursorAfterRemovals(service.messages, ids, cursorId) : cursorId
     var wasOpen = currentView === "reader" && (ids.indexOf(service.selectedId) >= 0
-      || ids.some(function(id) { return root.bundleHolds(id, service.selectedId) }))
+      || ids.some(function(id) { return root.bundleTakesOpenMail(id, action) }))
     var scope = batchSelection.scope
     var completion = service.unified ? function(result) {
       Qt.callLater(function() { batchSelection.restore(result.failedIds, scope) })
@@ -745,7 +745,21 @@ Item {
 
   readonly property var undoBundleOffer: service && service.inboxTools && service.inboxTools.bundles ? service.inboxTools.bundles.undoOffer : null
   readonly property var bundleBook: service && service.inboxTools ? service.inboxTools.bundles || null : null
-  function bundleHolds(frontId, memberId) { return !!bundleBook && bundleBook.holds(frontId, memberId) }
+  // True when this action on a bundled row takes the mail open in the reader away with it.
+  function bundleTakesOpenMail(frontId, action) {
+    return !!bundleBook && bundleBook.frontForAction(service.selectedId, action) === String(frontId)
+  }
+  // The open older mail of a bundle, which has no list row for the cursor to rest on.
+  function coveredOpenMail() {
+    if (!bundleBook || !service) return ""
+    var open = String(service.selectedId || "")
+    var group = bundleBook.groupFor(open)
+    return group && group.frontId !== open ? open : ""
+  }
+  function coveredMailBehindCursor() {
+    var open = coveredOpenMail()
+    return open !== "" && bundleBook.groupFor(open).frontId === cursorId ? open : ""
+  }
   function undoBundle() { if (service && service.inboxTools && service.inboxTools.bundles) service.inboxTools.bundles.runUndo() }
 
   function undoPendingSend() {
@@ -764,16 +778,20 @@ Item {
 
   // Invariant: A label picker opened outside the checked selection acts on that message alone.
   property bool labelPickerOnlyCursor: false
+  // Set when the picker opened on an older mail of a bundle, so a list change cannot retarget it.
+  property string labelPickerMember: ""
 
-  function openLabelPicker(onlyCursor) {
-    if (!service || (cursorId === "" && !selectionActive)) return false
+  function openLabelPicker(onlyCursor, member) {
+    var target = String(member || "")
+    if (!service || (cursorId === "" && !selectionActive && target === "")) return false
     labelPickerOnlyCursor = onlyCursor === true
+    labelPickerMember = target
     // Invariant: Label operations target one account; provider-specific refusals remain with the provider guard.
     if (service.unified) {
       service.fail("Moving to a label needs one mailbox on screen")
       return false
     }
-    if (service.refuseUnavailableAction("label:destination", cursorId)) return false
+    if (service.refuseUnavailableAction("label:destination", target !== "" ? target : cursorId)) return false
     labelPicker.open()
     return true
   }
@@ -844,7 +862,7 @@ Item {
     var row = service.messages[Model.indexById(service.messages, acted)]
     // Invariant: An open reader can show a member of the acted conversation. A preview must not open and mark the next row read after a mutation.
     var wasOpen = currentView === "reader" && !service.selectionIsPreview
-      && (service.selectedId === acted || Model.rowHoldsMember(row, service.selectedId) || bundleHolds(acted, service.selectedId))
+      && (service.selectedId === acted || Model.rowHoldsMember(row, service.selectedId) || bundleTakesOpenMail(acted, action))
     // Invariant: Resolve the next row before the action removes its current neighbor.
     var next = Model.cursorAfterRemoval(service.messages, acted)
     // Invariant: Cursor repair must use the same mailbox, query, label, provider, and conversation facts as MailAccount.act.
@@ -950,7 +968,7 @@ Item {
       return openAgentCentered(target)
     }
     if (id === "checkAll") return checkAll()
-    if (id === "moveToLabel") return openLabelPicker()
+    if (id === "moveToLabel") return openLabelPicker(false, selectionActive ? "" : coveredMailBehindCursor())
     if (id === "markRead") return actOnCursor("markRead")
     if (id === "markUnread") return actOnCursor("markUnread")
     if (id === "reply") return composeFromCursor("reply")
@@ -1903,6 +1921,7 @@ Item {
                 root.service.toggleStar(root.service.selectedId)
               return
             }
+            if (action === "moveToLabel" && root.coveredOpenMail() !== "") return root.openLabelPicker(outside, root.coveredOpenMail())
             // Invariant: an action that reaches a whole bundle does the same from any mail open in it.
             var bundleFront = root.bundleBook ? root.bundleBook.frontForAction(root.service.selectedId, action) : ""
             if (bundleFront !== "")
@@ -2534,7 +2553,8 @@ Item {
         labels: root.service ? root.service.labels : []
         currentLabelId: root.service ? String(root.service.rawLabelId || "") : ""
         onLabelChosen: function(labelId) {
-          root.actOnCursor("label:" + labelId, root.labelPickerOnlyCursor)
+          if (root.labelPickerMember !== "") root.actOnMember("label:" + labelId, root.labelPickerMember)
+          else root.actOnCursor("label:" + labelId, root.labelPickerOnlyCursor)
         }
       }
 

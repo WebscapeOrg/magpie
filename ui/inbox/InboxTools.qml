@@ -387,7 +387,7 @@ Item {
     var host = service.hostForId(rowId)
     if (!host || host.providerId !== "gmail") { error = "Snooze needs a Gmail mailbox."; return false }
     notice = "Snoozing"; error = ""
-    var group = bundleBook.frontGroup(rowId)
+    var group = bundleBook.groupFor(rowId)
     if (group) { snoozeBundle(group, host, until); return true }
     var request = {accountId:host.accountId,id:service.sourceIdFor(rowId),until:until}
     service.backend.call("inbox.snooze",request,function(result,failure) {

@@ -360,7 +360,35 @@ fn slot_time(name: &str) -> Option<i64> {
 }
 /// True for Magpie's snooze slot labels, which Magpie keeps out of the label lists it shows.
 pub(crate) fn is_snooze_label(name: &str) -> bool {
-    slot_time(name).is_some()
+    slot_time(name).is_some() || name.eq_ignore_ascii_case(RETURNED_LABEL)
+}
+/// Marks mail a snooze brought back, in the same Gmail change as the wake, so every device keeps
+/// it out of bundles (bundles.rs): it was snoozed to be seen again as its own row.
+pub(crate) const RETURNED_LABEL: &str = "Magpie-snooze-returned";
+/// The hidden label that marks returned mail, made on first use.
+async fn returned_mark(gmail: &impl Mail, account: &str) -> Result<String> {
+    let find = |labels: &Value| -> Option<String> {
+        labels
+            .as_array()?
+            .iter()
+            .find(|label| label["rawName"].as_str().is_some_and(|name| name.eq_ignore_ascii_case(RETURNED_LABEL)))?["id"]
+            .as_str()
+            .filter(|id| safe_id(id))
+            .map(str::to_owned)
+    };
+    if let Some(id) = find(&gmail.labels(account).await?) {
+        return Ok(id);
+    }
+    match gmail.create_label(account, RETURNED_LABEL).await {
+        Ok(created) => created["id"]
+            .as_str()
+            .filter(|id| safe_id(id))
+            .map(str::to_owned)
+            .ok_or("gmail_invalid_response"),
+        // Invariant: Gmail refuses a duplicate name, so a label another Magpie made a moment ago
+        // is found by listing again.
+        Err(error) => find(&gmail.labels(account).await?).ok_or(error),
+    }
 }
 #[derive(Clone, Debug, PartialEq)]
 struct Slot {
@@ -760,9 +788,17 @@ async fn wake(
         }
     }
     if !back.is_empty() {
-        gmail
-            .modify(account, &back, &["INBOX".into(), "UNREAD".into()], &remove)
-            .await?;
+        // Invariant: the mark never holds up a wake; a network failure retries the wake, and a
+        // failure that would not go away returns the mail without the mark and says why.
+        let add = match returned_mark(gmail, account).await {
+            Ok(mark) => vec!["INBOX".to_owned(), "UNREAD".to_owned(), mark],
+            Err(error) if transient(error) => return Err(error),
+            Err(error) => {
+                eprintln!("magpie: snooze return mark unavailable: {error}");
+                vec!["INBOX".to_owned(), "UNREAD".to_owned()]
+            }
+        };
+        gmail.modify(account, &back, &add, &remove).await?;
     }
     if !clear.is_empty() {
         gmail.modify(account, &clear, &[], &remove).await?;

@@ -397,9 +397,14 @@ async fn snooze_labels_and_archives_the_thread_in_one_change_and_a_chosen_wake_r
             .unwrap(),
         json!({"ok":true})
     );
+    let mark = fake.label_id(RETURNED_LABEL).unwrap();
     assert_eq!(
         fake.writes(),
-        [format!("modify a1,a2 +INBOX,UNREAD -{moved}")]
+        [
+            format!("create {RETURNED_LABEL}"),
+            format!("modify a1,a2 +INBOX,UNREAD,{mark} -{moved}")
+        ],
+        "the return mark goes in the same Gmail change as the wake"
     );
     assert!(fake.labels_of("a3").contains(&"TRASH".to_owned()));
     assert!(!fake.labels_of("a3").contains(&"INBOX".to_owned()));
@@ -517,12 +522,13 @@ async fn tick_wakes_due_threads_and_leaves_threads_returned_or_moved_elsewhere()
     let result = call("inbox.tick", &json!({}), &fake).await.unwrap();
     assert_eq!(result, json!({"woke":2,"failures":0}));
     let writes = fake.writes();
+    let mark = fake.label_id(RETURNED_LABEL).unwrap();
     assert!(
-        writes.contains(&format!("modify c1 +INBOX,UNREAD -{label}")),
+        writes.contains(&format!("modify c1 +INBOX,UNREAD,{mark} -{label}")),
         "{writes:?}"
     );
     assert!(
-        writes.contains(&"modify f1 +INBOX,UNREAD -".to_owned()),
+        writes.contains(&format!("modify f1 +INBOX,UNREAD,{mark} -")),
         "{writes:?}"
     );
     assert!(
@@ -676,7 +682,9 @@ async fn a_label_deleted_before_its_time_while_no_magpie_looked_still_returns_th
     skip_discovery();
     let second = call("inbox.tick", &json!({}), &fake).await.unwrap();
     assert_eq!(second, json!({"woke":1,"failures":0}));
-    assert_eq!(fake.writes(), ["modify ff1,ff2 +INBOX,UNREAD -"]);
+    let writes = fake.writes();
+    let mark = fake.label_id(RETURNED_LABEL).unwrap();
+    assert_eq!(writes.last().unwrap(), &format!("modify ff1,ff2 +INBOX,UNREAD,{mark} -"), "{writes:?}");
     assert!(row("ff1").is_none());
 }
 
@@ -956,7 +964,9 @@ async fn snoozes_saved_without_labels_get_one_and_return_only_mail_still_out_of_
     .unwrap();
     skip_discovery();
     call("inbox.tick", &json!({}), &fake).await.unwrap();
-    assert_eq!(fake.writes(), ["modify y1 +INBOX,UNREAD -"]);
+    let writes = fake.writes();
+    let mark = fake.label_id(RETURNED_LABEL).unwrap();
+    assert_eq!(writes.last().unwrap(), &format!("modify y1 +INBOX,UNREAD,{mark} -"), "{writes:?}");
 
     // Move to Inbox finds a snooze by any of its messages.
     assert_eq!(
@@ -980,7 +990,9 @@ async fn move_to_inbox_returns_the_mail_even_when_its_label_was_removed() {
     call("inbox.wake", &json!({"accountId":ACCOUNT,"id":"z2"}), &fake)
         .await
         .unwrap();
-    assert_eq!(fake.writes(), ["modify z1,z2 +INBOX,UNREAD -"]);
+    let writes = fake.writes();
+    let mark = fake.label_id(RETURNED_LABEL).unwrap();
+    assert_eq!(writes.last().unwrap(), &format!("modify z1,z2 +INBOX,UNREAD,{mark} -"), "{writes:?}");
     assert!(row("z1").is_none());
 }
 
@@ -1161,6 +1173,42 @@ async fn a_snooze_that_cannot_read_its_thread_in_time_is_saved_to_finish_later()
     call("inbox.tick", &json!({}), &fake).await.unwrap();
     assert_eq!(row("jj1").unwrap()["state"], "sleeping");
     assert!(!fake.labels_of("jj1").contains(&"INBOX".to_owned()));
+}
+
+#[tokio::test]
+async fn a_wake_keeps_returning_mail_when_the_mark_cannot_be_made_for_good_and_retries_when_it_is_only_offline() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("c1", "t1", &["INBOX"])]);
+    snooze_at(&fake, "c1", now() + HOUR).await.unwrap();
+    edit("c1", "until", json!(now() - 1));
+    fake.set(true, false);
+    call("inbox.tick", &json!({}), &fake).await.unwrap();
+    assert!(!fake.labels_of("c1").contains(&"INBOX".to_owned()), "offline: the wake waits for its next try");
+    fake.set(false, true);
+    edit("c1", "retryAt", json!(0));
+    call("inbox.tick", &json!({}), &fake).await.unwrap();
+    assert!(fake.label_id(RETURNED_LABEL).is_none());
+    assert!(!fake.labels_of("c1").contains(&"INBOX".to_owned()), "a refused label is a network failure in the fake, so the wake waits");
+    fake.set(false, false);
+    edit("c1", "retryAt", json!(0));
+    call("inbox.tick", &json!({}), &fake).await.unwrap();
+    assert!(fake.labels_of("c1").contains(&"INBOX".to_owned()));
+    assert!(fake.labels_of("c1").contains(&fake.label_id(RETURNED_LABEL).unwrap()), "both devices can see it came back");
+}
+
+#[test]
+fn the_return_mark_stays_out_of_label_lists_and_is_not_a_slot() {
+    assert!(is_snooze_label(RETURNED_LABEL));
+    assert!(slot_time(RETURNED_LABEL).is_none(), "it is never a wake time");
+    let shown = crate::providers::gmail::normalize_labels(json!({"labels":[
+        {"id":"INBOX","name":"INBOX","type":"system"},
+        {"id":"Label_1","name":"Receipts"},
+        {"id":"Label_2","name":RETURNED_LABEL}
+    ]}));
+    assert!(shown.as_array().unwrap().iter().all(|label| label["id"] != "Label_2"));
 }
 
 #[test]

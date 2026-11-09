@@ -57,6 +57,7 @@ Item {
     property var rawMessages: []
     readonly property var messages: tools.stack.messages
     property var actManyCalls: []
+    property bool actManyStarts: true
     property var toasts: []
     readonly property var inboxTools: tools
     property string selectedId: ""
@@ -71,6 +72,7 @@ Item {
     function refresh() {}
     function actMany(ids, action, completion) {
       actManyCalls = actManyCalls.concat([{ids: ids, action: action, helpers: host.previewMessages.map(function(row) { return row.id })}])
+      if (!actManyStarts) return false
       if (typeof completion === "function") completion({failedIds: [], tickets: []})
       return true
     }
@@ -615,6 +617,30 @@ Item {
       narrowRow.writing = true
       verify(!narrowRow.proposalCrowded, "no buttons showing, so nothing to make room for")
       narrowRow.writing = false
+    }
+
+    function test_snooze_from_an_older_mail_reaches_the_whole_bundle() {
+      seedBundle()
+      verify(tools.snooze("older", Date.now()+3600000))
+      var snoozes = backend.of("inbox.snooze")
+      compare(snoozes.length, 3, "every mail of the bundle")
+      for (var i = 0; i < snoozes.length; i++) snoozes[i].done({ok:true})
+      compare(tools.bundles.undoOffer.text, "Snoozed 3 messages")
+      tools.bundles.dismissUndo()
+    }
+
+    function test_a_helper_row_is_taken_back_when_mark_read_cannot_start() {
+      backend.ready = true
+      host.previewMessages = []
+      canvas.setRows([mail("front")])
+      tools.refresh()
+      waitAndAnswer({bundles:[{front:"front",covered:["far"]}],proposals:[]})
+      backend.answerAll("local.summaries", {summaries:[mail("far",{unread:true})]})
+      wait(0)
+      service.actManyStarts = false
+      tools.bundles.markRead("front")
+      service.actManyStarts = true
+      compare(host.previewMessages.length, 0)
     }
 
     function test_approved_senders_list_and_remove() {

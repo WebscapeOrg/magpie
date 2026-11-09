@@ -356,6 +356,68 @@ Item {
       tryVerify(function() { return mailService.current.actionStatus.indexOf("1 failed") >= 0 }, 3000, "said: " + mailService.current.actionStatus)
     }
 
+    function openOlderMail(account) {
+      account.messages = [row("front"), row("older"), row("alone")]
+      bundle(ada, "front", ["older"])
+      tryVerify(function() { return mailService.messages.length === 2 })
+      app.openMessage("front")
+      tryCompare(mailService, "selectedId", "front")
+      app.openMember("older")
+      tryCompare(mailService, "selectedId", "older")
+      compare(app.cursorId, "front")
+    }
+
+    function test_move_to_from_an_older_mail_moves_that_mail_even_if_the_list_changes() {
+      seed([entry(ada)], ada)
+      var account = mailService.accountAt(0)
+      openOlderMail(account)
+      findChild(app, "message-reader").actionRequested("moveToLabel")
+      compare(app.cursorId, "front", "the list cursor stays on the bundled row")
+      compare(app.labelPickerMember, "older")
+      account.messages = [row("newest")].concat(account.messages)
+      tryVerify(function() { return mailService.messages.length === 3 })
+      findChild(app, "label-picker").labelChosen("Label_1")
+      tryVerify(function() { return record.batches.length === 1 })
+      compare(record.batches[0], "older", "the chosen label reaches the mail it was pressed on")
+    }
+
+    function test_the_move_key_targets_the_open_older_mail_only_from_its_bundle() {
+      seed([entry(ada)], ada)
+      openOlderMail(mailService.accountAt(0))
+      app.runShortcut("moveToLabel", "v")
+      compare(app.labelPickerMember, "older")
+      app.cursorId = "alone"
+      app.runShortcut("moveToLabel", "v")
+      compare(app.labelPickerMember, "", "with the cursor elsewhere, the cursor's row is what moves")
+    }
+
+    function test_moving_only_the_front_mail_leaves_the_open_older_mail_open() {
+      seed([entry(ada)], ada)
+      openOlderMail(mailService.accountAt(0))
+      verify(app.actOnCursor("label:Label_1"))
+      tryVerify(function() { return record.batches.length === 1 })
+      compare(record.batches[0], "front")
+      wait(50)
+      compare(mailService.selectedId, "older", "the reader stays; nothing else is opened or marked read")
+    }
+
+    function test_a_helper_row_is_taken_back_when_the_action_cannot_start() {
+      seed([entry(ada)], ada)
+      var account = mailService.accountAt(0)
+      account.messages = [row("front"), row("alone")]
+      fixture.answers["local.summaries"] = {summaries: [row("older-unloaded")]}
+      bundle(ada, "front", ["older-unloaded"])
+      tryVerify(function() { return mailService.inboxTools.bundles.summaryOf(ada, "older-unloaded") !== undefined })
+      account.auth.loggedIn = false
+      tryCompare(account, "ready", false)
+      verify(!mailService.act("older-unloaded", "spam"))
+      verify(account.previewMessages.every(function(row) { return row.id !== "older-unloaded" }), "the helper row is gone")
+      app.cursorId = "front"
+      verify(!mailService.actMany(["front"], "archive"))
+      verify(account.previewMessages.every(function(row) { return row.id !== "older-unloaded" }), "also when a bundled action cannot start")
+      fixture.answers["local.summaries"] = undefined
+    }
+
     function test_stepping_in_the_reader_walks_the_bundle() {
       seed([entry(ada)], ada)
       var account = mailService.accountAt(0)

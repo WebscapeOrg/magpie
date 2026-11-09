@@ -399,6 +399,38 @@ impl Store {
             Ok(ids)
         })
     }
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn inbox_ids(&self) -> Result<std::collections::HashSet<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT message_id FROM labels WHERE label='INBOX'"))?;
+            sql(query.query_map([], |r| r.get(0)))?.map(sql).collect()
+        })
+    }
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn draft_threads(&self) -> Result<std::collections::HashSet<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT DISTINCT m.thread_id FROM labels l JOIN messages m ON m.id=l.message_id WHERE l.label='DRAFT' AND m.thread_id<>''"))?;
+            sql(query.query_map([], |r| r.get(0)))?.map(sql).collect()
+        })
+    }
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn label_id(&self, name: &str) -> Result<Option<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT id FROM label_names WHERE name=?1 COLLATE NOCASE"))?;
+            sql(query.query_row([name], |r| r.get(0)).optional())
+        })
+    }
+    #[cfg(test)]
+    pub(super) fn test_set_labels(&self, id: &str, labels: &Value) -> Result<()> {
+        self.write(|db| replace_labels(db, id, labels))
+    }
+    #[cfg(test)]
+    pub(super) fn test_set_label_name(&self, id: &str, name: &str) -> Result<()> {
+        self.write(|db| {
+            sql(db.execute("INSERT INTO label_names VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET name=excluded.name", params![id, name]))?;
+            Ok(())
+        })
+    }
     /// For each of `ids` found here, its thread and the newest message the owner sent in that thread
     /// (labelled SENT), so a Point is written again once the owner has answered.
     /// Sent mail is read once through the label index rather than once per thread, since threads

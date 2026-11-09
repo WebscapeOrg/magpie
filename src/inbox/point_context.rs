@@ -11,7 +11,7 @@ use super::{describe::ABOUT_YOU_LIMIT, store};
 use serde_json::{Value, json};
 
 const SENT: usize = 40;
-const INBOX: usize = 40;
+pub(super) const INBOX: usize = 40;
 const THREAD: usize = 6;
 const THREAD_CHARS: usize = 4000;
 const RELATED: usize = 6;
@@ -95,7 +95,7 @@ fn entry(summary: &Value, account: &str) -> Value {
     })
 }
 
-async fn listed(local_mail: &crate::local_mail::LocalMail, account: &str, query: &str, limit: usize) -> Vec<Value> {
+pub(super) async fn listed(local_mail: &crate::local_mail::LocalMail, account: &str, query: &str, limit: usize) -> Vec<Value> {
     let Ok(page) = local_mail
         .call("local.list", &json!({"accountId":account,"query":query,"limit":limit}))
         .await

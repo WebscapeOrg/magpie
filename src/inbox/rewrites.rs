@@ -32,7 +32,7 @@ fn key(sent: Option<&str>, todos: Option<&[String]>) -> Value {
 }
 
 /// The todos linked to an email, by its thread or its own Gmail id, sorted and once each.
-fn linked(links: &Value, id: &str, thread: &str) -> Vec<String> {
+pub(super) fn linked(links: &Value, id: &str, thread: &str) -> Vec<String> {
     let mut todos: Vec<String> = [format!("t:{thread}"), format!("g:{id}")]
         .iter()
         .flat_map(|name| links[name.as_str()].as_array().cloned().unwrap_or_default())

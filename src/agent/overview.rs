@@ -67,9 +67,14 @@ pub(crate) async fn generate(messages: &Value, context: &Value, tier: Tier) -> R
     })
     .await?;
     let writer = state.lock().await.1;
+    let wrote_with_claude = matches!(writer, "haiku" | "sonnet" | "opus");
     Ok(json!(rows.as_array().into_iter().flatten().map(|row| {
         let mut row = row.clone();
         row["personal"] = json!(true);
+        // Invariant: only a Claude writer's covers can bundle mail; Codex's or Gemini's answer never does.
+        if !wrote_with_claude && let Some(fields) = row.as_object_mut() {
+            fields.remove("covers");
+        }
         crate::inbox::point_details::merge(&mut row, &json!({"model": writer}));
         row
     }).collect::<Vec<_>>()))

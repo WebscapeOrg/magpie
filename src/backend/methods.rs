@@ -13,6 +13,11 @@ pub const ALL: &[&str] = &[
     "inbox.interview",
     "inbox.calendarAccess",
     "inbox.todoConnection",
+    "inbox.bundles",
+    "inbox.approveBundle",
+    "inbox.refuseBundle",
+    "inbox.approvedSenders",
+    "inbox.removeApprovedSender",
     "ai.spending",
     "inbox.snooze",
     "inbox.wake",
@@ -161,7 +166,7 @@ pub fn available() -> Vec<&'static str> {
         .filter(|method| {
             !matches!(
                 *method,
-                "inbox.pictureStatus" | "inbox.setPictureKey" | "inbox.removePictureKey" | "inbox.aboutYou" | "inbox.interview" | "inbox.calendarAccess" | "inbox.todoConnection" | "ai.spending"
+                "inbox.pictureStatus" | "inbox.setPictureKey" | "inbox.removePictureKey" | "inbox.aboutYou" | "inbox.interview" | "inbox.calendarAccess" | "inbox.todoConnection" | "inbox.bundles" | "inbox.approveBundle" | "inbox.refuseBundle" | "inbox.approvedSenders" | "inbox.removeApprovedSender" | "ai.spending"
             )
                 || cfg!(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))
         })

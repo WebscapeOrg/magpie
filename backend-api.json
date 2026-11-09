@@ -16,6 +16,11 @@
     "inbox.interview",
     "inbox.calendarAccess",
     "inbox.todoConnection",
+    "inbox.bundles",
+    "inbox.approveBundle",
+    "inbox.refuseBundle",
+    "inbox.approvedSenders",
+    "inbox.removeApprovedSender",
     "ai.spending",
     "inbox.snooze",
     "inbox.wake",
@@ -2521,6 +2526,57 @@
           }
         ]
       }
+    },
+    {
+      "name": "Inbox bundles refuse unknown accounts",
+      "method": "inbox.bundles",
+      "params": {
+        "accountId": "missing@example.org"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Inbox bundles reject unknown fields",
+      "method": "inbox.bundles",
+      "params": {
+        "accountId": "contract@example.org",
+        "extra": true
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox bundle approval rejects an unsafe message id",
+      "method": "inbox.approveBundle",
+      "params": {
+        "accountId": "contract@example.org",
+        "front": "bad\u0001id"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox bundle refusal rejects an empty selection",
+      "method": "inbox.refuseBundle",
+      "params": {
+        "accountId": "contract@example.org",
+        "ids": []
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox approved senders take no fields",
+      "method": "inbox.approvedSenders",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox approved sender removal requires an address and name",
+      "method": "inbox.removeApprovedSender",
+      "params": {
+        "name": "Courier"
+      },
+      "errorCode": -32602
     }
   ],
   "unreleased": {
@@ -2561,7 +2617,12 @@
       "draft.compose",
       "local.labelCounts",
       "backup.export",
-      "inbox.interview"
+      "inbox.interview",
+      "inbox.bundles",
+      "inbox.approveBundle",
+      "inbox.refuseBundle",
+      "inbox.approvedSenders",
+      "inbox.removeApprovedSender"
     ],
     "cases": [
       "Gmail send preview refuses missing authentication",
@@ -2664,7 +2725,13 @@
       "Inbox snapshot keeps an expired rewrite separate from new Point work",
       "Inbox snapshot keeps download and analysis activity separate",
       "Inbox snapshot preserves reported context tokens",
-      "Inbox snapshot carries a Point's models, effort and estimated API cost"
+      "Inbox snapshot carries a Point's models, effort and estimated API cost",
+      "Inbox bundles refuse unknown accounts",
+      "Inbox bundles reject unknown fields",
+      "Inbox bundle approval rejects an unsafe message id",
+      "Inbox bundle refusal rejects an empty selection",
+      "Inbox approved senders take no fields",
+      "Inbox approved sender removal requires an address and name"
     ]
   },
   "releasedContract": {

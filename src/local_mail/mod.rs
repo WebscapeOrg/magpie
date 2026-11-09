@@ -99,6 +99,39 @@ impl LocalMail {
         let store = self.store(account).await?;
         sync::disk(&store, |store| store.overview_candidates()).await
     }
+    /// Every message of the account labelled INBOX, whether or not its text has arrived.
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(crate) async fn inbox_ids(&self, account: &str) -> Result<std::collections::HashSet<String>, &'static str> {
+        let store = self.store(account).await?;
+        sync::disk(&store, |store| store.inbox_ids()).await
+    }
+    /// The threads of the account holding an unsent draft.
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(crate) async fn draft_threads(&self, account: &str) -> Result<std::collections::HashSet<String>, &'static str> {
+        let store = self.store(account).await?;
+        sync::disk(&store, |store| store.draft_threads()).await
+    }
+    /// The id of the label named `name`, ignoring case; None when the copy does not know it.
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(crate) async fn label_id(&self, account: &str, name: &str) -> Result<Option<String>, &'static str> {
+        let store = self.store(account).await?;
+        let name = name.to_owned();
+        sync::disk(&store, move |store| store.label_id(&name)).await
+    }
+    /// Changes a message's labels as a sync would, for tests of mail moving between folders.
+    #[cfg(test)]
+    pub(crate) async fn test_set_labels(&self, account: &str, id: &str, labels: Value) -> Result<(), &'static str> {
+        let store = self.store(account).await?;
+        let id = id.to_owned();
+        sync::disk(&store, move |store| store.test_set_labels(&id, &labels)).await
+    }
+    /// Records a Gmail label's name, as a label listing does, for tests that need one.
+    #[cfg(test)]
+    pub(crate) async fn test_set_label_name(&self, account: &str, id: &str, name: &str) -> Result<(), &'static str> {
+        let store = self.store(account).await?;
+        let (id, name) = (id.to_owned(), name.to_owned());
+        sync::disk(&store, move |store| store.test_set_label_name(&id, &name)).await
+    }
     /// For each of `ids` in the account, its thread and the newest message the owner sent in it.
     #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     pub(crate) async fn replies(

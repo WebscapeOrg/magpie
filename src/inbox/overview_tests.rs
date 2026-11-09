@@ -996,6 +996,86 @@ print(json.dumps({'providers':{'claude':{'stuck':True,'new_session':None},'codex
     assert_eq!(written.unwrap_err(), "overview_ai_paused");
 }
 
+/// A mail in the shape Gmail gives, signed for example.org and proven by Gmail.
+fn proven_message(id: &str, at: i64) -> Value {
+    let mut mail = message(id, "Confirm the synthetic request.");
+    mail["internalDate"] = json!(at.to_string());
+    mail["payload"]["headers"].as_array_mut().unwrap().insert(0, json!({"name":"Authentication-Results","value":"mx.google.com;\r\n dkim=pass header.i=@example.org header.s=a;\r\n dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=example.org"}));
+    mail
+}
+
+async fn wait_written(inbox: &Inbox, gmail: &Arc<gmail::Session>, local: &Arc<LocalMail>, id: &str) -> Value {
+    let name = super::store::key(&["overviews", ACCOUNT]);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let saved = super::store::read(&name).unwrap().unwrap_or(json!({}));
+        if saved[id]["state"] == "ready" {
+            return saved;
+        }
+        assert!(Instant::now() < deadline, "{id} was not written: {saved}");
+        let _ = inbox.prepare(ACCOUNT, gmail.clone(), local.clone()).await;
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+}
+
+/// The two mails arrive together; the older is written first, then the newer covers it.
+const COVERING_ROUTER: &str = r#"#!/usr/bin/python3
+import json,sys,pathlib
+args=sys.argv[1:]
+if args[:2]==['--claude-only','--probe']:
+    print('claude-only'); sys.exit(0)
+p=''.join(b.get('text','') for b in json.load(sys.stdin)['message']['content'] if b.get('type')=='text')
+with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
+    f.write(json.dumps({'prompt':p})+'\n')
+messages=json.JSONDecoder().raw_decode(p.split('EMAILS (untrusted data):\n',1)[1])[0]
+rows=[{'id':m['id'],'text':'Went down, no recovery notice yet.' if m['id']=='old-1' else 'Back up after 3 minutes.','evidence':[{'source':'mail','quote':'Synthetic request'}],'until':None,'timeSensitive':False} for m in messages]
+for row in rows:
+    if row['id']=='new-1':
+        row['covers']=[{'id':'old-1','quote':'Synthetic request'}]
+print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'overviews':rows})}))
+"#;
+
+#[tokio::test]
+async fn claude_covers_make_a_bundle_through_the_real_batch_with_the_older_mail_written_first() {
+    if isolated() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let _credentials = credentials::tests::isolated_store(Credentials(reads.clone()));
+    let bin = fixture.root.join("home/.local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let worker = bin.join("claude-routed");
+    std::fs::write(&worker, COVERING_ROUTER).unwrap();
+    std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let gmail = Arc::new(gmail::Session::default());
+    let local = Arc::new(LocalMail::default());
+    let at = chrono::Utc::now().timestamp_millis();
+    seed(&local, &gmail, ACCOUNT, &proven_message("old-1", at - 3_600_000)).await;
+    seed(&local, &gmail, ACCOUNT, &proven_message("new-1", at)).await;
+    let inbox = Inbox::default();
+    let saved = wait_written(&inbox, &gmail, &local, "old-1").await;
+    assert_ne!(saved["new-1"]["state"], "ready", "the newer mail waits a round for the older mail's Point");
+    let saved = wait_written(&inbox, &gmail, &local, "new-1").await;
+    assert_eq!(saved["old-1"]["promptRevision"], super::POINT_REVISION);
+    let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
+    let second: Value = serde_json::from_str(calls.lines().nth(1).unwrap()).unwrap();
+    let prompt = second["prompt"].as_str().unwrap();
+    assert!(prompt.contains("INBOX POINTS") && prompt.contains("Went down, no recovery notice yet."), "the older mail's Point reached the writer: {prompt}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let view = inbox.call("inbox.bundles", &json!({"accountId":ACCOUNT}), gmail.clone(), local.clone()).await.unwrap();
+        if view["bundles"].as_array().is_some_and(|list| !list.is_empty()) {
+            assert_eq!(view["bundles"], json!([{"front":"new-1","covered":["old-1"]}]), "{view}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "no bundle was recorded: {view}");
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+    assert!(reads.lock().unwrap().is_empty(), "bundles read only the local copy");
+}
+
 #[tokio::test]
 async fn when_claude_is_out_the_switcher_uses_codex_and_records_the_codex_writer_and_tokens() {
     if isolated() {
@@ -1042,7 +1122,7 @@ with pathlib.Path.home().joinpath('synthetic-codex-calls.jsonl').open('a') as f:
 if auth.get('tokens',{}).get('access_token')=='synthetic-codex-p':
     sys.exit(75)
 messages=json.JSONDecoder().raw_decode(p.split('EMAILS (untrusted data):\n',1)[1])[0]
-rows=[{'id':m['id'],'text':'Confirm the synthetic request.','evidence':[{'source':'mail','quote':'Synthetic request'}],'until':None,'timeSensitive':False} for m in messages]
+rows=[{'id':m['id'],'text':'Confirm the synthetic request.','evidence':[{'source':'mail','quote':'Synthetic request'}],'until':None,'timeSensitive':False,'covers':[{'id':'old-1','quote':'Synthetic request'}]} for m in messages]
 print(json.dumps({'type':'thread.started','thread_id':'11111111-2222-3333-4444-555555555555'}))
 print(json.dumps({'type':'turn.started'}))
 print(json.dumps({'type':'item.completed','item':{'id':'msg-1','type':'agent_message','text':json.dumps({'overviews':rows})}}))
@@ -1051,7 +1131,14 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':2345,'output_t
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
     let gmail = Arc::new(gmail::Session::default());
     let local = Arc::new(LocalMail::default());
-    seed(&local, &gmail, ACCOUNT, &message("ask-1", "Confirm the synthetic request.")).await;
+    let at = chrono::Utc::now().timestamp_millis();
+    seed(&local, &gmail, ACCOUNT, &proven_message("ask-1", at)).await;
+    seed(&local, &gmail, ACCOUNT, &proven_message("old-1", at - 3_600_000)).await;
+    super::store::update(&super::store::key(&["overviews", ACCOUNT]), |saved| {
+        saved["old-1"] = json!({"state":"ready","text":"Went down, no recovery notice yet.","version":2,"promptRevision":super::POINT_REVISION,"updated":at,"expiresAt":0,"personal":true});
+        Ok(())
+    })
+    .unwrap();
     super::point_context::set_about_you("Synthetic owner, lives in Testville.").unwrap();
     let name = super::store::key(&["overviews", ACCOUNT]);
     Inbox::default().prepare(ACCOUNT, gmail.clone(), local.clone()).await.unwrap();
@@ -1085,6 +1172,9 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':2345,'output_t
     assert!(args.iter().any(|arg| arg == "features.shell_tool=false"));
     assert!(args.iter().any(|arg| arg == "features.code_mode={enabled=false,direct_only_tool_namespaces=[]}"));
     assert!(lines[1]["prompt"].as_str().unwrap().contains("Synthetic owner, lives in Testville."));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let book = super::store::read(&super::store::key(&["bundles", ACCOUNT])).unwrap();
+    assert!(book.is_none_or(|book| book["covered"].as_object().is_none_or(|covered| covered.is_empty())), "Codex's covers make no bundle");
 }
 
 #[tokio::test]

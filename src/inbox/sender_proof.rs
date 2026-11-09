@@ -60,7 +60,7 @@ pub(super) fn sender(raw: &Value) -> Option<Sender> {
 }
 
 fn invisible_or_reordering(character: char) -> bool {
-    matches!(character, '\u{ad}' | '\u{34f}' | '\u{61c}' | '\u{115f}'..='\u{1160}' | '\u{17b4}'..='\u{17b5}' | '\u{180b}'..='\u{180f}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{3164}' | '\u{fe00}'..='\u{fe0f}' | '\u{feff}' | '\u{ffa0}' | '\u{fff9}'..='\u{fffb}' | '\u{1d173}'..='\u{1d17a}' | '\u{e0000}'..='\u{e0fff}')
+    matches!(character, '\u{ad}' | '\u{34f}' | '\u{600}'..='\u{605}' | '\u{61c}' | '\u{6dd}' | '\u{70f}' | '\u{890}'..='\u{891}' | '\u{8e2}' | '\u{115f}'..='\u{1160}' | '\u{17b4}'..='\u{17b5}' | '\u{180b}'..='\u{180f}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{3164}' | '\u{fe00}'..='\u{fe0f}' | '\u{feff}' | '\u{ffa0}' | '\u{fff9}'..='\u{fffb}' | '\u{110bd}' | '\u{110cd}' | '\u{13430}'..='\u{1343f}' | '\u{1bca0}'..='\u{1bca3}' | '\u{1d173}'..='\u{1d17a}' | '\u{e0000}'..='\u{e0fff}')
 }
 
 fn single(values: Vec<&str>) -> Option<&str> {
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn an_address_that_hides_or_reorders_characters_is_not_a_sender() {
-        for address in ["news\u{202e}elpmaxe.knab@bank.example", "news\u{200b}@bank.example", "news\u{2066}@bank.example", "news@ba\u{feff}nk.example", "news\u{34f}@bank.example", "news\u{2028}@bank.example", "news\u{3164}@bank.example", "news\u{fe0f}@bank.example", "news\u{fff9}@bank.example", "news\u{e0041}@bank.example"] {
+        for address in ["news\u{202e}elpmaxe.knab@bank.example", "news\u{200b}@bank.example", "news\u{2066}@bank.example", "news@ba\u{feff}nk.example", "news\u{34f}@bank.example", "news\u{2028}@bank.example", "news\u{3164}@bank.example", "news\u{fe0f}@bank.example", "news\u{fff9}@bank.example", "news\u{e0041}@bank.example", "news\u{6dd}@bank.example", "news\u{13430}@bank.example"] {
             let from = format!("Bank <{address}>");
             assert!(sender(&mail(json!([{"name":"From","value":from}]))).is_none(), "{address:?}");
         }

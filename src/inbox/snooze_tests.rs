@@ -521,6 +521,32 @@ async fn undo_of_a_snooze_made_elsewhere_gives_sent_mail_no_inbox() {
 }
 
 #[tokio::test]
+async fn undo_returns_mail_a_retry_found_under_the_snoozes_own_label() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"])]);
+    let until = now() + 24 * HOUR;
+    fake.with(|mailbox| mailbox.refuse_modify = true);
+    assert_eq!(snooze_at(&fake, "a", until).await, Err("snooze_pending_retry"));
+    fake.with(|mailbox| mailbox.refuse_modify = false);
+    assert_eq!(row("a").unwrap()["inbox"], json!(["a"]));
+    arrives_in_inbox(&fake, "b");
+    let label = fake.label_id(&slot(until).unwrap().1).expect("the failed snooze made its label");
+    fake.tag(&["a", "b"], &[&label], &["INBOX"]);
+    call("inbox.tick", &json!({}), &fake).await.unwrap();
+    let confirmed = row("a").unwrap();
+    assert_eq!(confirmed["state"], "sleeping");
+    assert_eq!(confirmed["ids"], json!(["a", "b"]));
+    assert!(confirmed.get("inbox").is_none(), "{confirmed}");
+    undo_a_new_snooze_of(&fake, "c", until).await;
+    for id in ["a", "b", "c"] {
+        assert!(fake.labels_of(id).contains(&"INBOX".to_owned()), "{id}: {:?}", fake.labels_of(id));
+    }
+}
+
+#[tokio::test]
 async fn a_snooze_that_cannot_read_the_labels_saves_no_list_of_inbox_mail() {
     if crate::mail::tests::isolated() {
         return;

@@ -709,7 +709,14 @@ async fn retry(gmail: &impl Mail, account: &str, key: &str, row: &Value, known: 
         .find(|slot| slot.name.eq_ignore_ascii_case(&name))
     {
         // The earlier change reached Gmail; only its answer was lost.
-        fresh["ids"] = json!(thread.ids(|message, mid| has(message, &own.id) || wanted(message, mid)).unwrap_or_default());
+        let found = thread.ids(|message, mid| has(message, &own.id) || wanted(message, mid)).unwrap_or_default();
+        // Invariant: a list of Inbox mail cannot speak for mail added to the snooze after it was written.
+        if stored.as_ref().is_none_or(|stored| found.iter().any(|mid| !stored.contains(mid.as_str()))) {
+            if let Some(fields) = fresh.as_object_mut() {
+                fields.remove("inbox");
+            }
+        }
+        fresh["ids"] = json!(found);
         record(key, fresh)?;
         return confirm(key, &name, &own.id);
     }

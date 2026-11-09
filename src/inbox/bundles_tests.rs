@@ -215,6 +215,46 @@ async fn another_accounts_mail_is_refused_even_when_the_id_exists_in_both() {
 }
 
 #[tokio::test]
+async fn a_quote_from_the_other_accounts_copy_of_the_same_id_is_refused() {
+    if isolated() {
+        return;
+    }
+    let world = World::new();
+    world.seed_point(OTHER, &down("shared-id", NOW - HOUR), json!({})).await;
+    let mine = mail("shared-id", "shared-id", NOW - HOUR, ROBOT, Some(&gmail_says("uptimerobot.example")), &["INBOX", "UNREAD"], "Unrelated invoice for October");
+    world.seed_point(ACCOUNT, &mine, json!({})).await;
+    let mut context = world.context().await;
+    // Both copies are shown and this account's has a Point; the other account's copy comes first.
+    context["inbox"].as_array_mut().unwrap().sort_by_key(|entry| entry["account"] != OTHER);
+    assert_eq!(context["inbox"][0]["account"], OTHER);
+    let newer = up("up-1", NOW);
+    let view = world.write_with_context(ACCOUNT, &newer, world.covers("shared-id"), context.clone()).await;
+    assert_separate(&view, "a quote that only the other account's copy contains");
+    let own_quote = json!([{"id":"shared-id","quote":"unrelated invoice for october"}]);
+    let view = world.write_with_context(ACCOUNT, &newer, own_quote, context).await;
+    assert_bundle(&view, "up-1", &["shared-id"]);
+}
+
+#[tokio::test]
+async fn a_date_in_the_writers_context_never_outweighs_the_date_in_gmails_copy() {
+    if isolated() {
+        return;
+    }
+    let world = World::new();
+    world.seed_point(ACCOUNT, &down("equal", NOW), json!({})).await;
+    world.seed_point(ACCOUNT, &down("newer-than-front", NOW + HOUR), json!({})).await;
+    let newer = up("up-1", NOW);
+    let mut context = world.context().await;
+    for entry in context["inbox"].as_array_mut().unwrap() {
+        entry["date"] = json!("2000-01-01T00:00:00Z");
+    }
+    let view = world.write_with_context(ACCOUNT, &newer, world.covers("equal"), context.clone()).await;
+    assert_separate(&view, "the same time in Gmail's copy");
+    let view = world.write_with_context(ACCOUNT, &newer, world.covers("newer-than-front"), context).await;
+    assert_separate(&view, "later than the front in Gmail's copy");
+}
+
+#[tokio::test]
 async fn a_mail_not_shown_the_mail_itself_and_a_bad_or_trivial_quote_are_refused() {
     if isolated() {
         return;

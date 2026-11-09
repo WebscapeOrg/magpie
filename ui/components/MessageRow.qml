@@ -437,11 +437,18 @@ Rectangle {
       clip: root.proposalCrowded
       implicitHeight: Math.max(bundleQuestion.implicitHeight, bundleApprove.implicitHeight)
 
+      // The question's width on one line; a wrapping Text's implicitWidth depends on its own width.
+      TextMetrics {
+        id: bundleQuestionMetrics
+        font: bundleQuestion.font
+        text: bundleQuestion.text
+      }
+
       // Counts the question's lines without the tools; the question keeps that many when they appear, so the row stays the same height.
       Text {
         id: bundleQuestionAtRest
         visible: false
-        width: Math.max(0, Math.min(implicitWidth, bundleLane.parent.width - bundleApprove.implicitWidth - bundleDismiss.implicitWidth - 2 * MailStyle.space(10)))
+        width: Math.max(0, Math.min(Math.ceil(bundleQuestionMetrics.advanceWidth), bundleLane.parent.width - bundleApprove.implicitWidth - bundleDismiss.implicitWidth - 2 * MailStyle.space(10)))
         textFormat: Text.PlainText
         text: actions.visible ? bundleQuestion.text : ""
         font: bundleQuestion.font
@@ -456,7 +463,7 @@ Rectangle {
           id: bundleQuestion
           objectName: "bundle-question"
           anchors.verticalCenter: parent.verticalCenter
-          width: Math.max(0, Math.min(implicitWidth, bundleLane.width - bundleApprove.implicitWidth - bundleDismiss.implicitWidth - 2 * parent.spacing))
+          width: Math.max(0, Math.min(Math.ceil(bundleQuestionMetrics.advanceWidth), bundleLane.width - bundleApprove.implicitWidth - bundleDismiss.implicitWidth - 2 * parent.spacing))
           textFormat: Text.PlainText
           text: root.summary.bundleQuestion || "Bundle these?"
           color: root.secondaryTextColor

@@ -578,9 +578,12 @@ Item {
       tools.refresh()
       var offerState = {bundles:[],proposals:[{front:"newer",covered:["other"],sender:{email:"a@b.c",name:"A"}}]}
       waitAndAnswer(offerState)
+      while (backend.answerAll("inbox.bundles", offerState) > 0) wait(0)
       verify(tools.bundles.approve("newer"))
       tools.bundles.refresh(host.accountId)
-      var stale = backend.of("inbox.bundles").filter(function(call) { return !call.answered })[0]
+      var waiting = backend.of("inbox.bundles").filter(function(call) { return !call.answered })
+      compare(waiting.length, 1, "a request sent after the tap, before the engine has written it")
+      var stale = waiting[0]
       backend.of("inbox.approveBundle")[0].done({bundles:[{front:"newer",covered:["other"]}],proposals:[]})
       wait(0)
       compare(service.messages.length, 1)

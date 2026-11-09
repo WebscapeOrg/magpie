@@ -141,7 +141,10 @@ impl Facts {
         self.summary["threadId"].as_str().unwrap_or("")
     }
     fn labelled(&self, label: &str) -> bool {
-        self.summary["labelIds"].as_array().is_some_and(|labels| labels.iter().any(|found| found == label))
+        self.labels().any(|found| found == label)
+    }
+    fn labels(&self) -> impl Iterator<Item = &str> {
+        self.summary["labelIds"].as_array().into_iter().flatten().filter_map(Value::as_str)
     }
     fn from_owner(&self) -> Option<&str> {
         self.sender.as_ref().map(|sender| sender.email.as_str())
@@ -159,24 +162,35 @@ async fn facts(account: &str, id: &str, local_mail: &LocalMail) -> Option<Facts>
 /// What decides whether a mail may be hidden, read once for a round.
 struct Guards {
     owners: HashSet<String>,
-    links: Option<Value>,
+    links: Value,
     returned: Option<String>,
+    named_labels: HashSet<String>,
+    returned_unmarked: HashSet<String>,
     drafts: HashSet<String>,
     saved: Value,
     at: i64,
 }
 
 impl Guards {
-    async fn load(account: &str, local_mail: &LocalMail) -> Self {
+    /// None when anything that decides whether a mail may be hidden could not be read, so that
+    /// nothing is hidden on a guess.
+    async fn load(account: &str, local_mail: &LocalMail) -> Option<Self> {
         let at = now();
-        Self {
-            owners: owner_addresses(),
-            links: todos::links(at),
-            returned: local_mail.label_id(account, RETURNED_LABEL).await.ok().flatten(),
-            drafts: local_mail.draft_threads(account).await.unwrap_or_default(),
-            saved: store::read(&store::key(&["overviews", account])).ok().flatten().unwrap_or_else(|| json!({})),
+        let links = match todos::link_state(at) {
+            todos::LinkState::NotConnected => json!({}),
+            todos::LinkState::Known(links) => links,
+            todos::LinkState::Unknown => return None,
+        };
+        Some(Self {
+            owners: owner_addresses()?,
+            links,
+            returned: local_mail.label_id(account, RETURNED_LABEL).await.ok()?,
+            named_labels: local_mail.known_label_ids(account).await.ok()?,
+            returned_unmarked: super::snooze::returned_unmarked(account).ok()?,
+            drafts: local_mail.draft_threads(account).await.ok()?,
+            saved: store::read(&store::key(&["overviews", account])).ok()?.unwrap_or_else(|| json!({})),
             at,
-        }
+        })
     }
     /// A current Point for the older mail, written under today's rules so its end date is known.
     fn point_written(&self, id: &str) -> bool {
@@ -186,9 +200,10 @@ impl Guards {
 }
 
 /// The accounts on this device and their aliases, lower-cased.
-fn owner_addresses() -> HashSet<String> {
+fn owner_addresses() -> Option<HashSet<String>> {
     let mut owners = HashSet::new();
-    for account in crate::account::list_readonly().ok().as_ref().and_then(|list| list["accounts"].as_array()).map(Vec::as_slice).unwrap_or_default() {
+    let list = crate::account::list_readonly().ok()?;
+    for account in list["accounts"].as_array()? {
         if let Some(id) = account["id"].as_str() {
             owners.insert(id.to_lowercase());
         }
@@ -198,7 +213,7 @@ fn owner_addresses() -> HashSet<String> {
             }
         }
     }
-    owners
+    Some(owners)
 }
 
 /// Why a mail may never be hidden behind another, whatever the writer says; None when it may be.
@@ -221,13 +236,17 @@ fn never_hidden(mail: &Facts, guards: &Guards) -> Option<&'static str> {
     if invitation(&mail.raw["payload"], 0, &mut 4000) {
         return Some("invitation");
     }
-    if guards.returned.as_deref().is_some_and(|label| mail.labelled(label)) {
+    if guards.returned.as_deref().is_some_and(|label| mail.labelled(label)) || guards.returned_unmarked.contains(&mail.id) {
         return Some("snooze_returned");
+    }
+    // Invariant: a label this copy cannot name could be the return mark, so the mail stays in view.
+    if mail.labels().any(|label| label.starts_with("Label_") && !guards.named_labels.contains(label)) {
+        return Some("unnamed_label");
     }
     if !mail.thread().is_empty() && guards.drafts.contains(mail.thread()) {
         return Some("reply_draft");
     }
-    if guards.links.as_ref().is_some_and(|links| !rewrites::linked(links, &mail.id, mail.thread()).is_empty()) {
+    if !rewrites::linked(&guards.links, &mail.id, mail.thread()).is_empty() {
         return Some("todo");
     }
     if guards.saved[mail.id.as_str()]["untilAt"].as_i64().is_some_and(|until| until > guards.at) {
@@ -250,10 +269,16 @@ fn decide(front: &Sender, older: Option<&Sender>, approved: &[Value]) -> Decisio
     if !front.proven {
         return Decision::Separate;
     }
-    if older.is_some_and(|older| older.proven && front.same_as(older)) || is_approved(front, approved) {
-        return Decision::Cover;
+    // Invariant: the older mail must be proven too, whoever asks: without Gmail's check of who sent
+    // what goes behind it nothing is hidden, and nothing is offered that a tap could never bundle.
+    let Some(older) = older.filter(|older| older.proven) else {
+        return Decision::Separate;
+    };
+    if front.same_as(older) || is_approved(front, approved) {
+        Decision::Cover
+    } else {
+        Decision::Propose
     }
-    Decision::Propose
 }
 
 fn sender_key(sender: &Sender) -> Value {
@@ -272,6 +297,9 @@ pub(super) fn approved_senders() -> Result<Vec<Value>, &'static str> {
 
 fn approve_sender(sender: &Sender, at: i64) -> Result<(), &'static str> {
     store::update(&approved_key(), |saved| {
+        if !saved.is_object() {
+            *saved = json!({});
+        }
         let mut senders = saved["senders"].as_array().cloned().unwrap_or_default();
         if !is_approved(sender, &senders) {
             let mut entry = sender_key(sender);
@@ -340,7 +368,7 @@ pub(super) async fn record(account: &str, rows: &Value, incarnation: &str, local
         return;
     }
     let Ok(inbox) = local_mail.inbox_ids(account).await else { return };
-    let guards = Guards::load(account, local_mail).await;
+    let Some(guards) = Guards::load(account, local_mail).await else { return };
     let approved = approved_senders().unwrap_or_default();
     let mut claims = Vec::new();
     for row in wanted {
@@ -485,14 +513,14 @@ fn mark_for_rewrite(account: &str, released: &[String]) -> Result<(), &'static s
 }
 
 /// The covered mail that may no longer be hidden, and the proposals that may now be automatic.
-async fn survey(book: &Book, account: &str, inbox: &HashSet<String>, approved: &[Value], local_mail: &LocalMail) -> (HashSet<String>, Vec<Claim>) {
-    let guards = Guards::load(account, local_mail).await;
+async fn survey(book: &Book, account: &str, inbox: &HashSet<String>, approved: &[Value], local_mail: &LocalMail) -> Option<(HashSet<String>, Vec<Claim>)> {
+    let guards = Guards::load(account, local_mail).await?;
     let mut blocked = HashSet::new();
     let older_mail: Vec<String> = section(book, "covered").keys().chain(section(book, "proposals").keys()).filter(|id| inbox.contains(*id)).cloned().collect();
     for id in older_mail {
-        if let Some(older) = facts(account, &id, local_mail).await
-            && never_hidden(&older, &guards).is_some()
-        {
+        // Invariant: a mail whose local copy cannot be read cannot be shown to be safe to hide.
+        let may_hide = facts(account, &id, local_mail).await.is_some_and(|older| never_hidden(&older, &guards).is_none());
+        if !may_hide {
             blocked.insert(id);
         }
     }
@@ -503,11 +531,12 @@ async fn survey(book: &Book, account: &str, inbox: &HashSet<String>, approved: &
             continue;
         }
         let (Some(older), Some(front)) = (facts(account, older_id, local_mail).await, facts(account, front_id, local_mail).await) else { continue };
-        if front.sender.as_ref().is_some_and(|sender| sender.proven && is_approved(sender, approved)) && older.date < front.date {
+        let older_proven = older.sender.as_ref().is_some_and(|sender| sender.proven);
+        if older_proven && front.sender.as_ref().is_some_and(|sender| sender.proven && is_approved(sender, approved)) && older.date < front.date {
             converted.push(Claim { older: older_id.clone(), front: front_id.to_owned(), older_date: older.date, front_date: front.date, sender: None });
         }
     }
-    (blocked, converted)
+    Some((blocked, converted))
 }
 
 /// Settles the account's record against the Inbox now and returns what the clients show.
@@ -515,7 +544,10 @@ async fn list_settled(account: &str, local_mail: &LocalMail) -> Result<Value, &'
     let inbox = local_mail.inbox_ids(account).await?;
     let approved = approved_senders()?;
     let book = read_book(account)?;
-    let (blocked, converted) = survey(&book, account, &inbox, &approved, local_mail).await;
+    // Invariant: while a guard cannot be read nothing is hidden, and the record is left as it is.
+    let Some((blocked, converted)) = survey(&book, account, &inbox, &approved, local_mail).await else {
+        return Ok(json!({"bundles":[],"proposals":[]}));
+    };
     let at = now();
     let mut settled = book.clone();
     let released = settle(&mut settled, &inbox, &blocked, converted.clone(), at);
@@ -523,7 +555,9 @@ async fn list_settled(account: &str, local_mail: &LocalMail) -> Result<Value, &'
     if settled == book {
         return Ok(json!({"bundles":resolved(&settled, &inbox),"proposals":proposals_view(&settled, &inbox)}));
     }
-    let (view, released) = crate::account::with_incarnation(None, |_| {
+    // Asked before the record changes, so a failure here is tried again at the next list.
+    mark_for_rewrite(account, &released)?;
+    let (view, also_released) = crate::account::with_incarnation(None, |_| {
         crate::mail::resolve_account(account)?;
         store::update(&book_key(account), |value| {
             let book = value.as_object_mut().ok_or("inbox_storage_invalid")?;
@@ -531,7 +565,7 @@ async fn list_settled(account: &str, local_mail: &LocalMail) -> Result<Value, &'
             Ok((json!({"bundles":resolved(book, &inbox),"proposals":proposals_view(book, &inbox)}), released))
         })
     })?;
-    mark_for_rewrite(account, &released)?;
+    mark_for_rewrite(account, &also_released)?;
     Ok(view)
 }
 
@@ -608,6 +642,9 @@ pub(super) async fn call(method: &str, params: &Value, local_mail: &LocalMail) -
             let email = params["email"].as_str().filter(|email| !email.is_empty() && email.len() <= 320).ok_or("invalid_params")?.to_lowercase();
             let name = params["name"].as_str().ok_or("invalid_params")?;
             store::update(&approved_key(), |saved| {
+                if !saved.is_object() {
+                    *saved = json!({});
+                }
                 let mut senders = saved["senders"].as_array().cloned().unwrap_or_default();
                 senders.retain(|entry| !(entry["email"] == email.as_str() && entry["name"] == name));
                 saved["senders"] = json!(senders);

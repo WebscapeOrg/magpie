@@ -105,6 +105,12 @@ impl LocalMail {
         let store = self.store(account).await?;
         sync::disk(&store, |store| store.inbox_ids()).await
     }
+    /// The ids of the labels whose names this copy knows.
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(crate) async fn known_label_ids(&self, account: &str) -> Result<std::collections::HashSet<String>, &'static str> {
+        let store = self.store(account).await?;
+        sync::disk(&store, |store| store.known_label_ids()).await
+    }
     /// The threads of the account holding an unsent draft.
     #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     pub(crate) async fn draft_threads(&self, account: &str) -> Result<std::collections::HashSet<String>, &'static str> {

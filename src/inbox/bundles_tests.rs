@@ -340,7 +340,7 @@ async fn a_faked_sender_is_never_automatic() {
     world.seed_point(ACCOUNT, &unproven, json!({})).await;
     let view = world.write(&up("up-1", NOW), world.covers("old-unproven")).await;
     assert_eq!(view["bundles"], json!([]), "a proven newer mail never automatically hides an unproven older one: {view}");
-    assert_eq!(view["proposals"][0]["front"], "up-1", "it is offered instead");
+    assert_eq!(view["proposals"], json!([]), "a tap could never bundle it, so it is not offered: {view}");
 }
 
 #[tokio::test]
@@ -512,6 +512,99 @@ async fn a_stranger_goes_in_front_of_someone_elses_mail_only_after_approval_and_
     let third = mail("carrier-3", "carrier-3", NOW + 2 * HOUR, "Courier <news@courier.example>", Some(&gmail_says("courier.example")), &["INBOX"], "Monitor is UP: example.com");
     let view = world.write(&third, world.covers("carol")).await;
     assert_eq!(view["proposals"].as_array().unwrap().len(), 1, "{view}");
+}
+
+#[tokio::test]
+async fn an_approved_sender_hides_only_mail_gmail_proved_and_offers_nothing_it_could_not_bundle() {
+    if isolated() {
+        return;
+    }
+    let world = World::new();
+    let courier = |id: &str, at: i64| mail(id, id, at, "Courier <news@courier.example>", Some(&gmail_says("courier.example")), &["INBOX"], "Monitor is UP: example.com");
+    world.seed_point(ACCOUNT, &down("alice", NOW - 2 * HOUR), json!({})).await;
+    world.write(&courier("carrier-1", NOW), world.covers("alice")).await;
+    world.inbox_call("inbox.approveBundle", json!({"accountId":ACCOUNT,"front":"carrier-1"})).await.unwrap();
+    let mut unproven = down("no-proof", NOW - HOUR);
+    unproven["payload"]["headers"].as_array_mut().unwrap().retain(|header| header["name"] != "Authentication-Results");
+    world.seed_point(ACCOUNT, &unproven, json!({})).await;
+    let two = mail("two-senders", "two-senders", NOW - HOUR, "A <a@x.example>, B <b@y.example>", Some(&gmail_says("x.example")), &["INBOX"], "Monitor is DOWN: example.com");
+    world.seed_point(ACCOUNT, &two, json!({})).await;
+    let view = world.write(&courier("carrier-2", NOW + HOUR), json!([{"id":"no-proof","quote":quote()},{"id":"two-senders","quote":quote()}])).await;
+    assert_eq!(view["bundles"], json!([{"front":"carrier-1","covered":["alice"]}]), "{view}");
+    assert_eq!(view["proposals"], json!([]), "a tap could never bundle these, so no tap is offered: {view}");
+    let again = world.list(ACCOUNT).await;
+    assert_eq!(again["bundles"], view["bundles"], "a later list never makes them automatic: {again}");
+    assert_eq!(again["proposals"], json!([]), "{again}");
+}
+
+#[tokio::test]
+async fn while_the_todo_list_is_unknown_nothing_is_hidden_and_the_record_is_kept() {
+    if isolated() {
+        return;
+    }
+    let world = World::new();
+    world.seed_point(ACCOUNT, &down("down-1", NOW - HOUR), json!({})).await;
+    assert_bundle(&world.write(&up("up-1", NOW), world.covers("down-1")).await, "up-1", &["down-1"]);
+    let at = now();
+    let saved = store::key(&["todos", "atlas"]);
+    store::write(&saved, &json!({"read":at - 2 * 86_400_000,"state":"unavailable","links":{}})).unwrap();
+    assert_separate(&world.list(ACCOUNT).await, "a to-do list last read two days ago");
+    store::write(&saved, &json!({"read":null,"state":"unauthorized","links":null})).unwrap();
+    assert_separate(&world.list(ACCOUNT).await, "a refused to-do list");
+    store::write(&saved, &json!({"read":at - 60_000,"state":"ready","links":{}})).unwrap();
+    assert_bundle(&world.list(ACCOUNT).await, "up-1", &["down-1"]);
+    store::write(&saved, &json!({"read":null,"state":"off","todos":[]})).unwrap();
+    assert_bundle(&world.list(ACCOUNT).await, "up-1", &["down-1"]);
+}
+
+#[tokio::test]
+async fn while_the_todo_list_is_unknown_no_new_bundle_is_made() {
+    if isolated() {
+        return;
+    }
+    let world = World::new();
+    world.seed_point(ACCOUNT, &down("down-1", NOW - HOUR), json!({})).await;
+    store::write(&store::key(&["todos", "atlas"]), &json!({"read":now() - 2 * 86_400_000,"state":"unavailable","links":{}})).unwrap();
+    world.write(&up("up-1", NOW), world.covers("down-1")).await;
+    store::remove(&store::key(&["todos", "atlas"])).unwrap();
+    assert_separate(&world.list(ACCOUNT).await, "the claim was made while the list was unknown");
+}
+
+#[tokio::test]
+async fn a_label_this_copy_cannot_name_keeps_the_mail_in_view() {
+    if isolated() {
+        return;
+    }
+    let world = World::new();
+    let mut older = down("unnamed", NOW - HOUR);
+    older["labelIds"] = json!(["INBOX", "Label_999"]);
+    world.seed_point(ACCOUNT, &older, json!({})).await;
+    assert_separate(&world.write(&up("up-1", NOW), world.covers("unnamed")).await, "it could be the return mark");
+}
+
+#[tokio::test]
+async fn mail_returned_without_its_mark_is_never_hidden() {
+    if isolated() {
+        return;
+    }
+    let world = World::new();
+    world.seed_point(ACCOUNT, &down("came-back", NOW - HOUR), json!({})).await;
+    store::write(&store::key(&["returned-unmarked", ACCOUNT]), &json!({"came-back":now()})).unwrap();
+    assert_separate(&world.write(&up("up-1", NOW), world.covers("came-back")).await, "snooze returned it");
+}
+
+#[tokio::test]
+async fn an_approvals_file_that_is_not_an_object_is_treated_as_empty() {
+    if isolated() {
+        return;
+    }
+    let world = World::new();
+    store::write(&approved_key(), &json!([1, 2])).unwrap();
+    world.seed_point(ACCOUNT, &down("alice", NOW - 2 * HOUR), json!({})).await;
+    let front = mail("carrier-1", "carrier-1", NOW, "Courier <news@courier.example>", Some(&gmail_says("courier.example")), &["INBOX"], "Monitor is UP: example.com");
+    world.write(&front, world.covers("alice")).await;
+    let view = world.inbox_call("inbox.approveBundle", json!({"accountId":ACCOUNT,"front":"carrier-1"})).await.unwrap();
+    assert_bundle(&view, "carrier-1", &["alice"]);
 }
 
 #[tokio::test]

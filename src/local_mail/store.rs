@@ -175,7 +175,8 @@ pub(super) fn replace_labels(db: &Connection, id: &str, base: &Value) -> Result<
 /// Adds one message's change to the queue and shows it at once. Runs inside the caller's write.
 fn queue_edit(db: &Connection, ticket: &str, id: &str, add: &[String], remove: &[String]) -> Result<()> {
     let base: Option<String> = sql(db.query_row("SELECT server_labels FROM messages WHERE id=?1",[id],|r|r.get(0)).optional())?;
-    let before = current_labels(db,id)?;
+    // Null when the message is not in the local copy, so an empty list always means no labels.
+    let before = if base.is_some() { current_labels(db,id)? } else { Value::Null };
     sql(db.execute("INSERT INTO edits(ticket,id,additions,removals,before_labels) VALUES(?1,?2,?3,?4,?5)",
         params![ticket,id,json!(add).to_string(),json!(remove).to_string(),before.to_string()]))?;
     if let Some(base)=base {replace_labels(db,id,&decode(&base)?)?;}
@@ -193,10 +194,10 @@ fn show_server_labels(db: &Connection, id: &str) -> Result<()> {
 }
 /// What takes a delivered change back: a label returns only if the message had it, and goes only
 /// if the change put it there. A message whose labels were unknown at the time gets the plain opposite.
-fn reversal_of(additions: Vec<String>, removals: Vec<String>, before: Vec<String>) -> (Vec<String>, Vec<String>) {
-    if before.is_empty() {
+fn reversal_of(additions: Vec<String>, removals: Vec<String>, before: Option<Vec<String>>) -> (Vec<String>, Vec<String>) {
+    let Some(before) = before else {
         return (removals, additions);
-    }
+    };
     (
         removals.into_iter().filter(|label| before.contains(label)).collect(),
         additions.into_iter().filter(|label| !before.contains(label)).collect(),
@@ -433,6 +434,13 @@ impl Store {
     pub(super) fn inbox_ids(&self) -> Result<std::collections::HashSet<String>> {
         self.read(|db| {
             let mut query = sql(db.prepare("SELECT message_id FROM labels WHERE label='INBOX'"))?;
+            sql(query.query_map([], |r| r.get(0)))?.map(sql).collect()
+        })
+    }
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn known_label_ids(&self) -> Result<std::collections::HashSet<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT id FROM label_names"))?;
             sql(query.query_map([], |r| r.get(0)))?.map(sql).collect()
         })
     }
@@ -1007,7 +1015,8 @@ impl Store {
         })
     }
     /// Takes a change back. What is still queued is dropped, what Gmail has is reversed, restoring
-    /// only what that change altered, and what Gmail refused never happened.
+    /// only what that change altered, and what Gmail refused never happened. A mail changed again
+    /// since is left alone, so Undo never overrides the newer change.
     pub(super) fn undo_edit(&self, ticket: &str) -> Result<()> {
         self.write(|db| {
             let reversal = format!("{ticket}:undo");
@@ -1020,23 +1029,24 @@ impl Store {
                 return Ok(());
             }
             let mut statement = sql(db.prepare(
-                "SELECT id,state,additions,removals,before_labels FROM edits WHERE ticket=?1 ORDER BY sequence",
+                "SELECT sequence,id,state,additions,removals,before_labels FROM edits WHERE ticket=?1 ORDER BY sequence",
             ))?;
             let rows = sql(
                 sql(statement.query_map([ticket], |r| {
                     Ok((
-                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(0)?,
                         r.get::<_, String>(1)?,
                         r.get::<_, String>(2)?,
                         r.get::<_, String>(3)?,
                         r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
                     ))
                 }))?
                 .collect::<rusqlite::Result<Vec<_>>>(),
             )?;
-            for (id, state, additions, removals, before) in rows {
+            for (sequence, id, state, additions, removals, before) in rows {
                 match state.as_str() {
-                    "conflict" => {}
+                    "conflict" | "dismissed" => {}
                     "queued" => {
                         sql(db.execute(
                             "DELETE FROM edits WHERE ticket=?1 AND id=?2 AND state='queued'",
@@ -1045,10 +1055,19 @@ impl Store {
                         show_server_labels(db, &id)?;
                     }
                     _ => {
+                        let changed_since: bool = sql(db.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM edits WHERE id=?1 AND sequence>?2 AND ticket<>?3 AND state NOT IN ('conflict','dismissed'))",
+                            params![id, sequence, ticket],
+                            |r| r.get(0),
+                        ))?;
+                        if changed_since {
+                            continue;
+                        }
+                        let before = decode(&before)?;
                         let (add, remove) = reversal_of(
                             labels(&decode(&additions)?),
                             labels(&decode(&removals)?),
-                            labels(&decode(&before)?),
+                            before.is_array().then(|| labels(&before)),
                         );
                         if !add.is_empty() || !remove.is_empty() {
                             queue_edit(db, &reversal, &id, &add, &remove)?;

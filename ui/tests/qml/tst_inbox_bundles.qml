@@ -316,7 +316,9 @@ Item {
       var row = list.itemAtIndex(0)
       var lane = findChild(row, "bundle-proposal")
       verify(lane.visible)
-      compare(findChild(row, "bundle-question").text, "Bundle these?")
+      var question = findChild(row, "bundle-question")
+      verify(question.text.indexOf("Trust a@b.c to bundle ") === 0, question.text)
+      compare(question.textFormat, Text.PlainText)
       mouseClick(findChild(row, "bundle-approve"))
       var approve = backend.of("inbox.approveBundle")[0]
       compare(approve.params, {accountId: host.accountId, front: "newer"})
@@ -645,6 +647,15 @@ Item {
       tools.bundles.markRead("front")
       service.actManyStarts = true
       compare(host.previewMessages.length, 0)
+    }
+
+    function test_the_offer_names_the_address_and_what_goes_behind_it() {
+      var offer = {sender:{email:"news@courier.example",name:"Your Bank"},covered:["a"]}
+      compare(Bundles.proposalQuestion(offer, function() { return "Monitor is DOWN" }), "Trust news@courier.example to bundle \u201cMonitor is DOWN\u201d?")
+      compare(Bundles.proposalQuestion(offer, function() { return "" }), "Trust news@courier.example to bundle 1 older mail?")
+      offer.covered = ["a","b"]
+      compare(Bundles.proposalQuestion(offer, function() { return "Monitor is DOWN" }), "Trust news@courier.example to bundle 2 older mails?")
+      compare(Bundles.proposalQuestion({covered:["a"]}, function() { return "x" }), "Bundle these?")
     }
 
     function test_approved_senders_list_and_remove() {

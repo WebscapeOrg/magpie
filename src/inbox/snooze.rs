@@ -365,6 +365,8 @@ pub(crate) fn is_snooze_label(name: &str) -> bool {
 /// Marks mail a snooze brought back, in the same Gmail change as the wake, so every device keeps
 /// it out of bundles (bundles.rs): it was snoozed to be seen again as its own row.
 pub(crate) const RETURNED_LABEL: &str = "Magpie-snooze-returned";
+/// How many mails returned without their mark are remembered, newest kept.
+const UNMARKED_LIMIT: usize = 2000;
 /// The hidden label that marks returned mail, made on first use.
 async fn returned_mark(gmail: &impl Mail, account: &str) -> Result<String> {
     let find = |labels: &Value| -> Option<String> {
@@ -597,11 +599,12 @@ async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
         Err(error) => return Err(error),
     };
     let ids = thread.ids(|_, _| true)?;
+    let inbox: Vec<&str> = thread.messages.iter().filter(|message| has(message, "INBOX")).filter_map(id_of).collect();
     let over = seen(&rows()?, &key, &account, Some(&thread.id));
     let generation = advance(&account, &thread.id)?;
     record(
         &key,
-        json!({"generation":generation,"accountId":account,"id":id,"ids":ids,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name,"at":at,"over":over}),
+        json!({"generation":generation,"accountId":account,"id":id,"ids":ids,"inbox":inbox,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name,"at":at,"over":over}),
     )?;
     let landed = match listing(gmail.labels(&account).await) {
         Ok(known) => settle(gmail, &account, &thread, &ids, &name, &known).await,
@@ -776,11 +779,17 @@ async fn wake(
         .take(100)
         .collect();
     let snoozed = |message: &Value| on_thread.iter().any(|slot| has(message, &slot.id));
+    let was_in_inbox = |id: &str| row["inbox"].as_array().map_or(row["id"] == id, |ids| ids.iter().any(|known| known == id));
     let (mut back, mut clear) = (Vec::new(), Vec::new());
     for message in &messages {
         let Some(id) = id_of(message) else { continue };
         if binned(message) || has(message, "INBOX") {
             // Invariant: Mail in Trash or Spam loses the slot label but never returns to the Inbox.
+            if snoozed(message) {
+                clear.push(id.to_owned());
+            }
+        } else if restore && !was_in_inbox(id) {
+            // Invariant: Undo returns only mail that was in the Inbox when it was snoozed.
             if snoozed(message) {
                 clear.push(id.to_owned());
             }
@@ -800,6 +809,9 @@ async fn wake(
                 Err(error) if transient(error) => return Err(error),
                 Err(error) => {
                     eprintln!("magpie: snooze return mark unavailable: {error}");
+                    if let Err(error) = note_returned_unmarked(account, &back) {
+                        eprintln!("magpie: snooze return not noted: {error}");
+                    }
                     vec!["INBOX".to_owned(), "UNREAD".to_owned()]
                 }
             }
@@ -810,6 +822,37 @@ async fn wake(
         gmail.modify(account, &clear, &[], &remove).await?;
     }
     Ok(if back.is_empty() { Woke::Gone } else { Woke::Done })
+}
+
+fn unmarked_key(account: &str) -> String {
+    super::store::key(&["returned-unmarked", account])
+}
+
+/// Mail this device returned without its mark, which bundling must still never hide.
+pub(super) fn returned_unmarked(account: &str) -> Result<HashSet<String>> {
+    let saved = super::store::read(&unmarked_key(account))?.unwrap_or(Value::Null);
+    Ok(saved.as_object().map(|ids| ids.keys().cloned().collect()).unwrap_or_default())
+}
+
+fn note_returned_unmarked(account: &str, ids: &[String]) -> Result<()> {
+    let at = now();
+    super::store::update(&unmarked_key(account), |saved| {
+        if !saved.is_object() {
+            *saved = json!({});
+        }
+        let known = saved.as_object_mut().ok_or("inbox_storage_invalid")?;
+        for id in ids {
+            known.insert(id.clone(), json!(at));
+        }
+        if known.len() > UNMARKED_LIMIT {
+            let mut oldest: Vec<(i64, String)> = known.iter().map(|(id, when)| (when.as_i64().unwrap_or(0), id.clone())).collect();
+            oldest.sort();
+            for (_, id) in oldest.into_iter().take(known.len() - UNMARKED_LIMIT) {
+                known.remove(&id);
+            }
+        }
+        Ok(())
+    })
 }
 
 /// Gives a snooze with no slot label its label, so every Magpie on the account sees it: one saved

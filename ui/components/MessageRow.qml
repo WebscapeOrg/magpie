@@ -447,7 +447,7 @@ Rectangle {
           anchors.verticalCenter: parent.verticalCenter
           width: Math.max(0, Math.min(implicitWidth, bundleLane.width - bundleApprove.implicitWidth - bundleDismiss.implicitWidth - 2 * parent.spacing))
           textFormat: Text.PlainText
-          text: "Bundle these?"
+          text: root.summary.bundleQuestion || "Bundle these?"
           color: root.secondaryTextColor
           font.family: root.panelFontFamily
           font.pixelSize: root.listTextSize
@@ -459,7 +459,7 @@ Rectangle {
           objectName: "bundle-approve"
           anchors.verticalCenter: parent.verticalCenter
           text: "Bundle"
-          tooltipText: "Bundle these and approve this sender"
+          tooltipText: "Bundle these, and let this address bundle other senders' mail from now on"
           foreground: root.textColor
           accent: root.accentColor
           fontFamily: root.panelFontFamily

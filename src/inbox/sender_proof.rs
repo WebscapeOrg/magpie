@@ -101,6 +101,10 @@ fn clauses(value: &str) -> Vec<String> {
             _ => {}
         }
     }
+    // Invariant: a header whose comments or quotes do not close cannot be read, so it proves nothing.
+    if comment != 0 || quoted {
+        return Vec::new();
+    }
     parts.iter().map(|part| part.trim().to_owned()).collect()
 }
 
@@ -137,9 +141,10 @@ fn aligned(result: &str, domain: &str) -> bool {
     })
 }
 
-/// DMARC's relaxed alignment: the same registrable domain.
+/// DMARC's relaxed alignment: the same registrable domain. Private suffixes such as `uk.com` or
+/// `github.io` count, because strangers register beside each other under them.
 fn registrable_aligned(signer: &str, domain: &str) -> bool {
-    super::pictures::registrable(signer) == super::pictures::registrable(domain)
+    psl::domain_str(signer).is_some_and(|registrable| psl::domain_str(domain) == Some(registrable))
 }
 
 #[cfg(test)]
@@ -167,6 +172,32 @@ mod tests {
         assert!(proven(&[("Authentication-Results", REAL)]));
         let found = sender(&mail(headers(&[("Authentication-Results", REAL)]))).unwrap();
         assert_eq!((found.email.as_str(), found.name.as_str()), ("alert@uptimerobot.example", "UptimeRobot"));
+    }
+
+    fn proven_from(from: &str, result: &str) -> bool {
+        let list = json!([{"name":"Authentication-Results","value":result},{"name":"From","value":from},{"name":"Subject","value":"x"}]);
+        sender(&mail(list)).is_some_and(|sender| sender.proven)
+    }
+
+    #[test]
+    fn a_stranger_under_a_shared_suffix_proves_nothing_but_the_same_organisation_does() {
+        let signed_by = |domain: &str| format!("mx.google.com; dkim=pass header.i=@{domain} header.s=a header.b=b; dmarc=none header.from=victim.uk.com");
+        assert!(!proven_from("Victim <billing@victim.uk.com>", &signed_by("evil.uk.com")));
+        assert!(proven_from("Victim <billing@victim.uk.com>", &signed_by("mail.victim.uk.com")));
+        assert!(!proven_from("Page <me@alice.github.io>", "mx.google.com; dkim=pass header.i=@mallory.github.io; dmarc=none header.from=alice.github.io"));
+        assert!(proven_from("Shop <news@mail.shop.co.uk>", "mx.google.com; dkim=pass header.i=@shop.co.uk; dmarc=none header.from=mail.shop.co.uk"));
+    }
+
+    #[test]
+    fn a_header_whose_comments_or_quotes_do_not_close_proves_nothing() {
+        for broken in [
+            "mx.google.com; dkim=pass header.i=@uptimerobot.example; spf=none (open comment",
+            "mx.google.com; dkim=pass header.i=@uptimerobot.example; x=\"open quote",
+            "mx.google.com; spf=pass (a) ; dkim=pass header.i=@uptimerobot.example ; ((( smtp.mailfrom=a; dmarc=fail",
+        ] {
+            assert!(!proven(&[("Authentication-Results", broken)]), "{broken}");
+        }
+        assert!(proven(&[("Authentication-Results", "mx.google.com; dkim=pass (2048-bit key; good) header.i=@uptimerobot.example")]));
     }
 
     #[test]

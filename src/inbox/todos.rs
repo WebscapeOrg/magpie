@@ -284,6 +284,27 @@ pub(crate) fn links(at: i64) -> Option<Value> {
     Some(if saved["links"].is_object() { saved["links"].clone() } else { json!({}) })
 }
 
+/// What is known of the emails the owner's todos link to.
+pub(crate) enum LinkState {
+    /// No to-do list is connected, so no mail is linked to one.
+    NotConnected,
+    Known(Value),
+    /// A list is connected but it was refused, could not be read, or was not read for a day.
+    Unknown,
+}
+
+pub(crate) fn link_state(at: i64) -> LinkState {
+    let saved = match store::read(&saved_key()) {
+        Ok(Some(saved)) => saved,
+        Ok(None) => return LinkState::NotConnected,
+        Err(_) => return LinkState::Unknown,
+    };
+    if saved["state"] == "off" {
+        return LinkState::NotConnected;
+    }
+    links(at).map_or(LinkState::Unknown, LinkState::Known)
+}
+
 fn forget() {
     let _ = store::remove(&saved_key());
 }

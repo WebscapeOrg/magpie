@@ -2529,6 +2529,25 @@
       }
     },
     {
+      "name": "Inbox bundles list what the Inbox shows",
+      "method": "inbox.bundles",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "types": {
+        "bundles": "array",
+        "proposals": "array"
+      }
+    },
+    {
+      "name": "Inbox approved senders are listed",
+      "method": "inbox.approvedSenders",
+      "params": {},
+      "types": {
+        "senders": "array"
+      }
+    },
+    {
       "name": "Inbox bundles refuse unknown accounts",
       "method": "inbox.bundles",
       "params": {
@@ -2746,6 +2765,8 @@
       "Inbox snapshot keeps download and analysis activity separate",
       "Inbox snapshot preserves reported context tokens",
       "Inbox snapshot carries a Point's models, effort and estimated API cost",
+      "Inbox bundles list what the Inbox shows",
+      "Inbox approved senders are listed",
       "Inbox bundles refuse unknown accounts",
       "Inbox bundles reject unknown fields",
       "Inbox bundle approval rejects an unsafe message id",

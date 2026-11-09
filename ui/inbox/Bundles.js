@@ -114,12 +114,25 @@ function project(rows, states, accountOf, summaryOf) {
     var offer = index.proposals[id]
     if (offer) {
       proposals[row.id] = {accountId: account, front: id, covered: offer.covered, sender: offer.sender}
-      out.push(Object.assign({}, row, {bundleProposal: true}))
+      out.push(Object.assign({}, row, {bundleProposal: true, bundleQuestion: proposalQuestion(offer, function(coveredId) {
+        var known = summary(account, coveredId)
+        return known ? known.subject : ""
+      })}))
       continue
     }
     out.push(row)
   }
   return {rows: out, groups: groups, proposals: proposals}
+}
+
+// What "Bundle these?" asks: the address, which a display name cannot fake, and what goes behind it.
+function proposalQuestion(offer, subjectOf) {
+  var address = offer.sender ? String(offer.sender.email || "") : ""
+  var covered = offer.covered || []
+  if (address === "") return "Bundle these?"
+  var subject = covered.length === 1 ? String(subjectOf(covered[0]) || "") : ""
+  var what = subject !== "" ? "\u201c" + subject + "\u201d" : covered.length + (covered.length === 1 ? " older mail" : " older mails")
+  return "Trust " + address + " to bundle " + what + "?"
 }
 
 // The ids an action should reach. Selecting or acting on a bundled row means every mail in it.

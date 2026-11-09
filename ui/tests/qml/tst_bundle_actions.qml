@@ -208,6 +208,21 @@ Item {
       fixture.answers["local.undoEdit"] = undefined
     }
 
+    function test_undo_says_so_when_it_left_a_changed_mail_alone() {
+      seed([entry(ada)], ada)
+      mailService.accountAt(0).messages = [row("front"), row("older")]
+      bundle(ada, "front", ["older"])
+      tryVerify(function() { return mailService.messages.length === 1 })
+      app.cursorId = "front"
+      verify(app.actOnCursor("archive"))
+      tryVerify(function() { return offerText() === "Archived 2 messages" })
+      fixture.answers["local.undoEdit"] = function() { return {undone:true,left:1} }
+      verify(mailService.inboxTools.bundles.runUndo())
+      tryVerify(function() { return mailService.inboxTools.bundles.undoOffer !== null && mailService.inboxTools.bundles.undoOffer.canUndo === false })
+      compare(offerText(), "Undo could not finish. Find them in All mail and choose Move to Inbox.")
+      fixture.answers["local.undoEdit"] = undefined
+    }
+
     function test_archiving_an_opened_conversation_keeps_the_whole_conversation() {
       seed([entry(ada)], ada)
       var account = mailService.accountAt(0)

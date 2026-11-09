@@ -135,7 +135,7 @@ Item {
     })
   }
   // Undo for a bundled row's Archive or Trash. The engine drops what is still queued and reverses
-  // what Gmail already has; the answer counts only what could not be taken back.
+  // what Gmail already has; the answer counts what could not be taken back, including mail changed since.
   function undoEdits(tickets, callback) {
     var identity = account.accountId
     var remaining = tickets.length, broken = 0
@@ -144,7 +144,7 @@ Item {
         if (failure) {
           console.warn("Magpie bundles: undo failed:", String(failure.message || failure))
           broken++
-        }
+        } else broken += Number(result && result.left || 0)
         if (--remaining !== 0) return
         if (identity === root.account.accountId) { root.refreshEdits(); root.account.loadMessages(false,true) }
         callback(broken)

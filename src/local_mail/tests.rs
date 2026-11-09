@@ -244,7 +244,7 @@ fn undo_leaves_a_mail_changed_since_alone() {
     set_edit_state(&store, "archive", "done");
     store.edit("back", &["one".into()], &["INBOX".into()], &[]).unwrap();
     set_edit_state(&store, "back", "done");
-    store.undo_edit("archive").unwrap();
+    assert_eq!(store.undo_edit("archive").unwrap(), 1, "Undo says it left that mail alone");
     assert!(store.edits().unwrap().as_array().unwrap().iter().all(|edit| edit["ticket"] != "archive:undo"), "the newer change stands");
     drop(store);
     std::fs::remove_dir_all(path).unwrap();

@@ -343,6 +343,24 @@ async fn undo_of_a_snooze_returns_only_the_mail_that_was_in_the_inbox() {
     assert_eq!(writes[writes.len() - 1], format!("modify archived,reply + -{label}"), "the rest only lose the snooze label: {writes:?}");
 }
 
+#[tokio::test]
+async fn undo_returns_the_mail_when_a_second_snooze_replaced_the_first() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t1", &["INBOX"]), ("b", "t1", &["INBOX"]), ("archived", "t1", &["CATEGORY_UPDATES"])]);
+    let until = now() + 2 * HOUR;
+    let (_, name) = slot(until).unwrap();
+    assert_eq!(snooze_at(&fake, "a", until).await.unwrap()["ok"], true);
+    assert_eq!(snooze_at(&fake, "b", until).await.unwrap()["ok"], true);
+    let label = fake.label_id(&name).unwrap();
+    call("inbox.wake", &json!({"accountId":ACCOUNT,"id":"b","restore":true}), &fake).await.unwrap();
+    let writes = fake.writes();
+    assert!(writes.contains(&format!("modify a,b +INBOX -{label}")), "both return: {writes:?}");
+    assert!(writes.contains(&format!("modify archived + -{label}")), "the other mail only loses the label: {writes:?}");
+}
+
 async fn snooze_at(fake: &Fake, id: &str, until: i64) -> Result<Value> {
     call(
         "inbox.snooze",

@@ -135,7 +135,9 @@ fn aligned(result: &str, domain: &str) -> bool {
             _ => return false,
         }
     }
-    parsed.iter().filter(|clause| method(clause, "dkim") && result_of(clause) == "pass").any(|clause| {
+    // Invariant: a DKIM result counts only before SPF, the first place text a sender chose appears.
+    // Gmail writes DKIM first; a mail with it later can still be proven by DMARC above.
+    parsed.iter().take_while(|clause| !method(clause, "spf")).filter(|clause| method(clause, "dkim") && result_of(clause) == "pass").any(|clause| {
         let signer = value(clause, "header.d").or_else(|| value(clause, "header.i").map(|identity| identity.rsplit('@').next().unwrap_or("").to_owned()));
         signer.is_some_and(|signer| !signer.is_empty() && registrable_aligned(&signer, domain))
     })
@@ -228,6 +230,13 @@ mod tests {
         assert!(!proven(&[("Authentication-Results", REAL), ("Authentication-Results", "mx.google.com; dmarc=pass header.from=uptimerobot.example")]));
         assert!(!proven(&[("Authentication-Results", "relay.evil.example; dmarc=fail header.from=x.example"), ("Authentication-Results", REAL)]), "Gmail's result is not the topmost");
         assert!(proven(&[("Authentication-Results", REAL), ("Authentication-Results", "relay.example; dmarc=pass header.from=x.example")]), "another server's result below Gmail's is ignored");
+    }
+
+    #[test]
+    fn a_dkim_result_written_inside_the_senders_part_of_the_header_is_refused() {
+        let inside = "mx.google.com; spf=pass (domain of \"x) ; dkim=pass header.i=@uptimerobot.example (y\"@evil.example) smtp.mailfrom=evil.example";
+        assert!(!proven(&[("Authentication-Results", inside)]), "{inside}");
+        assert!(proven(&[("Authentication-Results", "mx.google.com; dkim=pass header.i=@uptimerobot.example; spf=none smtp.mailfrom=a")]));
     }
 
     #[test]

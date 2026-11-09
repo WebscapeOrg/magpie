@@ -663,8 +663,8 @@ fn execute(store: &Store, method: &str, params: &Value) -> Result<Value, &'stati
             Ok(json!({"cancelled":true}))
         }
         "local.undoEdit" => {
-            store.undo_edit(field(&params, "ticket")?)?;
-            Ok(json!({"undone":true}))
+            let left = store.undo_edit(field(&params, "ticket")?)?;
+            Ok(json!({"undone":true,"left":left}))
         }
         _ => Err("unknown_method"),
     }

@@ -2599,6 +2599,18 @@
       "errorCode": -32602
     },
     {
+      "name": "Local edit undo says how many mails it left alone",
+      "method": "local.undoEdit",
+      "params": {
+        "accountId": "contract@example.org",
+        "ticket": "contract-ticket"
+      },
+      "equals": {
+        "undone": true,
+        "left": 0
+      }
+    },
+    {
       "name": "Local edit undo requires a ticket",
       "method": "local.undoEdit",
       "params": {
@@ -2773,6 +2785,7 @@
       "Inbox bundle refusal rejects an empty selection",
       "Inbox approved senders take no fields",
       "Inbox approved sender removal requires an address and name",
+      "Local edit undo says how many mails it left alone",
       "Local edit undo requires a ticket",
       "Snooze wake rejects a restore that is not true or false"
     ]

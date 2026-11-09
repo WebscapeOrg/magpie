@@ -599,8 +599,17 @@ async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
         Err(error) => return Err(error),
     };
     let ids = thread.ids(|_, _| true)?;
-    let inbox: Vec<&str> = thread.messages.iter().filter(|message| has(message, "INBOX")).filter_map(id_of).collect();
-    let over = seen(&rows()?, &key, &account, Some(&thread.id));
+    let saved = rows()?;
+    let mut inbox: Vec<String> = thread.messages.iter().filter(|message| has(message, "INBOX")).filter_map(id_of).map(str::to_owned).collect();
+    // Invariant: a snooze this one replaces has already taken its mail out of the Inbox, and Undo
+    // must still return that mail.
+    let replaced = saved.values().filter(|row| row["accountId"] == *account && row["threadId"] == *thread.id);
+    for id in replaced.flat_map(|row| row["inbox"].as_array().map_or_else(|| vec![&row["id"]], |ids| ids.iter().collect())).filter_map(Value::as_str) {
+        if !inbox.iter().any(|known| known == id) {
+            inbox.push(id.to_owned());
+        }
+    }
+    let over = seen(&saved, &key, &account, Some(&thread.id));
     let generation = advance(&account, &thread.id)?;
     record(
         &key,

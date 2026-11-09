@@ -614,23 +614,23 @@ pub(super) async fn call(method: &str, params: &Value, local_mail: &LocalMail) -
             let account = super::account(params)?;
             let ids = valid_ids(params)?;
             let at = now();
-            let released = crate::account::with_incarnation(None, |_| {
+            // Invariant: marked before the record changes, as when a list releases mail.
+            let current = read_book(&account)?;
+            let released: Vec<String> = ids.iter().filter(|id| section(&current, "covered").contains_key(*id)).cloned().collect();
+            mark_for_rewrite(&account, &released)?;
+            crate::account::with_incarnation(None, |_| {
                 crate::mail::resolve_account(&account)?;
                 store::update(&book_key(&account), |value| {
                     let book = value.as_object_mut().ok_or("inbox_storage_invalid")?;
-                    let mut released = Vec::new();
                     for id in &ids {
                         section_mut(book, "refused").insert(id.clone(), json!(at));
                         section_mut(book, "proposals").remove(id);
-                        if section_mut(book, "covered").remove(id).is_some() {
-                            released.push(id.clone());
-                        }
+                        section_mut(book, "covered").remove(id);
                     }
                     apply(book, Vec::new(), at);
-                    Ok(released)
+                    Ok(())
                 })
             })?;
-            mark_for_rewrite(&account, &released)?;
             list_settled(&account, local_mail).await
         }
         "inbox.approvedSenders" => {

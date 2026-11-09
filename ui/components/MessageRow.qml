@@ -437,6 +437,17 @@ Rectangle {
       clip: root.proposalCrowded
       implicitHeight: Math.max(bundleQuestion.implicitHeight, bundleApprove.implicitHeight)
 
+      // Counts the question's lines without the tools; the question keeps that many when they appear, so the row stays the same height.
+      Text {
+        id: bundleQuestionAtRest
+        visible: false
+        width: Math.max(0, Math.min(implicitWidth, bundleLane.parent.width - bundleApprove.implicitWidth - bundleDismiss.implicitWidth - 2 * MailStyle.space(10)))
+        textFormat: Text.PlainText
+        text: actions.visible ? bundleQuestion.text : ""
+        font: bundleQuestion.font
+        wrapMode: Text.Wrap
+      }
+
       Row {
         anchors.verticalCenter: parent.verticalCenter
         spacing: MailStyle.space(10)
@@ -451,7 +462,9 @@ Rectangle {
           color: root.secondaryTextColor
           font.family: root.panelFontFamily
           font.pixelSize: root.listTextSize
+          wrapMode: Text.Wrap
           elide: Text.ElideRight
+          maximumLineCount: actions.visible ? Math.max(1, bundleQuestionAtRest.lineCount) : 2147483647
         }
 
         Widgets.Button {

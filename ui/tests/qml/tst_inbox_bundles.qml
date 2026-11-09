@@ -658,6 +658,25 @@ Item {
       compare(Bundles.proposalQuestion({covered:["a"]}, function() { return "x" }), "Bundle these?")
     }
 
+    function test_the_offer_shortens_only_what_is_not_the_domain() {
+      var long = "averyveryveryveryverylongnewsletterlocalpart"
+      var question = Bundles.proposalQuestion({sender:{email:long + "@courier.example"},covered:["a"]}, function() { return "S".repeat(60) })
+      verify(question.indexOf("averyveryveryveryverylo\u2026@courier.example") > 0, question)
+      verify(question.indexOf("S".repeat(39) + "\u2026\u201d?") > 0, question)
+    }
+
+    function test_a_narrow_row_wraps_the_offer_instead_of_cutting_it() {
+      narrowRow.summary = ({id:"front",from:{display:"A"},time:"09:14",bundleProposal:true,bundleQuestion:"Trust news@courier.example to bundle \u201cMonitor is DOWN: Dave's Personal Blog\u201d?"})
+      waitForRendering(narrowRow)
+      var question = findChild(narrowRow, "bundle-question")
+      var lane = findChild(narrowRow, "bundle-proposal")
+      verify(lane.visible)
+      verify(question.lineCount > 1, "wraps: " + question.lineCount)
+      verify(!question.truncated)
+      verify(lane.height >= question.contentHeight, lane.height + " holds " + question.contentHeight)
+      verify(narrowRow.height >= lane.height, narrowRow.height + " holds " + lane.height)
+    }
+
     function test_approved_senders_list_and_remove() {
       tryVerify(function() { return backend.of("inbox.approvedSenders").length > 0 })
       var sender = {email:"up@robot.example",name:"<i>Uptime</i>",approved:1}

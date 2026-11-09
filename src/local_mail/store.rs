@@ -1017,7 +1017,8 @@ impl Store {
     /// Takes a change back. What is still queued is dropped, what Gmail has is reversed, restoring
     /// only what that change altered, and what Gmail refused never happened. A mail changed again
     /// since is left alone, so Undo never overrides the newer change.
-    pub(super) fn undo_edit(&self, ticket: &str) -> Result<()> {
+    /// Answers how many mails were left alone because they changed since.
+    pub(super) fn undo_edit(&self, ticket: &str) -> Result<usize> {
         self.write(|db| {
             let reversal = format!("{ticket}:undo");
             let reversed: bool = sql(db.query_row(
@@ -1026,8 +1027,9 @@ impl Store {
                 |r| r.get(0),
             ))?;
             if reversed {
-                return Ok(());
+                return Ok(0);
             }
+            let mut left_alone = 0;
             let mut statement = sql(db.prepare(
                 "SELECT sequence,id,state,additions,removals,before_labels FROM edits WHERE ticket=?1 ORDER BY sequence",
             ))?;
@@ -1061,6 +1063,7 @@ impl Store {
                             |r| r.get(0),
                         ))?;
                         if changed_since {
+                            left_alone += 1;
                             continue;
                         }
                         let before = decode(&before)?;
@@ -1075,7 +1078,7 @@ impl Store {
                     }
                 }
             }
-            Ok(())
+            Ok(left_alone)
         })
     }
     pub(super) fn claim_changes(&self, id: &str) -> Result<Option<ClaimedChanges>> {

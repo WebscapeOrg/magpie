@@ -125,14 +125,25 @@ function project(rows, states, accountOf, summaryOf) {
   return {rows: out, groups: groups, proposals: proposals}
 }
 
+function shortened(text, limit) {
+  var characters = Array.from(String(text))
+  return characters.length <= limit ? characters.join("") : characters.slice(0, limit - 1).join("") + "\u2026"
+}
+
+// Only the part before the @ shortens: the domain is what Gmail checked.
+function shownAddress(address) {
+  var at = address.lastIndexOf("@")
+  return at < 0 ? address : shortened(address.slice(0, at), 24) + address.slice(at)
+}
+
 // What "Bundle these?" asks: the address, which a display name cannot fake, and what goes behind it.
 function proposalQuestion(offer, subjectOf) {
   var address = offer.sender ? String(offer.sender.email || "") : ""
   var covered = offer.covered || []
   if (address === "") return "Bundle these?"
   var subject = covered.length === 1 ? String(subjectOf(covered[0]) || "") : ""
-  var what = subject !== "" ? "\u201c" + subject + "\u201d" : covered.length + (covered.length === 1 ? " older mail" : " older mails")
-  return "Trust " + address + " to bundle " + what + "?"
+  var what = subject !== "" ? "\u201c" + shortened(subject, 40) + "\u201d" : covered.length + (covered.length === 1 ? " older mail" : " older mails")
+  return "Trust " + shownAddress(address) + " to bundle " + what + "?"
 }
 
 // The ids an action should reach. Selecting or acting on a bundled row means every mail in it.

@@ -72,7 +72,7 @@ BarWidget {
     Qt.callLater(function() { root.popoutSwitchClosing = false })
   }
 
-  // Docs: The shell injects settings into the bar widget, which forwards them to the shared Service.
+  // Docs: The Service ignores these once it has read Magpie's own settings file.
   function pushSettings() {
     if (gmail && typeof gmail.applySettings === "function") gmail.applySettings(settings)
   }
@@ -101,7 +101,7 @@ BarWidget {
   }
 
 
-  // Invariant: Hiding the icon must retain this widget because it supplies persisted settings to Service.
+  // The setting only stops drawing the icon; the widget stays so the icon can return at once.
   readonly property bool drawsIcon: !gmail || gmail.showBarIcon
 
   visible: drawsIcon

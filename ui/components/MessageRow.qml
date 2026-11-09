@@ -66,6 +66,8 @@ Rectangle {
   signal archiveRequested()
   signal trashRequested()
   signal menuRequested(real sceneX, real sceneY)
+  signal bundleApproveRequested()
+  signal bundleDismissRequested()
 
   // Invariant: a passive HoverHandler keeps the action lane open while the pointer enters child
   // buttons; MouseArea hover would flicker as buttons move.
@@ -74,6 +76,14 @@ Rectangle {
   HoverHandler { id: rowHover }
 
   readonly property int threadCount: Model.badgeCount(root.summary)
+  // One Point for several mails (Q-019): how many mails the row holds, and whether the engine asks
+  // to bundle the mail behind it. Both come from the Inbox's own row; every other view leaves them unset.
+  readonly property int bundleCount: Number(root.summary.bundleCount || 0)
+  readonly property bool bundleProposal: root.summary.bundleProposal === true
+  // On a narrow row the question's two buttons and the tools cannot share the line; the buttons win,
+  // and the tools stay in the row's menu.
+  readonly property bool proposalCrowded: bundleProposal && bundleLane.parent.width
+    < actions.implicitWidth + MailStyle.space(4) + bundleApprove.implicitWidth + bundleDismiss.implicitWidth + MailStyle.space(10)
   readonly property real avatarTopInset: Math.max(0, sender.baselineOffset + senderMetrics.tightBoundingRect.y)
 
   // Invariant: Latin reply prefixes must not determine subject direction; sender and snippet still
@@ -199,7 +209,8 @@ Rectangle {
         objectName: "message-sender"
         anchors.left: parent.left
         anchors.right: count.visible ? count.left : attachmentIndicator.visible ? attachmentIndicator.left : time.left
-        anchors.rightMargin: count.visible ? MailStyle.space(4) : MailStyle.space(8)
+        anchors.rightMargin: (count.visible ? MailStyle.space(4) : MailStyle.space(8))
+          + (bundleBadge.visible ? bundleBadge.width + MailStyle.space(8) : 0)
         textFormat: Text.PlainText
         text: root.summary.from ? root.summary.from.display : ""
         color: root.textColor
@@ -208,6 +219,33 @@ Rectangle {
         font.bold: false
         elide: Text.ElideRight
         horizontalAlignment: root.textAlignment
+      }
+
+      // The small rounded count after the sender's name. It sits within the sender's line, so a
+      // bundled row is the same height as any other.
+      Rectangle {
+        id: bundleBadge
+        objectName: "message-bundle-count"
+        visible: root.bundleCount > 1
+        readonly property bool rightToLeft: sender.effectiveHorizontalAlignment === Text.AlignRight
+        x: rightToLeft ? sender.x + sender.width + MailStyle.space(6) : sender.x + sender.paintedWidth + MailStyle.space(6)
+        anchors.verticalCenter: sender.verticalCenter
+        height: bundleBadgeText.implicitHeight + MailStyle.space(2)
+        width: Math.max(height, bundleBadgeText.implicitWidth + MailStyle.space(8))
+        radius: height / 2
+        color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.1)
+        Accessible.role: Accessible.StaticText
+        Accessible.name: root.bundleCount + " mails in this Point"
+
+        Text {
+          id: bundleBadgeText
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: root.bundleCount
+          color: root.secondaryTextColor
+          font.family: root.panelFontFamily
+          font.pixelSize: Math.min(MailStyle.caption, MailStyle.listSize * 0.8)
+        }
       }
 
       Text {
@@ -387,6 +425,60 @@ Rectangle {
         horizontalAlignment: root.textAlignment
       }
     }
+
+    // "Bundle these?" stays on the row at rest and under the pointer: the tools' lane narrows it, so
+    // the row never changes height (C-071).
+    Item {
+      id: bundleLane
+      objectName: "bundle-proposal"
+      visible: root.bundleProposal && !root.writing
+      width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
+      implicitHeight: Math.max(bundleQuestion.implicitHeight, bundleApprove.implicitHeight)
+
+      Row {
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: MailStyle.space(10)
+
+        Text {
+          id: bundleQuestion
+          objectName: "bundle-question"
+          anchors.verticalCenter: parent.verticalCenter
+          width: Math.max(0, Math.min(implicitWidth, bundleLane.width - bundleApprove.implicitWidth - bundleDismiss.implicitWidth - 2 * parent.spacing))
+          textFormat: Text.PlainText
+          text: "Bundle these?"
+          color: root.secondaryTextColor
+          font.family: root.panelFontFamily
+          font.pixelSize: root.listTextSize
+          elide: Text.ElideRight
+        }
+
+        Widgets.Button {
+          id: bundleApprove
+          objectName: "bundle-approve"
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Bundle"
+          tooltipText: "Bundle these and approve this sender"
+          foreground: root.textColor
+          accent: root.accentColor
+          fontFamily: root.panelFontFamily
+          fontSize: MailStyle.caption
+          onClicked: root.bundleApproveRequested()
+        }
+
+        Widgets.Button {
+          id: bundleDismiss
+          objectName: "bundle-dismiss"
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Dismiss"
+          tooltipText: "Keep these apart"
+          foreground: root.dimColor
+          accent: root.accentColor
+          fontFamily: root.panelFontFamily
+          fontSize: MailStyle.caption
+          onClicked: root.bundleDismissRequested()
+        }
+      }
+    }
   }
 
   Row {
@@ -396,7 +488,7 @@ Rectangle {
     anchors.rightMargin: MailStyle.space(6)
     y: body.y + subjectLane.y + (body.height - subjectLane.y - height) / 2
     spacing: Math.max(MailStyle.space(24), Style.font.iconSmall * 2.5 + MailStyle.space(8)) * 0.15
-    visible: root.hot || root.selectionMode || root.snoozeOpen
+    visible: (root.hot && !root.proposalCrowded) || root.selectionMode || root.snoozeOpen
 
     IconButton {
       activationKey: root.messageIdentity

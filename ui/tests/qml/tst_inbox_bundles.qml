@@ -141,6 +141,18 @@ Item {
     }
   }
 
+  Component {
+    id: toastComponent
+    Components.UndoToast {
+      message: "Archived 2 messages"
+      textColor: Qt.rgba(0,0,0,1)
+      accentColor: Qt.rgba(0,0.5,0,1)
+      popupBackgroundColor: Qt.rgba(1,1,1,1)
+      popupBorderColor: Qt.rgba(0.5,0.5,0.5,1)
+      panelFontFamily: "sans-serif"
+    }
+  }
+
   TestCase {
     name: "InboxBundles"
     when: windowShown
@@ -557,6 +569,52 @@ Item {
       walk(rail)
       verify(seen.length >= 2, "both the sender and the subject were found: " + seen.length)
       seen.forEach(function(item) { compare(item.textFormat, Text.PlainText) })
+    }
+
+    function test_an_answer_sent_before_the_engine_wrote_an_approval_cannot_bring_the_proposal_back() {
+      canvas.setRows([mail("newer"), mail("other")])
+      tools.refresh()
+      var offerState = {bundles:[],proposals:[{front:"newer",covered:["other"],sender:{email:"a@b.c",name:"A"}}]}
+      waitAndAnswer(offerState)
+      verify(tools.bundles.approve("newer"))
+      tools.bundles.refresh(host.accountId)
+      var stale = backend.of("inbox.bundles").filter(function(call) { return !call.answered })[0]
+      backend.of("inbox.approveBundle")[0].done({bundles:[{front:"newer",covered:["other"]}],proposals:[]})
+      wait(0)
+      compare(service.messages.length, 1)
+      stale.answered = true
+      stale.done(offerState)
+      wait(0)
+      compare(service.messages.length, 1, "the answer from before the approval is dropped")
+    }
+
+    function test_a_slow_undo_leaves_a_newer_toast_alone() {
+      seedBundle()
+      tools.bundles.offerSnooze(3, [{accountId: host.accountId, id: "front"}])
+      verify(tools.bundles.runUndo())
+      var wake = backend.of("inbox.wake").slice(-1)[0]
+      tools.bundles.offerEdits("archive", 2, [{accountId: host.accountId, tickets: ["t1"]}])
+      wake.done({ok:true})
+      compare(tools.bundles.undoOffer.text, "Archived 2 messages")
+      verify(tools.bundles.undoOffer.canUndo)
+      tools.bundles.dismissUndo()
+    }
+
+    function test_the_toast_shows_the_key_only_when_it_reaches_this_toast() {
+      var toast = createTemporaryObject(toastComponent, canvas, {showsKey: true})
+      compare(findChild(toast, "undo-toast-button").text, "Undo  alt+z")
+      toast.showsKey = false
+      compare(findChild(toast, "undo-toast-button").text, "Undo")
+    }
+
+    function test_a_narrow_proposal_stops_short_of_tools_that_stay_showing() {
+      narrowRow.summary = ({id:"newer",from:{display:"A sender"},time:"09:14",bundleProposal:true})
+      waitForRendering(narrowRow)
+      verify(narrowRow.proposalCrowded)
+      verify(findChild(narrowRow, "bundle-proposal").clip)
+      narrowRow.writing = true
+      verify(!narrowRow.proposalCrowded, "no buttons showing, so nothing to make room for")
+      narrowRow.writing = false
     }
 
     function test_approved_senders_list_and_remove() {

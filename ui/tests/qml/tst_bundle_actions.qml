@@ -287,6 +287,75 @@ Item {
       fixture.answers["local.summaries"] = undefined
     }
 
+    function test_archiving_from_an_older_mail_moves_the_reader_on() {
+      seed([entry(ada)], ada)
+      var account = mailService.accountAt(0)
+      account.messages = [row("front"), row("older"), row("alone")]
+      bundle(ada, "front", ["older"])
+      tryVerify(function() { return mailService.messages.length === 2 })
+      app.openMessage("front")
+      tryCompare(mailService, "selectedId", "front")
+      app.openMember("older")
+      tryCompare(mailService, "selectedId", "older")
+      compare(app.cursorId, "front")
+      verify(app.actOnCursor("archive"))
+      tryCompare(mailService, "selectedId", "alone", 3000, "the reader moves on instead of going blank")
+      compare(app.currentView, "reader")
+      tryVerify(function() { return record.batches.length === 1 })
+      compare(record.batches[0], "front,older")
+    }
+
+    function test_the_toolbar_archives_the_whole_bundle_from_an_older_mail() {
+      seed([entry(ada)], ada)
+      var account = mailService.accountAt(0)
+      account.messages = [row("front"), row("alone")]
+      fixture.answers["local.summaries"] = {summaries: [row("older-unloaded")]}
+      bundle(ada, "front", ["older-unloaded"])
+      tryVerify(function() { return mailService.inboxTools.bundles.summaryOf(ada, "older-unloaded") !== undefined })
+      app.openMessage("front")
+      tryCompare(mailService, "selectedId", "front")
+      mailService.inboxTools.bundles.groupFor("front")
+      app.openMember("older-unloaded")
+      tryCompare(mailService, "selectedId", "older-unloaded")
+      findChild(app, "message-reader").actionRequested("archive")
+      tryVerify(function() { return record.batches.length === 1 })
+      compare(record.batches[0], "front,older-unloaded")
+      tryVerify(function() { return offerText() === "Archived 2 messages" })
+      fixture.answers["local.summaries"] = undefined
+    }
+
+    function test_report_spam_reaches_an_older_mail_outside_the_page() {
+      seed([entry(ada)], ada)
+      var account = mailService.accountAt(0)
+      account.messages = [row("front"), row("alone")]
+      fixture.answers["local.summaries"] = {summaries: [row("older-unloaded")]}
+      bundle(ada, "front", ["older-unloaded"])
+      tryVerify(function() { return mailService.inboxTools.bundles.summaryOf(ada, "older-unloaded") !== undefined })
+      verify(mailService.act("older-unloaded", "spam"))
+      tryVerify(function() { return record.batches.length === 1 })
+      compare(record.batches[0], "older-unloaded")
+      tryVerify(function() { return account.previewMessages.every(function(row) { return row.id !== "older-unloaded" }) })
+      fixture.answers["local.summaries"] = undefined
+    }
+
+    function test_a_failed_selection_with_a_bundle_still_says_so_in_the_unified_view() {
+      seed([entry(ada), entry(bob)], ada)
+      var first = mailService.accountAt(0), second = mailService.accountAt(1)
+      first.messages = [row("front"), row("older")]
+      second.messages = [row("other")]
+      mailService.setUnifiedMailboxes(true)
+      tryVerify(function() { return mailService.messages.length === 3 })
+      bundle(ada, "front", ["older"])
+      tryVerify(function() { return mailService.messages.length === 2 })
+      mailService.current.actionStatus = ""
+      app.checkedAccountId = mailService.activeAccountId
+      app.checkedIds = [Unified.unifiedId(first.accountId, "front"), Unified.unifiedId(second.accountId, "other")]
+      app.cursorId = Unified.unifiedId(first.accountId, "front")
+      record.refuse = "older"
+      verify(app.actOnChecked("trash"))
+      tryVerify(function() { return mailService.current.actionStatus.indexOf("1 failed") >= 0 }, 3000, "said: " + mailService.current.actionStatus)
+    }
+
     function test_stepping_in_the_reader_walks_the_bundle() {
       seed([entry(ada)], ada)
       var account = mailService.accountAt(0)

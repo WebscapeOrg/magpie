@@ -49,6 +49,7 @@ Column {
       values.push({ key: "notifications", title: "Notifications", y: notificationsHeading.y })
     values.push({ key: "writing", title: "Writing", y: writingHeading.y })
     if (aboutYouSettings.visible) values.push({ key: "aboutYou", title: "About you", y: aboutYouSettings.y })
+    if (approvedSenders.visible) values.push({ key: "approvedSenders", title: "Approved senders", y: approvedSenders.y })
     values.push({ key: "mailboxes", title: "Mailboxes", y: mailboxesHeading.y })
     values.push({ key: "oauth", title: "Google OAuth client", y: oauthHeading.y })
     return values
@@ -786,6 +787,17 @@ Column {
   PictureSettings {
     id: pictureSettings
     objectName: "settings-pictures"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
+  ApprovedSenders {
+    id: approvedSenders
+    objectName: "settings-approved-senders"
     width: parent.width
     service: root.service
     textColor: root.textColor

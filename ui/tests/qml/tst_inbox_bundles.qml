@@ -699,6 +699,22 @@ Item {
       narrowRow.selectionActive = false
     }
 
+    function test_the_offer_can_be_refused_however_narrow_the_row() {
+      narrowRow.summary = ({id:"front",from:{display:"A"},time:"09:14",bundleProposal:true,bundleQuestion:"Bundle these?"})
+      waitForRendering(narrowRow)
+      var buttons = findChild(narrowRow, "bundle-buttons")
+      var bundle = findChild(narrowRow, "bundle-approve")
+      var dismiss = findChild(narrowRow, "bundle-dismiss")
+      compare(dismiss.mapToItem(buttons, 0, 0).y, bundle.mapToItem(buttons, 0, 0).y, "side by side when there is room")
+      narrowRow.width = 200
+      waitForRendering(narrowRow)
+      verify(dismiss.mapToItem(buttons, 0, 0).y >= bundle.mapToItem(buttons, 0, bundle.height).y, "Dismiss sits below Bundle")
+      compare(dismiss.mapToItem(buttons, 0, 0).x, bundle.mapToItem(buttons, 0, 0).x)
+      verify(dismiss.mapToItem(buttons, 0, dismiss.height).y <= buttons.height + 0.5, "the row grows to hold both")
+      narrowRow.width = 320
+      waitForRendering(narrowRow)
+    }
+
     function test_approved_senders_list_and_remove() {
       tryVerify(function() { return backend.of("inbox.approvedSenders").length > 0 })
       var sender = {email:"up@robot.example",name:"<i>Uptime</i>",approved:1}

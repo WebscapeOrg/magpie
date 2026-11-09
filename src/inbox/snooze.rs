@@ -243,6 +243,10 @@ fn readopt(key: &str, slot: &Slot, generation: &str) -> Result<()> {
             row["labelId"] = json!(slot.id);
             row["until"] = json!(slot.until);
             row["state"] = json!("sleeping");
+            // Invariant: the list of Inbox mail was about the snooze another device has just changed.
+            if let Some(fields) = row.as_object_mut() {
+                fields.remove("inbox");
+            }
             settled(row);
         }
         Ok(())
@@ -600,22 +604,23 @@ async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
     };
     let ids = thread.ids(|_, _| true)?;
     let saved = rows()?;
-    let mut inbox: Vec<String> = thread.messages.iter().filter(|message| has(message, "INBOX")).filter_map(id_of).map(str::to_owned).collect();
     // Invariant: a snooze this one replaces has already taken its mail out of the Inbox, and Undo
     // must still return that mail.
-    let replaced = saved.values().filter(|row| row["accountId"] == *account && row["threadId"] == *thread.id);
-    for id in replaced.flat_map(taken_from_inbox).filter_map(Value::as_str) {
-        if !inbox.iter().any(|known| known == id) {
-            inbox.push(id.to_owned());
-        }
-    }
+    let replaced: Vec<&Value> = saved.values().filter(|row| row["accountId"] == *account && row["threadId"] == *thread.id).collect();
     let over = seen(&saved, &key, &account, Some(&thread.id));
     let generation = advance(&account, &thread.id)?;
     record(
         &key,
-        json!({"generation":generation,"accountId":account,"id":id,"ids":ids,"inbox":inbox,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name,"at":at,"over":over}),
+        json!({"generation":generation,"accountId":account,"id":id,"ids":ids,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name,"at":at,"over":over}),
     )?;
-    let landed = match listing(gmail.labels(&account).await) {
+    let known = listing(gmail.labels(&account).await);
+    // Invariant: sleeping mail can only be recognised from the labels, so without them no list is
+    // saved and Undo counts all of the snooze's mail.
+    if let Ok(known) = &known {
+        let inbox: Vec<&str> = thread.messages.iter().filter(|message| has(message, "INBOX") || (!binned(message) && taken_by_snooze(&replaced, message, known))).filter_map(id_of).collect();
+        note_inbox(&key, &inbox)?;
+    }
+    let landed = match known {
         Ok(known) => settle(gmail, &account, &thread, &ids, &name, &known).await,
         Err(error) => Err(error),
     };
@@ -632,15 +637,35 @@ async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
     Ok(json!({"ok":true,"until":until}))
 }
 
-/// The mail a saved snooze took out of the Inbox, which Undo must return.
-/// Invariant: a row found from a snooze made elsewhere, saved offline or written by an older engine
-/// has no `inbox` list, so all its mail counts: returning an archived mail can be undone, and mail
-/// left with neither the Inbox nor a snooze label cannot be found again.
-fn taken_from_inbox(row: &Value) -> Vec<&Value> {
-    row["inbox"]
-        .as_array()
-        .or_else(|| row["ids"].as_array().filter(|ids| !ids.is_empty()))
-        .map_or_else(|| vec![&row["id"]], |ids| ids.iter().collect())
+/// Whether a mail with no Inbox label was taken out of the Inbox by a snooze, so Undo must return it.
+/// Invariant: a saved list goes stale when another device changes the conversation, so it says a mail
+/// was outside the Inbox only while that mail sleeps under the list's own label. With no list to
+/// say, mail a snooze holds counts: returning an archived mail can be undone, and mail left with
+/// neither the Inbox nor a snooze label cannot be found again. Sent mail and drafts count only when
+/// a list names them, since they are not Inbox mail otherwise.
+fn taken_by_snooze(saved: &[&Value], message: &Value, known: &[Slot]) -> bool {
+    let Some(id) = id_of(message) else { return false };
+    let names = |list: &Value| list.as_array().is_some_and(|ids| ids.iter().any(|named| named == id));
+    if saved.iter().any(|row| names(&row["inbox"])) {
+        return true;
+    }
+    let sleeping: Vec<&Slot> = known.iter().filter(|slot| has(message, &slot.id)).collect();
+    let under_its_label = |row: &Value| sleeping.iter().all(|slot| row["label"].as_str().is_some_and(|own| own.eq_ignore_ascii_case(&slot.name)));
+    if saved.iter().any(|row| row["inbox"].is_array() && names(&row["ids"]) && under_its_label(row)) {
+        return false;
+    }
+    let held = !sleeping.is_empty() || saved.iter().any(|row| names(&row["ids"]) || row["id"] == id);
+    held && !has(message, "SENT") && !has(message, "DRAFT")
+}
+
+/// Saves which of a snooze's mail Undo returns.
+fn note_inbox(key: &str, inbox: &[&str]) -> Result<()> {
+    change(|rows| {
+        if let Some(row) = rows.get_mut(key) {
+            row["inbox"] = json!(inbox);
+        }
+        Ok(())
+    })
 }
 
 /// Applies a saved snooze Gmail has not confirmed. It snoozes only the mail Dave snoozed: the
@@ -799,7 +824,7 @@ async fn wake(
         .take(100)
         .collect();
     let snoozed = |message: &Value| on_thread.iter().any(|slot| has(message, &slot.id));
-    let was_in_inbox = |id: &str| taken_from_inbox(row).into_iter().any(|known| known == id);
+    let was_in_inbox = |message: &Value| taken_by_snooze(&[row], message, known);
     let (mut back, mut clear) = (Vec::new(), Vec::new());
     for message in &messages {
         let Some(id) = id_of(message) else { continue };
@@ -808,7 +833,7 @@ async fn wake(
             if snoozed(message) {
                 clear.push(id.to_owned());
             }
-        } else if restore && !was_in_inbox(id) {
+        } else if restore && !was_in_inbox(message) {
             // Invariant: Undo returns only mail that was in the Inbox when it was snoozed.
             if snoozed(message) {
                 clear.push(id.to_owned());

@@ -60,7 +60,7 @@ pub(super) fn sender(raw: &Value) -> Option<Sender> {
 }
 
 fn invisible_or_reordering(character: char) -> bool {
-    matches!(character, '\u{ad}' | '\u{61c}' | '\u{180e}' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206f}' | '\u{feff}')
+    matches!(character, '\u{ad}' | '\u{34f}' | '\u{61c}' | '\u{115f}'..='\u{1160}' | '\u{17b4}'..='\u{17b5}' | '\u{180b}'..='\u{180f}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{3164}' | '\u{fe00}'..='\u{fe0f}' | '\u{feff}' | '\u{ffa0}' | '\u{fff9}'..='\u{fffb}' | '\u{1d173}'..='\u{1d17a}' | '\u{e0000}'..='\u{e0fff}')
 }
 
 fn single(values: Vec<&str>) -> Option<&str> {
@@ -83,6 +83,11 @@ fn authored_by_gmail(value: &str) -> bool {
     clauses(value).first().is_some_and(|authserv| authserv.eq_ignore_ascii_case(GMAIL))
 }
 
+/// A space inside quotes, written so that `pairs` cannot read what follows it as a field of its own.
+fn unsplit(character: char, quoted: bool) -> char {
+    if quoted && character.is_whitespace() { '\u{1}' } else { character }
+}
+
 /// The header's `;`-separated clauses with comments removed, each trimmed. Comments may hold `;`
 /// and any text a sender chose, so they are taken out before the header is split.
 fn clauses(value: &str) -> Vec<String> {
@@ -92,7 +97,7 @@ fn clauses(value: &str) -> Vec<String> {
         if escaped {
             escaped = false;
             if comment == 0 {
-                parts.last_mut().expect("parts is never empty").push(character);
+                parts.last_mut().expect("parts is never empty").push(unsplit(character, quoted));
             }
             continue;
         }
@@ -109,7 +114,7 @@ fn clauses(value: &str) -> Vec<String> {
             '(' if !quoted => comment += 1,
             ')' if !quoted && comment > 0 => comment -= 1,
             ';' if !quoted && comment == 0 => parts.push(String::new()),
-            _ if comment == 0 => parts.last_mut().expect("parts is never empty").push(character),
+            _ if comment == 0 => parts.last_mut().expect("parts is never empty").push(unsplit(character, quoted)),
             _ => {}
         }
     }
@@ -258,8 +263,14 @@ mod tests {
     }
 
     #[test]
+    fn a_field_written_inside_a_quoted_value_is_not_read() {
+        let forged = "mx.google.com; dkim=pass header.i=\"x header.d=bank.example\" header.s=s1";
+        assert!(!proven_from("Bank <news@bank.example>", forged));
+    }
+
+    #[test]
     fn an_address_that_hides_or_reorders_characters_is_not_a_sender() {
-        for address in ["news\u{202e}elpmaxe.knab@bank.example", "news\u{200b}@bank.example", "news\u{2066}@bank.example", "news@ba\u{feff}nk.example"] {
+        for address in ["news\u{202e}elpmaxe.knab@bank.example", "news\u{200b}@bank.example", "news\u{2066}@bank.example", "news@ba\u{feff}nk.example", "news\u{34f}@bank.example", "news\u{2028}@bank.example", "news\u{3164}@bank.example", "news\u{fe0f}@bank.example", "news\u{fff9}@bank.example", "news\u{e0041}@bank.example"] {
             let from = format!("Bank <{address}>");
             assert!(sender(&mail(json!([{"name":"From","value":from}]))).is_none(), "{address:?}");
         }

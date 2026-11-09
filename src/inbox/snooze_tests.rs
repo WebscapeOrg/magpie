@@ -404,6 +404,134 @@ async fn undo_returns_the_mail_when_a_new_snooze_replaced_one_made_elsewhere() {
     assert!(returned.ends_with(&format!("-{label}")), "{returned}");
 }
 
+fn arrives_in_inbox(fake: &Fake, id: &str) {
+    fake.with(|mailbox| {
+        mailbox.messages.insert(id.into(), ("t7".into(), std::iter::once("INBOX".to_owned()).collect(), 0));
+    });
+}
+
+/// Another device snoozes the conversation to a later slot, moving this device's snooze.
+fn moved_elsewhere(fake: &Fake, ids: &[&str], old_until: i64, until: i64) -> i64 {
+    let label = fake.add_label(&slot(until).unwrap().1);
+    let old = fake.label_id(&slot(old_until).unwrap().1).unwrap();
+    fake.tag(ids, &[&label], &["INBOX", &old]);
+    until
+}
+
+async fn undo_a_new_snooze_of(fake: &Fake, id: &str, until: i64) {
+    arrives_in_inbox(fake, id);
+    assert_eq!(snooze_at(fake, id, until).await.unwrap()["ok"], true);
+    call("inbox.wake", &json!({"accountId":ACCOUNT,"id":id,"restore":true}), fake).await.unwrap();
+}
+
+async fn undo_returns_mail_another_device_put_to_sleep(tick: bool) {
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"])]);
+    let until = now() + 24 * HOUR;
+    assert_eq!(snooze_at(&fake, "a", until).await.unwrap()["ok"], true);
+    arrives_in_inbox(&fake, "b");
+    let moved = moved_elsewhere(&fake, &["a", "b"], until, until + 24 * HOUR);
+    if tick {
+        call("inbox.tick", &json!({}), &fake).await.unwrap();
+    }
+    undo_a_new_snooze_of(&fake, "c", moved).await;
+    for id in ["a", "b", "c"] {
+        assert!(fake.labels_of(id).contains(&"INBOX".to_owned()), "{id}: {:?}", fake.labels_of(id));
+    }
+}
+
+#[tokio::test]
+async fn undo_returns_mail_another_device_put_to_sleep_once_this_device_has_seen_it() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    undo_returns_mail_another_device_put_to_sleep(true).await;
+}
+
+#[tokio::test]
+async fn undo_returns_mail_another_device_put_to_sleep_before_this_device_has_seen_it() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    undo_returns_mail_another_device_put_to_sleep(false).await;
+}
+
+async fn undo_does_not_believe_a_list_after_a_move(tick: bool) {
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"]), ("x", "t7", &[])]);
+    let until = now() + 24 * HOUR;
+    assert_eq!(snooze_at(&fake, "a", until).await.unwrap()["ok"], true);
+    assert_eq!(row("a").unwrap()["inbox"], json!(["a"]));
+    let moved = moved_elsewhere(&fake, &["a", "x"], until, until - 12 * HOUR);
+    if tick {
+        call("inbox.tick", &json!({}), &fake).await.unwrap();
+        let adopted = row("a").unwrap();
+        assert_eq!(adopted["label"], json!(slot(moved).unwrap().1), "this device follows the move");
+        assert!(adopted.get("inbox").is_none(), "{adopted}");
+    }
+    undo_a_new_snooze_of(&fake, "c", moved).await;
+    assert!(fake.labels_of("x").contains(&"INBOX".to_owned()), "{:?}", fake.labels_of("x"));
+}
+
+#[tokio::test]
+async fn undo_does_not_believe_a_list_once_a_move_is_seen() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    undo_does_not_believe_a_list_after_a_move(true).await;
+}
+
+#[tokio::test]
+async fn undo_does_not_believe_a_list_before_a_move_is_seen() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    undo_does_not_believe_a_list_after_a_move(false).await;
+}
+
+#[tokio::test]
+async fn undo_leaves_archived_mail_out_when_the_list_is_still_good() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"]), ("x", "t7", &[])]);
+    let until = now() + 24 * HOUR;
+    assert_eq!(snooze_at(&fake, "a", until).await.unwrap()["ok"], true);
+    undo_a_new_snooze_of(&fake, "c", until).await;
+    assert!(fake.labels_of("a").contains(&"INBOX".to_owned()));
+    assert!(fake.labels_of("c").contains(&"INBOX".to_owned()));
+    assert!(fake.labels_of("x").is_empty(), "{:?}", fake.labels_of("x"));
+}
+
+#[tokio::test]
+async fn undo_of_a_snooze_made_elsewhere_gives_sent_mail_no_inbox() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("g1", "t7", &[]), ("sent", "t7", &["SENT"])]);
+    let label = fake.add_label(&slot(now() + 24 * HOUR).unwrap().1);
+    fake.tag(&["g1", "sent"], &[&label], &[]);
+    call("inbox.tick", &json!({}), &fake).await.unwrap();
+    assert!(row("g1").unwrap().get("inbox").is_none());
+    call("inbox.wake", &json!({"accountId":ACCOUNT,"id":"g1","restore":true}), &fake).await.unwrap();
+    assert!(fake.labels_of("g1").contains(&"INBOX".to_owned()));
+    assert_eq!(fake.labels_of("sent"), ["SENT"]);
+}
+
+#[tokio::test]
+async fn a_snooze_that_cannot_read_the_labels_saves_no_list_of_inbox_mail() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"]), ("x", "t7", &[])]);
+    fake.with(|mailbox| mailbox.empty_labels = true);
+    assert_eq!(snooze_at(&fake, "a", now() + 24 * HOUR).await, Err("snooze_pending_retry"));
+    assert!(row("a").unwrap().get("inbox").is_none());
+}
+
 async fn snooze_at(fake: &Fake, id: &str, until: i64) -> Result<Value> {
     call(
         "inbox.snooze",

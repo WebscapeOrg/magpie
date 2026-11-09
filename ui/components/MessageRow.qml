@@ -453,11 +453,17 @@ Rectangle {
         width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
         // Selection or the snooze picker keep the tools showing; the buttons then stop short of them.
         clip: root.proposalCrowded
-        implicitHeight: Math.max(bundleApprove.implicitHeight, bundleDismiss.implicitHeight)
+        // Too narrow for both side by side, Dismiss goes under Bundle so the offer can still be refused.
+        readonly property bool stacked: width < bundleApprove.implicitWidth + MailStyle.space(10) + bundleDismiss.implicitWidth
+        implicitHeight: stacked
+          ? bundleApprove.implicitHeight + MailStyle.space(6) + bundleDismiss.implicitHeight
+          : Math.max(bundleApprove.implicitHeight, bundleDismiss.implicitHeight)
 
-        Row {
+        Grid {
           anchors.verticalCenter: parent.verticalCenter
-          spacing: MailStyle.space(10)
+          columns: bundleButtons.stacked ? 1 : 2
+          columnSpacing: MailStyle.space(10)
+          rowSpacing: MailStyle.space(6)
 
           Widgets.Button {
             id: bundleApprove

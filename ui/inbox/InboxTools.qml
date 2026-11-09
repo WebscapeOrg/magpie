@@ -409,8 +409,10 @@ Item {
       targets.push(target)
     })
     var remaining = targets.length, succeeded = [], mails = 0, failed = 0
+    // A mail with no summary can be a second target in a conversation, so the snoozes share an action.
+    var action = "bundle-" + Date.now() + "-" + Math.floor(Math.random() * 1000000000)
     targets.forEach(function(target) {
-      service.backend.call("inbox.snooze", {accountId:host.accountId,id:target.id,until:until}, function(result,failure) {
+      service.backend.call("inbox.snooze", {accountId:host.accountId,id:target.id,until:until,action:action}, function(result,failure) {
         if (failure) failed++
         else { succeeded.push({accountId:host.accountId,id:target.id}); mails += target.mails }
         if (--remaining !== 0) return

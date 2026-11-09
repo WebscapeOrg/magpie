@@ -352,8 +352,8 @@ async fn undo_returns_the_mail_when_a_second_snooze_replaced_the_first() {
     let fake = Fake::new(&[("a", "t1", &["INBOX"]), ("b", "t1", &["INBOX"]), ("archived", "t1", &["CATEGORY_UPDATES"])]);
     let until = now() + 2 * HOUR;
     let (_, name) = slot(until).unwrap();
-    assert_eq!(snooze_at(&fake, "a", until).await.unwrap()["ok"], true);
-    assert_eq!(snooze_at(&fake, "b", until).await.unwrap()["ok"], true);
+    assert_eq!(snooze_in(&fake, "a", until, "bundle-1").await.unwrap()["ok"], true);
+    assert_eq!(snooze_in(&fake, "b", until, "bundle-1").await.unwrap()["ok"], true);
     let label = fake.label_id(&name).unwrap();
     call("inbox.wake", &json!({"accountId":ACCOUNT,"id":"b","restore":true}), &fake).await.unwrap();
     let writes = fake.writes();
@@ -629,12 +629,60 @@ async fn undo_does_not_carry_back_an_earlier_separate_snooze() {
     let _fixture = fixture();
     let fake = Fake::new(&[("a", "t7", &["INBOX"])]);
     let until = now() + 24 * HOUR;
-    assert_eq!(snooze_at(&fake, "a", until).await.unwrap()["ok"], true);
+    assert_eq!(snooze_in(&fake, "a", until, "first").await.unwrap()["ok"], true);
     let label = fake.label_id(&slot(until).unwrap().1).unwrap();
-    edit("a", "at", json!(now() - 2 * ONE_ACTION));
-    assert_eq!(snooze_at(&fake, "a", until).await.unwrap()["ok"], true);
+    assert_eq!(snooze_in(&fake, "a", until, "second").await.unwrap()["ok"], true);
     undo(&fake, "a").await.unwrap();
     assert_asleep(&fake, "a", &label);
+}
+
+#[tokio::test]
+async fn a_bundles_second_snooze_of_a_conversation_undoes_both_however_late() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"]), ("b", "t7", &["INBOX"])]);
+    let until = now() + 24 * HOUR;
+    assert_eq!(snooze_in(&fake, "a", until, "bundle-1").await.unwrap()["ok"], true);
+    edit("a", "at", json!(now() - HOUR));
+    assert_eq!(snooze_in(&fake, "b", until, "bundle-1").await.unwrap()["ok"], true);
+    undo(&fake, "b").await.unwrap();
+    assert_in_inbox(&fake, "a");
+    assert_in_inbox(&fake, "b");
+}
+
+#[tokio::test]
+async fn mail_arriving_between_a_bundles_snoozes_returns_with_them() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"]), ("b", "t7", &["INBOX"])]);
+    let until = now() + 24 * HOUR;
+    assert_eq!(snooze_in(&fake, "a", until, "bundle-1").await.unwrap()["ok"], true);
+    fake.arrive("new", "t7", &["INBOX"]);
+    assert_eq!(snooze_in(&fake, "b", until, "bundle-1").await.unwrap()["ok"], true);
+    undo(&fake, "b").await.unwrap();
+    for id in ["a", "b", "new"] {
+        assert_in_inbox(&fake, id);
+    }
+}
+
+#[tokio::test]
+async fn a_snooze_action_must_be_a_plain_id() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"])]);
+    let until = now() + 24 * HOUR;
+    assert_eq!(snooze_in(&fake, "a", until, "not plain").await, Err("invalid_params"));
+    assert_eq!(
+        call("inbox.snooze", &json!({"accountId":ACCOUNT,"id":"a","until":until,"action":7}), &fake).await,
+        Err("invalid_params")
+    );
+    assert!(row("a").is_none());
 }
 
 #[tokio::test]
@@ -676,6 +724,10 @@ async fn a_snooze_that_cannot_read_the_labels_cannot_be_undone() {
     assert!(row("a").unwrap().get("before").is_none());
     fake.with(|mailbox| mailbox.empty_labels = false);
     assert_eq!(undo(&fake, "a").await, Err("snooze_undo_unavailable"));
+}
+
+async fn snooze_in(fake: &Fake, id: &str, until: i64, action: &str) -> Result<Value> {
+    call("inbox.snooze", &json!({"accountId":ACCOUNT,"id":id,"until":until,"action":action}), fake).await
 }
 
 async fn snooze_at(fake: &Fake, id: &str, until: i64) -> Result<Value> {

@@ -16,8 +16,6 @@ const SLOT: i64 = 300_000;
 const ROWS: usize = 1000;
 const LABELS: usize = 200;
 const DISCOVER_EVERY: i64 = 60_000;
-/// How soon a second snooze of a conversation must follow the first to count as the same action.
-const ONE_ACTION: i64 = 60_000;
 const RELIST_AFTER: i64 = 600_000;
 const LISTS_PER_RUN: usize = 5;
 const READS_PER_RUN: usize = 20;
@@ -569,7 +567,11 @@ fn held(account: &str, key: &str, thread: &str) -> Result<Option<String>> {
 }
 
 async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
-    fields(p, &["accountId", "id", "until", "subject"])?;
+    fields(p, &["accountId", "id", "until", "subject", "action"])?;
+    let action = match p.get("action") {
+        None => None,
+        Some(value) => Some(value.as_str().filter(|text| safe_id(text)).ok_or("invalid_params")?),
+    };
     let account = account(p)?;
     let id = p["id"].as_str().ok_or("invalid_params")?;
     crate::mail::action::validate_message_id(crate::mail::Provider::Gmail, id)?;
@@ -609,13 +611,13 @@ async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
     let generation = advance(&account, &thread.id)?;
     record(
         &key,
-        json!({"generation":generation,"accountId":account,"id":id,"ids":ids,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name,"at":at,"over":over}),
+        json!({"generation":generation,"accountId":account,"id":id,"ids":ids,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name,"at":at,"over":over,"action":action}),
     )?;
     let known = listing(gmail.labels(&account).await);
     // Invariant: sleeping mail can only be recognised from the labels, so without them nothing is
     // saved for Undo and the snooze cannot be undone.
     if let Ok(known) = &known {
-        note_before(&key, before_this(&thread, known, &name, &replaced))?;
+        note_before(&key, before_this(&thread, known, action, &replaced))?;
     }
     let landed = match known {
         Ok(known) => settle(gmail, &account, &thread, &ids, &name, &known).await,
@@ -653,23 +655,15 @@ fn places(thread: &Thread, known: &[Slot]) -> Value {
 }
 
 /// What Undo puts back for this snooze.
-/// Invariant: a bundle snoozes each of its mails, so one conversation can be snoozed twice in a
-/// single action. When the snooze just before this one left the whole conversation asleep under
-/// this slot and none of it has returned to the Inbox, this snooze changes nothing, and Undo goes
-/// back to before the snooze that did.
-fn before_this(thread: &Thread, known: &[Slot], name: &str, replaced: &[&Value]) -> Value {
-    let unchanged = known
-        .iter()
-        .find(|slot| slot.name.eq_ignore_ascii_case(name))
-        .is_some_and(|slot| thread.messages.iter().all(|message| binned(message) || (has(message, &slot.id) && !has(message, "INBOX"))));
-    let same_slot = |row: &&&Value| {
-        row["label"].as_str().is_some_and(|own| own.eq_ignore_ascii_case(name))
-            && row["at"].as_i64().is_some_and(|at| at > now() - ONE_ACTION)
-    };
-    match replaced.iter().filter(same_slot).find(|row| unchanged && row["before"].is_object()) {
-        Some(row) => row["before"].clone(),
-        None => places(thread, known),
+/// Invariant: a bundle can snooze one conversation more than once in a single action, when a mail's
+/// summary is not loaded, so Undo goes back to before the first snooze of that action.
+fn before_this(thread: &Thread, known: &[Slot], action: Option<&str>, replaced: &[&Value]) -> Value {
+    let mut before = places(thread, known);
+    let earlier = action.and_then(|action| replaced.iter().find(|row| row["action"] == action));
+    if let (Some(fields), Some(saved)) = (before.as_object_mut(), earlier.and_then(|row| row["before"].as_object())) {
+        fields.extend(saved.clone());
     }
+    before
 }
 
 /// Forgets what discovery last saw of a label.

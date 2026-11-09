@@ -441,6 +441,8 @@ Item {
       verify(tools.snooze("front", Date.now()+3600000))
       var snoozes = backend.of("inbox.snooze")
       compare(snoozes.length, 2, "two mails in one thread snooze once")
+      verify(snoozes[0].params.action.length > 0, "the snoozes of a bundle are one action")
+      compare(snoozes[1].params.action, snoozes[0].params.action)
       for (var i = 0; i < snoozes.length; i++) snoozes[i].done({ok:true})
       compare(tools.bundles.undoOffer.text, "Snoozed 3 messages")
       compare(tools.bundles.undoOffer.entries.length, 2)
@@ -630,9 +632,15 @@ Item {
       verify(tools.snooze("older", Date.now()+3600000))
       var snoozes = backend.of("inbox.snooze")
       compare(snoozes.length, 3, "every mail of the bundle")
+      verify(/^[A-Za-z0-9_-]{1,256}$/.test(snoozes[0].params.action), "the engine takes only a plain id")
+      compare(snoozes[1].params.action, snoozes[0].params.action)
+      compare(snoozes[2].params.action, snoozes[0].params.action)
       for (var i = 0; i < snoozes.length; i++) snoozes[i].done({ok:true})
       compare(tools.bundles.undoOffer.text, "Snoozed 3 messages")
       tools.bundles.dismissUndo()
+      verify(tools.snooze("older", Date.now()+7200000))
+      var next = backend.of("inbox.snooze")
+      verify(next[next.length - 1].params.action !== snoozes[0].params.action, "a later snooze is its own action")
     }
 
     function test_a_helper_row_is_taken_back_when_mark_read_cannot_start() {

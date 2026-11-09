@@ -976,6 +976,17 @@
       "errorCode": -32602
     },
     {
+      "name": "Inbox snooze rejects an action that is not a plain id",
+      "method": "inbox.snooze",
+      "params": {
+        "accountId": "contract@example.org",
+        "id": "message-1",
+        "until": 0,
+        "action": "not plain"
+      },
+      "errorCode": -32602
+    },
+    {
       "name": "Inbox snapshot returns private account working state",
       "method": "inbox.snapshot",
       "params": {
@@ -2787,7 +2798,8 @@
       "Inbox approved sender removal requires an address and name",
       "Local edit undo says how many mails it left alone",
       "Local edit undo requires a ticket",
-      "Snooze wake rejects a restore that is not true or false"
+      "Snooze wake rejects a restore that is not true or false",
+      "Inbox snooze rejects an action that is not a plain id"
     ]
   },
   "releasedContract": {

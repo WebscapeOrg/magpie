@@ -66,7 +66,9 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
 - **Work goes on a branch and a draft pull request in WebscapeOrg/magpie-mail, never on `main`.** The branches stack: each
   pull request's base is the branch before it. Plain `gh` in this repository resolves to huacnlee/omamail, in
   `magpie-mail` and in every worktree, so pass `--repo WebscapeOrg/magpie-mail` to every `gh` command. A pull request that
-  changes a screen links the Peacock note with its pictures; nobody uploads screenshots to GitHub.
+  changes a screen names the Peacock note with its pictures by its number (P-NNN); nobody uploads screenshots to
+  GitHub. Never paste a Peacock link or any other address on Dave's private network into a commit, a file or a pull
+  request: this repository is public, and Dave chose to keep those addresses off GitHub (Q-006 in Medley).
 
 ## Asking Dave for decisions: Pickle
 

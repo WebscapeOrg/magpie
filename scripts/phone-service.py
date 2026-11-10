@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import tempfile
@@ -15,7 +16,6 @@ STATE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") /
 PHONE = STATE / "phone"
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 DATA = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "omamail"
-HOST = "service.<tailnet>.ts.net"
 UNIT = "magpie-mail-engine.service"
 CERTIFICATE = "magpie-mail-certificate.service"
 TIMER = "magpie-mail-certificate.timer"
@@ -23,6 +23,7 @@ OTA = "magpie-mail-ota.service"
 # The units' names before Magpie became Magpie Mail (Dave, Q-017, 8 November 2026); rename-units retires them.
 OLD_UNITS = ["magpie-engine.service", "magpie-certificate.service", "magpie-certificate.timer"]
 OLD_OTA = "magpie-ota.service"
+DNS_NAME = re.compile(r"(?=.{1,253}\Z)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+\Z")
 
 
 def safe(path, directory=False):
@@ -91,6 +92,22 @@ def runtime():
     return result["executable"]
 
 
+def host():
+    # The main machine's name on Dave's tailnet stays out of this public repository (Dave, Q-006 in Medley, 10 November
+    # 2026), so it comes from Tailscale: the machine's own name, if Tailscale can issue it a certificate.
+    try:
+        status = json.loads(command(["tailscale", "status", "--json"]))
+        name = status["Self"]["DNSName"].rstrip(".")
+    except (ValueError, TypeError, KeyError, AttributeError):
+        raise RuntimeError("Tailscale did not report this machine's name") from None
+    if not DNS_NAME.match(name):
+        raise RuntimeError("Tailscale reported an unusable name for this machine")
+    domains = status.get("CertDomains")
+    if not isinstance(domains, list) or name not in domains:
+        raise RuntimeError("Tailscale cannot issue an HTTPS certificate for this machine; turn on HTTPS for the tailnet")
+    return name
+
+
 def certificate():
     safe(PHONE, True)
     if PHONE.stat().st_mode & 0o077:
@@ -99,9 +116,10 @@ def certificate():
         safe(path)
         if path.exists() and (path.stat().st_uid != os.getuid() or path.stat().st_mode & 0o077):
             raise RuntimeError("HTTPS credentials must be private")
+    name = host()
     with tempfile.TemporaryDirectory(prefix=".certificate-", dir=PHONE) as stage:
         cert, key = Path(stage) / "server.crt", Path(stage) / "server.key"
-        command(["tailscale", "cert", "--cert-file", str(cert), "--key-file", str(key), HOST])
+        command(["tailscale", "cert", "--cert-file", str(cert), "--key-file", str(key), name])
         changed = not (PHONE / "server.crt").exists() or (PHONE / "server.crt").read_bytes() != cert.read_bytes()
         write(PHONE / "server.key", key.read_bytes())
         write(PHONE / "server.crt", cert.read_bytes())

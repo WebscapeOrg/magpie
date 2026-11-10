@@ -14,6 +14,14 @@ spec = importlib.util.spec_from_file_location('service', Path(__file__).resolve(
 service = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(service)
 RUNTIME = service.runtime
+CERTIFICATE = service.certificate
+NAME = 'service.example-tailnet.ts.net'
+LONG_LABEL = 'a'*64 + '.example-tailnet.ts.net'
+LONG_NAME = '.'.join(['a'*63]*3 + ['b'*62])
+
+
+def status(name=NAME + '.', domains=(NAME,)):
+    return json.dumps({'Self':{'DNSName':name},'CertDomains':list(domains) if domains is not None else None})
 
 
 class ServiceTests(unittest.TestCase):
@@ -274,6 +282,62 @@ class ServiceTests(unittest.TestCase):
         with patch.dict(os.environ, PATH='/another/session:/new/mise/installs/claude/2.0'):
             service.prepare()
         self.assertEqual((service.CONFIG/'systemd/user'/service.UNIT).read_bytes(), before)
+
+    def answer(self, reply):
+        def command(args):
+            self.calls.append(args)
+            if args[:2] == ['tailscale','cert']:
+                Path(args[3]).write_bytes(b'synthetic certificate')
+                Path(args[5]).write_bytes(b'synthetic key')
+                return ''
+            return reply
+        return patch.object(service,'command',side_effect=command)
+
+    def test_the_certificate_is_issued_for_the_name_tailscale_reports(self):
+        with self.answer(status()):
+            self.assertEqual(service.host(),NAME)
+            self.assertEqual(self.calls,[['tailscale','status','--json']])
+            self.calls.clear()
+            self.assertTrue(CERTIFICATE())
+        self.assertEqual(self.calls[0],['tailscale','status','--json'])
+        self.assertEqual(self.calls[1][:2],['tailscale','cert'])
+        self.assertEqual(self.calls[1][-1],NAME)
+        self.assertEqual(len(self.calls),2)
+        self.assertEqual((service.PHONE/'server.crt').read_bytes(),b'synthetic certificate')
+        self.assertEqual((service.PHONE/'server.key').stat().st_mode & 0o777,0o600)
+
+    def test_names_at_the_dns_limits_are_accepted(self):
+        for name in ['a'*63 + '.example-tailnet.ts.net', '.'.join(['a'*63]*3 + ['b'*61])]:
+            with self.subTest(len(name)), self.answer(status(name + '.',[name])):
+                self.assertEqual(service.host(),name)
+
+    def test_an_unusable_tailscale_answer_issues_no_certificate(self):
+        answers = {
+            'not JSON': 'tailscale is stopped',
+            'a list': '[]',
+            'no Self': json.dumps({'CertDomains':[NAME]}),
+            'a number for the name': json.dumps({'Self':{'DNSName':7},'CertDomains':[NAME]}),
+            'an option for a name': status('-x.example-tailnet.ts.net.',['-x.example-tailnet.ts.net']),
+            'a name with a space': status(NAME + ' --x.',[NAME + ' --x']),
+            'a name with a newline': status(NAME + '\n.',[NAME + '\n']),
+            'a bare word': status('service.',['service']),
+            'capitals': status('Service.example-tailnet.ts.net.',['Service.example-tailnet.ts.net']),
+            'no certificate names': status(domains=()),
+            'certificates off': status(domains=None),
+            'another machine\'s certificate': status(domains=('other.example-tailnet.ts.net',)),
+            'names as one string': json.dumps({'Self':{'DNSName':NAME + '.'},'CertDomains':'x ' + NAME}),
+            'a space inside a label': status('ent erprise.example-tailnet.ts.net.',['ent erprise.example-tailnet.ts.net']),
+            'no certificate names listed': json.dumps({'Self':{'DNSName':NAME + '.'}}),
+            'a label over 63 characters': status(LONG_LABEL + '.',[LONG_LABEL]),
+            'a name over 253 characters': status(LONG_NAME + '.',[LONG_NAME]),
+        }
+        for case, reply in answers.items():
+            with self.subTest(case), self.answer(reply):
+                self.calls.clear()
+                with self.assertRaises(RuntimeError):
+                    CERTIFICATE()
+                self.assertEqual(self.calls,[['tailscale','status','--json']])
+                self.assertFalse((service.PHONE/'server.crt').exists())
 
 
 if __name__ == '__main__':

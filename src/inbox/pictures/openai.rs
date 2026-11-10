@@ -11,6 +11,9 @@ const ORIGIN: &str = "https://api.openai.com";
 const SIZE: &str = "1024x1024";
 const QUALITY: &str = "medium";
 const REPLY_LIMIT: usize = 24 * 1024 * 1024;
+/// A decision's question and its answer are a few kilobytes; anything larger is refused unsent or
+/// unread.
+const DECISION_LIMIT: usize = 64 * 1024;
 /// One picture can take more than two minutes; Marmalade waits 300 seconds.
 const TIMEOUT: Duration = Duration::from_secs(300);
 /// Reserved before each request, and charged when a reply gives no usage. A generous bound:
@@ -32,7 +35,7 @@ pub(super) struct Painted {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Fault {
+pub(in crate::inbox) enum Fault {
     /// OpenAI does not accept the key, or the key may not use this model.
     Key(&'static str),
     /// The key's account has no credit left.
@@ -60,12 +63,19 @@ tokio::task_local! {
 
 /// Sends this future's OpenAI requests to a local test server instead of OpenAI.
 #[cfg(test)]
-pub(super) async fn with_test_transport<T>(
+pub(in crate::inbox) async fn with_test_transport<T>(
     client: reqwest::Client,
     origin: String,
     work: impl std::future::Future<Output = T>,
 ) -> T {
     TEST_TRANSPORT.scope((client, origin), work).await
+}
+
+/// Sends this future's OpenAI requests to OpenAI itself. Only the ignored live evaluation
+/// (`agent::overview::live_quality::point_eval`) calls it.
+#[cfg(all(test, feature = "agent"))]
+pub(in crate::inbox) async fn with_openai<T>(work: impl std::future::Future<Output = T>) -> T {
+    with_test_transport(client().expect("an OpenAI client"), ORIGIN.to_owned(), work).await
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -143,7 +153,7 @@ pub(super) async fn check(key: &Secret, model: &str) -> Result<(), Fault> {
         .map_err(|_| Fault::Lost { charged: false })?;
     let status = response.status().as_u16();
     let retry = retry_after(response.headers());
-    let body = read(response).await.map_err(|_| Fault::Lost { charged: false })?;
+    let body = read(response, REPLY_LIMIT).await.map_err(|_| Fault::Lost { charged: false })?;
     if status == 200 {
         return Ok(());
     }
@@ -183,17 +193,44 @@ pub(super) async fn paint(key: &Secret, model: &str, request: &Request) -> Resul
         .map_err(|error| Fault::Lost { charged: !error.is_connect() })?;
     let status = response.status().as_u16();
     let retry = retry_after(response.headers());
-    let body = read(response).await.map_err(|_| Fault::Lost { charged: true })?;
+    let body = read(response, REPLY_LIMIT).await.map_err(|_| Fault::Lost { charged: true })?;
     if status != 200 {
         return Err(classify(status, &body, retry));
     }
     parse(&body)
 }
 
-async fn read(mut response: reqwest::Response) -> Result<Vec<u8>, ()> {
+/// Asks OpenAI's Decisions API one question set, with the same origin, header and redirect rules as
+/// pictures. Any failure is only "no answer": the picker falls back to a model of its own and never
+/// retries.
+/// Invariant: a question set or an answer over DECISION_LIMIT is never sent or read.
+pub(in crate::inbox) async fn decide(key: &Secret, body: Vec<u8>, timeout: Duration) -> Result<Vec<u8>, Fault> {
+    if body.len() > DECISION_LIMIT {
+        return Err(Fault::Rejected);
+    }
+    let (client, origin) = transport()?;
+    let response = client
+        .post(format!("{origin}/v1/decisions"))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header(reqwest::header::AUTHORIZATION, authorization(key)?)
+        .timeout(timeout)
+        .body(body)
+        .send()
+        .await
+        .map_err(|error| Fault::Lost { charged: !error.is_connect() })?;
+    let status = response.status().as_u16();
+    let retry = retry_after(response.headers());
+    let body = read(response, DECISION_LIMIT).await.map_err(|_| Fault::Lost { charged: true })?;
+    if status != 200 {
+        return Err(classify(status, &body, retry));
+    }
+    Ok(body)
+}
+
+async fn read(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>, ()> {
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| ())? {
-        if body.len() + chunk.len() > REPLY_LIMIT {
+        if body.len() + chunk.len() > limit {
             return Err(());
         }
         body.extend_from_slice(&chunk);

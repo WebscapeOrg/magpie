@@ -2,6 +2,7 @@
 //! Invariant: the key lives only in the device Keychain. It is read for each batch of messages, sent
 //! only to api.anthropic.com in a sensitive header, and never returned, logged or stored elsewhere.
 #![cfg_attr(not(feature = "mobile"), allow(dead_code))]
+use super::picker::Tier;
 use super::{INTERRUPTED, describe, now, store};
 use crate::credentials::{self, CredentialKey, CredentialKind, Secret};
 use serde_json::{Value, json};
@@ -14,16 +15,16 @@ pub(crate) mod diagnostics;
 #[cfg_attr(test, allow(dead_code))]
 const ORIGIN: &str = "https://api.anthropic.com";
 const VERSION: &str = "2026-10-21";
-// Haiku is used because descriptions are short and its cost is low; DAILY_SPEND caps what a day can cost.
+/// The model the key is checked against, and the cheapest the picker chooses.
 pub(crate) const MODEL: &str = "claude-haiku-5-5";
 const REPLY_LIMIT: usize = 8 * 1024 * 1024;
 pub(crate) const REQUEST_LIMIT: usize = 30 * 1024 * 1024;
 // Q-005: Dave chose Sonnet 5.5 for the assistant, with a daily limit of its own (assistant.rs).
 pub(crate) const ASSISTANT_MODEL: &str = "claude-sonnet-5-5";
-// Invariant: spending stops for the day at about $5, Dave's limit for The Point (4 Nov 2026). Each
-// message is counted with the shared context before it is sent and stays below PROMPT_LIMIT tokens;
-// with the editor's candidates a request stays below 100,000 tokens, where Haiku 5.5 bills $0.10 per
-// million input and $0.50 per million output tokens.
+// Invariant: spending stops for the day at about $5, Dave's limit for The Point (4 Nov 2026), with
+// the picker's decisions counted in it. Each message is counted with the shared context before it is
+// sent and stays below PROMPT_LIMIT tokens; with the editor's candidates a Haiku request stays below
+// 100,000 tokens, where Haiku 5.5's price rises fivefold. Sonnet and Opus have no such step.
 const DAILY_SPEND: u64 = 5_000_000_000;
 const DAILY_CALLS: u64 = 3_000;
 const PROMPT_LIMIT: u64 = 80_000;
@@ -51,6 +52,8 @@ const SUSPENDED: &str = "suspended";
 const DOCUMENT_REFUSED: &str = "overview_document_refused";
 const INVALID: &str = "overview_invalid_response";
 // Problems that stop every request until Dave acts in Settings or the Claude Console.
+/// What Claude answers when this key may not use a model: Sonnet's or Opus's is that model's alone.
+const MODEL_REFUSALS: [&str; 2] = ["ai_model_unavailable", "ai_key_refused"];
 const BLOCKING: [&str; 4] = ["ai_key_invalid", "ai_key_refused", "ai_key_workspace", "ai_model_unavailable"];
 // The key's own problems. Unlike BLOCKING, they leave out the description model being unavailable.
 /// Key problems that hold for every model: a key Claude does not know, and one a mail-free probe
@@ -138,8 +141,23 @@ fn admit(at: i64) -> Result<(), &'static str> {
     })
 }
 
+/// Billionths of a dollar per token for fresh input, cache writes, cache reads and output, at list
+/// prices: Haiku 5.5 $0.10/$0.50 a million (five times that above 100,000 prompt tokens), Sonnet
+/// 5.5 $2/$10 and Opus 5.5 $4/$20, cache writes at 1.25 times input, reads at $0.01, $0.20, $0.20.
+fn prices(tier: Tier) -> [u64; 4] {
+    match tier {
+        Tier::Haiku => [100, 125, 10, 500],
+        Tier::Sonnet => [2_000, 2_500, 200, 10_000],
+        Tier::Opus => [4_000, 5_000, 200, 20_000],
+    }
+}
+
 /// What a reply cost in billionths of a dollar, from the token counts Claude reports.
 fn cost(reply: &Value) -> u64 {
+    cost_at(reply, Tier::Haiku)
+}
+
+fn cost_at(reply: &Value, model: Tier) -> u64 {
     let usage = &reply["usage"];
     let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);
     let (fresh, written, read, output) = (
@@ -148,15 +166,22 @@ fn cost(reply: &Value) -> u64 {
         tokens("cache_read_input_tokens"),
         tokens("output_tokens"),
     );
-    let tier = if fresh.saturating_add(written).saturating_add(read) > 100_000 { 5 } else { 1 };
-    [(fresh, 100u64), (written, 125), (read, 10), (output, 500)]
+    let tier = if model == Tier::Haiku && fresh.saturating_add(written).saturating_add(read) > 100_000 { 5 } else { 1 };
+    let [fresh_price, written_price, read_price, output_price] = prices(model);
+    [(fresh, fresh_price), (written, written_price), (read, read_price), (output, output_price)]
         .into_iter()
         .fold(0u64, |total, (tokens, price)| total.saturating_add(tokens.saturating_mul(price)))
         .saturating_mul(tier)
 }
 
-fn spend(reply: &Value, at: i64) -> Result<(), &'static str> {
-    let amount = cost(reply);
+/// Adds what the picker spent to today's total, so it counts against the daily limit.
+pub(crate) fn charge(amount: u64) {
+    if amount > 0 {
+        let _ = add_spent(amount, now());
+    }
+}
+
+fn add_spent(amount: u64, at: i64) -> Result<(), &'static str> {
     store::update(&state_name(), |saved| {
         if !saved.is_object() {
             *saved = json!({});
@@ -195,11 +220,27 @@ pub(crate) async fn ready() -> Result<(), &'static str> {
 /// the app leaving the foreground; the messages after it are returned as not asked ("stage":"batch"),
 /// so they are neither sent while Claude cannot answer nor counted against themselves.
 /// `left_before` is the count of times the app left the foreground when the request arrived.
-pub(crate) async fn generate(messages: &Value, context: &Value, left_before: u64) -> Result<Value, &'static str> {
+pub(crate) async fn generate(messages: &Value, context: &Value, tier: Tier, left_before: u64) -> Result<Value, &'static str> {
     let key = key().await?;
     let client = client()?;
     let (client, key) = (&client, &key);
-    each_message(messages, |message| async move { describe_one(client, key, &message, context).await }, diagnostics::suspensions, left_before).await
+    each_message(messages, |message| async move { describe_tiered(client, key, &message, context, tier).await }, diagnostics::suspensions, left_before).await
+}
+
+/// Invariant: a key or workspace that cannot use Sonnet or Opus gets the message written by Haiku
+/// instead, and that model's refusal never pauses Haiku's Points.
+async fn describe_tiered(client: &reqwest::Client, key: &Secret, message: &Value, context: &Value, tier: Tier) -> Result<Value, &'static str> {
+    match describe_one(client, key, message, context, tier).await {
+        Err(error) if tier != Tier::Haiku && MODEL_REFUSALS.contains(&error) => {
+            let rows = describe_one(client, key, message, context, Tier::Haiku).await?;
+            Ok(json!(rows.as_array().into_iter().flatten().map(|row| {
+                let mut row = row.clone();
+                row["tier"] = json!(Tier::Haiku.name());
+                row
+            }).collect::<Vec<_>>()))
+        }
+        result => result,
+    }
 }
 
 async fn each_message<F, Fut>(messages: &Value, mut describe: F, suspensions: fn() -> u64, started: u64) -> Result<Value, &'static str>
@@ -237,24 +278,24 @@ where
     Ok(json!(rows))
 }
 
-async fn describe_one(client: &reqwest::Client, key: &Secret, message: &Value, context: &Value) -> Result<Value, &'static str> {
-    let batch = fit(client, key, json!([message]), context).await?;
-    match passes(client, key, &batch, context).await {
-        Err(DOCUMENT_REFUSED) => passes(client, key, &without_documents(&batch).ok_or(INVALID)?, context).await,
+async fn describe_one(client: &reqwest::Client, key: &Secret, message: &Value, context: &Value, tier: Tier) -> Result<Value, &'static str> {
+    let batch = fit(client, key, json!([message]), context, tier).await?;
+    match passes(client, key, &batch, context, tier).await {
+        Err(DOCUMENT_REFUSED) => passes(client, key, &without_documents(&batch).ok_or(INVALID)?, context, tier).await,
         result => result,
     }
 }
 
-async fn passes(client: &reqwest::Client, key: &Secret, batch: &Value, context: &Value) -> Result<Value, &'static str> {
-    describe::generate_with(batch, context, |prompt| async move { complete(client, key, &prompt, batch).await }).await
+async fn passes(client: &reqwest::Client, key: &Secret, batch: &Value, context: &Value, tier: Tier) -> Result<Value, &'static str> {
+    describe::generate_with(batch, context, tier.edits(), |prompt| async move { complete(client, key, &prompt, batch, tier).await }).await
 }
 
 /// Counts every message with the rules and context it is sent with, then drops PDFs and pictures
 /// until it fits below PROMPT_LIMIT, so no message can move a request into the dearer long-prompt
 /// price. A message too long without them fails alone.
-async fn fit(client: &reqwest::Client, key: &Secret, mut batch: Value, context: &Value) -> Result<Value, &'static str> {
+async fn fit(client: &reqwest::Client, key: &Secret, mut batch: Value, context: &Value, tier: Tier) -> Result<Value, &'static str> {
     loop {
-        let fits = match count(client, key, &batch, context).await {
+        let fits = match count(client, key, &batch, context, tier).await {
             Ok(tokens) => tokens <= PROMPT_LIMIT,
             Err(DOCUMENT_REFUSED) => false,
             Err(error) => return Err(error),
@@ -470,9 +511,10 @@ pub(crate) async fn converse(body: Vec<u8>) -> Result<Value, &'static str> {
 }
 
 /// Counts a description's cost against the day's limit and on the spending page.
-async fn counted(reply: &Value) -> Result<(), &'static str> {
-    spend(reply, now())?;
-    super::spending::record("descriptions", cost(reply)).await;
+async fn counted(reply: &Value, tier: Tier) -> Result<(), &'static str> {
+    let amount = cost_at(reply, tier);
+    add_spent(amount, now())?;
+    super::spending::record("descriptions", amount).await;
     Ok(())
 }
 
@@ -481,10 +523,11 @@ async fn complete(
     key: &Secret,
     prompt: &describe::Prompt,
     messages: &Value,
+    tier: Tier,
 ) -> Result<Value, &'static str> {
-    let reply = call(client, key, "describe", "/v1/messages", request(prompt, messages)?, messages).await?;
+    let reply = call(client, key, "describe", "/v1/messages", request(prompt, messages, tier)?, messages, tier).await?;
     let value: Value = serde_json::from_slice(&reply).map_err(|_| INVALID)?;
-    counted(&value).await?;
+    counted(&value, tier).await?;
     // Invariant: only a description Claude wrote ends the shared wait; a token count can succeed
     // while every description request fails, and must not keep the wait at its first step.
     recovered(now());
@@ -493,14 +536,14 @@ async fn complete(
 
 /// Counts the tokens of a message's first request, rules and context included, which Anthropic
 /// does without charge.
-async fn count(client: &reqwest::Client, key: &Secret, messages: &Value, context: &Value) -> Result<u64, &'static str> {
+async fn count(client: &reqwest::Client, key: &Secret, messages: &Value, context: &Value, tier: Tier) -> Result<u64, &'static str> {
     let content = contents(&describe::draft(messages, context)?, messages)?;
-    let body = serde_json::to_vec(&json!({"model": MODEL, "messages": [{"role": "user", "content": content}]}))
+    let body = serde_json::to_vec(&json!({"model": tier.model(), "messages": [{"role": "user", "content": content}]}))
         .map_err(|_| "overview_input_invalid")?;
     if body.len() > REQUEST_LIMIT {
         return Err("overview_input_invalid");
     }
-    let reply = call(client, key, "count", "/v1/messages/count_tokens", body, messages).await?;
+    let reply = call(client, key, "count", "/v1/messages/count_tokens", body, messages, tier).await?;
     let value: Value = serde_json::from_slice(&reply).map_err(|_| INVALID)?;
     // The editing and repair passes add the earlier answers; PROMPT_LIMIT leaves room for them.
     value["input_tokens"].as_u64().ok_or(INVALID)
@@ -513,6 +556,7 @@ async fn call(
     path: &str,
     body: Vec<u8>,
     messages: &Value,
+    tier: Tier,
 ) -> Result<Vec<u8>, &'static str> {
     let reply = match exchange(client, key, operation, reqwest::Method::POST, path, Some(body), true).await {
         Ok(reply) => reply,
@@ -538,8 +582,11 @@ async fn call(
         } else {
             failure(status)
         };
-        // A failure to record the pause must not replace the error Claude gave.
-        let _ = remember(error, key, now(), reply.retry_after).await;
+        // Sonnet's or Opus's own refusal is written by Haiku instead and pauses nothing.
+        if tier == Tier::Haiku || !MODEL_REFUSALS.contains(&error) {
+            // A failure to record the pause must not replace the error Claude gave.
+            let _ = remember(error, key, now(), reply.retry_after).await;
+        }
         return Err(error);
     }
     Ok(reply.body)
@@ -584,10 +631,10 @@ fn contents(prompt: &describe::Prompt, messages: &Value) -> Result<Vec<Value>, &
     Ok(content)
 }
 
-fn request(prompt: &describe::Prompt, messages: &Value) -> Result<Vec<u8>, &'static str> {
+fn request(prompt: &describe::Prompt, messages: &Value, tier: Tier) -> Result<Vec<u8>, &'static str> {
     let content = contents(prompt, messages)?;
     let body = json!({
-        "model": MODEL,
+        "model": tier.model(),
         "max_tokens": 8000,
         "output_config": {"effort": "low"},
         "messages": [{"role": "user", "content": content}],
@@ -962,7 +1009,7 @@ mod tests {
     #[test]
     fn requests_use_haiku_low_effort_and_cache_the_shared_part_and_the_media_before_the_task() {
         let messages = json!([{"id":"a","body":"Invoice attached","files":[{"name":"scan.png","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}},{"type":"text","text":"ignored here"}]}]}]);
-        let body: Value = serde_json::from_slice(&request(&prompt(), &messages).unwrap()).unwrap();
+        let body: Value = serde_json::from_slice(&request(&prompt(), &messages, Tier::Haiku).unwrap()).unwrap();
         assert_eq!(body["model"], "claude-haiku-5-5");
         assert_eq!(body["output_config"]["effort"], "low");
         for removed in ["temperature", "top_p", "top_k", "system", "thinking"] {
@@ -977,7 +1024,7 @@ mod tests {
         assert_eq!(content[2]["cache_control"], json!({"type":"ephemeral"}));
         assert_eq!(content[3], json!({"type":"text","text":"TASK"}));
         assert_eq!(content.len(), 4);
-        let plain: Value = serde_json::from_slice(&request(&prompt(), &json!([{"id":"b","body":"Hello"}])).unwrap()).unwrap();
+        let plain: Value = serde_json::from_slice(&request(&prompt(), &json!([{"id":"b","body":"Hello"}]), Tier::Haiku).unwrap()).unwrap();
         assert_eq!(
             plain["messages"][0]["content"],
             json!([{"type":"text","text":"RULES AND CONTEXT","cache_control":{"type":"ephemeral"}},{"type":"text","text":"TASK"}]),
@@ -1030,7 +1077,7 @@ mod tests {
         }
         let _fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[]}));
         let reply = json!({"usage":{"input_tokens":1000,"output_tokens":20}});
-        counted(&reply).await.unwrap();
+        counted(&reply, Tier::Haiku).await.unwrap();
         assert_eq!(store::read(&state_name()).unwrap().unwrap()["spent"], json!(110_000));
         let since = now() - 3_600_000;
         let ledger = super::super::spending::spending(&json!({"day":since,"week":since,"month":since})).await.unwrap();
@@ -1067,11 +1114,117 @@ mod tests {
         });
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
         let key = Secret::new(synthetic_key().into_bytes()).unwrap();
-        let _ = TEST_ORIGIN.scope(origin, complete(&client, &key, &describe::Prompt { shared: "Rules.".into(), task: "Describe.".into() }, &json!([{"id":"a"}]))).await;
+        let _ = TEST_ORIGIN.scope(origin, complete(&client, &key, &describe::Prompt { shared: "Rules.".into(), task: "Describe.".into() }, &json!([{"id":"a"}]), Tier::Haiku)).await;
         assert_eq!(server.await.unwrap(), "POST /v1/messages HTTP/1.1");
         let since = now() - 3_600_000;
         let ledger = super::super::spending::spending(&json!({"day":since,"week":since,"month":since})).await.unwrap();
         assert_eq!(ledger["periods"]["day"]["descriptions"], json!(110_000));
+    }
+
+    #[test]
+    fn each_tier_is_priced_at_its_own_list_price_and_asks_its_own_model() {
+        let reply = |input: u64, output: u64| json!({"usage":{"input_tokens":input,"output_tokens":output}});
+        assert_eq!(cost_at(&reply(1_000_000, 0), Tier::Sonnet), 2_000_000_000, "Sonnet input is $2 a million tokens");
+        assert_eq!(cost_at(&reply(0, 1_000_000), Tier::Sonnet), 10_000_000_000, "Sonnet output is $10 a million");
+        assert_eq!(cost_at(&reply(1_000_000, 0), Tier::Opus), 4_000_000_000, "Opus input is $4 a million");
+        assert_eq!(cost_at(&reply(0, 1_000_000), Tier::Opus), 20_000_000_000, "Opus output is $20 a million");
+        assert_eq!(cost_at(&reply(200_000, 0), Tier::Sonnet), 400_000_000, "only Haiku has a long-prompt step");
+        assert_eq!(cost_at(&json!({"usage":{"cache_read_input_tokens":1_000_000}}), Tier::Opus), 200_000_000, "Opus reads its cache at $0.20");
+        assert_eq!(cost_at(&json!({"usage":{"cache_creation_input_tokens":1_000_000}}), Tier::Sonnet), 2_500_000_000);
+        let prompt = describe::Prompt { shared: "Rules.".into(), task: "Describe.".into() };
+        for tier in [Tier::Haiku, Tier::Sonnet, Tier::Opus] {
+            let body: Value = serde_json::from_slice(&request(&prompt, &json!([{"id":"a"}]), tier).unwrap()).unwrap();
+            assert_eq!(body["model"], tier.model());
+        }
+    }
+
+    /// A stand-in for Claude that refuses Sonnet with `status` and answers Haiku, recording the
+    /// model each request named.
+    /// A stand-in for Claude that refuses the `refused` models with `status` and writes the Point
+    /// with any other, returning the models it was asked for.
+    async fn refusing(status: u16, refused: &'static [&'static str]) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let models = seen.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else { return };
+                let models = models.clone();
+                tokio::spawn(async move {
+                    let mut head = Vec::new();
+                    while !head.ends_with(b"\r\n\r\n") {
+                        let Ok(byte) = socket.read_u8().await else { return };
+                        head.push(byte);
+                    }
+                    let head = String::from_utf8(head).unwrap();
+                    let length = head.lines().find_map(|line| line.split_once(':').filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))).map_or(0, |(_, value)| value.trim().parse::<usize>().unwrap());
+                    let mut body = vec![0; length];
+                    socket.read_exact(&mut body).await.unwrap();
+                    let request: Value = serde_json::from_slice(&body).unwrap();
+                    let model = request["model"].as_str().unwrap_or("").to_owned();
+                    let counting = head.starts_with("POST /v1/messages/count_tokens");
+                    models.lock().unwrap().push(format!("{}{model}", if counting { "count " } else { "" }));
+                    let (code, reply) = if refused.contains(&model.as_str()) {
+                        (status, json!({"type":"error","error":{"type":"not_found_error","message":"model"}}).to_string())
+                    } else if counting {
+                        (200, json!({"input_tokens":1000}).to_string())
+                    } else {
+                        let text = json!({"overviews":[{"id":"a","text":"Your R780 payment arrived.","evidence":[{"source":"mail","quote":"Payment received: R780."}],"until":null,"timeSensitive":false}]}).to_string();
+                        (200, json!({"stop_reason":"end_turn","content":[{"type":"text","text":text}],"usage":{"input_tokens":1000,"output_tokens":20}}).to_string())
+                    };
+                    let answer = format!("HTTP/1.1 {code} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len());
+                    let _ = socket.write_all(answer.as_bytes()).await;
+                });
+            }
+        });
+        (origin, seen)
+    }
+
+    #[tokio::test]
+    async fn a_key_that_cannot_use_sonnet_gets_the_point_from_haiku_and_pauses_nothing() {
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        // The key is the saved one, so a refusal that should pause the Points is recorded.
+        let saved = || crate::credentials::tests::isolated_store(crate::credentials::tests::SingleCredential { key: slot(), secret: Secret::new(synthetic_key().into_bytes()).unwrap() });
+        for status in [404, 403] {
+            let _fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[]}));
+            let _credentials = saved();
+            let (origin, seen) = refusing(status, &["claude-sonnet-5-5"]).await;
+            let client = reqwest::Client::builder().no_proxy().build().unwrap();
+            let key = Secret::new(synthetic_key().into_bytes()).unwrap();
+            let message = json!({"id":"a","body":"Payment received: R780."});
+            let rows = TEST_ORIGIN.scope(origin, describe_tiered(&client, &key, &message, &json!({}), Tier::Sonnet)).await.unwrap();
+            assert_eq!(rows[0]["text"], "Your R780 payment arrived.");
+            assert_eq!(rows[0]["tier"], "haiku", "the row says which model wrote it");
+            let models = seen.lock().unwrap().clone();
+            assert_eq!(models[0], format!("count {}", Tier::Sonnet.model()), "{models:?}");
+            assert!(models.iter().any(|model| model == Tier::Haiku.model()), "{models:?}");
+            assert_eq!(blocking(&state().unwrap()), None, "Sonnet's refusal ({status}) pauses no Points");
+        }
+        // A key that Haiku refuses too can write nothing, and that does pause the Points.
+        let _fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[]}));
+        let _credentials = saved();
+        let (origin, _seen) = refusing(404, &["claude-sonnet-5-5", "claude-haiku-5-5"]).await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let key = Secret::new(synthetic_key().into_bytes()).unwrap();
+        let message = json!({"id":"a","body":"Payment received: R780."});
+        let failed = TEST_ORIGIN.scope(origin, describe_tiered(&client, &key, &message, &json!({}), Tier::Sonnet)).await;
+        assert_eq!(failed, Err("ai_model_unavailable"));
+        assert_eq!(blocking(&state().unwrap()), Some("ai_model_unavailable"), "Haiku's refusal pauses the Points");
+    }
+
+    #[test]
+    fn the_pickers_cost_counts_against_the_day() {
+        if crate::mail::tests::isolated() {
+            return;
+        }
+        let _fixture = crate::mail::tests::account_fixture(json!({"version":1,"accounts":[]}));
+        charge(40_000);
+        charge(0);
+        assert_eq!(store::read(&state_name()).unwrap().unwrap()["spent"], json!(40_000));
     }
 
     #[test]

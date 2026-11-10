@@ -11,7 +11,11 @@ pub(crate) fn duration(value: &Value) -> Option<u64> {
 
 pub(crate) fn model(value: &Value) -> Option<&str> {
     value.as_str().filter(|name| matches!(*name,
-        "haiku" | "sonnet" | "opus" | "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5"))
+        "haiku" | "sonnet" | "opus"
+        | "claude-haiku-5-5" | "claude-sonnet-5-5" | "claude-opus-5-5"
+        | "gpt-6-luna" | "gpt-6.1-sol" | "gpt-6-astra"
+        | "gemini-3.8-flash" | "gemini-3.8-flash-low"
+        | "gemini-4-argon" | "gemini-4-argon-low" | "gemini-4-argon-high"))
 }
 
 pub(crate) fn clean(value: &Value) -> Value {
@@ -60,5 +64,8 @@ mod tests {
         }
         assert_eq!(clean(&json!({"contextTokens":12345,"contextTokensPartial":true})), json!({"contextTokens":12345,"contextTokensPartial":true}));
         assert_eq!(clean(&json!({"contextTokens":0,"contextTokensPartial":"true"})), json!({"contextTokens":0}));
+        for model in ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra", "gemini-3.8-flash", "gemini-4-argon"] {
+            assert_eq!(clean(&json!({"model":model})), json!({"model":model}));
+        }
     }
 }

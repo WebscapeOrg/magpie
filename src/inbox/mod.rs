@@ -998,7 +998,9 @@ where
             if !PHONE_WRITER {
                 details["createMs"] = json!(elapsed);
                 details["batchSize"] = json!(group.len());
-                details["model"] = json!(requested);
+                if row["details"]["model"].as_str().is_none() {
+                    details["model"] = json!(requested);
+                }
                 details["createRun"] = record.clone();
                 point_details::merge(row, &tokens);
             }

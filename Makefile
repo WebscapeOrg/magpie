@@ -112,6 +112,7 @@ test-backend-process:
 	cargo build --locked --target-dir "$(CURDIR)/target" --bin omamail
 	node ui/tests/test_backend_queue.js target/debug/omamail
 	python3 tests/test_backend_process.py
+	python3 tests/test_mail_backup.py
 	python3 tests/test_search_backend.py
 	python3 tests/test_removed_providers.py
 	python3 tests/test_agent_native_bridge.py

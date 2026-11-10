@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+pub(crate) mod backup;
 mod content;
 #[cfg(not(target_os = "ios"))]
 mod ipc;

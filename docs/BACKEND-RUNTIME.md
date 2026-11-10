@@ -64,6 +64,10 @@ The managed daemon has control-group cleanup and a private 0700 runtime temporar
 
 Magpie's Restart control drains and closes its frontend, restarts the enabled engine through `backend-runtime.py restart-engine`, then reconnects. The manager validates the exact runtime and private marker before invoking the fixed service name. A missing marker preserves standalone behaviour. Uninstall writes a private `engine-uninstalling` marker before stopping/disabling the engine. The managed unit requires `engine-enabled` and refuses starts while `engine-uninstalling` exists, including starts from an installer that selected the unit earlier. Uninstall retains the activation marker until the stop succeeds, removes the binary, then clears the pending marker. A failed stop preserves the runtime and existing activation; an interrupted uninstall retains its pending marker so a retry must stop the engine again before deleting files. Activation refuses an unfinished uninstall. The certificate timer may still serve the iPhone installation page.
 
+## Local mail export (unreleased API 8)
+
+The Linux `backup export` command asks the owning engine to produce one verified private archive for the machine backup job. It retains pending offline edits and referenced message blobs without opening a live custom-VFS database from another process. See [Local mail backup](MAIL-BACKUP.md) for the fixed output, pre-command contract, failure behavior and restoration procedure.
+
 ## Standalone bundled backend
 
 The standalone Qt host under `app/` uses the same `ui/` composition and Rust business modules through small Quickshell compatibility adapters. A production archive places one exact-version `omamail` backend beside `omamail-app`, together with the QML, manifest, Qt libraries, and platform plugin. Production resource lookup accepts that bundled backend only; it does not search PATH, resolve `latest`, or use `OMAMAIL_BIN`. The environment override and source-resource lookup are enabled only when `OMAMAIL_DEVELOPMENT_RESOURCES=1`, which is what `make app-run` sets for a checkout build.

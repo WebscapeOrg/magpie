@@ -248,3 +248,90 @@ async fn connection_task(
     .map_err(io::Error::other)??;
     read_result
 }
+
+pub(crate) async fn export_backup() -> Result<Value, &'static str> {
+    if !enabled()? {
+        return Engine::default().local_mail.export_backup().await;
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10 * 60);
+    let endpoint = LocalEndpoint::directory(directory()?)?;
+    let mut stream = tokio::time::timeout(Duration::from_secs(5), endpoint.connect())
+        .await
+        .map_err(|_| "local_backup_owner_unavailable")??;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        stream.write_all(
+            b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"backup.export\",\"params\":{}}\n",
+        ),
+    )
+    .await
+    .map_err(|_| "local_backup_completion_unknown")?
+    .map_err(|_| "local_backup_owner_unavailable")?;
+    backup_reply(BufReader::new(stream), deadline).await
+}
+
+async fn backup_reply(
+    mut input: impl tokio::io::AsyncBufRead + Unpin,
+    deadline: tokio::time::Instant,
+) -> Result<Value, &'static str> {
+    loop {
+        if tokio::time::Instant::now() >= deadline {
+            return Err("local_backup_completion_unknown");
+        }
+        let mut frame = Vec::new();
+        let count = tokio::time::timeout_at(
+            deadline,
+            (&mut input)
+                .take((protocol::MAX_FRAME + 1) as u64)
+                .read_until(b'\n', &mut frame),
+        )
+        .await
+        .map_err(|_| "local_backup_completion_unknown")?
+        .map_err(|_| "local_backup_owner_unavailable")?;
+        if count == 0 || count > protocol::MAX_FRAME {
+            return Err("local_backup_owner_unavailable");
+        }
+        let response: Value =
+            serde_json::from_slice(&frame).map_err(|_| "local_backup_owner_unavailable")?;
+        if response["id"] != 1 {
+            continue;
+        }
+        if response["error"].is_object() {
+            return Err(match response["error"]["message"].as_str() {
+                Some("local_backup_completion_unknown") => "local_backup_completion_unknown",
+                Some("local_backup_timed_out") => "local_backup_timed_out",
+                Some("private_fs_busy" | "local_backup_busy") => "local_backup_busy",
+                Some(
+                    "local_content_invalid" | "local_content_missing" | "local_storage_corrupt",
+                ) => "local_backup_incomplete",
+                Some("Method not found") => "local_backup_backend_needs_update",
+                _ => "local_backup_export_failed",
+            });
+        }
+        return response
+            .get("result")
+            .filter(|result| result["complete"] == true)
+            .cloned()
+            .ok_or("local_backup_export_failed");
+    }
+}
+
+#[cfg(test)]
+mod backup_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn ready_event_stream_cannot_bypass_the_backup_reply_deadline() {
+        let frames = b"{\"method\":\"local.changed\"}\n{\"method\":\"local.changed\"}\n{\"id\":1,\"result\":{\"complete\":true}}\n";
+        let expired = tokio::time::Instant::now() - Duration::from_secs(1);
+        assert_eq!(
+            backup_reply(&frames[..], expired).await,
+            Err("local_backup_completion_unknown")
+        );
+        let current = tokio::time::Instant::now() + Duration::from_secs(1);
+        assert_eq!(
+            backup_reply(&frames[..], current).await.unwrap(),
+            json!({"complete":true})
+        );
+    }
+}

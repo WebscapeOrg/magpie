@@ -25,10 +25,14 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
   what AI proposes, and sending goes through the outbox with undo send.
 - **A change that touches mail, credentials, AI calls, network requests, subprocesses or files gets a hostile review**
   that states Security: PASS, BLOCK or NOT VERIFIED, on top of the independent review every change gets (Dave's rule
-  below). Only PASS is installed.
+  in his own instructions). Only PASS is installed.
 - **Security fixes stay quiet in public.** WebscapeOrg/magpie-mail is public and shares most of its code with omamail, whose
   users run it. A security fix's commit and pull request say what it protects, not how to exploit it; the detail goes
   in its Peacock note. Before anyone tells omamail about a fault Magpie inherited, ask Dave through Pickle.
+- **Dave's household rules stay out of this repository.** They reach agents through each agent's own private settings. Do not run
+  `folklore compile --here` here or commit an AGENTS.md that contains Folklore's generated block, even when Folklore's
+  session check calls this file stale: the repository is public, and Dave chose to keep the rules off GitHub and erase
+  them from its history (Q-002 in Medley, 10 November 2026).
 - **Magpie on Linux is installed only by the main machine's installer.** `magpie-mail-install` from the private machine repo
   copies the plugin files from `magpie-mail` (not from a worktree) and the engine from its `target/release/omamail`
   (built there with `make backend`) to `~/.local/share/omamail/bin/omamail`, which `magpie-mail-engine.service` runs. It

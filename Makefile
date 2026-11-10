@@ -142,6 +142,7 @@ test-js:
 	node --test tests/test_website.js
 	node ui/tests/test_inbox.js
 	node ui/tests/test_pictures.js
+	node ui/tests/test_unsaved.js
 	node ui/tests/test_display.js
 	node app/tests/test_theme.js
 	node app/tests/test_shell_theme.js

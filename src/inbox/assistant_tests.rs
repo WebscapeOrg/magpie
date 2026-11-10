@@ -1303,3 +1303,46 @@ async fn records_that_could_not_be_removed_are_tried_again() {
     assert!(store::read(&record_name(&forged)).unwrap().is_none());
     assert_eq!(store::read(&index_name()).unwrap().unwrap()["stale"], json!([]));
 }
+
+#[tokio::test]
+async fn interview_has_no_tools_and_counts_against_the_assistant_limit() {
+    let _fixture = fixture();
+    let prompt = super::super::describe::Prompt { shared: "Fixed interview rules".into(), task: "Synthetic answers".into() };
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let checked = calls.clone();
+    let sender: Sender = Arc::new(move |bytes| {
+        let checked = checked.clone();
+        Box::pin(async move {
+            checked.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let body: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(body["model"], MODEL);
+            assert_eq!(body["max_tokens"], 1200);
+            assert!(body.get("tools").is_none());
+            assert_eq!(body["system"], "Fixed interview rules");
+            Ok(json!({"stop_reason":"end_turn","content":[{"type":"text","text":"{\"draft\":\"Sam lives in Cork.\"}"}],"usage":{"input_tokens":1000,"output_tokens":100}}))
+        })
+    });
+    let result=interview_with(&prompt,sender.clone()).await.unwrap();
+    assert_eq!(result["draft"], "Sam lives in Cork.");
+    let ledger=store::read(&ledger_name()).unwrap().unwrap();
+    assert_eq!(ledger["calls"], 1);
+    assert_eq!(ledger["spent"], 3_000_000u64);
+    assert!(ledger["open"].as_object().unwrap().is_empty());
+    assert!(super::super::point_context::about_you().unwrap().is_none());
+    change(&ledger_name(), |v| { v["spent"]=json!(DAILY_SPEND); Ok(()) }).unwrap();
+    assert_eq!(interview_with(&prompt,sender).await,Err("ai_daily_limit"));
+    assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed),1);
+}
+
+#[tokio::test]
+async fn interview_unknown_usage_keeps_its_reservation() {
+    let _fixture = fixture();
+    let prompt = super::super::describe::Prompt { shared: "Interview rules".into(), task: "Synthetic answer".into() };
+    for value in [json!({}), json!({"stop_reason":"end_turn","content":[{"type":"text","text":"{\"draft\":\"Sam lives in Cork.\"}"}]}), json!({"stop_reason":"end_turn","content":[],"usage":{"input_tokens":"10","output_tokens":5}})] {
+        let before=store::read(&ledger_name()).unwrap().unwrap_or(json!({}))["spent"].as_u64().unwrap_or(0);
+        let sender: Sender=Arc::new(move |_| { let value=value.clone();Box::pin(async move {Ok(value)}) });
+        let _=interview_with(&prompt,sender).await;
+        let after=store::read(&ledger_name()).unwrap().unwrap()["spent"].as_u64().unwrap();
+        assert!(after>=before+12_000_000,"unknown usage must retain the output reservation alone");
+    }
+}

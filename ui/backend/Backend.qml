@@ -134,6 +134,7 @@ Item {
         var entry = queued.shift()
         var next = Object.assign({}, pending)
         var timeout = entry.operation === "agent.context" || entry.operation === "inbox.avatar" || entry.operation === "inbox.snooze" || entry.operation === "inbox.tick" || entry.operation === "inbox.wake" ? 65000 : 30000
+        if (entry.operation === "inbox.interview") timeout = 195000
         entry.deadline = Date.now() + timeout
         next[entry.id] = entry
         pending = next

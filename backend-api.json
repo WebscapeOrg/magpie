@@ -13,6 +13,7 @@
     "inbox.setPictureKey",
     "inbox.removePictureKey",
     "inbox.aboutYou",
+    "inbox.interview",
     "inbox.calendarAccess",
     "inbox.todoConnection",
     "ai.spending",
@@ -2363,6 +2364,58 @@
       "types": {
         "pictures": "number"
       }
+    },
+    {
+      "name": "Interview starts locally with bounded questions",
+      "method": "inbox.interview",
+      "params": {},
+      "equals": {
+        "question": "What name should Magpie use, and where do you live? You can include your birthday and nationality if they matter to your mail.",
+        "draft": "",
+        "completed": 0,
+        "total": 6,
+        "answerLimit": 1200,
+        "bioLimit": 2000
+      }
+    },
+    {
+      "name": "Interview refuses unexpected routing fields",
+      "method": "inbox.interview",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Interview refuses invalid answer fields",
+      "method": "inbox.interview",
+      "params": {
+        "answers": [
+          {
+            "question": "Q",
+            "answer": "<b>no</b>"
+          }
+        ]
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Interview offer is remembered separately from the bio",
+      "method": "inbox.aboutYou",
+      "params": {
+        "interviewOffered": true
+      },
+      "equals": {
+        "interviewOffered": true
+      }
+    },
+    {
+      "name": "Interview offer refuses an invalid acknowledgement",
+      "method": "inbox.aboutYou",
+      "params": {
+        "interviewOffered": "true"
+      },
+      "errorCode": -32602
     }
   ],
   "unreleased": {
@@ -2402,7 +2455,8 @@
       "outbox.compose",
       "draft.compose",
       "local.labelCounts",
-      "backup.export"
+      "backup.export",
+      "inbox.interview"
     ],
     "cases": [
       "Gmail send preview refuses missing authentication",
@@ -2494,7 +2548,12 @@
       "Inbox calendar access names each account's state",
       "Inbox todo connection rejects unknown fields",
       "Inbox todo connection refuses a link that is not text",
-      "Inbox todo connection refuses a link to another server before storing anything"
+      "Inbox todo connection refuses a link to another server before storing anything",
+      "Interview starts locally with bounded questions",
+      "Interview refuses unexpected routing fields",
+      "Interview refuses invalid answer fields",
+      "Interview offer is remembered separately from the bio",
+      "Interview offer refuses an invalid acknowledgement"
     ]
   },
   "releasedContract": {

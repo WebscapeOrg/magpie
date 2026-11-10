@@ -36,7 +36,7 @@ Item {
   property real anchorX: 0
   property real anchorY: 0
   property int cursorIndex: -1
-  readonly property var menuRows: [continueRow, pointRow, replyRow, replyAllRow, forwardRow, archiveRow,
+  readonly property var menuRows: [continueRow, pointRow, notSamePointRow, replyRow, replyAllRow, forwardRow, archiveRow,
     unarchiveRow, moveRow,
     trashRow, spamRow, readRow, starRow, aiRow, browserRow]
   readonly property bool archived: !!root.summary
@@ -176,6 +176,19 @@ Item {
         text: "Point details..."
         visible: !!root.service && !!root.service.backend && root.service.backend.apiVersion >= 8
         onActivated: { if (!root.validTarget) return; var id = root.messageId; root.close(); root.pointDetailsRequested(id) }
+      }
+      // Q-019: a wrong bundle's way out. The covered mail comes back as rows and stays apart.
+      MenuRow {
+        id: notSamePointRow
+        objectName: "message-menu-not-same-point"
+        visible: !!root.summary && Number(root.summary.bundleCount || 0) > 1 && !root.memberOnly
+        text: "Not the same Point"
+        onActivated: {
+          if (!root.validTarget) return
+          var id = root.messageId
+          root.close()
+          if (root.service && root.service.inboxTools && root.service.inboxTools.bundles) root.service.inboxTools.bundles.notTheSamePoint(id)
+        }
       }
       MenuRow { id: replyRow; visible: !root.summary || !root.summary.isDraft; text: "Reply"; onActivated: root.compose("reply") }
       MenuRow { id: replyAllRow; visible: !root.summary || !root.summary.isDraft; text: "Reply all"; onActivated: root.compose("replyAll") }

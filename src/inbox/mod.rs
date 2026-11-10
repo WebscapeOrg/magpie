@@ -18,6 +18,10 @@ pub(crate) mod todos;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod rewrites;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod bundles;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+mod sender_proof;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod interview;
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 pub(crate) mod picker;
@@ -74,7 +78,7 @@ mod writer {
 pub(crate) const POINT_LIMIT: usize = 300;
 /// Changes whenever The Point's rules change, so every Point still in the Inbox is written again,
 /// its earlier text staying in view until then.
-pub(crate) const POINT_REVISION: u64 = 2;
+pub(crate) const POINT_REVISION: u64 = 3;
 /// Invariant: the phone's own writer pays for each request and runs in an app iOS can freeze, so a
 /// message it could not describe for Claude's or the mail's reasons waits ("waiting") instead of
 /// failing, and a message's own failure is asked again after 1 and then 5 minutes rather than 15.
@@ -209,9 +213,10 @@ impl Inbox {
         let _ = rewrites::check(account, &local_mail).await;
         let candidates = local_mail.overview_candidates(account).await?;
         let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
+        let covered = bundles::covered_ids(account);
         let ids: Vec<_> = candidates
             .into_iter()
-            .filter(|id| overview_due(&saved[id], false, now()))
+            .filter(|id| !covered.contains(id) && overview_due(&saved[id], false, now()))
             .take(4)
             .collect();
         if ids.is_empty() {
@@ -257,6 +262,14 @@ impl Inbox {
         if settings["paused"] == true {
             return Ok(json!({"accepted":false}));
         }
+        // Mail behind a bundle keeps the Point it had, and is not written again until it comes back.
+        let covered = bundles::covered_ids(&account);
+        let ids: Vec<String> = ids.into_iter().filter(|id| !covered.contains(id)).collect();
+        let ids = if writer::personal().await {
+            bundles::older_first(&account, ids, retry, PHONE_WRITER && limit.is_some(), &local_mail).await
+        } else {
+            ids
+        };
         let claimed_at = now();
         let (incarnation, chosen) = crate::account::with_incarnation(None, |token| {
             crate::mail::resolve_account(&account)?;
@@ -296,6 +309,9 @@ impl Inbox {
                 });
             if let Ok(tally) = &completed {
                 note_batch(tally, &result, started.elapsed(), left_before);
+            }
+            if completed.is_ok() && let Ok(rows) = &result {
+                bundles::record(&account, rows, &incarnation, &local_mail).await;
             }
             if completed.as_ref().err() == Some(&"overview_account_changed") {
                 let _ = crate::account::with_incarnation(None, |_| {
@@ -368,7 +384,9 @@ impl Inbox {
                 page.insert((*id).to_owned(), row.clone());
             }
         }
-        Ok(json!({"overviews":overview_snapshot(Value::Object(page), now())?,"preferences":preferences(&account)?,"writingIds":self.overview_progress.ids(&account)}))
+        let mut shown = overview_snapshot(Value::Object(page), now())?;
+        no_refresh_for_covered(&account, &mut shown);
+        Ok(json!({"overviews":shown,"preferences":preferences(&account)?,"writingIds":self.overview_progress.ids(&account)}))
     }
     /// The iPhone's background refresh: describe the app's chosen Inbox mail still waiting, within a time limit.
     #[cfg(feature = "mobile")]
@@ -383,7 +401,9 @@ impl Inbox {
         let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
         // Invariant: the app names more messages than are described, so messages that failed or are
         // still running never hold back the ones behind them.
-        let due = background_due(&saved, ids, now());
+        let covered = bundles::covered_ids(account);
+        let waiting: Vec<String> = ids.iter().filter(|id| !covered.contains(*id)).cloned().collect();
+        let due = background_due(&saved, &waiting, now());
         let mut finished = json!(true);
         if !due.is_empty() {
             let prefs = preferences(account)?;
@@ -392,7 +412,8 @@ impl Inbox {
                 .await?;
             finished = outcome["finished"].clone();
         }
-        let saved = overview_snapshot(store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({})), now())?;
+        let mut saved = overview_snapshot(store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({})), now())?;
+        no_refresh_for_covered(account, &mut saved);
         let rows: serde_json::Map<String, Value> = ids
             .iter()
             .filter_map(|id| saved.get(id).map(|row| (id.clone(), row.clone())))
@@ -412,6 +433,7 @@ impl Inbox {
                 let account = account(params)?;
                 #[allow(unused_mut)]
                 let mut snapshot = json!({"overviews":overview_snapshot(store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})), now())?,"snoozes":snooze::snapshot(&account)?,"preferences":preferences(&account)?,"writingIds":self.overview_progress.ids(&account)});
+                no_refresh_for_covered(&account, &mut snapshot["overviews"]);
                 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
                 {
                     snapshot["pictures"] = json!(pictures::revision());
@@ -478,6 +500,10 @@ impl Inbox {
                     None => None,
                 };
                 todos::connection(link).await
+            }
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+            "inbox.bundles" | "inbox.approveBundle" | "inbox.refuseBundle" | "inbox.approvedSenders" | "inbox.removeApprovedSender" => {
+                bundles::call(method, params, &local_mail).await
             }
             "inbox.preferences" => {
                 fields(params, &["accountId", "paused", "allowRemoteImages"])?;
@@ -671,6 +697,10 @@ fn finish_overviews_protected(
                 let mut ready = json!({"state":"ready","text":row["text"],"version":2,"promptRevision":POINT_REVISION,"updated":at,"expiresAt":expires});
                 if let Some(sources) = row["sources"].as_array().filter(|sources| !sources.is_empty()) {
                     ready["sources"] = json!(sources);
+                }
+                // The Point's own end date, kept apart from expiresAt, which "today" Points move to midnight.
+                if let Some(until) = row["untilAt"].as_i64().filter(|value| *value > 0 && *value <= 9_007_199_254_740_991) {
+                    ready["untilAt"] = json!(until);
                 }
                 if let Some(personal) = row["personal"].as_bool() {
                     ready["personal"] = json!(personal);
@@ -894,7 +924,11 @@ async fn overview_batch(
             return Ok(json!(failed));
         }
         let prepared = json!(prepared);
-        let shared = if personal { point_context::shared(local_mail, gmail, !background).await } else { json!({}) };
+        let mut shared = if personal { point_context::shared(local_mail, gmail, !background).await } else { json!({}) };
+        // Only with the owner's context: no context, no covers.
+        if personal {
+            bundles::add_points(&mut shared);
+        }
         // What each Point is written against, taken after the shared context read the todos, so a
         // later reply in the thread or change to a linked todo has it written again.
         let keys = if personal {
@@ -1287,6 +1321,19 @@ fn overview_snapshot(mut saved: Value, at: i64) -> Result<Value, &'static str> {
     }
     Ok(saved)
 }
+
+/// A mail behind a bundle keeps the Point it had (design), so the app is not told to ask for it again.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+fn no_refresh_for_covered(account: &str, snapshot: &mut Value) {
+    let covered = bundles::covered_ids(account);
+    for id in covered {
+        if let Some(fields) = snapshot.get_mut(&id).and_then(Value::as_object_mut) {
+            fields.remove("refresh");
+        }
+    }
+}
+#[cfg(not(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile")))]
+fn no_refresh_for_covered(_: &str, _: &mut Value) {}
 
 fn next_day(at: i64) -> i64 {
     use chrono::{Local, TimeZone};

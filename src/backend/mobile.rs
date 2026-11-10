@@ -159,6 +159,20 @@ impl Engine {
         }
         Ok(answer)
     }
+    /// The bundles shown in the Inbox (`engine.bundles`), one tap to approve a proposal or say "Not the
+    /// same Point", and the senders approved on this device. Same rules and shapes as the main machine's
+    /// `inbox.*` methods.
+    pub async fn mobile_bundles(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        let method = match method {
+            "engine.bundles" => "inbox.bundles",
+            "engine.approveBundle" => "inbox.approveBundle",
+            "engine.refuseBundle" => "inbox.refuseBundle",
+            "engine.approvedSenders" => "inbox.approvedSenders",
+            "engine.removeApprovedSender" => "inbox.removeApprovedSender",
+            _ => return Err("unknown_method"),
+        };
+        self.dispatch(method, params).await
+    }
     /// The events the app read from Apple Calendar, which The Point reads mail against beside Google
     /// Calendar; an empty list (Apple Calendar turned off) removes them.
     pub async fn mobile_apple_calendar(&self, params: &Value) -> Result<Value, &'static str> {

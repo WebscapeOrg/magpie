@@ -172,6 +172,37 @@ pub(super) fn replace_labels(db: &Connection, id: &str, base: &Value) -> Result<
     }
     Ok(())
 }
+/// Adds one message's change to the queue and shows it at once. Runs inside the caller's write.
+fn queue_edit(db: &Connection, ticket: &str, id: &str, add: &[String], remove: &[String]) -> Result<()> {
+    let base: Option<String> = sql(db.query_row("SELECT server_labels FROM messages WHERE id=?1",[id],|r|r.get(0)).optional())?;
+    // Null when the message is not in the local copy, so an empty list always means no labels.
+    let before = if base.is_some() { current_labels(db,id)? } else { Value::Null };
+    sql(db.execute("INSERT INTO edits(ticket,id,additions,removals,before_labels) VALUES(?1,?2,?3,?4,?5)",
+        params![ticket,id,json!(add).to_string(),json!(remove).to_string(),before.to_string()]))?;
+    if let Some(base)=base {replace_labels(db,id,&decode(&base)?)?;}
+    else {sql(db.execute(&format!("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,{FETCH_KIND},1000,0) ON CONFLICT(id) DO UPDATE SET priority=1000,retry_at=0,attempts=0"),[id]))?;}
+    Ok(())
+}
+fn show_server_labels(db: &Connection, id: &str) -> Result<()> {
+    let base: Option<String> = sql(db
+        .query_row("SELECT server_labels FROM messages WHERE id=?1", [id], |r| r.get(0))
+        .optional())?;
+    if let Some(base) = base {
+        replace_labels(db, id, &decode(&base)?)?;
+    }
+    Ok(())
+}
+/// What takes a delivered change back: a label returns only if the message had it, and goes only
+/// if the change put it there. A message whose labels were unknown at the time gets the plain opposite.
+fn reversal_of(additions: Vec<String>, removals: Vec<String>, before: Option<Vec<String>>) -> (Vec<String>, Vec<String>) {
+    let Some(before) = before else {
+        return (removals, additions);
+    };
+    (
+        removals.into_iter().filter(|label| before.contains(label)).collect(),
+        additions.into_iter().filter(|label| !before.contains(label)).collect(),
+    )
+}
 fn current_labels(db: &Connection, id: &str) -> Result<Value> {
     let mut statement =
         sql(db.prepare("SELECT label FROM labels WHERE message_id=?1 ORDER BY label"))?;
@@ -397,6 +428,45 @@ impl Store {
             let ids: Vec<String> = sql(query.query_map([], |r| r.get(0)))?.map(sql).collect::<Result<_>>()?;
             if ids.len() > 500_000 { return Err("local_snapshot_too_large"); }
             Ok(ids)
+        })
+    }
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn inbox_ids(&self) -> Result<std::collections::HashSet<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT message_id FROM labels WHERE label='INBOX'"))?;
+            sql(query.query_map([], |r| r.get(0)))?.map(sql).collect()
+        })
+    }
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn known_label_ids(&self) -> Result<std::collections::HashSet<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT id FROM label_names"))?;
+            sql(query.query_map([], |r| r.get(0)))?.map(sql).collect()
+        })
+    }
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn draft_threads(&self) -> Result<std::collections::HashSet<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT DISTINCT m.thread_id FROM labels l JOIN messages m ON m.id=l.message_id WHERE l.label='DRAFT' AND m.thread_id<>''"))?;
+            sql(query.query_map([], |r| r.get(0)))?.map(sql).collect()
+        })
+    }
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn label_id(&self, name: &str) -> Result<Option<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT id FROM label_names WHERE name=?1 COLLATE NOCASE"))?;
+            sql(query.query_row([name], |r| r.get(0)).optional())
+        })
+    }
+    #[cfg(test)]
+    pub(super) fn test_set_labels(&self, id: &str, labels: &Value) -> Result<()> {
+        self.write(|db| replace_labels(db, id, labels))
+    }
+    #[cfg(test)]
+    pub(super) fn test_set_label_name(&self, id: &str, name: &str) -> Result<()> {
+        self.write(|db| {
+            sql(db.execute("INSERT INTO label_names VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET name=excluded.name", params![id, name]))?;
+            Ok(())
         })
     }
     /// For each of `ids` found here, its thread and the newest message the owner sent in that thread
@@ -917,12 +987,7 @@ impl Store {
                 return Ok(json!({"ticket":ticket,"queued":true}));
             }
             for id in ids {
-                let base: Option<String> = sql(db.query_row("SELECT server_labels FROM messages WHERE id=?1",[id],|r|r.get(0)).optional())?;
-                let before = current_labels(db,id)?;
-                sql(db.execute("INSERT INTO edits(ticket,id,additions,removals,before_labels) VALUES(?1,?2,?3,?4,?5)",
-                    params![ticket,id,json!(add).to_string(),json!(remove).to_string(),before.to_string()]))?;
-                if let Some(base)=base {replace_labels(db,id,&decode(&base)?)?;}
-                else {sql(db.execute(&format!("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,{FETCH_KIND},1000,0) ON CONFLICT(id) DO UPDATE SET priority=1000,retry_at=0,attempts=0"),[id]))?;}
+                queue_edit(db, ticket, id, add, remove)?;
             }
             Ok(json!({"ticket":ticket,"queued":true}))
         })
@@ -944,18 +1009,76 @@ impl Store {
             )?;
             sql(db.execute("DELETE FROM edits WHERE ticket=?1", [ticket]))?;
             for id in ids {
-                let base: Option<String> = sql(db
-                    .query_row(
-                        "SELECT server_labels FROM messages WHERE id=?1",
-                        [&id],
-                        |r| r.get(0),
-                    )
-                    .optional())?;
-                if let Some(base) = base {
-                    replace_labels(db, &id, &decode(&base)?)?;
-                }
+                show_server_labels(db, &id)?;
             }
             Ok(())
+        })
+    }
+    /// Takes a change back. What is still queued is dropped, what Gmail has is reversed, restoring
+    /// only what that change altered, and what Gmail refused never happened. A mail changed again
+    /// since is left alone, so Undo never overrides the newer change.
+    /// Answers how many mails were left alone because they changed since.
+    pub(super) fn undo_edit(&self, ticket: &str) -> Result<usize> {
+        self.write(|db| {
+            let reversal = format!("{ticket}:undo");
+            let reversed: bool = sql(db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM edits WHERE ticket=?1)",
+                [&reversal],
+                |r| r.get(0),
+            ))?;
+            if reversed {
+                return Ok(0);
+            }
+            let mut left_alone = 0;
+            let mut statement = sql(db.prepare(
+                "SELECT sequence,id,state,additions,removals,before_labels FROM edits WHERE ticket=?1 ORDER BY sequence",
+            ))?;
+            let rows = sql(
+                sql(statement.query_map([ticket], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
+                    ))
+                }))?
+                .collect::<rusqlite::Result<Vec<_>>>(),
+            )?;
+            for (sequence, id, state, additions, removals, before) in rows {
+                match state.as_str() {
+                    "conflict" | "dismissed" => {}
+                    "queued" => {
+                        sql(db.execute(
+                            "DELETE FROM edits WHERE ticket=?1 AND id=?2 AND state='queued'",
+                            params![ticket, id],
+                        ))?;
+                        show_server_labels(db, &id)?;
+                    }
+                    _ => {
+                        let changed_since: bool = sql(db.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM edits WHERE id=?1 AND sequence>?2 AND ticket<>?3 AND state NOT IN ('conflict','dismissed'))",
+                            params![id, sequence, ticket],
+                            |r| r.get(0),
+                        ))?;
+                        if changed_since {
+                            left_alone += 1;
+                            continue;
+                        }
+                        let before = decode(&before)?;
+                        let (add, remove) = reversal_of(
+                            labels(&decode(&additions)?),
+                            labels(&decode(&removals)?),
+                            before.is_array().then(|| labels(&before)),
+                        );
+                        if !add.is_empty() || !remove.is_empty() {
+                            queue_edit(db, &reversal, &id, &add, &remove)?;
+                        }
+                    }
+                }
+            }
+            Ok(left_alone)
         })
     }
     pub(super) fn claim_changes(&self, id: &str) -> Result<Option<ClaimedChanges>> {

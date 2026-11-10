@@ -53,6 +53,9 @@ ListView {
   topMargin: MailStyle.space(6)
   bottomMargin: MailStyle.space(6)
   property bool motionEnabled: true
+  // The first bundles answer can lag the list by a moment; the rows wait for it so none visibly jumps.
+  readonly property bool bundlesLoading: root.service.listLoading
+    || (!!root.service.inboxTools && !!root.service.inboxTools.bundles && root.service.inboxTools.bundles.holding === true)
   readonly property var projectedRows: root.service ? root.service.messages || [] : []
   readonly property string accountScope: String(root.service ? root.service.activeAccountId || "" : "")
   property string previousAccountScope: ""
@@ -223,13 +226,15 @@ ListView {
       onMenuRequested: function(sceneX, sceneY) {
         root.menuRequested(modelData.id, sceneX, sceneY)
       }
+      onBundleApproveRequested: if (root.service.inboxTools && root.service.inboxTools.bundles) root.service.inboxTools.bundles.approve(modelData.id)
+      onBundleDismissRequested: if (root.service.inboxTools && root.service.inboxTools.bundles) root.service.inboxTools.bundles.dismiss(modelData.id)
     }
 
   footer: Column {
     width: root.width
   ListSkeleton {
     width: parent.width
-    visible: Model.showInitialListSkeleton(root.service.listLoading,
+    visible: Model.showInitialListSkeleton(root.bundlesLoading,
       root.service.messages.length)
     textColor: root.textColor
   }
@@ -237,7 +242,7 @@ ListView {
   Item {
     width: parent.width
     visible: root.service.messages.length === 0
-      && !Model.showInitialListSkeleton(root.service.listLoading, 0)
+      && !Model.showInitialListSkeleton(root.bundlesLoading, 0)
     implicitHeight: Math.max(MailStyle.space(70), emptyLabel.implicitHeight + MailStyle.space(20))
 
     Text {

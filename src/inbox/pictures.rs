@@ -186,7 +186,7 @@ fn letter(name: &str, address: &str) -> char {
 /// such as `github.io` are free to make, so they share their host's picture. Without a known
 /// suffix, the last two labels. Invariant: the result is a suffix of a domain `avatars::email`
 /// accepted.
-fn registrable(domain: &str) -> &str {
+pub(super) fn registrable(domain: &str) -> &str {
     let starts: Vec<usize> = std::iter::once(0)
         .chain(domain.match_indices('.').map(|(index, _)| index + 1))
         .collect();

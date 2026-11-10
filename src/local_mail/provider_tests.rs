@@ -260,6 +260,41 @@ async fn synchronize(local: &LocalMail, gmail: &gmail::Session) {
 }
 
 #[tokio::test]
+async fn undo_brings_back_mail_gmail_had_already_archived() {
+    if isolated() {
+        return;
+    }
+    let fixture =
+        account_fixture(json!({"version":1,"accounts":[{"provider":"gmail","email":ACCOUNT}]}));
+    let _credential = credentials(&fixture);
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client, provider.origin.clone(), async {
+        let local = LocalMail::default();
+        let gmail = gmail::Session::default();
+        synchronize(&local, &gmail).await;
+        let store = local.store(ACCOUNT).await.unwrap();
+        local.call("local.edit", &json!({"accountId":ACCOUNT,"ticket":"archive","ids":["one"],"addLabelIds":[],"removeLabelIds":["INBOX"]})).await.unwrap();
+        sync::step(&store, &gmail, ACCOUNT).await.unwrap();
+        let has_inbox = |labels: &Value| labels.as_array().unwrap().contains(&json!("INBOX"));
+        assert!(!has_inbox(&provider.world.lock().unwrap().messages["one"]["labelIds"]), "Gmail has the archive before Undo");
+
+        local.call("local.undoEdit", &json!({"accountId":ACCOUNT,"ticket":"archive"})).await.unwrap();
+        assert!(has_inbox(&store.resource("one").unwrap().unwrap()["labelIds"]), "the mail is back on screen at once");
+        sync::step(&store, &gmail, ACCOUNT).await.unwrap();
+
+        let world = provider.world.lock().unwrap();
+        assert!(has_inbox(&world.messages["one"]["labelIds"]), "Gmail has the mail back in the Inbox");
+        assert_eq!(world.writes.len(), 2);
+        assert_eq!(world.writes[1]["addLabelIds"], json!(["INBOX"]));
+        assert_eq!(world.writes[1]["removeLabelIds"], json!([]));
+        drop(world);
+        drop(store);
+        local.shutdown().await;
+    }).await;
+}
+
+#[tokio::test]
 async fn cached_mail_survives_auth_failure_and_offline_edits_reconcile_with_provider() {
     if isolated() {
         return;

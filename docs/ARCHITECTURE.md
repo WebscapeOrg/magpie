@@ -24,8 +24,8 @@ The visual system is separate from all five layers. In the plugin, colors come f
 
 The Omarchy shell loads the QML entry points under `ui/`, as named by the root manifest:
 
-- `Service.qml` is the long-lived application and account host. The shell constructs it, so it declares no required properties. The shell injects `shell`, `manifest`, `pluginRegistry`, and `barWidgetRegistry`; the bar widget supplies settings through `applySettings`. It owns state that must survive the window.
-- `BarWidget.qml` is the shell-facing trigger and settings bridge.
+- `Service.qml` is the long-lived application and account host. The shell constructs it, so it declares no required properties. The shell injects `shell`, `manifest`, `pluginRegistry`, and `barWidgetRegistry`, and it reads its settings from `settings.json`. It owns state that must survive the window.
+- `BarWidget.qml` is the shell-facing trigger. Settings live in Magpie's own `settings.json`, read by `Service.qml`, so hiding the bar icon cannot change them; the shell's entry for the plugin only fills that file on a first run.
 - `App.qml` composes the application window. It owns visible navigation, action dispatch, focus context, non-popup surfaces, and the arrangement of the major panes.
 
 The standalone executable under `app/` is a host rather than a second implementation:

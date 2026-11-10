@@ -66,6 +66,11 @@ QML_FILES := ui/tests/qml/tst_point_details.qml ui/components/PointDetails.qml  
 	ui/components/WindowMoveArea.qml \
 	ui/bar/BarPreview.qml
 QML_FILES += ui/tests/qml/tst_account_message_identity.qml
+QML_FILES += ui/inbox/BundleBook.qml
+QML_FILES += ui/components/UndoToast.qml
+QML_FILES += ui/components/ApprovedSenders.qml
+QML_FILES += ui/tests/qml/tst_inbox_bundles.qml
+QML_FILES += ui/tests/qml/tst_bundle_actions.qml
 QML_FILES += ui/tests/qml/tst_picture_settings.qml
 QML_FILES += ui/tests/qml/tst_message_link_arguments.qml
 QML_FILES += ui/tests/qml/tst_settings_pictures.qml

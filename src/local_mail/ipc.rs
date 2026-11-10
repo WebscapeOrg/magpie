@@ -73,6 +73,7 @@ async fn serve(store: &Arc<Store>, account: &str, request: Value) -> Result<Valu
             | "local.pause"
             | "local.edit"
             | "local.cancelEdit"
+            | "local.undoEdit"
             | "local.resource"
             | "local.revision"
             | "local.overview"

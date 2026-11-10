@@ -8,6 +8,7 @@ import qs.Commons as Commons
 import "account"
 import "agent"
 import "inbox"
+import "inbox/Bundles.js" as Bundles
 import "backend"
 import "diagnostics"
 import "agent/Agent.js" as Agent
@@ -38,7 +39,7 @@ Item {
   width: 0
   height: 0
 
-  // Invariant: The shell injects these four properties; plugin settings arrive later through the bar widget.
+  // Invariant: The shell injects these four properties; plugin settings are read later from settings.json.
   property var shell: null
   property var manifest: null
   property var pluginRegistry: null
@@ -431,9 +432,104 @@ Item {
     defaultMailClientProcess.running = true
   }
 
+  // Invariant: The shell's entry goes stale once settings.json exists, so only a value someone has
+  // changed there since the last hand-over counts as a change.
   function applySettings(values) {
+    // Invariant: The widget hands over an empty object before the shell injects its entry, so that
+    // is no starting point: every value would look changed.
+    if (!values || Object.keys(values).length === 0) {
+      if (!settingsFileReady) replaceSettings(values)
+      return
+    }
+    var previous = lastShellSettings
+    lastShellSettings = values
+    if (!settingsFileReady) replaceSettings(values)
+    else if (previous) applyShellChanges(previous, values)
+  }
+
+  function replaceSettings(values) {
     var next = normalizedSettings(values)
     if (JSON.stringify(next) !== JSON.stringify(settings)) settings = next
+  }
+
+  function applyShellChanges(previous, values) {
+    var next = settingsToStore()
+    var changed = false
+    for (var key in values) {
+      if (key === "id" || JSON.stringify(values[key]) === JSON.stringify(previous[key])) continue
+      next[key] = values[key]
+      changed = true
+    }
+    if (!changed) return
+    settings = normalizedSettings(next)
+    saveSettingsFile()
+  }
+
+  // Invariant: Settings live in Magpie's own settings.json, so hiding or showing the bar icon cannot
+  // change them. The shell's entry for the plugin only fills that file on a first run.
+  readonly property bool settingsFileApplies: !platform
+  property bool settingsFileReady: false
+  property bool settingsFileSeeding: false
+  property bool settingsFileSaving: false
+  property bool settingsFileStale: false
+  property var lastShellSettings: null
+  property var settingsFileSaved: ({})
+
+  function shellSettingsPath() {
+    if (platform) return ""
+    return Quickshell.env("HOME") + "/.config/omarchy/shell.json"
+  }
+
+  function settingsToStore() {
+    var stored = ({})
+    for (var key in settings) if (key !== "id") stored[key] = settings[key]
+    return stored
+  }
+
+  function adoptSettingsFile(text) {
+    var saved = null
+    try { saved = JSON.parse(text) } catch (error) {}
+    // Invariant: A damaged file stays for repair; the shell's older copy never replaces it.
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+      console.warn("Magpie Mail: settings.json could not be read")
+      return
+    }
+    settings = normalizedSettings(saved)
+    settingsFileSaved = settingsToStore()
+    settingsFileReady = true
+  }
+
+  function seedSettingsFile(text) {
+    var config = null
+    try { config = JSON.parse(text) }
+    catch (error) { console.warn("Magpie Mail: the shell's settings could not be read: " + error) }
+    var seed = BarBridge.shellEntrySettings(config, pluginId)
+    if (seed) settings = normalizedSettings(seed)
+    settingsFileSaved = settingsToStore()
+    settingsFileReady = true
+    if (seed) saveSettingsFile()
+  }
+
+  function saveSettingsFile() {
+    if (settingsFileSaving) {
+      settingsFileStale = true
+      return
+    }
+    settingsFileSaving = true
+    settingsFileStale = false
+    var stored = settingsToStore()
+    writeConfig("settings.json", JSON.stringify(stored), function(ok, error) {
+      root.settingsFileSaving = false
+      if (ok) root.settingsFileSaved = stored
+      if (root.settingsFileStale) {
+        root.saveSettingsFile()
+        return
+      }
+      if (ok) return
+      console.warn("Magpie Mail: settings.json could not be saved: " + error)
+      root.settings = root.normalizedSettings(root.settingsFileSaved)
+      root.fail("Could not save settings. Please try again.")
+    })
   }
 
   function openExternal(value) {
@@ -479,7 +575,7 @@ Item {
   }
 
   function writeConfig(name, text, callback) {
-    var allowed = ["credentials.json", "window.json", "calendars.json"]
+    var allowed = ["credentials.json", "window.json", "calendars.json", "settings.json"]
     if (allowed.indexOf(String(name || "")) < 0) {
       if (typeof callback === "function") callback(false, "Invalid configuration file")
       return false
@@ -629,6 +725,11 @@ Item {
     var next = ({})
     for (var key in settings) if (key !== "id") next[key] = settings[key]
     next[name] = value
+    if (settingsFileReady) {
+      settings = normalizedSettings(next)
+      saveSettingsFile()
+      return true
+    }
     var entry = ({ id: pluginId })
     for (var field in next) entry[field] = next[field]
     if (shell && typeof shell.updateEntryInline === "function"
@@ -637,7 +738,7 @@ Item {
       fail("Could not save settings. Please try again.")
       return false
     }
-    applySettings(next)
+    replaceSettings(next)
     return true
   }
 
@@ -1837,6 +1938,7 @@ Item {
   function select(id, previewOnly) {
     if (!unified) {
       if (current) current.select(id, previewOnly)
+      if (previewOnly !== true) inboxController.bundles.markRead(id)
       return
     }
     var host = hostForId(id)
@@ -1845,6 +1947,7 @@ Item {
     eachHost(function(other) { if (other !== host) other.clearSelection() })
     selectionHost = host
     host.select(sourceIdFor(id), previewOnly)
+    if (previewOnly !== true) inboxController.bundles.markRead(id)
   }
   function clearSelection() {
     if (!unified) {
@@ -1856,6 +1959,7 @@ Item {
   }
   function markPreviewRead(id) {
     if (!id) return false
+    inboxController.bundles.markRead(id)
     if (unified) {
       var host = hostForId(id)
       return host ? host.markPreviewRead(sourceIdFor(id)) : false
@@ -2005,8 +2109,19 @@ Item {
   }
   function act(id, action, quiet, memberOnly) {
     unifiedBatchAction.clear()
+    if (memberOnly !== true && Bundles.expandsAction(action) && inboxController.bundles.frontGroup(id))
+      return actMany([id], action, quiet === true ? function() {} : undefined, quiet === true)
     var host = hostForId(id)
-    return host ? host.act(sourceIdFor(id), action, quiet, memberOnly) : false
+    if (!host) return false
+    // A covered mail outside the loaded page has to be findable for the action, then taken out again.
+    var prepared = inboxController.bundles.groupFor(id) ? inboxController.bundles.prepare([id]) : null
+    if (prepared && prepared.added.length > 0) {
+      var began = host.actMany([sourceIdFor(id)], action, function() { inboxController.bundles.release(prepared) },
+        {wholeConversations: quiet !== true, silent: quiet === true})
+      if (!began) inboxController.bundles.release(prepared)
+      return began
+    }
+    return host.act(sourceIdFor(id), action, quiet, memberOnly)
   }
   function toggleStar(id) {
     unifiedBatchAction.clear()
@@ -2021,9 +2136,40 @@ Item {
     eachHost(function(host) { host.markAllRead() })
   }
   UnifiedBatchAction { id: unifiedBatchAction; service: root }
-  function actMany(ids, action, completion) {
-    if (!unified) return current ? current.actMany(ids, action, completion) : false
-    return unifiedBatchAction.run(ids, action, completion)
+  // A bundled row stands for every mail in it, so an action on one in the list reaches them all,
+  // and a failed older mail comes back to the row that held it (Q-020).
+  function actMany(ids, action, completion, quietly) {
+    var plan = inboxController.bundles.planAction(ids, action)
+    var finish = completion
+    var prepared = null
+    var options = {
+      wholeConversations: plan.bundled && quietly !== true,
+      silent: quietly === true || (plan.bundled && (Bundles.undoable(action) || ids.length === 1)),
+      hideFailure: quietly === true
+    }
+    if (plan.bundled) {
+      prepared = inboxController.bundles.prepare(plan.ids)
+      var actingAccount = current ? current.accountId : ""
+      finish = function(result) {
+        var failed = Array.isArray(result && result.failedIds) ? result.failedIds : []
+        inboxController.bundles.release(prepared)
+        // Invariant: the toast counts what the engine acted on, never what was only asked for.
+        var acted = result && typeof result.acted === "number" ? result.acted : plan.ids.length
+        if (Bundles.undoable(action))
+          inboxController.bundles.offerEdits(action, acted - failed.length, root.ticketGroups(result, actingAccount))
+        if (typeof completion === "function")
+          completion(Object.assign({}, result || {}, {failedIds: Bundles.mapFailed(failed, plan.frontOf)}))
+      }
+    }
+    var started = unified ? unifiedBatchAction.run(plan.ids, action, finish, options)
+      : (current ? current.actMany(plan.ids, action, finish, options) : false)
+    if (!started && prepared) inboxController.bundles.release(prepared)
+    return started
+  }
+  // Invariant: tickets belong to the account the action started in, whichever one is open by now.
+  function ticketGroups(result, actingAccount) {
+    if (result && Array.isArray(result.ticketGroups)) return result.ticketGroups
+    return actingAccount !== "" ? [{accountId: actingAccount, tickets: result && result.tickets || []}] : []
   }
   // Invariant: Sending routes through the account named by the selected From identity.
   function send(fields) {
@@ -2319,6 +2465,29 @@ Item {
 
   onActiveAccountIdChanged: refreshCurrent()
   onAccountListChanged: Qt.callLater(refreshCurrent)
+
+  FileView {
+    id: settingsFile
+    objectName: "settings-file"
+    path: root.settingsFileApplies ? root.configPath("settings.json") : ""
+    printErrors: false
+    onLoaded: if (root.settingsFileApplies) root.adoptSettingsFile(text())
+    onLoadFailed: function(error) {
+      if (!root.settingsFileApplies) return
+      // Invariant: Only a missing file is a first run; any other failure must not replace the file.
+      if (error === FileViewError.FileNotFound) root.settingsFileSeeding = true
+      else console.warn("Magpie Mail: settings.json could not be read, error " + error)
+    }
+  }
+
+  FileView {
+    id: shellSettingsFile
+    objectName: "shell-settings-file"
+    path: root.settingsFileSeeding ? root.shellSettingsPath() : ""
+    printErrors: false
+    onLoaded: if (root.settingsFileSeeding) root.seedSettingsFile(text())
+    onLoadFailed: if (root.settingsFileSeeding) root.seedSettingsFile("")
+  }
 
   FileView {
     id: windowFile

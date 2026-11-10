@@ -1285,12 +1285,15 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
             response(json!({"labels":[system]})),
             response(json!({"id":"Label_9","name":name})),
             ok(),
-            // After restart, tick wakes first: labels, the thread, then the two changes.
+            // After restart, tick wakes first: labels, the thread, the hidden mark for returned
+            // mail (made on first use), then the two changes.
             response(grant),
             response(labelled.clone()),
             response(json!({"messages":[
                 {"id":"abc","threadId":"thread","labelIds":["UNREAD","Label_9"],"internalDate":"1700000000000"},
                 {"id":"def","threadId":"thread","labelIds":["TRASH","Label_9"],"internalDate":"1700000060000"}]})),
+            response(labelled.clone()),
+            response(json!({"id":"Label_10","name":"Magpie-snooze-returned"})),
             ok(),
             ok(),
             // Then discovery with the time left: labels, and the now empty due slot is listed.
@@ -1332,7 +1335,7 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
         assert!(restarted.dispatch("inbox.snapshot",&json!({"accountId":"snooze@example.org"})).await.unwrap()["snoozes"].as_array().unwrap().is_empty());
     }).await;
     let requests = peer.requests.lock().unwrap();
-    assert_eq!(requests.len(), 13, "{requests:#?}");
+    assert_eq!(requests.len(), 15, "{requests:#?}");
     let body = |request: &String| {
         serde_json::from_str::<Value>(request.split_once("\r\n\r\n").unwrap().1).unwrap()
     };
@@ -1343,6 +1346,16 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
     assert_eq!(
         body(created),
         json!({"name":name,"labelListVisibility":"labelHide","messageListVisibility":"hide"})
+    );
+    let mark = requests
+        .iter()
+        .filter(|r| r.starts_with("POST /gmail/v1/users/me/labels "))
+        .nth(1)
+        .unwrap();
+    assert_eq!(
+        body(mark),
+        json!({"name":"Magpie-snooze-returned","labelListVisibility":"labelHide","messageListVisibility":"hide"}),
+        "the mark for returned mail stays out of Gmail's own label lists"
     );
     assert!(
         requests
@@ -1369,7 +1382,7 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
     );
     assert_eq!(
         writes[1],
-        json!({"ids":["abc"],"addLabelIds":["INBOX","UNREAD"],"removeLabelIds":["Label_9"]}),
+        json!({"ids":["abc"],"addLabelIds":["INBOX","UNREAD","Label_10"],"removeLabelIds":["Label_9"]}),
         "the message trashed after snoozing must never return"
     );
     assert_eq!(

@@ -16,6 +16,11 @@
     "inbox.interview",
     "inbox.calendarAccess",
     "inbox.todoConnection",
+    "inbox.bundles",
+    "inbox.approveBundle",
+    "inbox.refuseBundle",
+    "inbox.approvedSenders",
+    "inbox.removeApprovedSender",
     "ai.spending",
     "inbox.snooze",
     "inbox.wake",
@@ -140,6 +145,7 @@
     "local.edit",
     "local.pause",
     "local.cancelEdit",
+    "local.undoEdit",
     "local.dismissConflict",
     "local.watch",
     "local.unwatch",
@@ -966,6 +972,17 @@
         "accountId": "contract@example.org",
         "id": "bad\n",
         "until": 0
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox snooze rejects an action that is not a plain id",
+      "method": "inbox.snooze",
+      "params": {
+        "accountId": "contract@example.org",
+        "id": "message-1",
+        "until": 0,
+        "action": "not plain"
       },
       "errorCode": -32602
     },
@@ -2521,6 +2538,106 @@
           }
         ]
       }
+    },
+    {
+      "name": "Inbox bundles list what the Inbox shows",
+      "method": "inbox.bundles",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "types": {
+        "bundles": "array",
+        "proposals": "array"
+      }
+    },
+    {
+      "name": "Inbox approved senders are listed",
+      "method": "inbox.approvedSenders",
+      "params": {},
+      "types": {
+        "senders": "array"
+      }
+    },
+    {
+      "name": "Inbox bundles refuse unknown accounts",
+      "method": "inbox.bundles",
+      "params": {
+        "accountId": "missing@example.org"
+      },
+      "errorCode": -32000
+    },
+    {
+      "name": "Inbox bundles reject unknown fields",
+      "method": "inbox.bundles",
+      "params": {
+        "accountId": "contract@example.org",
+        "extra": true
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox bundle approval rejects an unsafe message id",
+      "method": "inbox.approveBundle",
+      "params": {
+        "accountId": "contract@example.org",
+        "front": "bad\u0001id"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox bundle refusal rejects an empty selection",
+      "method": "inbox.refuseBundle",
+      "params": {
+        "accountId": "contract@example.org",
+        "ids": []
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox approved senders take no fields",
+      "method": "inbox.approvedSenders",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox approved sender removal requires an address and name",
+      "method": "inbox.removeApprovedSender",
+      "params": {
+        "name": "Courier"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Local edit undo says how many mails it left alone",
+      "method": "local.undoEdit",
+      "params": {
+        "accountId": "contract@example.org",
+        "ticket": "contract-ticket"
+      },
+      "equals": {
+        "undone": true,
+        "left": 0
+      }
+    },
+    {
+      "name": "Local edit undo requires a ticket",
+      "method": "local.undoEdit",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Snooze wake rejects a restore that is not true or false",
+      "method": "inbox.wake",
+      "params": {
+        "accountId": "contract@example.org",
+        "id": "message-1",
+        "restore": "yes"
+      },
+      "errorCode": -32602
     }
   ],
   "unreleased": {
@@ -2549,6 +2666,7 @@
       "local.edit",
       "local.pause",
       "local.cancelEdit",
+      "local.undoEdit",
       "local.dismissConflict",
       "local.watch",
       "local.unwatch",
@@ -2561,7 +2679,12 @@
       "draft.compose",
       "local.labelCounts",
       "backup.export",
-      "inbox.interview"
+      "inbox.interview",
+      "inbox.bundles",
+      "inbox.approveBundle",
+      "inbox.refuseBundle",
+      "inbox.approvedSenders",
+      "inbox.removeApprovedSender"
     ],
     "cases": [
       "Gmail send preview refuses missing authentication",
@@ -2664,7 +2787,19 @@
       "Inbox snapshot keeps an expired rewrite separate from new Point work",
       "Inbox snapshot keeps download and analysis activity separate",
       "Inbox snapshot preserves reported context tokens",
-      "Inbox snapshot carries a Point's models, effort and estimated API cost"
+      "Inbox snapshot carries a Point's models, effort and estimated API cost",
+      "Inbox bundles list what the Inbox shows",
+      "Inbox approved senders are listed",
+      "Inbox bundles refuse unknown accounts",
+      "Inbox bundles reject unknown fields",
+      "Inbox bundle approval rejects an unsafe message id",
+      "Inbox bundle refusal rejects an empty selection",
+      "Inbox approved senders take no fields",
+      "Inbox approved sender removal requires an address and name",
+      "Local edit undo says how many mails it left alone",
+      "Local edit undo requires a ticket",
+      "Snooze wake rejects a restore that is not true or false",
+      "Inbox snooze rejects an action that is not a plain id"
     ]
   },
   "releasedContract": {

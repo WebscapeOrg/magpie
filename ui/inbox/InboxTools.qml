@@ -5,6 +5,11 @@ Item {
   id: root
   required property var service
   property var visibleRows: []
+  BundleBook { id: bundleBook; service: root.service; tools: root; pointsShown: root.descriptionsEnabled }
+  readonly property alias bundles: bundleBook
+  // The Inbox's rows after bundling; everything below reads these, so covered mail stays out of the
+  // waiting count and the stack, and search, labels and Sent are unchanged (Q-019).
+  readonly property var inboxRows: bundleBook.projected.rows
   readonly property bool browsing: !!service && service.windowOpen === true
   readonly property bool preparesInbox: !!service && service.hasAgent !== false
   property var overviews: ({})
@@ -101,7 +106,7 @@ Item {
   // minutes while Points wait). Anything shorter shows as Points being written.
   readonly property string hold: {
     if (!writesPoints) return ""
-    var rows = service.rawMessages || []
+    var rows = root.inboxRows
     var unfinished = false, writing = false, spent = 0, written = 0
     for (var i=0;i<rows.length;i++) {
       var value = overviewFor(rows[i]), updated = Number(value.updated || 0)
@@ -128,7 +133,7 @@ Item {
   // How many Inbox rows show moving lines while Magpie writes their Point.
   readonly property int writingCount: {
     if (!writesPoints || hold !== "") return 0
-    var rows = service.rawMessages || [], count = 0
+    var rows = root.inboxRows, count = 0
     for (var i=0;i<rows.length;i++) if (Readiness.status(overviewFor(rows[i]), overviewClock, false) === "writing") count++
     return count
   }
@@ -142,16 +147,16 @@ Item {
     var host = owner(row)
     return !!host && (writingIds[host.accountId] || []).indexOf(id(row)) >= 0
   }
-  readonly property string arrivalSignature: JSON.stringify((service ? service.rawMessages || [] : []).map(function(row) {
+  readonly property string arrivalSignature: JSON.stringify(root.inboxRows.map(function(row) {
     return [row.id, Readiness.status(root.overviewFor(row), root.overviewClock, false), root.activePoint(row)]
   })) + arrivalScope
   onArrivalSignatureChanged: reconcileArrivals()
   function reconcileArrivals() {
-    arrivalState = Arrivals.update(arrivalState, service ? service.rawMessages || [] : [], overviewFor, activePoint, overviewClock, arrivalEnabled, arrivalScope)
+    arrivalState = Arrivals.update(arrivalState, root.inboxRows, overviewFor, activePoint, overviewClock, arrivalEnabled, arrivalScope)
   }
-  readonly property var stack: Arrivals.projection(arrivalState, service ? service.rawMessages || [] : [], arrivalEnabled)
+  readonly property var stack: Arrivals.projection(arrivalState, root.inboxRows, arrivalEnabled)
   readonly property string readyArrivalId: {
-    var rows = service ? service.rawMessages || [] : []
+    var rows = root.inboxRows
     var row = rows.find(function(row) { return row.id === root.arrivalState.queued[0] })
     return row && Readiness.ready(overviewFor(row), overviewClock) ? row.id : ""
   }
@@ -220,6 +225,7 @@ Item {
   }
   function avatarFor(row) { var host = owner(row); return host ? String(avatars[key(host.accountId,row.from ? row.from.email : "")] || "") : "" }
   function snapshot(account) {
+    if (available) bundleBook.refresh(account)
     if (!available || snapshotsPending[account]) return
     snapshotsPending[account] = true
     var settingsRevision = preferenceRevision
@@ -316,7 +322,7 @@ Item {
   function drain() {
     if (!available || !browsing) return
     if (!requesting && !paused && service.windowPrefsLoaded !== false)
-      requestOverviews(overviewBatch(service.curatedInbox ? service.rawMessages : visibleRows))
+      requestOverviews(overviewBatch(service.curatedInbox ? root.inboxRows : visibleRows))
     for (var avatarIndex=0;avatarIndex<Math.min(visibleRows.length,100);avatarIndex++) avatar(visibleRows[avatarIndex])
   }
   function overviewBatch(rows) {
@@ -381,6 +387,8 @@ Item {
     var host = service.hostForId(rowId)
     if (!host || host.providerId !== "gmail") { error = "Snooze needs a Gmail mailbox."; return false }
     notice = "Snoozing"; error = ""
+    var group = bundleBook.groupFor(rowId)
+    if (group) { snoozeBundle(group, host, until); return true }
     var request = {accountId:host.accountId,id:service.sourceIdFor(rowId),until:until}
     service.backend.call("inbox.snooze",request,function(result,failure) {
       if (failure) { root.notice = ""; root.error = "Snooze could not finish. The schedule is saved if Gmail's response was interrupted; Magpie Mail will retry."; return }
@@ -389,6 +397,31 @@ Item {
       host.refresh(); root.refresh()
     })
     return true
+  }
+  // Snooze moves whole conversations, so a bundle with two mails in one thread snoozes it once.
+  function snoozeBundle(group, host, until) {
+    var threads = ({}), targets = []
+    group.members.forEach(function(member) {
+      var thread = member.summary ? String(member.summary.threadId || "") : ""
+      if (thread !== "" && threads[thread]) { threads[thread].mails++; return }
+      var target = {id: member.sourceId, mails: 1}
+      if (thread !== "") threads[thread] = target
+      targets.push(target)
+    })
+    var remaining = targets.length, succeeded = [], mails = 0, failed = 0
+    // A mail with no summary can be a second target in a conversation, so the snoozes share an action.
+    var action = "bundle-" + Date.now() + "-" + Math.floor(Math.random() * 1000000000)
+    targets.forEach(function(target) {
+      service.backend.call("inbox.snooze", {accountId:host.accountId,id:target.id,until:until,action:action}, function(result,failure) {
+        if (failure) failed++
+        else { succeeded.push({accountId:host.accountId,id:target.id}); mails += target.mails }
+        if (--remaining !== 0) return
+        root.notice = ""
+        if (failed) root.error = "Snooze could not finish. The schedule is saved if Gmail's response was interrupted; Magpie Mail will retry."
+        if (succeeded.length > 0) bundleBook.offerSnooze(mails, succeeded)
+        host.refresh(); root.refresh()
+      })
+    })
   }
   function wake(entry) {
     notice = "Returning to Inbox"; error = ""

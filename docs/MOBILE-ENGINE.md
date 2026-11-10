@@ -61,6 +61,17 @@ Cost and failure rules:
 
 Model output stays untrusted: Points pass the same validation as the main machine's and cannot route, send or change mail.
 
+## Bundles on the phone
+
+The phone and the main machine each decide their own bundles (`src/inbox/bundles.rs`) from the covers the Point writer proposes; only Claude writers propose them, and each proposal is checked in the engine against the local copy of the mail. These are the phone's copies of the desktop's `inbox.*` methods, with the same shapes:
+
+- `engine.bundles {accountId}` settles the account's bundles against the Inbox and returns `{bundles: [{front, covered: [ids]}], proposals: [{front, covered: [ids], sender: {email, name}}]}`, each `covered` newest first. A row shows the front's sender and time, one Point and the count; a mail listed in `covered` is hidden from the Inbox list and is not written again until it comes back.
+- `engine.approveBundle {accountId, front}` approves `front`'s proven sender on this device, turns its proposals into bundles and returns the new list. A mail Gmail did not prove is refused with `bundle_not_proven`; a front with no proposal, `bundle_not_found`.
+- `engine.refuseBundle {accountId, ids}` ("Not the same Point", 1 to 64 older ids) brings those mails back, marks their Points for rewriting and never bundles them again; a proposal is refused the same way. Returns the new list.
+- `engine.approvedSenders {}` returns `{senders: [{email, name, approved}]}`, and `engine.removeApprovedSender {email, name}` removes one and returns the rest. Bundles already made stay.
+
+Approved senders are kept per device, so a sender approved on the phone is not approved on the main machine. The Inbox is read locally only; these methods never reach Gmail or Claude.
+
 ## Questions answered on the phone
 
 A phone that holds Dave's Claude API key answers Ask Magpie itself (`src/inbox/assistant.rs`). It uses the same key, client and request limits as descriptions, with `claude-sonnet-5-5`, low effort, the desktop assistant's rules (`src/agent/prompt.rs`) and its single `propose_draft` tool. The calls keep the shapes of the `/v1/ai/*` calls that the main machine served before Magpie for iPhone 0.1.32. Without a key, the phone asks nothing and shows where to add one; conversations asked on the main machine before 0.1.32 do not move to the phone.

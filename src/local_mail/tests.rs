@@ -158,6 +158,140 @@ fn sqlite_cannot_attach_a_path_outside_its_directory() {
     std::fs::remove_dir_all(path).unwrap();
 }
 
+fn set_edit_state(store: &Store, ticket: &str, state: &str) {
+    store
+        .write(|db| {
+            db.execute("UPDATE edits SET state=?2 WHERE ticket=?1", [ticket, state])
+                .map(|_| ())
+                .map_err(|_| "local_storage_corrupt")
+        })
+        .unwrap();
+}
+
+fn edit_tickets(store: &Store) -> Vec<String> {
+    store.edits().unwrap().as_array().unwrap().iter().map(|edit| edit["ticket"].as_str().unwrap().to_owned()).collect()
+}
+
+#[test]
+fn undo_drops_a_queued_change_and_shows_the_mail_where_it_was() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.put(&message("one", "body"), 1).unwrap();
+    store.edit("archive", &["one".into()], &[], &["INBOX".into()]).unwrap();
+    store.undo_edit("archive").unwrap();
+    assert_eq!(store.resource("one").unwrap().unwrap()["labelIds"], json!(["INBOX", "UNREAD"]));
+    assert!(store.claim_changes("one").unwrap().is_none(), "nothing is left to send");
+    assert!(edit_tickets(&store).is_empty());
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn undo_reverses_only_what_a_delivered_change_altered() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.put(&message("one", "body"), 1).unwrap();
+    store
+        .edit(
+            "trash",
+            &["one".into()],
+            &["TRASH".into(), "UNREAD".into()],
+            &["INBOX".into(), "STARRED".into()],
+        )
+        .unwrap();
+    set_edit_state(&store, "trash", "done");
+    store.undo_edit("trash").unwrap();
+    let changes = store.claim_changes("one").unwrap().unwrap();
+    assert_eq!(changes.additions, ["INBOX"], "STARRED was never on this mail");
+    assert_eq!(changes.removals, ["TRASH"], "UNREAD was on this mail before");
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn undo_adds_nothing_back_to_a_mail_that_had_no_labels() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    let mut bare = message("one", "body");
+    bare["labelIds"] = json!([]);
+    store.put(&bare, 1).unwrap();
+    store.edit("archive", &["one".into()], &[], &["INBOX".into()]).unwrap();
+    set_edit_state(&store, "archive", "done");
+    store.undo_edit("archive").unwrap();
+    assert!(store.claim_changes("one").unwrap().is_none(), "it was never in the Inbox");
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn undo_of_a_mail_the_copy_does_not_have_is_the_plain_opposite() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.edit("archive", &["absent".into()], &[], &["INBOX".into()]).unwrap();
+    set_edit_state(&store, "archive", "done");
+    store.undo_edit("archive").unwrap();
+    assert_eq!(store.claim_changes("absent").unwrap().unwrap().additions, ["INBOX"]);
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn undo_leaves_a_mail_changed_since_alone() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.put(&message("one", "body"), 1).unwrap();
+    store.edit("archive", &["one".into()], &[], &["INBOX".into()]).unwrap();
+    set_edit_state(&store, "archive", "done");
+    store.edit("back", &["one".into()], &["INBOX".into()], &[]).unwrap();
+    set_edit_state(&store, "back", "done");
+    assert_eq!(store.undo_edit("archive").unwrap(), 1, "Undo says it left that mail alone");
+    assert!(store.edits().unwrap().as_array().unwrap().iter().all(|edit| edit["ticket"] != "archive:undo"), "the newer change stands");
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn undo_of_a_refusal_that_was_dismissed_does_nothing() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.put(&message("one", "body"), 1).unwrap();
+    store.edit("archive", &["one".into()], &[], &["INBOX".into()]).unwrap();
+    set_edit_state(&store, "archive", "dismissed");
+    store.undo_edit("archive").unwrap();
+    assert!(store.claim_changes("one").unwrap().is_none());
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn undo_reverses_a_change_being_sent_and_is_safe_to_press_twice() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.put(&message("one", "body"), 1).unwrap();
+    store.edit("archive", &["one".into()], &[], &["INBOX".into()]).unwrap();
+    assert!(store.claim_changes("one").unwrap().is_some());
+    store.undo_edit("archive").unwrap();
+    store.undo_edit("archive").unwrap();
+    let reversal = store.edits().unwrap().as_array().unwrap().iter().find(|edit| edit["ticket"] == "archive:undo").cloned().unwrap();
+    assert_eq!(reversal["count"], 1, "pressing Undo twice queues one reversal");
+    assert_eq!(store.claim_changes("one").unwrap().unwrap().additions, ["INBOX"]);
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn undo_leaves_a_change_gmail_refused_alone() {
+    let path = directory();
+    let store = Store::open(open_directory(&path)).unwrap();
+    store.put(&message("one", "body"), 1).unwrap();
+    store.edit("archive", &["one".into()], &[], &["INBOX".into()]).unwrap();
+    set_edit_state(&store, "archive", "conflict");
+    store.undo_edit("archive").unwrap();
+    assert!(!edit_tickets(&store).iter().any(|ticket| ticket == "archive:undo"));
+    drop(store);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
 #[test]
 fn coalescing_preserves_latest_intent_and_undo_stops_before_claim() {
     let path = directory();

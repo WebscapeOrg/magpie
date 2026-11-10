@@ -67,9 +67,14 @@ pub(crate) async fn generate(messages: &Value, context: &Value, tier: Tier) -> R
     })
     .await?;
     let writer = state.lock().await.1;
+    let wrote_with_claude = matches!(writer, "haiku" | "sonnet" | "opus");
     Ok(json!(rows.as_array().into_iter().flatten().map(|row| {
         let mut row = row.clone();
         row["personal"] = json!(true);
+        // Invariant: only a Claude writer's covers can bundle mail; Codex's or Gemini's answer never does.
+        if !wrote_with_claude && let Some(fields) = row.as_object_mut() {
+            fields.remove("covers");
+        }
         crate::inbox::point_details::merge(&mut row, &json!({"model": writer}));
         row
     }).collect::<Vec<_>>()))
@@ -316,7 +321,13 @@ fn parse_json_output(raw: &str) -> Result<Value, &'static str> {
         .unwrap_or(output)
         .trim();
     let output = output.strip_suffix("```").unwrap_or(output).trim();
-    serde_json::from_str(output).map_err(|_| "overview_invalid_response")
+    if let Ok(answer) = serde_json::from_str(output) {
+        return Ok(answer);
+    }
+    // A writer sometimes thinks aloud first; what it then gives as its answer still goes through
+    // every check. Only the last object is read, so what came before cannot add an entry.
+    let start = output.rfind("{\"overviews\"").ok_or("overview_invalid_response")?;
+    serde_json::from_str(output[start..].trim_end_matches('`').trim()).map_err(|_| "overview_invalid_response")
 }
 
 async fn turn(prompt: &Prompt, model: &str, messages: &Value) -> Result<Value, &'static str> {
@@ -1020,5 +1031,21 @@ mod live_quality {
         assert!(!line("injection").contains("password"));
         assert!(!line("injection").contains("ignore"));
         assert!(!line("injection").contains("instruction"));
+    }
+}
+
+#[cfg(test)]
+mod output_tests {
+    use super::parse_json_output;
+    use serde_json::json;
+
+    #[test]
+    fn an_answer_after_thinking_aloud_is_read_and_only_the_last_one_counts() {
+        let answer = r#"{"overviews":[{"id":"b"}]}"#;
+        let raw = format!("A first go.\n\n<invoke name=\"noop\"></invoke>\n{{\"overviews\":[{{\"id\":\"a\"}}]}}\nCorrection: JSON only.\n\n{answer}");
+        assert_eq!(parse_json_output(&raw).unwrap(), json!({"overviews":[{"id":"b"}]}));
+        assert_eq!(parse_json_output(&format!("```json\n{answer}\n```")).unwrap(), json!({"overviews":[{"id":"b"}]}));
+        assert_eq!(parse_json_output("I could not do this."), Err("overview_invalid_response"));
+        assert_eq!(parse_json_output(r#"Here: {"overviews":[{"id":"#), Err("overview_invalid_response"));
     }
 }

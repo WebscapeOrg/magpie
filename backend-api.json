@@ -9,6 +9,9 @@
     "inbox.overviews",
     "inbox.preferences",
     "inbox.avatar",
+    "inbox.pictureStatus",
+    "inbox.setPictureKey",
+    "inbox.removePictureKey",
     "inbox.snooze",
     "inbox.wake",
     "inbox.tick",
@@ -2161,6 +2164,64 @@
         "paused": false
       },
       "errorCode": -32000
+    },
+    {
+      "name": "Inbox picture key refuses a malformed key before any request",
+      "method": "inbox.setPictureKey",
+      "params": {
+        "key": "not-a-key"
+      },
+      "errorCode": -32000,
+      "equals": {
+        "message": "pictures_key_format"
+      }
+    },
+    {
+      "name": "Inbox picture key rejects unknown fields",
+      "method": "inbox.setPictureKey",
+      "params": {
+        "key": "sk-synthetic-contract-key-000000",
+        "accountId": "contract@example.org"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox picture status takes no parameters",
+      "method": "inbox.pictureStatus",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox picture status reports the counts Settings shows",
+      "method": "inbox.pictureStatus",
+      "params": {},
+      "types": {
+        "painted": "number",
+        "waiting": "number",
+        "failed": "number",
+        "spentTodayCents": "number",
+        "dailyLimitCents": "number"
+      }
+    },
+    {
+      "name": "Inbox picture key removal takes no parameters",
+      "method": "inbox.removePictureKey",
+      "params": {
+        "key": "sk-synthetic-contract-key-000000"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox snapshot reports the sender picture revision",
+      "method": "inbox.snapshot",
+      "params": {
+        "accountId": "contract@example.org"
+      },
+      "types": {
+        "pictures": "number"
+      }
     }
   ],
   "unreleased": {
@@ -2169,6 +2230,9 @@
       "inbox.overviews",
       "inbox.preferences",
       "inbox.avatar",
+      "inbox.pictureStatus",
+      "inbox.setPictureKey",
+      "inbox.removePictureKey",
       "inbox.snooze",
       "inbox.wake",
       "inbox.tick",
@@ -2266,7 +2330,13 @@
       "Inbox pause is persisted for background preparation",
       "Inbox snapshot includes background pause",
       "Inbox preparation rejects nonboolean permission",
-      "Inbox preparation refuses foreign account"
+      "Inbox preparation refuses foreign account",
+      "Inbox picture key refuses a malformed key before any request",
+      "Inbox picture key rejects unknown fields",
+      "Inbox picture status takes no parameters",
+      "Inbox picture status reports the counts Settings shows",
+      "Inbox picture key removal takes no parameters",
+      "Inbox snapshot reports the sender picture revision"
     ]
   },
   "releasedContract": {

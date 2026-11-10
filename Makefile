@@ -55,7 +55,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/components/AccountRemovalDialog.qml \
 	ui/components/ComposeExitDialog.qml \
 	ui/components/BackBar.qml \
-	ui/components/SettingsPage.qml ui/components/AiSettings.qml \
+	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/PictureSettings.qml \
 	ui/components/SettingsSidebar.qml \
 	ui/components/ConfirmDeleteDialog.qml \
 	ui/components/SetupPage.qml \
@@ -63,6 +63,8 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/components/WindowMoveArea.qml \
 	ui/bar/BarPreview.qml
 QML_FILES += ui/tests/qml/tst_account_message_identity.qml
+QML_FILES += ui/tests/qml/tst_picture_settings.qml
+QML_FILES += ui/tests/qml/tst_settings_pictures.qml
 QML_FILES += ui/tests/qml/tst_compose_attachment_recovery.qml
 QML_FILES += ui/tests/qml/tst_compose_geometry.qml
 QML_FILES += ui/tests/qml/tst_event_suggestion_lifecycle.qml
@@ -139,6 +141,7 @@ test-js:
 	node ui/tests/test_load.js
 	node --test tests/test_website.js
 	node ui/tests/test_inbox.js
+	node ui/tests/test_pictures.js
 	node ui/tests/test_display.js
 	node app/tests/test_theme.js
 	node app/tests/test_shell_theme.js

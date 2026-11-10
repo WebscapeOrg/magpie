@@ -14,6 +14,8 @@ pub(crate) mod claude;
 pub(crate) mod assistant;
 #[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 mod overview_tests;
+#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+mod pictures;
 mod snooze;
 pub(crate) use snooze::is_snooze_label;
 mod store;
@@ -52,6 +54,8 @@ pub struct Inbox {
     overview_slots: Arc<Semaphore>,
     avatar_slots: Arc<Semaphore>,
     snooze_lock: Mutex<()>,
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    painter: pictures::Painter,
 }
 impl Default for Inbox {
     fn default() -> Self {
@@ -62,6 +66,8 @@ impl Default for Inbox {
             overview_slots: Arc::new(Semaphore::new(1)),
             avatar_slots: Arc::new(Semaphore::new(3)),
             snooze_lock: Mutex::new(()),
+            #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+            painter: Default::default(),
         }
     }
 }
@@ -101,6 +107,16 @@ fn fields(params: &Value, allowed: &[&str]) -> Result<(), &'static str> {
     Ok(())
 }
 impl Inbox {
+    /// Starts painting sender pictures for the next signed-in account that is due; never waits.
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    pub(crate) fn paint_pictures(
+        &self,
+        accounts: Vec<String>,
+        gmail: Arc<crate::providers::gmail::Session>,
+        local_mail: Arc<crate::local_mail::LocalMail>,
+    ) {
+        self.painter.start(accounts, gmail, local_mail);
+    }
     #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     pub(crate) async fn prepare(
         &self,
@@ -311,9 +327,32 @@ impl Inbox {
             "inbox.snapshot" => {
                 fields(params, &["accountId"])?;
                 let account = account(params)?;
-                Ok(
-                    json!({"overviews":overview_snapshot(store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})), now())?,"snoozes":snooze::snapshot(&account)?,"preferences":preferences(&account)?}),
-                )
+                #[allow(unused_mut)]
+                let mut snapshot = json!({"overviews":overview_snapshot(store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})), now())?,"snoozes":snooze::snapshot(&account)?,"preferences":preferences(&account)?});
+                #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+                {
+                    snapshot["pictures"] = json!(pictures::revision());
+                }
+                Ok(snapshot)
+            }
+            #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+            "inbox.pictureStatus" => {
+                fields(params, &[])?;
+                pictures::status().await
+            }
+            #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+            "inbox.setPictureKey" => {
+                fields(params, &["key"])?;
+                let key = params["key"]
+                    .as_str()
+                    .filter(|key| key.len() <= 4096)
+                    .ok_or("invalid_params")?;
+                pictures::set_key(key).await
+            }
+            #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+            "inbox.removePictureKey" => {
+                fields(params, &[])?;
+                pictures::remove_key().await
             }
             "inbox.preferences" => {
                 fields(params, &["accountId", "paused", "allowRemoteImages"])?;

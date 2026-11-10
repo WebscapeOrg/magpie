@@ -37,9 +37,11 @@ HOME="$installer_root/home" PATH="$installer_root/bin" "$BASH" "$link_plugin" --
 [ -f "$installer_root/home/delegated" ] || fail "Magpie must delegate to the main machine's guarded copy installer"
 rm -f "$installer_root/home/delegated"
 # No installer, one that cannot run, and one reached only through a relative PATH entry all stop with the message.
-for search in "$installer_root/none" "$installer_root/plain" . "$installer_root/none:"; do
-  if out=$(cd "$installer_root/here" && HOME="$installer_root/home" PATH="$search" "$BASH" "$link_plugin" --no-restart 2>&1); then
-    fail "link-plugin.sh succeeded with PATH=$search"
+# Each case is "the folder it runs from, under the test root:PATH".
+for case in "here:$installer_root/none" "here:$installer_root/plain" "here:." "here:$installer_root/none:" ".:here" "none:../here"; do
+  from="$installer_root/${case%%:*}" search=${case#*:}
+  if out=$(cd "$from" && HOME="$installer_root/home" PATH="$search" "$BASH" "$link_plugin" --no-restart 2>&1); then
+    fail "link-plugin.sh succeeded with PATH=$search from ${case%%:*}"
   fi
   [ "$out" = 'Magpie installer missing; see MAGPIE.md.' ] || fail "link-plugin.sh with PATH=$search printed: $out"
   [ ! -e "$installer_root/home/delegated" ] || fail "link-plugin.sh ran an installer it found through PATH=$search"

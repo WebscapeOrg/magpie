@@ -274,10 +274,11 @@ Item {
       adas.selectedMessage = summary("message-44", "Dinner?")
       tryVerify(function() { return mailService.eventSuggestions.length === 1 }, 1000)
       var handed = null
-      var launcher = findChild(mailService,"skylark-launcher")
+      var launcher = findChild(mailService,"magpie-calendar-launcher")
       launcher.running = false
       verify(mailService.addSuggestedEvent(mailService.eventSuggestions[0]))
       var request = JSON.parse(launcher.command[2])
+      verify(String(launcher.command[1]).endsWith("/scripts/open-magpie-calendar.py"), launcher.command[1])
       compare(request.kind,"suggestion")
       compare(request.accountId,ada)
       handed = request.suggestion
@@ -326,7 +327,7 @@ Item {
       adas.selectedMessage = summary("message-46","Dinner?")
       tryVerify(function() { return mailService.eventSuggestions.length === 1 })
       var suggestion = mailService.eventSuggestions[0]
-      var launcher = findChild(mailService,"skylark-launcher")
+      var launcher = findChild(mailService,"magpie-calendar-launcher")
       launcher.running = true
       verify(!mailService.addSuggestedEvent(suggestion))
       launcher.running = false

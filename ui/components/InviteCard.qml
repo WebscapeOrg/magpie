@@ -218,7 +218,7 @@ Rectangle {
 
     IconTextButton {
       id:calendarButton
-      text:"Open invitation in Skylark..."
+      text:"Open invitation in Magpie Calendar..."
       foreground:root.textColor
       accent:root.accentColor
       fontFamily:root.panelFontFamily

@@ -118,6 +118,6 @@ every agent.
   `~/.local/share/omamail/bin/omamail` under `magpie-engine.service`. Data and keyring entries keep omamail's names
   (`~/.local/share/omamail` and the rest), so Google sign-ins survive ([MAGPIE.md](MAGPIE.md#installation-on-the-main-machine)).
 - Branch work trees live under `${XDG_STATE_HOME:-~/.local/state}/magpie-work/`, not `/tmp`, and so do Cargo target folders.
-- Siblings: `magpie-ios` (Magpie for iPhone and iPad, which bundles `mobile/`), `skylark` (calendars,
-  moved out of Magpie), `the private machine repo` (installs and heals Magpie on this machine), `marmalade` (whose
-  avatar style sender pictures follow).
+- Siblings: `magpie-ios` (Magpie for iPhone and iPad, which bundles `mobile/`), `magpie-calendar`
+  (Magpie Calendar, which took the calendars out of Magpie), `the private machine repo` (installs and heals Magpie on this
+  machine), `marmalade` (whose avatar style sender pictures follow).

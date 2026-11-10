@@ -150,7 +150,7 @@ Rectangle {
           IconTextButton {
             objectName: "suggestionAdd"
             iconName: "plus"
-            text: "Review in Skylark..."
+            text: "Review in Magpie Calendar..."
             foreground: root.textColor
             accent: root.accentColor
             fontFamily: root.panelFontFamily

@@ -79,6 +79,7 @@ QML_FILES += ui/tests/qml/tst_signature_import_lifecycle.qml
 QML_FILES += ui/tests/qml/NativeIntentBridge.qml
 QML_FILES += ui/tests/qml/tst_shell_fixtures.qml
 QML_FILES += ui/tests/qml/tst_magpie_logo.qml
+QML_FILES += ui/tests/qml/tst_sidebar_calendar_label.qml
 QML_FILES += ui/providers/Deferred.qml ui/tests/qml/tst_provider_deferred.qml
 QML_FILES += ui/tests/qml/tst_intents_lifecycle.qml
 QML_FILES += ui/tests/qml/tst_google_backend_lifecycle.qml
@@ -207,6 +208,7 @@ test-shell-independent:
 	python3 tests/test_description_office.py
 	python3 tests/test_low_space.py
 	python3 tests/test_register_mailto.py
+	python3 tests/test_open_magpie_calendar.py
 	python3 tests/test_qml_native_resources.py
 	python3 tests/test_published_agent_contract.py
 	python3 tests/test_config_store_paths.py

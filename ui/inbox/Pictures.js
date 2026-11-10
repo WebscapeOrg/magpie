@@ -15,7 +15,7 @@ function problem(code) {
   case "pictures_key_refused": return "OpenAI does not let this key make images. Check the key's project and permissions."
   case "pictures_billing": return "OpenAI reports no credit on this key's account. Painting starts again within an hour of adding credit."
   case "pictures_rate_limited": return "OpenAI asked Magpie Mail to slow down. Painting starts again in a minute or two."
-  case "pictures_model_unavailable": return "OpenAI does not offer gpt-image-2.5 Sunburst to this key. Magpie Mail tries again tomorrow."
+  case "pictures_model_unavailable": return "OpenAI does not offer gpt-image-2.6 Sunburst to this key. Magpie Mail tries again tomorrow."
   case "pictures_unreachable": return "OpenAI could not be reached. Magpie Mail tries again in a few minutes."
   case "pictures_request_rejected": return "OpenAI rejected Magpie Mail's picture requests several times in a row, so painting has stopped. Magpie Mail tries again tomorrow."
   case "pictures_key_storage": return "The keyring could not be used. Unlock it, then try again."

@@ -33,7 +33,9 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
   copies the plugin files from `magpie-mail` (not from a worktree) and the engine from its `target/release/omamail`
   (built there with `make backend`) to `~/.local/share/omamail/bin/omamail`, which `magpie-mail-engine.service` runs. It
   installs nothing, and says so, while the desktop is locked or `~/.local/state/magpie-mail/install-hold` exists, and it
-  never restarts the engine: run `systemctl --user restart magpie-mail-engine.service` yourself afterwards. Do not run
+  never restarts the engine: run `systemctl --user restart magpie-mail-engine.service` yourself afterwards. The open
+  app reconnects by itself within a few seconds. A new plugin id or changed plugin files still need
+  `omarchy-restart-shell` while unlocked; check with `ps -o lstart= -p $(pgrep -x quickshell)` that it restarted. Do not run
   `make install-backend-local`, `make install` or `make install-plugin`: the first two overwrite the running engine
   file directly, without the installer's checks; `install` and `install-plugin` then run the main machine's whole
   installer; and `install-plugin` stops and disables the engine service and deletes the engine. Do not run
@@ -51,7 +53,7 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
 - **New files are registered in the Makefile.** New production QML goes into `QML_FILES`, or `make validate` fails. A
   new JavaScript, Python or shell test goes into its Makefile target, or nothing runs it.
 - **The root of `ui/Service.qml` declares no required properties.** The Omarchy shell constructs it and injects only
-  `shell`, `manifest`, `pluginRegistry` and `barWidgetRegistry`; settings reach the bar widget through `applySettings`.
+  `shell`, `manifest`, `pluginRegistry` and `barWidgetRegistry`; the service reads settings from its own `settings.json`.
 - **Screens follow the [design notes](docs/DESIGN.md) and the [keys](docs/KEYS.md).** Colours come from the active
   Omarchy theme through `App.qml`, so Magpie follows Dave's theme; state is never shown by colour alone.
 - **Run `make validate` after a QML or behaviour change**, and the iPhone engine's tests (`cargo test --locked --lib

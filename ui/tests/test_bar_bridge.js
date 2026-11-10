@@ -65,4 +65,19 @@ deepEqual(bridge.settings({ refreshIntervalSec: 300, showBarIcon: false,
   maxMessages: Infinity, defaultQuery: { secret }, credential: secret },
   { refreshIntervalSec: 120, showBarIcon: true, maxMessages: 25, defaultQuery: "in:inbox" }),
   { refreshIntervalSec: 300, showBarIcon: false })
+const hiddenEntry = { id: "magpie-mail", notifyNewMail: "Off", unifiedMailboxes: true, aiAgent: "Claude", aiChatResetAt: 1793640598935 }
+const hiddenSettings = { notifyNewMail: "Off", unifiedMailboxes: true, aiAgent: "Claude", aiChatResetAt: 1793640598935 }
+const shellConfig = (lanes, plugins) => ({
+  bar: { layout: Object.assign({ left: [{ id: "omarchy.power" }], center: [], right: [] }, lanes) },
+  plugins: [{ id: "io.github.pkayokay.omapaste" }].concat(plugins)
+})
+deepEqual(bridge.shellEntrySettings(shellConfig({}, [hiddenEntry]), "magpie-mail"), hiddenSettings)
+deepEqual(bridge.shellEntrySettings(shellConfig({ right: [hiddenEntry] }, []), "magpie-mail"), hiddenSettings)
+deepEqual(bridge.shellEntrySettings(shellConfig({ right: [Object.assign({}, hiddenEntry, { aiAgent: "Codex" })] }, [hiddenEntry]), "magpie-mail").aiAgent,
+  "Codex", "the bar's entry is the one in use while the icon shows")
+assert.equal(bridge.shellEntrySettings(shellConfig({}, [hiddenEntry]), "another-plugin"), null)
+assert.equal(bridge.shellEntrySettings(shellConfig({}, [{ id: "magpie-mail" }]), "magpie-mail"), null,
+  "an entry with no settings has nothing to fill the file with")
+for (const unusable of [null, 7, {}, { plugins: "magpie-mail" }, { plugins: [null, 7] }, { bar: { layout: { right: "x" } } }])
+  assert.equal(bridge.shellEntrySettings(unusable, "magpie-mail"), null)
 console.log("bar bridge: bounded, detached previews and revocable actions pass")

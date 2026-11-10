@@ -27,6 +27,7 @@ Item {
       child.running = false
     } else if (!child.running && !stopping) {
       failure = ""
+      processStarted = false
       child.running = true
     }
   }
@@ -54,6 +55,12 @@ Item {
   property var restartCallback: null
   property string restartExecutable: ""
   property int restartSequence: 0
+  readonly property string incompatibleFailure: "Incompatible backend"
+  property bool processStarted: false
+  property int reconnectAttempts: 0
+  // True for the first seconds after the engine went away, so a routine restart raises no alarm.
+  readonly property bool reconnecting: reconnectGrace.running
+  readonly property int reconnectDelayMs: Math.min(30000, 1000 * Math.pow(2, reconnectAttempts))
 
   signal shutdownComplete(var error)
   signal notification(string method, var params)
@@ -155,6 +162,7 @@ Item {
         callback({ code: -32010, message: "Backend cannot restart yet" })
       return
     }
+    cancelReconnect()
     restarting = true
     var sequence = ++restartSequence
     restartCallback = callback
@@ -170,6 +178,37 @@ Item {
         if (root.restartSequence === sequence) root.startAfterShutdown()
       })
     }, true)
+  }
+
+  // Invariant: the engine can restart under a running window, for an update or after a crash, and
+  // its pipe then closes; only a new serve reattaches. Requests in flight fail and are never replayed.
+  function scheduleReconnect() {
+    reconnectStable.stop()
+    if (!reconnectAllowed()) {
+      reconnectGrace.stop()
+      return
+    }
+    if (reconnectAttempts === 0 && !reconnectDelay.running) {
+      console.warn("Mail backend stopped; reconnecting")
+      reconnectGrace.restart()
+    }
+    reconnectDelay.restart()
+  }
+
+  function reconnectAllowed() {
+    return !stopping && launchEnabled && executable !== "" && failure !== incompatibleFailure
+  }
+
+  function cancelReconnect() {
+    reconnectDelay.stop()
+    reconnectGrace.stop()
+    reconnectStable.stop()
+  }
+
+  function launchEnded() {
+    if (!reconnectAllowed()) return
+    processExitConfirmed = true
+    scheduleReconnect()
   }
 
   function startAfterShutdown() {
@@ -188,6 +227,7 @@ Item {
     shutdownFailure = null
     quitRequested = false
     failure = ""
+    processStarted = false
     restartDeadline.restart()
     child.running = true
   }
@@ -203,6 +243,7 @@ Item {
   }
 
   function shutdown(callback, forRestart) {
+    cancelReconnect()
     if (restarting && !forRestart)
       finishRestart({ code: -32010, message: "Backend restart was cancelled" })
     if (typeof callback === "function") {
@@ -339,6 +380,34 @@ Item {
   }
 
   Timer {
+    id: reconnectDelay
+    objectName: "backend-reconnect-delay"
+    interval: root.reconnectDelayMs
+    repeat: false
+    onTriggered: {
+      root.reconnectAttempts++
+      if (root.reconnectAllowed()) root.reconcileProcess()
+    }
+  }
+
+  Timer {
+    id: reconnectGrace
+    objectName: "backend-reconnect-grace"
+    interval: 15000
+    repeat: false
+  }
+
+  // Invariant: only a connection that lasts ends the back-off, so an engine that dies straight
+  // after its handshake cannot be relaunched once a second for ever.
+  Timer {
+    id: reconnectStable
+    objectName: "backend-reconnect-stable"
+    interval: 30000
+    repeat: false
+    onTriggered: root.reconnectAttempts = 0
+  }
+
+  Timer {
     id: restartDeadline
     interval: 10000
     repeat: false
@@ -368,8 +437,14 @@ Item {
     running: root.launchEnabled && root.executable !== ""
     stdinEnabled: true
     stdout: SplitParser { onRead: data => root.receive(data) }
-    onRunningChanged: { if (running) root.processExitConfirmed = false }
+    onRunningChanged: {
+      // Invariant: a start that fails reports no running change of its own; processStarted is
+      // cleared by whoever asks for the launch, so the failed start still counts as an ending.
+      if (running) root.processExitConfirmed = false
+      else if (!root.processStarted) root.launchEnded()
+    }
     onStarted: {
+      root.processStarted = true
       root.processExitConfirmed = false
       if (!root.launchEnabled) {
         root.stopForFailure("Backend unavailable")
@@ -385,9 +460,11 @@ Item {
         if (error)
           root.stopForFailure(root.failure || "Backend handshake failed")
         else if (!Compatibility.accepts(info, root.expectedVersion, root.expectedApiVersion, root.latestApiVersion))
-          root.stopForFailure("Incompatible backend")
+          root.stopForFailure(root.incompatibleFailure)
         else {
           root.protocolInfo = info
+          reconnectGrace.stop()
+          reconnectStable.restart()
           root.finishRestart(null)
         }
       }, true)
@@ -411,6 +488,7 @@ Item {
         root.finishShutdown(root.shutdownFailure
           || { code: -32010, message: message })
       else root.finishRestart({ code: -32010, message: message })
+      root.scheduleReconnect()
     }
   }
 }

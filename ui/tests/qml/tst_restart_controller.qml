@@ -265,6 +265,20 @@ Item {
       verifyWindowAndDraft()
     }
 
+    function test_failed_restart_message_clears_only_when_mail_reconnects() {
+      var controller = makeController()
+      fakeBackend.ready = false
+      controller.finish(controller.couldNotRestart, true)
+      compare(controller.failed, true)
+      fakeBackend.ready = true
+      compare(controller.failed, false)
+      compare(controller.message, "")
+      fakeBackend.ready = false
+      controller.finish("Mail restarted, but your changes could not be saved. Keep this window open.", true)
+      fakeBackend.ready = true
+      compare(controller.failed, true, "a message about unsaved work stays")
+    }
+
     function test_resumed_backend_reports_save_failure_without_stopping_again() {
       var controller = makeController()
       fakeBackend.ready = false

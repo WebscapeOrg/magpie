@@ -11,6 +11,7 @@ Item {
   QtObject {
     id: recoveryBackend
     property bool ready: false
+    property bool reconnecting: false
     property int apiVersion: 3
     property var requests: []
     function call(method, params, callback) { requests = requests.concat([{method:method,params:params,done:callback}]) }
@@ -221,6 +222,19 @@ Item {
       recoveryBackend.apiVersion = 8
       recoveryBackend.ready = true
       mailService.inboxTools = ({descriptionsEnabled: true, snoozed: [], waking: false, overviewProblem: "", overviewPending: 0})
+    }
+    function test_a_routine_engine_restart_shows_no_unavailable_page() {
+      var previous=mailService.backendRuntime,wasReady=recoveryBackend.ready
+      try {
+        mailService.backendRuntime=recoveryRuntime
+        recoveryBackend.ready=false;recoveryBackend.reconnecting=false
+        compare(app.backendUnavailable,true,"an engine that stays away is shown")
+        recoveryBackend.reconnecting=true
+        compare(app.backendUnavailable,false,"a restart in progress is not")
+      } finally {
+        recoveryBackend.reconnecting=false;recoveryBackend.ready=wasReady
+        mailService.backendRuntime=previous
+      }
     }
     function test_interview_waits_for_compose_to_close() {
       app.open("{}"); app.backToList(); app.startCompose("new")

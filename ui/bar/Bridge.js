@@ -24,6 +24,29 @@ function settings(values, defaults) {
   return output
 }
 
+// The plugin's entry in shell.json, on the bar or in plugins[], without its id. It fills Magpie's own
+// settings file on a first run and is not read after that.
+function shellEntrySettings(config, pluginId) {
+  var layout = config && config.bar && config.bar.layout
+  var entries = []
+  var sections = ["left", "center", "right"]
+  for (var section = 0; section < sections.length; section++) {
+    var lane = layout && layout[sections[section]]
+    if (Array.isArray(lane)) entries = entries.concat(lane)
+  }
+  if (config && Array.isArray(config.plugins)) entries = entries.concat(config.plugins)
+  var entry = entries.filter(function(candidate) { return candidate && candidate.id === pluginId })[0]
+  if (!entry) return null
+  var saved = {}
+  var found = false
+  for (var key in entry) {
+    if (key === "id") continue
+    saved[key] = entry[key]
+    found = true
+  }
+  return found ? saved : null
+}
+
 function snapshot(value) {
   var source = value || {}
   var messages = Array.isArray(source.barMessages) ? source.barMessages : []

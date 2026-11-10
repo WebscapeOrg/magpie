@@ -114,7 +114,7 @@ class RuntimeTests(unittest.TestCase):
         run.assert_not_called()
         marker.parent.chmod(0o700)
         self.manager.restart_engine()
-        self.assertEqual(run.call_args.args[0], ["/usr/bin/systemctl", "--user", "restart", "magpie-engine.service"])
+        self.assertEqual(run.call_args.args[0], ["/usr/bin/systemctl", "--user", "restart", "magpie-mail-engine.service"])
 
     def test_service_stop_failure_preserves_installed_runtime_and_marker(self):
         previous = self.old()
@@ -138,7 +138,7 @@ class RuntimeTests(unittest.TestCase):
         pending = marker.with_name("engine-uninstalling")
 
         def stop(args, **kwargs):
-            self.assertEqual(args, ["/usr/bin/systemctl", "--user", "disable", "--now", "magpie-engine.service"])
+            self.assertEqual(args, ["/usr/bin/systemctl", "--user", "disable", "--now", "magpie-mail-engine.service"])
             self.assertTrue(marker.exists())
             self.assertTrue(pending.exists())
             self.assertEqual(pending.stat().st_mode & 0o777, 0o600)

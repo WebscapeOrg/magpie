@@ -24,7 +24,7 @@ Item {
   }
   Component {
     id: serviceFactory
-    Magpie.Service { manifest:({id:"magpie"}); initialSettings:({unifiedMailboxes:true,notifyNewMail:"Off"}) }
+    Magpie.Service { manifest:({id:"magpie-mail"}); initialSettings:({unifiedMailboxes:true,notifyNewMail:"Off"}) }
   }
   TestCase {
     name: "SearchParticipants"

@@ -35,8 +35,8 @@ cp "$bindings" "$tmp/original"
 
 sh "$script" on "$root" >/dev/null
 grep -qxF 'hl.unbind("SUPER + SHIFT + E")' "$bindings" || fail "on must unbind Omarchy's SUPER+SHIFT+E"
-grep -qF "o.bind(\"SUPER + SHIFT + E\", \"Email\", \"omarchy-shell shell summon magpie '{}'\")" "$bindings" \
-  || fail "on must bind SUPER+SHIFT+E to summon Omamail"
+grep -qF "o.bind(\"SUPER + SHIFT + E\", \"Email\", \"omarchy-shell shell summon magpie-mail '{}'\")" "$bindings" \
+  || fail "on must bind SUPER+SHIFT+E to summon Magpie Mail"
 grep -qF 'compose' "$bindings" || fail "on must bind SUPER+SHIFT+ALT+E to a new message"
 [ -f "$XDG_DATA_HOME/applications/omamail.desktop" ] || fail "on must register omamail.desktop"
 if command -v xdg-mime >/dev/null 2>&1; then
@@ -46,6 +46,16 @@ fi
 sh "$script" on "$root" >/dev/null
 [ "$(grep -c 'omamail default mail client, do not edit' "$bindings")" = 1 ] \
   || fail "a second on must not add a second block"
+
+sed -i "s/summon magpie-mail '/summon magpie '/" "$bindings"
+grep -qF "summon magpie '{}'" "$bindings" || fail "the test must start from a block with the old plugin id"
+sh "$script" refresh
+grep -qF "summon magpie-mail '{}'" "$bindings" || fail "refresh must rewrite a block naming the old plugin id"
+! grep -qF "summon magpie '" "$bindings" || fail "refresh must leave no old plugin id"
+[ "$(grep -c 'omamail default mail client, do not edit' "$bindings")" = 1 ] || fail "refresh must keep one block"
+cp "$bindings" "$tmp/refreshed"
+sh "$script" refresh
+cmp -s "$tmp/refreshed" "$bindings" || fail "refresh must leave a current block alone"
 
 sh "$script" off >/dev/null
 cmp -s "$tmp/original" "$bindings" || fail "off must restore bindings.lua byte for byte"

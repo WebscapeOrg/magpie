@@ -1,5 +1,5 @@
 #!/bin/sh
-# Hands a mailto: URL to the running Magpie window.
+# Hands a mailto: URL to the running Magpie Mail window.
 #
 # The desktop file's Exec is this script with %u. xdg-open, xdg-email and
 # anything else that asks the system to write a message all land here.
@@ -7,7 +7,7 @@
 # draft, not close the mailbox.
 set -eu
 
-plugin_id=magpie
+plugin_id=magpie-mail
 
 fail() {
   printf '%s\n' "$1" >&2

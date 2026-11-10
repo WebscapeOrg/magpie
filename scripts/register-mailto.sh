@@ -86,3 +86,6 @@ if [ "$claim_default" = true ]; then
     xdg-settings set default-url-scheme-handler mailto omamail.desktop >/dev/null 2>&1 || true
   fi
 fi
+
+# The SUPER+SHIFT+E block written before Magpie became Magpie Mail named the old plugin id.
+[ ! -f "$plugin_dir/scripts/default-mail.sh" ] || sh "$plugin_dir/scripts/default-mail.sh" refresh

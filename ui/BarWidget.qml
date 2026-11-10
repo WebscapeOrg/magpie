@@ -11,10 +11,10 @@ import "bar/Bridge.js" as BarBridge
 BarWidget {
   id: root
 
-  moduleName: "magpie"
+  moduleName: "magpie-mail"
 
   readonly property var directService: bar && bar.shell
-    ? bar.shell.serviceFor("magpie") : null
+    ? bar.shell.serviceFor("magpie-mail") : null
   readonly property var gmail: directService
     || (bridgeApi && bridgeState ? bridgedStatus : null)
   property var bridgeApi: null
@@ -88,16 +88,16 @@ BarWidget {
   function openWindow() {
     close()
     if (!bar || !bar.shell) return
-    if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie", "{}")
-    else if (typeof bar.shell.summon === "function") bar.shell.summon("magpie", "{}")
+    if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie-mail", "{}")
+    else if (typeof bar.shell.summon === "function") bar.shell.summon("magpie-mail", "{}")
   }
 
   function openMessage(accountId, messageId) {
     close()
     if (!bar || !bar.shell) return
     var payload = JSON.stringify({ accountId: accountId, messageId: messageId })
-    if (typeof bar.shell.summon === "function") bar.shell.summon("magpie", payload)
-    else if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie", payload)
+    if (typeof bar.shell.summon === "function") bar.shell.summon("magpie-mail", payload)
+    else if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie-mail", payload)
   }
 
 

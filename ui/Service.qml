@@ -109,7 +109,7 @@ Item {
 
 
   readonly property string pluginId: manifest && manifest.id
-    ? String(manifest.id) : "magpie"
+    ? String(manifest.id) : "magpie-mail"
   // Invariant: Omarchy strips private manifest metadata; resolve helpers relative to the plugin root.
   readonly property string pluginDir: decodeURIComponent(String(Qt.resolvedUrl(".."))
     .replace(/^file:\/\//, "")).replace(/\/$/, "")
@@ -2244,7 +2244,7 @@ Item {
 
   // Invariant: Project links work before an account is signed in.
   function openProjectPage() {
-    openExternal("https://github.com/dreinecke/magpie")
+    openExternal("https://github.com/WebscapeOrg/magpie-mail")
   }
 
   function openAuthorPage() {

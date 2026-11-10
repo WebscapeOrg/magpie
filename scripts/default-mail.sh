@@ -4,6 +4,7 @@
 #   default-mail.sh on <plugin-dir>   claim mailto: and SUPER+SHIFT+E
 #   default-mail.sh off               restore Omarchy's own email bindings
 #   default-mail.sh status            print `default` or `not-default`
+#   default-mail.sh refresh           bring an existing block up to date
 #
 # Two things decide "which mail client" on Omarchy, and a switch that moved
 # only one would leave the other opening HEY:
@@ -28,7 +29,7 @@ fail() {
 }
 
 usage() {
-  fail 'usage: default-mail.sh on <plugin-dir> | off | status'
+  fail 'usage: default-mail.sh on <plugin-dir> | off | status | refresh'
 }
 
 bindings_block() {
@@ -36,14 +37,20 @@ bindings_block() {
 $BLOCK_BEGIN
 hl.unbind("SUPER + SHIFT + E")
 hl.unbind("SUPER + SHIFT + ALT + E")
-o.bind("SUPER + SHIFT + E", "Email", "omarchy-shell shell summon magpie '{}'")
-o.bind("SUPER + SHIFT + ALT + E", "New email", "omarchy-shell shell summon magpie '{\"compose\":true}'")
+o.bind("SUPER + SHIFT + E", "Email", "omarchy-shell shell summon magpie-mail '{}'")
+o.bind("SUPER + SHIFT + ALT + E", "New email", "omarchy-shell shell summon magpie-mail '{\"compose\":true}'")
 $BLOCK_END
 EOF
 }
 
 has_block() {
   [ -f "$BINDINGS_FILE" ] && grep -qxF -- "$BLOCK_BEGIN" "$BINDINGS_FILE"
+}
+
+block_current() {
+  bindings_block | while IFS= read -r line; do
+    grep -qxF -- "$line" "$BINDINGS_FILE" || exit 1
+  done
 }
 
 remove_block() {
@@ -93,14 +100,22 @@ case "${1:-}" in
     sh "$plugin_dir/scripts/register-mailto.sh" "$plugin_dir" --claim-default
     add_block
     reload_hyprland
-    printf '%s\n' 'Omamail is now the default mail client.'
-    printf '%s\n' 'SUPER+SHIFT+E opens Omamail; SUPER+SHIFT+ALT+E starts a new message.'
+    printf '%s\n' 'Magpie Mail is now the default mail client.'
+    printf '%s\n' 'SUPER+SHIFT+E opens Magpie Mail; SUPER+SHIFT+ALT+E starts a new message.'
     ;;
   off)
     [ "$#" -eq 1 ] || usage
     remove_block
     reload_hyprland
     printf '%s\n' "SUPER+SHIFT+E is Omarchy's own email binding again."
+    ;;
+  refresh)
+    # A block written before Magpie became Magpie Mail summons the old plugin id; rewrite it once.
+    [ "$#" -eq 1 ] || usage
+    if has_block && ! block_current; then
+      add_block
+      reload_hyprland
+    fi
     ;;
   status)
     [ "$#" -eq 1 ] || usage

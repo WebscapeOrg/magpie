@@ -6,7 +6,6 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import "account"
-import "calendar"
 import "agent"
 import "inbox"
 import "backend"
@@ -22,10 +21,10 @@ import "providers/Credentials.js" as CredentialKeys
 import "providers/Secrets.js" as SecretText
 import "bar/Preview.js" as Preview
 import "bar/Bridge.js" as BarBridge
-import "calendar/Sources.js" as CalendarSources
 import "message/Outbox.js" as Outbox
 import "message/Html.js" as Html
 import "message/Direction.js" as Direction
+import "message/CalendarHandoff.js" as CalendarHandoff
 import "settings/Appearance.js" as Appearance
 import "settings/Display.js" as Display
 
@@ -52,8 +51,6 @@ Item {
   readonly property bool persistencePending: configWrites > 0 || accountsWriting
     || accountsSaveQueued || accountsReading || accountsReloadQueued || windowWriting
     || windowPrefsSettling.running || sending || runningActionCount > 0 || queuedActionCount > 0
-    || calendarController.savingSource
-    || calendarController.creatingEvent || calendarController.eventWriting
   readonly property var capabilities: platform && platform.capabilities
     ? platform.capabilities : ({ agent: true, tray: true, mailto: true, notifications: true })
   readonly property bool standalone: !!platform && platform.standalone === true
@@ -109,15 +106,7 @@ Item {
   readonly property bool backendNeedsUpdate: backend.needsUpdate
   // Invariant: Event suggestions require API 2 even after that revision is released.
   readonly property bool backendCanSuggestEvents: backend.ready && backend.apiVersion >= 2
-  readonly property bool backendCanDiscoverCalendars: backend.ready && backend.apiVersion >= 5
-  readonly property bool backendCanGoogleCalendars: backend.ready && backend.apiVersion >= 6
-  // Invariant: Backends before API 7 accept only a bare sender address.
-  readonly property bool calendarRemindersEnabled: !settings || settings.calendarRemindersEnabled !== false
-  readonly property int calendarSnoozeMinutes: Math.max(1, Math.min(1440,
-    Math.floor(Number(settings && settings.calendarSnoozeMinutes) || 5)))
-  readonly property string calendarReminderError: calendarReminderLoader.item
-    ? calendarReminderLoader.item.lastError || calendarReminderLoader.item.inbox.lastError : ""
-  readonly property var calendarReminderInbox: calendarReminderLoader.item ? calendarReminderLoader.item.inbox : null
+
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "magpie"
@@ -140,9 +129,6 @@ Item {
     notifyNewMail: "On",
     oauthPort: 9481,
     undoSendSeconds: 10,
-    unifiedCalendarView: false,
-    calendarRemindersEnabled: true,
-    calendarSnoozeMinutes: 5,
     showBarIcon: true,
     unifiedMailboxes: false,
     suggestEvents: false,
@@ -178,11 +164,7 @@ Item {
     settings ? settings.appearance : null)
   readonly property string notificationError: platform && platform.notificationError
     ? String(platform.notificationError) : ""
-  readonly property string calendarPalettePath: platform
-    && platform.calendarPalettePath !== undefined
-      ? String(platform.calendarPalettePath || "")
-      : Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
-  // Invariant: Credential RPC requires API 4 even after that revision is released.
+
   readonly property bool backendCanStoreCredentials: backend.ready && backend.apiVersion >= 4
   // Invariant: Only Linux plugin backends before API 4 use the reviewed keyring compatibility adapter.
   readonly property bool legacyCredentialCompatibility: !standalone
@@ -403,8 +385,6 @@ Item {
   // Invariant: Message text direction never changes interface layout direction.
   readonly property string contentDirection: Direction.normalizeMode(
     settings ? settings.contentDirection : null)
-  readonly property bool unifiedCalendarView: !!settings
-    && settings.unifiedCalendarView === true
   readonly property bool unifiedMailboxes: !!settings
     && settings.unifiedMailboxes === true
 
@@ -670,9 +650,7 @@ Item {
     persistSetting("appearance", Appearance.normalizeMode(value))
   }
 
-  function setUnifiedCalendarView(value) {
-    persistSetting("unifiedCalendarView", value === true)
-  }
+
 
   function setShowBarIcon(value) {
     persistSetting("showBarIcon", value === true)
@@ -713,8 +691,6 @@ Item {
     var entry = Accounts.find(accountList, activeAccountId)
     return entry ? String(entry.signatureHtml || "") : ""
   }
-  readonly property string calendarAccountId: current && String(current.accountId || "") !== ""
-    ? String(current.accountId) : "__no_google_account__"
 
   property var current: null
 
@@ -1440,18 +1416,21 @@ Item {
     return Preview.latestMessages(accounts, 3)
   }
 
-  readonly property alias calendarController: sharedCalendar
-  readonly property var barEvents: Preview.upcomingEvents(
-    barCalendar.events, Date.now(), 2)
-
-  function refreshCalendarPreview() {
-    var range = Preview.previewRange(Date.now())
-    barCalendar.refresh(range[0], range[1])
+  function openSkylark(request) {
+    if (skylarkLauncher.running) return false
+    skylarkLauncher.command = ["python3",root.pluginDir + "/scripts/open-skylark.py",JSON.stringify(request || {})]
+    skylarkLauncher.running = true
+    return true
   }
-
-  function openCalendarEditor() {
-    var url = CalendarSources.calendarEditorUrl(sharedCalendar.sourceList)
-    if (url !== "") openExternal(url)
+  function openInvitationInSkylark() {
+    if (!reading || !selectedInvite) return false
+    return openSkylark(CalendarHandoff.invitation(reading.accountId, selectedInvite))
+  }
+  Process {
+    id:skylarkLauncher
+    objectName:"skylark-launcher"
+    stderr:StdioCollector { waitForEnd:true }
+    onExited:function(code) { if (code !== 0 && root.current) root.current.fail("Skylark could not open. Check that Skylark is installed, then try again.") }
   }
 
   property bool windowOpen: false
@@ -1726,11 +1705,6 @@ Item {
   readonly property var selectedAttachments: reading ? reading.selectedAttachments : []
   readonly property bool selectedTooHeavy: !!reading && reading.selectedTooHeavy
   readonly property var selectedInvite: reading ? reading.selectedInvite : null
-  readonly property string selectedResponse: reading ? reading.selectedResponse : ""
-  readonly property bool canRespondToInvite: !!reading && reading.canRespondToInvite
-  readonly property bool rsvpSending: !!reading && reading.rsvpSending
-  readonly property bool rsvpFallbackAvailable: !!reading && reading.rsvpFallbackAvailable === true
-  readonly property string rsvpCalendarUrl: reading ? Provider.calendarAttendanceUrl(reading.providerId, reading.accountId) : ""
   readonly property string unsubscribeLabel: reading ? reading.unsubscribeLabel : ""
   readonly property string unsubscribeDetail: reading ? reading.unsubscribeDetail : ""
   readonly property bool unsubscribing: !!reading && reading.unsubscribing
@@ -1876,8 +1850,6 @@ Item {
     if (reading) return reading.fetchDisplayImage(source, callback)
     if (typeof callback === "function") callback("")
   }
-  function rsvp(response) { if (reading) reading.rsvp(response) }
-  function rsvpMailOnly(response) { if (reading) reading.rsvpMailOnly(response) }
   function unsubscribe() { if (reading) reading.unsubscribe() }
   function cursorOffset(cursorId, delta) {
     if (unified) return Unified.cursorOffset(unifiedMessages, cursorId, delta)
@@ -2263,18 +2235,7 @@ Item {
   }
   function openConsentScreen() { if (current) current.openConsentScreen() }
 
-  function withGoogleAccessToken(accountId, callback) {
-    var accounts = accountList && accountList.accounts ? accountList.accounts : []
-    for (var accountIndex = 0; accountIndex < accounts.length; accountIndex++) {
-      var account = accounts[accountIndex]
-      if (!account || account.id !== accountId) continue
-      var host = accountHosts.objectAt(accountIndex)
-      if (!host) continue
-      host.withAccessToken(callback)
-      return
-    }
-    callback("", "The Google calendar account is not signed in")
-  }
+
 
   signal replySent(string sendId)
   signal replyFailed(string sendId)
@@ -2285,49 +2246,6 @@ Item {
     // Invariant: A failed send preserves unified view because its draft already names the owning account.
     if (host && host !== current && !unified) switchToIndex(index)
     replyFailed(String(sendId || ""))
-  }
-
-  readonly property alias calendarCache: sharedCalendarCache
-  CalendarCache { id: sharedCalendarCache; backend: root.backend; cacheName: root.backend && Number(root.backend.apiVersion)>=8 ? "calendar-shared" : "calendar" }
-
-  CalendarController {
-    id: sharedCalendar
-    service: root
-    pluginDir: root.pluginDir
-    accountId: root.calendarAccountId
-    onSourceListChanged: {
-      barCalendar.sourceList = sourceList
-      Qt.callLater(root.refreshCalendarPreview)
-    }
-    onSourcesLoadedChanged: barCalendar.sourcesLoaded = sourcesLoaded
-  }
-
-  CalendarController {
-    id: barCalendar
-    service: root
-    pluginDir: root.pluginDir
-    cacheName: "calendar-bar"
-    Component.onCompleted: Qt.callLater(root.refreshCalendarPreview)
-  }
-
-  Loader {
-    id: calendarReminderLoader
-    active: root.backendCanGoogleCalendars && root.calendarRemindersEnabled
-    sourceComponent: Component {
-      CalendarReminders {
-        service: root
-        pluginDir: root.pluginDir
-        notificationForeground: Commons.Color.foreground
-        notificationAccent: Commons.Color.accent
-      }
-    }
-  }
-
-  Timer {
-    interval: 600000
-    repeat: true
-    running: true
-    onTriggered: root.refreshCalendarPreview()
   }
 
   // Invariant: Model hosts by count; replacing an account array must not destroy every host and its in-flight callbacks.
@@ -2628,11 +2546,10 @@ Item {
         ready: root.ready, windowOpen: root.windowOpen,
         showBarIcon: root.showBarIcon, unreadTotal: root.unreadTotal,
         barTooltip: root.barTooltip, contentDirection: root.contentDirection,
-        barMessages: root.barMessages, barEvents: root.barEvents
+        barMessages: root.barMessages
       }
     }, function(values) { root.applySettings(BarBridge.settings(values, root.defaultSettingValues)) },
-      function() { root.refresh() },
-      function() { root.refreshCalendarPreview() })
+      function() { root.refresh() })
     Qt.callLater(root.restoreAccountRegistry)
     Qt.callLater(root.refreshRecipientContacts)
     Qt.callLater(root.registerMailtoHandler)

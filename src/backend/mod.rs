@@ -1,10 +1,16 @@
 mod attachments;
 mod content;
+#[cfg(target_os = "linux")]
+pub mod daemon;
 pub(crate) mod diagnostics;
 #[cfg(test)]
 mod gmail_tests;
 pub(crate) mod mail;
 mod methods;
+#[cfg(feature = "mobile")]
+mod mobile;
+#[cfg(target_os = "linux")]
+pub mod phone;
 pub mod protocol;
 mod reader;
 mod rpc;
@@ -12,26 +18,30 @@ pub mod stdio;
 pub mod upload;
 use crate::{account, message};
 
-pub struct Session {
-    calendar_reads: crate::calendar::reads::Reads,
+pub type Session = Engine;
+
+pub struct Engine {
+    #[cfg(target_os = "linux")]
+    phone: std::sync::Arc<phone::Service>,
+    frontend: bool,
     local_mail: std::sync::Arc<crate::local_mail::LocalMail>,
     reader_prefetch: tokio::sync::Semaphore,
-    inbox: crate::inbox::Inbox,
+    inbox: std::sync::Arc<crate::inbox::Inbox>,
     uploads: std::sync::Mutex<upload::Uploads>,
     reader: std::sync::Arc<std::sync::Mutex<reader::ReaderStore>>,
-    #[cfg(all(feature = "agent", unix))]
+    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     agent_context: crate::agent::context::Contexts,
     upload_jobs: tokio::sync::Semaphore,
     pub(crate) gmail: std::sync::Arc<crate::providers::gmail::Session>,
     mail: crate::sync::Sync,
     auth: crate::auth::Session,
-    outbox: crate::outbox::Outbox,
+    outbox: std::sync::Arc<crate::outbox::Outbox>,
     queries: std::sync::Arc<crate::cache::query::QueryCache>,
     renders: std::sync::Arc<std::sync::Mutex<crate::cache::render::RenderCache>>,
     intents: std::sync::Arc<crate::account::intents::IntentStore>,
 }
 
-impl Default for Session {
+impl Default for Engine {
     fn default() -> Self {
         let gmail = std::sync::Arc::new(crate::providers::gmail::Session::default());
         let sender_gmail = gmail.clone();
@@ -54,19 +64,21 @@ impl Default for Session {
         }));
         let queries = std::sync::Arc::new(crate::cache::query::QueryCache::default());
         Self {
-            calendar_reads: crate::calendar::reads::Reads::default(),
+            frontend: false,
+            #[cfg(target_os = "linux")]
+            phone: Default::default(),
             local_mail: Default::default(),
             reader_prefetch: tokio::sync::Semaphore::new(1),
             inbox: Default::default(),
             uploads: Default::default(),
             reader: Default::default(),
-            #[cfg(all(feature = "agent", unix))]
+            #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
             agent_context: Default::default(),
             upload_jobs: tokio::sync::Semaphore::new(2),
             mail: crate::sync::Sync::new(gmail.clone()),
             gmail,
             auth: Default::default(),
-            outbox,
+            outbox: std::sync::Arc::new(outbox),
             queries,
             renders: Default::default(),
             intents: Default::default(),
@@ -74,10 +86,68 @@ impl Default for Session {
     }
 }
 
-impl Session {
+impl Engine {
+    #[cfg(target_os = "linux")]
+    pub(super) fn frontend(&self) -> Self {
+        Self {
+            frontend: true,
+            phone: self.phone.clone(),
+            local_mail: self.local_mail.clone(),
+            reader_prefetch: tokio::sync::Semaphore::new(1),
+            inbox: self.inbox.clone(),
+            uploads: Default::default(),
+            reader: Default::default(),
+            #[cfg(feature = "agent")]
+            agent_context: Default::default(),
+            upload_jobs: tokio::sync::Semaphore::new(2),
+            gmail: self.gmail.clone(),
+            mail: crate::sync::Sync::new(self.gmail.clone()),
+            auth: Default::default(),
+            outbox: self.outbox.clone(),
+            queries: self.queries.clone(),
+            renders: self.renders.clone(),
+            intents: self.intents.clone(),
+        }
+    }
     // Performance: Heap-box provider futures because uploaded requests re-enter dispatch; embedding
     // them overflowed the worker stack in the large-request integration test.
+    pub fn set_suspended_now(&self, suspended: bool) {
+        self.outbox.set_suspended_now(suspended);
+        self.local_mail.set_suspended(suspended);
+    }
+
+    pub async fn set_suspended(&self, suspended: bool) {
+        self.set_suspended_now(suspended);
+        if suspended {
+            self.local_mail.shutdown().await;
+            self.mail.shutdown().await;
+        }
+    }
+
+    pub async fn shutdown(&self) -> Result<(), &'static str> {
+        self.auth.shutdown().await;
+        self.local_mail.shutdown().await;
+        #[cfg(feature = "mobile")]
+        self.local_mail.quiesce().await?;
+        self.mail.shutdown().await;
+        self.gmail.shutdown();
+        self.outbox.shutdown().await?;
+        self.queries.shutdown().await
+    }
+
+    pub fn notifications(&self) -> Vec<tokio::sync::broadcast::Receiver<Value>> {
+        vec![
+            self.local_mail.subscribe(),
+            self.outbox.subscribe(),
+            self.gmail.subscribe(),
+        ]
+    }
+
     pub async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        #[cfg(target_os = "linux")]
+        if matches!(method, "phone.pairBegin" | "phone.devices" | "phone.revoke") {
+            return self.phone.desktop(method, params).await;
+        }
         if !methods::ALL.contains(&method) {
             return Err("unknown_method");
         }
@@ -90,7 +160,9 @@ impl Session {
                 return Err("local_account_unknown");
             }
             if method == "local.unwatch" {
-                self.local_mail.stop(account);
+                if !self.frontend {
+                    self.local_mail.stop(account);
+                }
                 return Ok(json!({"unwatched":true}));
             }
             self.local_mail.start(account, self.gmail.clone()).await?;
@@ -102,7 +174,7 @@ impl Session {
         if method.starts_with("local.") {
             return self.local_mail.call(method, params).await;
         }
-        #[cfg(not(all(feature = "agent", unix)))]
+        #[cfg(not(all(feature = "agent", unix, not(target_os = "ios"))))]
         if method.starts_with("agent.") {
             return Err("unknown_method");
         }
@@ -116,7 +188,11 @@ impl Session {
             return Box::pin(self.mail_call(method, params)).await;
         }
         if matches!(method, "system.info" | "system.quit" | "providers.list") {
-            return dispatch(method, params);
+            let mut response = dispatch(method, params)?;
+            if method == "system.info" {
+                response["engineService"] = json!(self.frontend);
+            }
+            return Ok(response);
         }
         if method.starts_with("credentials.") {
             return crate::credentials::rpc::call(method, params).await;
@@ -127,7 +203,7 @@ impl Session {
         ) {
             return Box::pin(self.reader_call(method, params)).await;
         }
-        #[cfg(all(feature = "agent", unix))]
+        #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
         if matches!(method, "agent.context" | "agent.contextCancel") {
             return Box::pin(self.agent_context.call(method, params, self)).await;
         }
@@ -153,7 +229,7 @@ impl Session {
             }
             return Ok(crate::providers::domain::snapshot());
         }
-        #[cfg(all(feature = "agent", unix))]
+        #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
         if matches!(
             method,
             "agent.jobsList"
@@ -447,7 +523,9 @@ impl Session {
                     let _ = self.local_mail.start(account, self.gmail.clone()).await;
                 }
                 if method == "mail.unwatch" {
-                    self.local_mail.stop(account);
+                    if !self.frontend {
+                        self.local_mail.stop(account);
+                    }
                 }
             }
             return Ok(result);
@@ -481,97 +559,6 @@ impl Session {
             let params: Value = serde_json::from_slice(&bytes).map_err(|_| "invalid_params")?;
             return Box::pin(self.dispatch(target, &params)).await;
         }
-        if method == "calendar.parse" {
-            let params = params.clone();
-            return tokio::task::spawn_blocking(move || crate::calendar::parse::parse(&params))
-                .await
-                .map_err(|_| "worker_failed")?;
-        }
-        if method == "calendar.read" {
-            if params["operation"] != "list" {
-                return Err("invalid_params");
-            }
-            crate::calendar::validate(params)?;
-            reader::registered(
-                params["source"]["accountId"]
-                    .as_str()
-                    .ok_or("invalid_params")?,
-            )
-            .await?;
-            return self.calendar_reads.get(params,||async {
-                let response=Box::pin(self.dispatch("calendar.request",params)).await?;
-                let parse=serde_json::json!({"kind":params["source"]["kind"],"sourceId":params["source"]["id"],
-                    "body":response["body"],
-                    "startMs":chrono::DateTime::parse_from_rfc3339(params["start"].as_str().ok_or("invalid_params")?).map_err(|_|"invalid_params")?.timestamp_millis(),
-                    "endMs":chrono::DateTime::parse_from_rfc3339(params["end"].as_str().ok_or("invalid_params")?).map_err(|_|"invalid_params")?.timestamp_millis()});
-                tokio::task::spawn_blocking(move||crate::calendar::parse::parse(&parse)).await.map_err(|_|"worker_failed")?
-            }).await;
-        }
-        if method == "calendar.request" {
-            crate::calendar::validate(params)?;
-            let token = self
-                .gmail
-                .access_token(
-                    params["source"]["accountId"]
-                        .as_str()
-                        .ok_or("invalid_params")?,
-                )
-                .await?;
-            let answer = Box::pin(crate::calendar::call(params, Some(&token))).await;
-            if !matches!(
-                params["operation"].as_str(),
-                Some("list" | "get" | "lookup" | "instances")
-            ) {
-                self.calendar_reads.invalidate();
-            }
-            return answer;
-        }
-        if method == "calendar.attendance" {
-            crate::calendar::attendance::validate(params)?;
-            let token = self
-                .gmail
-                .access_token(params["accountId"].as_str().ok_or("invalid_params")?)
-                .await?;
-            let account = params["accountId"].as_str().ok_or("invalid_params")?;
-            let mut addresses = vec![account.to_owned()];
-            if let Ok(aliases) = self
-                .gmail
-                .call("gmail.sendAs", &json!({"accountId":account}))
-                .await
-            {
-                for alias in aliases.as_array().into_iter().flatten() {
-                    if let Some(email) = alias["email"].as_str().filter(|email| {
-                        !email.is_empty()
-                            && email.len() <= 1024
-                            && !email.chars().any(char::is_control)
-                    }) {
-                        addresses.push(email.to_owned());
-                    }
-                }
-            }
-            return crate::calendar::attendance::google(params, &token, &addresses).await;
-        }
-        if method == "calendar.reminders" {
-            let params = params.clone();
-            return tokio::task::spawn_blocking(move || crate::calendar::reminders::call(&params))
-                .await
-                .map_err(|_| "calendar_reminders_unavailable")?;
-        }
-        if method == "calendar.discover" {
-            let account = params["accountId"].as_str().ok_or("invalid_params")?;
-            if params.as_object().is_none_or(|fields| fields.len() != 1)
-                || account.is_empty()
-                || account.len() > 1024
-                || !account.contains('@')
-                || account.contains(':')
-                || account.chars().any(|c| c.is_control() || c.is_whitespace())
-            {
-                return Err("invalid_params");
-            }
-            reader::registered(account).await?;
-            let token = self.gmail.access_token(account).await?;
-            return crate::calendar::discover_google(account, &token).await;
-        }
         if method == "cache.bodyPutUpload" {
             let mut params = params.as_object().cloned().ok_or("invalid_params")?;
             if params
@@ -603,8 +590,6 @@ impl Session {
                 | "cache.bodyClear"
                 | "cache.storeRead"
                 | "cache.storePut"
-                | "cache.calendarRead"
-                | "cache.calendarPut"
         ) {
             let method = method.to_owned();
             let params = params.clone();
@@ -670,8 +655,9 @@ pub fn dispatch(method: &str, params: &Value) -> Result<Value, &'static str> {
         "system.info" => Ok(json!({
             "name": "omamail", "version": env!("CARGO_PKG_VERSION"),
             "protocol": 1, "apiVersion": 8, "methods": methods::available(),
+            "engineService": false,
             "contractHash": format!("{:x}", Sha256::digest(include_bytes!("../../backend-api.json"))),
-            "capabilities": {"agent": cfg!(all(feature = "agent", unix))}
+            "capabilities": {"agent": cfg!(all(feature = "agent", unix, not(target_os = "ios")))}
         })),
         "system.quit" => Ok(json!({"quitReady": true})),
         "accounts.list" => account::list(),
@@ -695,7 +681,7 @@ mod api_contract_tests {
             .unwrap()
             .iter()
             .filter(|method| {
-                cfg!(all(feature = "agent", unix))
+                cfg!(all(feature = "agent", unix, not(target_os = "ios")))
                     || !method.as_str().unwrap().starts_with("agent.")
             })
             .collect();

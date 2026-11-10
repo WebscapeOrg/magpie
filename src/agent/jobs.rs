@@ -5,12 +5,10 @@ use super::{
     stream::ClaudeStream,
 };
 use serde_json::{Value, json};
+#[cfg(test)]
+use std::process::Stdio;
 use std::{
-    os::{
-        fd::{AsRawFd, FromRawFd, OwnedFd},
-        unix::process::CommandExt,
-    },
-    process::Stdio,
+    os::fd::{AsRawFd, FromRawFd, OwnedFd},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 type Result<T> = std::result::Result<T, &'static str>;
@@ -567,6 +565,9 @@ fn list(store: &Store) -> Result<Vec<Value>> {
 fn scan_heads(store: &Store) -> Result<Vec<Value>> {
     let mut jobs = Vec::new();
     for id in store.ids()? {
+        if store.read_json(&id, "job.json", INPUT_LIMIT)?.is_none() {
+            continue;
+        }
         if let Some(next) = store.read_json(&id, "next.json", 128)? {
             let next = next.as_str().ok_or("agent_invalid_record")?;
             if store.contains(next)? {
@@ -613,8 +614,29 @@ async fn default_provider() -> Result<Provider> {
     Provider::parse(std::str::from_utf8(&out.stdout).unwrap_or("").trim())
         .ok_or("agent_choose_claude")
 }
-fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<Value> {
+#[cfg(test)]
+fn new_job(context: Value, provider: Provider, model: String) -> Result<Value> {
+    new_job_with_submission(context, provider, model, None)
+}
+fn new_job_with_submission(
+    context: Value,
+    mut provider: Provider,
+    mut model: String,
+    submission: Option<(String, String)>,
+) -> Result<Value> {
     let store = Store::open()?;
+    if let Some((id, digest)) = &submission {
+        if store.contains(id)? {
+            if store.read_json(id, "job.json", INPUT_LIMIT)?.is_some() {
+                let job = refresh(&store, id)?;
+                if job["submissionDigest"] != *digest {
+                    return Err("agent_submission_conflict");
+                }
+                return Ok(job);
+            }
+            store.discard_unadmitted(id)?;
+        }
+    }
     let existing = list(&store)?;
     let mut history = vec![];
     let mut bootstrap = vec![];
@@ -753,10 +775,14 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
         &mut random,
     )
     .map_err(|_| "agent_random_failed")?;
-    let id = random
+    let generated: String = random
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect::<String>();
+    let id = submission
+        .as_ref()
+        .map(|(id, _)| id.clone())
+        .unwrap_or(generated);
     store.create(&id)?;
     let preview = context["prompt"]
         .as_str()
@@ -789,6 +815,9 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
         "resume": resume,
         "progress": "Starting..."
     });
+    if let Some((_, digest)) = submission {
+        job["submissionDigest"] = json!(digest);
+    }
     job["model"] = json!(model);
     job["displayVersion"] = json!(2);
     if !resume.is_empty() {
@@ -813,22 +842,7 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
     if let Some(parent) = context["parent"].as_str() {
         store.write_json(parent, "next.json", &json!(id))?;
     }
-    let exe = std::env::current_exe().map_err(|_| "agent_worker_unavailable")?;
-    let mut command = std::process::Command::new(exe);
-    command
-        .args(["agent-worker", &id])
-        .current_dir(store.path())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    let mut command = super::launch::command("agent-worker", Some(&id), Some(store.path()))?;
     match command.spawn() {
         Ok(mut child) => {
             std::thread::spawn(move || {
@@ -842,6 +856,19 @@ fn new_job(context: Value, mut provider: Provider, mut model: String) -> Result<
         }
     }
     Ok(job)
+}
+pub(crate) async fn identity(id: &str) -> Result<Value> {
+    check_id(id)?;
+    let id = id.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let store = Store::open()?;
+        if !store.contains(&id)? {
+            return Err("agent_job_missing");
+        }
+        read_job(&store, &id)
+    })
+    .await
+    .map_err(|_| "agent_worker_failed")?
 }
 pub async fn call(method: &str, params: &Value) -> Result<Value> {
     if method == "agent.providerStatus" {
@@ -905,9 +932,25 @@ pub async fn call(method: &str, params: &Value) -> Result<Value> {
             }
             Provider::Claude
         }; // new_job reads the parent's provider under the store lock.
-        return tokio::task::spawn_blocking(move || new_job(context, provider, model))
-            .await
-            .map_err(|_| "agent_worker_failed")?;
+        let submission = params
+            .get("submission")
+            .map(|value| {
+                let id = value["id"]
+                    .as_str()
+                    .filter(|v| v.len() == 32 && v.bytes().all(|b| b.is_ascii_hexdigit()))
+                    .ok_or("invalid_params")?;
+                let digest = value["digest"]
+                    .as_str()
+                    .filter(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
+                    .ok_or("invalid_params")?;
+                Ok::<_, &'static str>((id.to_owned(), digest.to_owned()))
+            })
+            .transpose()?;
+        return tokio::task::spawn_blocking(move || {
+            new_job_with_submission(context, provider, model, submission)
+        })
+        .await
+        .map_err(|_| "agent_worker_failed")?;
     }
     let method = method.to_owned();
     let params = params.clone();

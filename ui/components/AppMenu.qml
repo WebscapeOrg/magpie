@@ -253,7 +253,7 @@ Item {
       }
       MenuRow {
         id: calendarRow
-        text: "Calendar"
+        text: "Skylark..."
         onActivated: { menu.close(); root.calendarRequested() }
       }
       MenuSeparatorLine {

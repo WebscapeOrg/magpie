@@ -20,14 +20,10 @@ var CALLBACK_PATH = "/oauth2callback"
 
 // Invariant: gmail.modify is read plus label/trash changes — it deliberately cannot
 // permanently delete. gmail.send is what reply and compose need.
-// calendar.events reads calendars and creates events without broader account
-// access.
 var OPTIONAL_SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"]
 var SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+  "https://www.googleapis.com/auth/gmail.send"
 ].concat(OPTIONAL_SCOPES)
 
 function normalizedPort(value) {

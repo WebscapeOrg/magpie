@@ -385,26 +385,6 @@ Item {
       compare(app.navKinds.join(","), "list")
     }
 
-    function test_readiness_changes_keep_the_event_composer_in_navigation() {
-      app.open("{}")
-      var composer = typed(app, "CalendarEventComposer_")
-      verify(composer)
-      composer.begin()
-      mailService.anyAccountReady = false
-      wait(20)
-      compare(composer.opened, true)
-      compare(app.composing, true)
-      compare(named(app, "key-router").context, "page")
-      mailService.anyAccountReady = true
-      wait(20)
-      compare(composer.visible, true)
-      compare(app.navKinds.join(","), "list,eventComposer")
-      compare(named(app, "key-router").context, "eventCompose")
-      app.back()
-      compare(composer.opened, false)
-      compare(app.composing, false)
-      compare(app.navKinds.join(","), "list")
-    }
 
     function init() {
       var restarting = findChild(app, "app-restart")

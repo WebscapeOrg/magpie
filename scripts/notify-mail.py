@@ -17,9 +17,6 @@ def paint(element, color):
 
 
 def main(args):
-    calendar = bool(args and args[0] == '--calendar')
-    if calendar:
-        args = args[1:]
     if (len(args) != 5 or args[2] != '--'
             or any(not re.fullmatch(r'#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?', c)
                    for c in args[:2])):
@@ -48,8 +45,7 @@ def main(args):
     # at the last boundary so native notification APIs still receive plain text.
     title = escape(title, quote=False)
     body = escape(body, quote=False)
-    actions = (['--action=default=Open event...', '--action=snooze=Snooze', '--action=dismiss=Dismiss']
-               if calendar else ['--action=default=Read...'])
+    actions = ['--action=default=Read...']
     os.execvp('notify-send', ['notify-send', '-a', 'Magpie', '-i', str(path)]
               + actions + ['--', title, body])
 

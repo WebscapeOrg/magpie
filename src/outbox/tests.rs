@@ -1278,3 +1278,32 @@ async fn recorder_confirms_one_resumed_send_and_no_retry_or_cancelled_delivery()
     server.abort();
     let _ = server.await;
 }
+
+#[cfg(feature = "mobile")]
+#[tokio::test]
+async fn withdrawal_before_enqueue_blocks_a_delayed_original_request() {
+    let dir = Temp::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let owner = Outbox::with_root(
+        Arc::new(move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(json!({})) })
+        }),
+        Some(dir.0.clone()),
+    );
+    let params = json!({"accountId":"a@example.org","sendId":"late"});
+    assert_eq!(owner.withdraw(&params).await.unwrap()["cancelled"], true);
+    assert_eq!(
+        owner
+            .call("outbox.enqueue", &enqueue("late", "a@example.org", 0))
+            .await,
+        Err("outbox_send_cancelled")
+    );
+    let disk = storage::read(&dir.0).unwrap();
+    assert_eq!(
+        recover(disk.as_array().unwrap()).unwrap()[0]["withdrawn"],
+        true
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}

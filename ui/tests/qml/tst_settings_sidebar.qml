@@ -215,7 +215,7 @@ Item {
       verify(rail && rail.visible, "a wide window has a rail")
       var page = findChild(app, "settings-page")
       var keys = page.sections.map(function(section) { return section.key })
-      compare(keys.join(","), "restart,display,backend,bar,reading,notifications,writing,mailboxes,calendars,oauth")
+      compare(keys.join(","), "restart,display,backend,bar,reading,notifications,writing,mailboxes,phone,oauth")
       for (var index = 1; index < page.sections.length; index++)
         verify(page.sections[index].y > page.sections[index - 1].y, "sections are laid out top to bottom")
       for (var keyIndex = 0; keyIndex < keys.length; keyIndex++)

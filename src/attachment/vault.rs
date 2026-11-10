@@ -70,6 +70,84 @@ pub(crate) fn retain(account: &str, draft: &str, value: &Value) -> Result<Value>
     let dir = directory(account, draft, true)?.ok_or("attachment_unreadable")?;
     retain_at(&dir, value)
 }
+#[cfg(feature = "mobile")]
+pub(crate) fn copy_draft(params: &Value) -> Result<Value> {
+    let account = text(params, "accountId")?;
+    let source = text(params, "sourceDraftKey")?;
+    let target = text(params, "draftKey")?;
+    let files = params["attachments"]
+        .as_array()
+        .filter(|files| files.len() <= 100)
+        .ok_or("invalid_params")?;
+    if source == target || source == "received" || target == "received" {
+        return Err("invalid_params");
+    }
+    let handles = files
+        .iter()
+        .map(|file| {
+            file["handle"]
+                .as_str()
+                .filter(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+                .ok_or("attachment_handle_invalid")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if handles.is_empty() {
+        return Ok(json!({"attachments":[]}));
+    }
+    let source = directory(account, source, false)?.ok_or("attachment_handle_unavailable")?;
+    let mut total = 0usize;
+    for handle in &handles {
+        let record = load(&source, handle)?.ok_or("attachment_handle_unavailable")?;
+        total = total
+            .checked_add(
+                super::decode(record["data"].as_str().ok_or("attachment_data_invalid")?)?.len(),
+            )
+            .ok_or("attachment_too_large")?;
+        if total > super::MAX_BYTES {
+            return Err("attachment_too_large");
+        }
+    }
+    let target = directory(account, target, true)?.ok_or("attachment_unreadable")?;
+    if !private_fs::names(&target)?.is_empty() {
+        return Err("attachment_copy_target_exists");
+    }
+    let copying = || {
+        let mut copies = Vec::new();
+        let mut total = 0usize;
+        for handle in handles {
+            let record = load(&source, handle)?.ok_or("attachment_handle_unavailable")?;
+            total = total
+                .checked_add(
+                    super::decode(record["data"].as_str().ok_or("attachment_data_invalid")?)?.len(),
+                )
+                .ok_or("attachment_too_large")?;
+            if total > super::MAX_BYTES {
+                return Err("attachment_too_large");
+            }
+            copies.push(retain_at(&target, &record)?);
+        }
+        Ok(json!({"attachments":copies}))
+    };
+    match copying() {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            private_fs::clear_tree(&target).map_err(|_| "attachment_copy_cleanup_failed")?;
+            Err(error)
+        }
+    }
+}
+#[cfg(feature = "mobile")]
+pub(crate) fn clear_draft(params: &Value) -> Result<Value> {
+    let account = text(params, "accountId")?;
+    let draft = text(params, "draftKey")?;
+    if draft == "received" {
+        return Err("invalid_params");
+    }
+    if let Some(dir) = directory(account, draft, false)? {
+        private_fs::clear_tree(&dir)?;
+    }
+    Ok(json!({"cleared":true}))
+}
 fn retain_at(dir: &File, value: &Value) -> Result<Value> {
     let bytes = super::decode(value["data"].as_str().ok_or("attachment_data_invalid")?)?;
     let mut random = [0; 32];

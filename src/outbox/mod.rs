@@ -14,6 +14,10 @@ use std::{
 };
 use tokio::sync::{Notify, broadcast};
 pub mod delivery;
+#[cfg(not(target_os = "ios"))]
+mod ipc;
+#[cfg(target_os = "ios")]
+#[path = "mobile_ipc.rs"]
 mod ipc;
 mod storage;
 #[cfg(test)]
@@ -39,6 +43,7 @@ struct Inner {
     events: broadcast::Sender<Value>,
     wake: Notify,
     stopping: AtomicBool,
+    suspended: AtomicBool,
     root: Option<PathBuf>,
     lease: Mutex<Option<Arc<storage::Lease>>>,
     writer: Arc<storage::Writer>,
@@ -206,6 +211,7 @@ impl Outbox {
                 events,
                 wake: Notify::new(),
                 stopping: AtomicBool::new(false),
+                suspended: AtomicBool::new(false),
                 root,
                 lease: Mutex::new(None),
                 writer: Arc::new(storage::Writer::default()),
@@ -245,6 +251,62 @@ impl Outbox {
                 Err(broadcast::error::RecvError::Closed) => return Err("outbox_stopping"),
             }
         }
+    }
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn remove_account(&self, account: &str) -> Result<(), &'static str> {
+        let mut state = self.inner.state.lock().await;
+        load(&self.inner, &mut state).await?;
+        if state.entries.iter().any(|e| {
+            e["accountId"] == account
+                && !(e["state"] == "unknown" && e["acknowledged"] == true)
+                && !matches!(e["state"].as_str(), Some("sent" | "cancelled" | "failed"))
+        }) {
+            return Err("outbox_account_pending");
+        }
+        let mut next = state.entries.clone();
+        next.retain(|e| e["accountId"] != account);
+        save(&self.inner, &next).await?;
+        state.entries = next;
+        state.revision += 1;
+        emit(&self.inner, &state, account);
+        Ok(())
+    }
+    #[cfg(feature = "mobile")]
+    pub async fn withdraw(&self, params: &Value) -> Result<Value, &'static str> {
+        if params.as_object().is_none_or(|p| {
+            p.len() != 2 || !p.contains_key("accountId") || !p.contains_key("sendId")
+        }) {
+            return Err("outbox_invalid_params");
+        }
+        let account = text(params, "accountId")?;
+        let id = text(params, "sendId")?;
+        let mut state = self.inner.state.lock().await;
+        load(&self.inner, &mut state).await?;
+        let mut next = state.entries.clone();
+        if let Some(entry) = next
+            .iter_mut()
+            .find(|e| e["accountId"] == account && e["id"] == id)
+        {
+            if !matches!(
+                entry["state"].as_str(),
+                Some("queued" | "waiting" | "failed" | "cancelled")
+            ) {
+                return Err("outbox_send_unknown");
+            }
+            entry["state"] = json!("cancelled");
+            entry["withdrawn"] = json!(true);
+        } else {
+            if next.len() >= MAX_ENTRIES {
+                return Err("outbox_full");
+            }
+            next.push(json!({"accountId":account,"id":id,"provider":"gmail","state":"cancelled","withdrawn":true,"acknowledged":true}));
+        }
+        save(&self.inner, &next).await?;
+        state.entries = next;
+        state.revision += 1;
+        emit(&self.inner, &state, account);
+        self.inner.wake.notify_waiters();
+        Ok(json!({"cancelled":true}))
     }
     /// Invariant: Serialize explicit-ID composition with its enqueue. Replays retain the original
     /// timestamp, MIME boundary and message ID; `call` remains the sole owner of digest conflict
@@ -314,6 +376,33 @@ impl Outbox {
             }
         }
     }
+    #[cfg(feature = "mobile")]
+    pub(crate) async fn quiesce(&self) -> Result<(), &'static str> {
+        loop {
+            let mut state = self.inner.state.lock().await;
+            if !state.loaded || !self.inner.suspended.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            if !state
+                .entries
+                .iter()
+                .any(|entry| entry["state"] == "sending")
+            {
+                if state.dirty {
+                    save(&self.inner, &state.entries).await?;
+                    state.dirty = false;
+                }
+                return Ok(());
+            }
+            drop(state);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+    pub fn set_suspended_now(&self, suspended: bool) {
+        self.inner.suspended.store(suspended, Ordering::Release);
+        self.inner.wake.notify_waiters();
+    }
+
     pub async fn shutdown(&self) -> Result<(), &'static str> {
         self.inner.stopping.store(true, Ordering::Release);
         self.inner.wake.notify_waiters();
@@ -444,6 +533,9 @@ impl Inner {
                     .iter()
                     .find(|entry| entry["accountId"] == account && entry["id"] == selected)
                 {
+                    if existing["withdrawn"] == true {
+                        return Err("outbox_send_cancelled");
+                    }
                     if existing["digest"] != digest(payload) || existing["provider"] != provider {
                         return Err("outbox_send_id_conflict");
                     }
@@ -595,6 +687,11 @@ async fn worker(inner: Arc<Inner>, account: String) {
             state.workers.remove(&account);
             return;
         };
+        if inner.suspended.load(Ordering::Acquire) {
+            drop(state);
+            notified.await;
+            continue;
+        }
         let due = state.entries[index]["dueAt"].as_u64().unwrap_or(0);
         if due > now() {
             let delay = Duration::from_millis(due.saturating_sub(now()).min(60000));
@@ -627,7 +724,7 @@ async fn worker(inner: Arc<Inner>, account: String) {
                 continue;
             };
             index = current;
-            if inner.stopping.load(Ordering::Acquire) {
+            if inner.stopping.load(Ordering::Acquire) || inner.suspended.load(Ordering::Acquire) {
                 continue;
             }
             if ready.is_err() {
@@ -644,6 +741,10 @@ async fn worker(inner: Arc<Inner>, account: String) {
                 continue;
             }
         }
+        if inner.suspended.load(Ordering::Acquire) {
+            continue;
+        }
+        let waiting_state = state.entries[index]["state"].clone();
         let mut next = state.entries.clone();
         next[index]["state"] = json!("sending");
         if save(&inner, &next).await.is_err() {
@@ -660,6 +761,30 @@ async fn worker(inner: Arc<Inner>, account: String) {
         let entry = state.entries[index].clone();
         emit(&inner, &state, &account);
         drop(state);
+        if inner.suspended.load(Ordering::Acquire) {
+            let mut state = inner.state.lock().await;
+            if let Some(index) = state
+                .entries
+                .iter()
+                .position(|current| current["id"] == entry["id"] && current["accountId"] == account)
+            {
+                let mut next = state.entries.clone();
+                next[index]["state"] = waiting_state;
+                if save(&inner, &next).await.is_err() {
+                    state.entries = next;
+                    state.entries[index]["error"] = json!("outbox_storage_unavailable");
+                    state.dirty = true;
+                    state.revision += 1;
+                    emit(&inner, &state, &account);
+                    state.workers.remove(&account);
+                    return;
+                }
+                state.entries = next;
+                state.revision += 1;
+                emit(&inner, &state, &account);
+            }
+            continue;
+        }
         let request = json!({"accountId":account,"provider":entry["provider"],"payload":entry["payload"],"sendId":entry["id"]});
         let delivery = std::panic::AssertUnwindSafe((inner.executor)(request)).catch_unwind();
         let result = tokio::time::timeout(Duration::from_secs(60), async {

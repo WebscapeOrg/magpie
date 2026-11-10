@@ -1,6 +1,9 @@
 // Invariant: Advertised public operations; transport and domain dispatch share this inventory.
 pub const ALL: &[&str] = &[
     "system.info",
+    "phone.pairBegin",
+    "phone.devices",
+    "phone.revoke",
     "inbox.snapshot",
     "inbox.overviews",
     "inbox.avatar",
@@ -88,18 +91,12 @@ pub const ALL: &[&str] = &[
     "cache.bodyClear",
     "cache.storeRead",
     "cache.storePut",
-    "cache.calendarRead",
-    "cache.calendarPut",
     "contacts.suggest",
     "attachment.read",
     "attachment.store",
     "attachment.storeUpload",
     "public.image",
     "public.unsubscribe",
-    "calendar.request",
-    "calendar.discover",
-    "calendar.attendance",
-    "calendar.reminders",
     "auth.form",
     "auth.begin",
     "auth.poll",
@@ -143,14 +140,16 @@ pub const ALL: &[&str] = &[
     "attachment.retain",
     "outbox.compose",
     "draft.compose",
-    "calendar.read",
-    "calendar.parse",
     "local.labelCounts",
 ];
 
 pub fn available() -> Vec<&'static str> {
     ALL.iter()
         .copied()
-        .filter(|method| !method.starts_with("agent.") || cfg!(all(feature = "agent", unix)))
+        .filter(|method| {
+            !method.starts_with("agent.")
+                || cfg!(all(feature = "agent", unix, not(target_os = "ios")))
+        })
+        .filter(|method| !method.starts_with("phone.") || cfg!(target_os = "linux"))
         .collect()
 }

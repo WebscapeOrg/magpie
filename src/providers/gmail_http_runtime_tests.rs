@@ -1415,3 +1415,86 @@ async fn contract_distinguishes_local_admission_server_refusal_and_cooldown_with
         assert_eq!(row["outcome"], case["equals"]["error"]);
     }
 }
+
+#[tokio::test]
+async fn outbox_consumes_provider_draft_without_raw_send_or_delete_fallback() {
+    use crate::mail::tests::{account_fixture, isolated};
+    use serde_json::json;
+    if isolated() {
+        return;
+    }
+    let fixture = account_fixture(
+        json!({"version":1,"accounts":[{"provider":"gmail","email":"draft@example.org"}]}),
+    );
+    let directory = crate::platform::private_fs::directories(
+        &fixture.config,
+        &[crate::platform::dirs::APP_DIRECTORY],
+        true,
+    )
+    .unwrap()
+    .unwrap();
+    crate::platform::private_fs::atomic_replace(&directory,"credentials.json",json!({"installed":{"client_id":"123-draft.apps.googleusercontent.com","client_secret":"synthetic-secret"}}).to_string().as_bytes()).unwrap();
+    let _credential =
+        crate::credentials::tests::isolated_store(crate::credentials::tests::SingleCredential {
+            key: crate::credentials::CredentialKey {
+                provider: "gmail".into(),
+                account_id: "draft@example.org".into(),
+                kind: crate::credentials::CredentialKind::GoogleRefreshToken {
+                    client_id: "123-draft.apps.googleusercontent.com".into(),
+                },
+            },
+            secret: crate::credentials::Secret::new(b"synthetic-refresh-token".to_vec()).unwrap(),
+        });
+    fn response(status: u16, body: Value) -> Vec<u8> {
+        let text = body.to_string();
+        format!(
+            "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\n\r\n{text}",
+            text.len()
+        )
+        .into_bytes()
+    }
+    for status in [200, 404, 500] {
+        let peer = server_sequence(
+            vec![
+                response(
+                    200,
+                    json!({"access_token":"synthetic-access","expires_in":3600}),
+                ),
+                response(
+                    200,
+                    json!({"drafts":[{"id":"provider-draft","message":{"id":"message-id"}}]}),
+                ),
+                response(status, json!({"id":"sent-message"})),
+            ],
+            Duration::ZERO,
+        )
+        .await;
+        let origin = peer.url.strip_suffix("/messages/abc").unwrap().to_owned();
+        let transport = reqwest::Client::builder().no_proxy().build().unwrap();
+        with_test_transport(transport,origin,async {
+            let session=crate::providers::gmail::Session::default();
+            let result=crate::outbox::delivery::send(&json!({"accountId":"draft@example.org","provider":"gmail","payload":{"raw":"SGVsbG8","threadId":"thread","draftId":"message-id"}}),&session).await;
+            if status==200 { assert_eq!(result.unwrap()["draftRemoved"],true); } else { assert!(result.is_err()); }
+        }).await;
+        let requests = peer.requests.lock().unwrap();
+        assert_eq!(
+            requests.len(),
+            3,
+            "A failed draft send must not fall back or delete"
+        );
+        assert!(requests[0].starts_with("POST /token "));
+        assert!(requests[1].starts_with("GET /gmail/v1/users/me/drafts?"));
+        assert!(requests[2].starts_with("POST /gmail/v1/users/me/drafts/send "));
+        let body: Value =
+            serde_json::from_str(requests[2].split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(
+            body,
+            json!({"id":"provider-draft","message":{"raw":"SGVsbG8","threadId":"thread"}})
+        );
+        assert!(
+            !requests
+                .iter()
+                .any(|r| r.starts_with("DELETE ") || r.contains("/messages/send "))
+        );
+    }
+}

@@ -14,6 +14,7 @@ pub(super) fn supports(method: &str) -> bool {
             | "gmail.trash"
             | "gmail.untrash"
             | "gmail.send"
+            | "gmail.sendDraft"
             | "gmail.saveDraft"
             | "gmail.updateDraft"
             | "gmail.deleteDraft"
@@ -77,7 +78,7 @@ fn plan(method: &str, params: &Value) -> Result<Plan, &'static str> {
             &["accountId", "id"]
         }
         "gmail.send" | "gmail.saveDraft" => &["accountId", "raw", "threadId"],
-        "gmail.updateDraft" => &["accountId", "id", "raw", "threadId"],
+        "gmail.updateDraft" | "gmail.sendDraft" => &["accountId", "id", "raw", "threadId"],
         _ => return Err("unknown_method"),
     };
     if params
@@ -144,14 +145,16 @@ fn plan(method: &str, params: &Value) -> Result<Plan, &'static str> {
             result.path = vec!["drafts".into()];
             result.body = Some(json!({"message":message(params)?}));
         }
-        "gmail.updateDraft" | "gmail.deleteDraft" => {
+        "gmail.updateDraft" | "gmail.deleteDraft" | "gmail.sendDraft" => {
             result.draft_message = Some(field(params, "id", true)?.into());
             result.method = if method == "gmail.updateDraft" {
                 Method::PUT
+            } else if method == "gmail.sendDraft" {
+                Method::POST
             } else {
                 Method::DELETE
             };
-            if method == "gmail.updateDraft" {
+            if matches!(method, "gmail.updateDraft" | "gmail.sendDraft") {
                 result.body = Some(json!({"message":message(params)?}));
             }
         }
@@ -282,7 +285,12 @@ impl Session {
                     Err("gmail_draft_missing")
                 };
             };
-            plan.path = vec!["drafts".into(), id];
+            if method == "gmail.sendDraft" {
+                plan.path = vec!["drafts".into(), "send".into()];
+                plan.body.as_mut().ok_or("invalid_params")?["id"] = json!(id);
+            } else {
+                plan.path = vec!["drafts".into(), id];
+            }
         }
         session.check()?;
         let path: Vec<&str> = plan.path.iter().map(String::as_str).collect();

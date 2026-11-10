@@ -34,8 +34,14 @@ Rectangle {
   property bool snoozeOpen: false
   property string avatarData: ""
   property string overview: ""
-  property string overviewState: ""
-  property string overviewReason: ""
+  // In the Inbox, a message whose Point Magpie is writing shows moving lines where the Point goes,
+  // and the Point fades in when it is ready.
+  property bool writing: false
+  property string writingId: ""
+  onWritingChanged: {
+    if (!writing && writingId === String(summary.id || "")) pointFade.restart()
+    writingId = writing ? String(summary.id || "") : ""
+  }
   signal unreadRequested()
   signal snoozeRequested(real sceneX, real sceneY)
   signal starToggled()
@@ -189,8 +195,40 @@ Rectangle {
       }
     }
 
+    Column {
+      id: pointPlaceholder
+      objectName: "point-placeholder"
+      visible: root.writing
+      width: subject.width
+      topPadding: MailStyle.space(3)
+      bottomPadding: MailStyle.space(3)
+      spacing: MailStyle.space(6)
+      property real pulse: 0.45
+      // The same pulse as the list's loading rows (ListSkeleton).
+      SequentialAnimation on pulse {
+        running: pointPlaceholder.visible
+        loops: Animation.Infinite
+        NumberAnimation { to: 1.0; duration: 900; easing.type: Easing.InOutQuad }
+        NumberAnimation { to: 0.45; duration: 900; easing.type: Easing.InOutQuad }
+      }
+      Accessible.role: Accessible.StaticText
+      Accessible.name: "Point being written. " + String(root.summary.subject || "")
+      Repeater {
+        model: [1.0, 0.62]
+        Rectangle {
+          required property real modelData
+          width: Math.max(1, pointPlaceholder.width * modelData)
+          height: MailStyle.space(9)
+          radius: Style.cornerRadius
+          color: Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.05 + 0.05 * pointPlaceholder.pulse)
+        }
+      }
+    }
+
     MarkedText {
       id: subject
+      visible: !root.writing
+      NumberAnimation on opacity { id: pointFade; running: false; from: 0; to: 1; duration: 350; easing.type: Easing.InOutQuad }
       marked: root.summary.unread === true
       markerColor: Qt.rgba(0.73,0.48,0.20,0.144)
       objectName: "message-subject"
@@ -209,13 +247,13 @@ Rectangle {
       // POINT_LIMIT characters); a sender's subject stops at three lines and is shown whole on hover.
       maximumLineCount: root.overview ? 2147483647 : 3
       Accessible.name: (root.summary.unread === true ? "Unread. " : "") + (root.overview ? "The Point: " + root.overview : text)
-      Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && (subject.truncated || root.overviewState === "failed"); text: root.overviewReason && root.overviewState === "failed" ? "Original subject shown. " + root.overviewReason : subject.text; fontFamily: root.panelFontFamily }
+      Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && subject.truncated; text: subject.text; fontFamily: root.panelFontFamily }
       HoverHandler { id: overviewHover }
     }
 
     Item {
       width: Math.max(0, Math.min(subject.width, parent.width - time.width - MailStyle.space(16)))
-      visible: !root.overview && String(root.summary.snippet || "") !== ""
+      visible: !root.writing && !root.overview && String(root.summary.snippet || "") !== ""
       implicitHeight: visible ? description.implicitHeight : 0
 
 

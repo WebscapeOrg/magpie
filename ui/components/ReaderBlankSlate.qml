@@ -81,7 +81,6 @@ Item {
       horizontalAlignment: Text.AlignHCenter
       text: {
         if (!root.service || !root.service.messages) return ""
-        if (root.service.messages.length === 0 && root.service.preparingInbox > 0) return "Inbox messages appear when their Point is ready. All mail includes messages still being prepared."
         if (root.service.messages.length === 0) {
           var sync = SyncHealth.emptyFor(root.service.localMailbox, root.searching, root.service.listLoading)
           return sync !== null ? sync : SearchPresentation.emptyText(

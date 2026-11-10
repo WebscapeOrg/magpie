@@ -191,6 +191,21 @@ Item {
       compare(overview.reason,"AI request could not start; retry from Menu")
       verify(JSON.stringify(overview).indexOf("secret")<0)
     }
+    function test_the_reconnecting_notice_goes_when_mail_is_back() {
+      var previous=backend.apiVersion
+      try {
+        backend.ready=false;backend.apiVersion=8
+        tools.error=tools.reconnectingNotice
+        backend.ready=true
+        compare(tools.error,"")
+        backend.ready=false
+        tools.error="Snooze could not finish."
+        backend.ready=true
+        compare(tools.error,"Snooze could not finish.","other problems stay on screen")
+      } finally {
+        tools.error="";backend.apiVersion=previous
+      }
+    }
     function test_fixed_api_gate_prevents_new_requests_on_old_backend() {
       backend.ready=true;tools.refresh()
       compare(tools.available,false)

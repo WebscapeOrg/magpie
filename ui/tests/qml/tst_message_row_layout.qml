@@ -20,7 +20,7 @@ Item {
     name: "MessageRowLayout"
     when: windowShown
     function init() {
-      failOnWarning(/Unable to assign|TypeError|ReferenceError/)
+      failOnWarning(/Unable to assign|TypeError|ReferenceError|Binding loop/)
       mouseMove(row,-20,-20)
       row.width=600;row.hasCursor=false;row.checked=false;row.conversations=false
       row.attachmentIndicatorEnabled=true;row.overview="";row.writing=false;row.pendingCount=0;row.motionEnabled=true
@@ -182,7 +182,7 @@ Item {
       compare(findChild(row,"message-description").visible,true)
     }
     function test_a_long_point_is_shown_whole_and_the_row_grows_data() {
-      return [{tag:"narrow-actions",width:360,actions:true},{tag:"narrowest",width:280,actions:false},{tag:"wide",width:600,actions:false}]
+      return [{tag:"narrow",width:360,actions:false},{tag:"narrowest",width:280,actions:false},{tag:"wide",width:600,actions:false}]
     }
     function test_a_long_point_is_shown_whole_and_the_row_grows(data) {
       row.width=data.width;row.hasCursor=data.actions
@@ -205,13 +205,112 @@ Item {
       if(actions.visible) verify(subject.mapToItem(row,subject.width,0).x<=actions.x,"the Point stops before the tools")
       verify(subject.mapToItem(row,0,0).y>=time.mapToItem(row,0,time.height).y,"the Point starts below the date")
       compare(subject.Accessible.name,"Unread. The Point: "+point)
-      mouseMove(subject,5,5)
-      wait(50)
-      verify(!findChild(row,"overview-tooltip").visible,"a Point shown whole needs no tooltip")
-      mouseMove(row,-20,-20)
       row.overview=""
       waitForRendering(row)
       compare(row.height,oneLine,"the row returns to its size without the Point")
+    }
+    function test_tools_appearing_never_change_the_row_height_data() {
+      return [{tag:"mouse-360",width:360,mouse:true},{tag:"cursor-360",width:360,mouse:false},{tag:"mouse-600",width:600,mouse:true},{tag:"cursor-600",width:600,mouse:false}]
+    }
+    function test_tools_appearing_never_change_the_row_height(data) {
+      row.width=data.width
+      row.summary={id:"one",subject:"Original subject",from:{display:"Sender"},time:"10:41",unread:true}
+      var words=[],subject=findChild(row,"message-subject"),actions=findChild(row,"message-actions"),tested=0
+      for(var i=0;i<60;i++) {
+        words.push(["Your","payment","to","the","provider","went","through","today"][i%8])
+        var point=words.join(" ")
+        if(Array.from(point).length>300) break
+        row.overview=point;waitForRendering(row)
+        compare(actions.visible,false)
+        var height=row.height,lines=subject.lineCount
+        if(data.mouse) mouseMove(row,row.width/2,20); else row.hasCursor=true
+        tryCompare(actions,"visible",true)
+        waitForRendering(row)
+        compare(row.height,height,"the row keeps its height for "+words.length+" words")
+        verify(subject.lineCount<=lines,"the Point takes no extra line")
+        verify(subject.mapToItem(row,subject.width,0).x<=actions.x,"the Point stops before the tools")
+        if(subject.truncated) tested++
+        if(data.mouse) mouseMove(row,-20,-20); else row.hasCursor=false
+        tryCompare(actions,"visible",false)
+        waitForRendering(row)
+        compare(row.height,height,"and returns to the same height")
+        verify(!subject.truncated,"the whole Point is back once the tools go")
+      }
+      verify(tested>0,"at least one Point had to be cut, so this case exercised the limit")
+      row.overview=""
+    }
+    function test_row_height_is_steady_with_taller_fallback_fonts_and_in_narrow_rows_data() {
+      var lines=[]
+      for (var width of [300,360,420,600]) for (var word of ["你好世界","مرحبا","नमस्ते","🙂"]) lines.push({tag:width+"-"+word,width:width,word:word})
+      return lines
+    }
+    function test_row_height_is_steady_with_taller_fallback_fonts_and_in_narrow_rows(data) {
+      row.width=data.width
+      row.summary={id:"one",subject:"Original subject",from:{display:"Sender"},time:"10:41",unread:true}
+      var subject=findChild(row,"message-subject"),words=[]
+      for(var i=0;i<30;i++) {
+        words.push(i%5===3?data.word:"payment")
+        row.overview=words.join(" ")
+        waitForRendering(row)
+        var height=row.height
+        row.hasCursor=true;waitForRendering(row)
+        compare(row.height,height,"the row keeps its height for "+words.length+" words")
+        verify(subject.width>=1,"the Point keeps a place in the row")
+        verify(subject.parent.clip,"a line too tall for its lane cannot paint over the next row")
+        row.hasCursor=false;waitForRendering(row)
+      }
+      row.overview=""
+    }
+    function test_a_preview_with_hard_line_breaks_stays_steady_without_a_binding_loop_data() {
+      return [{tag:"300",width:300},{tag:"360",width:360},{tag:"600",width:600}]
+    }
+    function test_a_preview_with_hard_line_breaks_stays_steady_without_a_binding_loop(data) {
+      row.width=data.width;row.overview=""
+      for (var snippet of ["One\nTwo\nThree","Ends in a newline\n","\n\nLeading","One two three four five six seven eight nine ten eleven twelve\nthirteen"]) {
+        row.summary={id:"one",subject:"Title",snippet:snippet,from:{display:"Sender"},time:"09:14",unread:false}
+        waitForRendering(row)
+        var height=row.height
+        row.hasCursor=true;waitForRendering(row)
+        compare(row.height,height,"the row keeps its height for "+JSON.stringify(snippet))
+        row.hasCursor=false;waitForRendering(row)
+      }
+    }
+    function test_a_cut_point_shows_whole_in_its_tooltip_and_a_short_one_has_none() {
+      row.width=360
+      row.summary={id:"one",subject:"Original subject",from:{display:"Sender"},time:"10:41",unread:true}
+      var subject=findChild(row,"message-subject"),tooltip=findChild(row,"overview-tooltip"),words=[]
+      for(var i=0;i<40&&!subject.truncated;i++) {
+        words.push("payment")
+        row.overview=words.join(" ")
+        mouseMove(row,-20,-20);waitForRendering(row)
+        mouseMove(subject,5,5);waitForRendering(row)
+      }
+      verify(subject.truncated,"hovering cut the Point")
+      tryCompare(tooltip,"visible",true)
+      compare(tooltip.text,row.overview)
+      mouseMove(row,-20,-20)
+      row.overview="Short."
+      waitForRendering(row)
+      mouseMove(subject,5,5);waitForRendering(row);wait(50)
+      compare(tooltip.visible,false,"a Point shown whole needs no tooltip")
+      mouseMove(row,-20,-20)
+      row.overview=""
+    }
+    function test_a_preview_keeps_its_lines_when_the_tools_appear() {
+      row.width=360;row.overview=""
+      var text=findChild(row,"message-description"),actions=findChild(row,"message-actions"),tested=0,words=[]
+      for(var i=0;i<24;i++) {
+        words.push("statement")
+        row.summary={id:"one",subject:"Title",snippet:words.join(" "),from:{display:"Sender"},time:"09:14",unread:false}
+        waitForRendering(row)
+        var height=row.height,lines=text.lineCount
+        row.hasCursor=true;waitForRendering(row)
+        compare(row.height,height,"the row keeps its height for "+words.length+" words")
+        verify(text.lineCount<=lines)
+        if(text.truncated&&lines<2) tested++
+        row.hasCursor=false;waitForRendering(row)
+      }
+      verify(tested>0,"a one-line preview had to be cut, so this case exercised the limit")
     }
     function test_a_long_subject_without_a_point_stops_at_three_lines_and_shows_whole_on_hover() {
       row.width=360;row.hasCursor=false;row.overview=""

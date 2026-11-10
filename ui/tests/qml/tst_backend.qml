@@ -463,7 +463,7 @@ Item {
     function stopConfirmationOf(backend) {
       for (var childIndex = 0; childIndex < backend.data.length; childIndex++) {
         var child = backend.data[childIndex]
-        if (child.interval === 1000 && child.repeat === false) return child
+        if (child.interval === 1000 && child.repeat === false && child.objectName !== "backend-reconnect-delay") return child
       }
       fail("No backend stop confirmation deadline")
       return null
@@ -704,6 +704,211 @@ Item {
       process.exited(1)
       verify(stoppedWith !== null)
       compare(stoppedWith.message, "Backend stopped")
+    }
+
+    function test_engine_restart_reconnects_without_replaying_requests() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      var failed = null
+      backend.call("gmail.sendAs", {}, function(result, error) { failed = error })
+      process.exited(0)
+      compare(failed.message, "Backend stopped")
+      compare(backend.ready, false)
+      compare(process.running, false)
+      compare(backend.reconnectDelayMs, 1000)
+      tryCompare(process, "running", true, 3000)
+      compare(backend.failure, "")
+      process.written = ""
+      process.started()
+      compare(requests(process).length, 1)
+      compare(requests(process)[0].method, "system.info")
+      reply(process, requests(process)[0], {
+        name: "omamail", apiVersion: 1, protocol: 1, version: "0.8.2",
+        methods: ["system.info", "system.quit", "gmail.sendAs"]
+      }, null)
+      compare(backend.ready, true)
+      compare(backend.reconnecting, false)
+      compare(requests(process).length, 1, "the failed send is not sent again")
+      verify(backend.reconnectAttempts > 0, "one handshake does not end the back-off")
+      namedTimer(backend, "backend-reconnect-stable").triggered()
+      compare(backend.reconnectAttempts, 0)
+    }
+
+    function namedTimer(backend, name) {
+      for (var childIndex = 0; childIndex < backend.data.length; childIndex++)
+        if (backend.data[childIndex].objectName === name) return backend.data[childIndex]
+      fail("No timer " + name)
+      return null
+    }
+
+    function answer(process, version) {
+      var all = requests(process)
+      reply(process, all[all.length - 1], {
+        name: "omamail", apiVersion: 1, protocol: 1, version: version,
+        methods: ["system.info", "system.quit"]
+      }, null)
+    }
+
+    function test_a_routine_restart_raises_no_alarm_but_a_lasting_one_does() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      compare(backend.ready, false)
+      compare(backend.reconnecting, true)
+      namedTimer(backend, "backend-reconnect-grace").triggered()
+      namedTimer(backend, "backend-reconnect-grace").stop()
+      compare(backend.reconnecting, false, "an engine still away after the grace period is a real problem")
+    }
+
+    function test_an_engine_that_dies_after_its_handshake_still_backs_off() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      tryCompare(process, "running", true, 3000)
+      process.written = ""
+      process.started()
+      answer(process, "0.8.2")
+      compare(backend.ready, true)
+      process.exited(0)
+      compare(backend.reconnectDelayMs, 2000, "the pause keeps growing")
+      compare(backend.reconnecting, false, "repeated deaths are not routine")
+    }
+
+    function test_reconnects_after_every_kind_of_failure_data() {
+      return [{tag:"crash-mid-response",bad:"{\"jsonrpc\""},{tag:"request-timed-out",message:"Backend request timed out"},
+        {tag:"handshake-failed",message:"Backend handshake failed"}]
+    }
+
+    function test_reconnects_after_every_kind_of_failure(data) {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      if (data.bad) backend.receive(data.bad)
+      else backend.stopForFailure(data.message)
+      verify(backend.failure !== "")
+      process.exited(1)
+      compare(process.running, false)
+      tryCompare(process, "running", true, 3000)
+      compare(backend.failure, "")
+    }
+
+    function test_a_launch_that_never_started_is_tried_again() {
+      var backend = makeBackend()
+      wait(0)
+      var process = processOf(backend)
+      process.running = false
+      compare(backend.reconnecting, true)
+      tryCompare(process, "running", true, 3000)
+    }
+
+    function test_a_failed_start_after_a_good_launch_is_tried_again() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      tryCompare(process, "running", true, 3000)
+      compare(backend.processStarted, false, "the earlier launch no longer counts")
+      process.running = false
+      tryCompare(process, "running", true, 4000)
+    }
+
+    function test_no_retry_is_left_running_after_shutdown_or_restart() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      verify(namedTimer(backend, "backend-reconnect-delay").running)
+      backend.shutdown(function() {})
+      compare(namedTimer(backend, "backend-reconnect-delay").running, false)
+      compare(backend.reconnecting, false)
+      var restarted = makeBackend()
+      wait(0)
+      var other = makeReady(restarted)
+      other.exited(0)
+      verify(namedTimer(restarted, "backend-reconnect-delay").running)
+      restarted.restart(function() {})
+      compare(namedTimer(restarted, "backend-reconnect-delay").running, false)
+      compare(restarted.reconnecting, false)
+    }
+
+    function test_a_failed_restart_keeps_trying_to_reconnect() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      var error = null
+      backend.restart(function(failed) { error = failed })
+      reply(process, requests(process)[1], { quitReady: true }, null)
+      process.exited(0)
+      wait(0)
+      compare(process.running, true)
+      process.started()
+      process.exited(1)
+      verify(error !== null)
+      compare(process.running, false)
+      tryCompare(process, "running", true, 3000)
+    }
+
+    function test_restart_during_the_pause_leaves_a_refused_engine_refused() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      backend.restart(function() {})
+      wait(0)
+      compare(process.running, true)
+      process.written = ""
+      process.started()
+      answer(process, "0.0.1")
+      compare(process.running, false)
+      process.exited(0)
+      wait(1300)
+      compare(process.running, false, "the pending retry was cancelled")
+      compare(backend.failure, "Incompatible backend")
+      compare(backend.reconnecting, false)
+    }
+
+    function test_reconnect_keeps_trying_with_growing_pauses() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(0)
+      tryCompare(process, "running", true, 3000)
+      compare(backend.reconnectAttempts, 1)
+      compare(backend.reconnectDelayMs, 2000)
+      process.started()
+      process.exited(1)
+      compare(process.running, false)
+      compare(backend.ready, false)
+      tryCompare(process, "running", true, 4000)
+      compare(backend.reconnectDelayMs, 4000)
+      backend.reconnectAttempts = 12
+      compare(backend.reconnectDelayMs, 30000)
+    }
+
+    function test_no_reconnect_after_a_refused_engine() {
+      var backend = makeBackend()
+      wait(0)
+      var process = start(backend)
+      reply(process, requests(process)[0], { name: "omamail", apiVersion: 1, protocol: 1, version: "0.0.1", methods: [] }, null)
+      compare(process.running, false)
+      process.exited(0)
+      wait(1300)
+      compare(process.running, false)
+      compare(backend.failure, "Incompatible backend")
+    }
+
+    function test_no_reconnect_once_shutting_down() {
+      var backend = makeBackend()
+      wait(0)
+      var process = makeReady(backend)
+      process.exited(1)
+      compare(process.running, false)
+      backend.shutdown(function() {})
+      wait(1300)
+      compare(process.running, false)
     }
 
     function test_shutdown_timeout_forces_stop_but_waits_for_exit_signal() {

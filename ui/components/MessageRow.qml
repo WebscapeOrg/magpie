@@ -90,7 +90,14 @@ Rectangle {
   }
 
   width: parent ? parent.width : 0
-  implicitHeight: Math.max(body.implicitHeight, actions.visible ? actions.height : 0, avatar.height + avatarTopInset) + MailStyle.space(14) + stackInset + cardGutter
+  readonly property string subjectText: root.overview || String(root.summary.subject || "")
+  readonly property real listTextSize: Math.max(8, MailStyle.preferences.listSize - 3) * 96 / 72
+  // The unread marker paints a little beyond the text; clipping a hovered row must leave it whole.
+  readonly property real markerBleed: MailStyle.space(12)
+  readonly property real actionLaneHeight: Math.max(MailStyle.space(24), Style.font.iconSmall * 2.5 + MailStyle.space(8))
+  // Invariant: the row is the same height with its tools showing or hidden, so moving the pointer
+  // over the list never moves the rows below.
+  implicitHeight: Math.max(body.implicitHeight, actionLaneHeight, avatar.height + avatarTopInset) + MailStyle.space(14) + stackInset + cardGutter
   radius: Style.cornerRadius
   readonly property color rowFill: selected || hasCursor || checked
     ? Style.selectedFillFor(textColor, accentColor)
@@ -289,36 +296,78 @@ Rectangle {
       }
     }
 
-    MarkedText {
-      id: subject
+    Item {
+      id: subjectLane
+      width: parent.width
       visible: !root.writing
-      NumberAnimation on opacity { id: pointFade; running: false; from: 0; to: 1; duration: 350; easing.type: Easing.InOutQuad }
-      marked: root.summary.unread === true
-      markerColor: Qt.rgba(0.73,0.48,0.20,0.144)
-      objectName: "message-subject"
-      width: Math.max(0, parent.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
-      // Invariant: sender-controlled labels must never activate Qt’s rich-text loader.
+      implicitHeight: actions.visible ? subjectAtRest.implicitHeight : subject.implicitHeight
+
+      Item {
+        x: -root.markerBleed
+        width: parent.width + 2 * root.markerBleed
+        height: parent.height
+        clip: actions.visible
+
+        MarkedText {
+          id: subject
+          x: root.markerBleed
+          NumberAnimation on opacity { id: pointFade; running: false; from: 0; to: 1; duration: 350; easing.type: Easing.InOutQuad }
+          marked: root.summary.unread === true
+          markerColor: Qt.rgba(0.73,0.48,0.20,0.144)
+          objectName: "message-subject"
+          width: Math.max(1, subjectLane.width - (actions.visible ? actions.width + MailStyle.space(4) : 0))
+          // Invariant: sender-controlled labels must never activate Qt’s rich-text loader.
+          textFormat: Text.PlainText
+          text: root.subjectText
+          color: root.textColor
+          font.family: root.panelFontFamily
+          font.pixelSize: root.listTextSize
+          font.bold: false
+          elide: Text.ElideRight
+          horizontalAlignment: root.overview ? root.textAlignment : root.subjectAlignment
+          wrapMode: Text.Wrap
+          // Invariant: The Point is shown whole and the row grows to fit it (the engine caps it at
+          // POINT_LIMIT characters); a sender's subject stops at three lines and is shown whole on hover.
+          // While the tools narrow the line, the text keeps the line count it has without them and is cut.
+          maximumLineCount: actions.visible ? Math.max(1, subjectAtRest.lineCount) : subjectAtRest.maximumLineCount
+          Accessible.name: (root.summary.unread === true ? "Unread. " : "") + (root.overview ? "The Point: " + root.overview : text)
+          Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && subject.truncated; text: subject.text; fontFamily: root.panelFontFamily }
+          HoverHandler { id: overviewHover }
+        }
+      }
+    }
+
+    Text {
+      id: subjectAtRest
+      visible: false
+      width: parent.width
       textFormat: Text.PlainText
-      text: root.overview || String(root.summary.subject || "")
-      color: root.textColor
+      text: actions.visible ? root.subjectText : ""
       font.family: root.panelFontFamily
-      font.pixelSize: Math.max(8, MailStyle.preferences.listSize - 3) * 96 / 72
-      font.bold: false
+      font.pixelSize: root.listTextSize
       elide: Text.ElideRight
-      horizontalAlignment: root.overview ? root.textAlignment : root.subjectAlignment
       wrapMode: Text.Wrap
-      // Invariant: The Point is shown whole and the row grows to fit it (the engine caps it at
-      // POINT_LIMIT characters); a sender's subject stops at three lines and is shown whole on hover.
       maximumLineCount: root.overview ? 2147483647 : 3
-      Accessible.name: (root.summary.unread === true ? "Unread. " : "") + (root.overview ? "The Point: " + root.overview : text)
-      Widgets.PanelToolTip { objectName: "overview-tooltip"; maximumWidth: root.width; visible: overviewHover.hovered && subject.truncated; text: subject.text; fontFamily: root.panelFontFamily }
-      HoverHandler { id: overviewHover }
+    }
+
+    Text {
+      id: descriptionAtRest
+      visible: false
+      width: Math.max(0, parent.width - time.width - MailStyle.space(16))
+      textFormat: Text.PlainText
+      text: actions.visible ? String(root.summary.snippet || "") : ""
+      font.family: root.panelFontFamily
+      font.pixelSize: root.listTextSize
+      elide: Text.ElideRight
+      wrapMode: Text.Wrap
+      maximumLineCount: 2
     }
 
     Item {
-      width: Math.max(0, Math.min(subject.width, parent.width - time.width - MailStyle.space(16)))
+      width: Math.max(1, Math.min(subject.width, parent.width - time.width - MailStyle.space(16)))
       visible: !root.writing && !root.overview && String(root.summary.snippet || "") !== ""
-      implicitHeight: visible ? description.implicitHeight : 0
+      implicitHeight: visible ? (actions.visible ? descriptionAtRest.implicitHeight : description.implicitHeight) : 0
+      clip: actions.visible
 
 
       Text {
@@ -331,9 +380,9 @@ Rectangle {
         text: String(root.summary.snippet || "")
         color: root.secondaryTextColor
         font.family: root.panelFontFamily
-        font.pixelSize: Math.max(8, MailStyle.preferences.listSize - 3) * 96 / 72
+        font.pixelSize: root.listTextSize
         elide: Text.ElideRight
-        maximumLineCount: 2
+        maximumLineCount: actions.visible ? Math.max(1, descriptionAtRest.lineCount) : descriptionAtRest.maximumLineCount
         wrapMode: Text.Wrap
         horizontalAlignment: root.textAlignment
       }
@@ -345,7 +394,7 @@ Rectangle {
     objectName: "message-actions"
     anchors.right: parent.right
     anchors.rightMargin: MailStyle.space(6)
-    y: body.y + subject.y + (body.height - subject.y - height) / 2
+    y: body.y + subjectLane.y + (body.height - subjectLane.y - height) / 2
     spacing: Math.max(MailStyle.space(24), Style.font.iconSmall * 2.5 + MailStyle.space(8)) * 0.15
     visible: root.hot || root.selectionMode || root.snoozeOpen
 

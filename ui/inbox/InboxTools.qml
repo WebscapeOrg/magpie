@@ -373,7 +373,11 @@ Item {
     })
   }
   function snooze(rowId, until) {
-    if (!available) { error = "Update the Magpie Mail backend to use Snooze."; return false }
+    if (!available) {
+      error = service && service.backend && service.backend.reconnecting
+        ? root.reconnectingNotice : "Update the Magpie Mail backend to use Snooze."
+      return false
+    }
     var host = service.hostForId(rowId)
     if (!host || host.providerId !== "gmail") { error = "Snooze needs a Gmail mailbox."; return false }
     notice = "Snoozing"; error = ""
@@ -405,7 +409,11 @@ Item {
       }
     })
   }
-  onAvailableChanged: if (available) { refresh(); tick() }
+  readonly property string reconnectingNotice: "Mail is reconnecting. Try Snooze again in a moment."
+  onAvailableChanged: if (available) {
+    if (error === reconnectingNotice) error = ""
+    refresh(); tick()
+  }
   Connections {
     target: root.service
     function onAccountSummariesChanged() { root.retainAccounts() }

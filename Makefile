@@ -65,6 +65,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/bar/BarPreview.qml
 QML_FILES += ui/tests/qml/tst_account_message_identity.qml
 QML_FILES += ui/tests/qml/tst_picture_settings.qml
+QML_FILES += ui/tests/qml/tst_message_link_arguments.qml
 QML_FILES += ui/tests/qml/tst_settings_pictures.qml
 QML_FILES += ui/tests/qml/tst_spending_settings.qml
 QML_FILES += ui/tests/qml/tst_compose_attachment_recovery.qml
@@ -232,6 +233,7 @@ test-shell-independent:
 	python3 tests/test_qml_text_format.py
 	python3 tests/test_qml_text_guard.py
 	python3 tests/test_clipboard.py
+	python3 tests/test_open_link_window.py
 	bash tests/test_source.sh
 	bash tests/test_service_source.sh
 	bash tests/test_config_store.sh

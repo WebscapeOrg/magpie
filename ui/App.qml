@@ -1387,7 +1387,7 @@ Item {
         objectName: "app-title-bar"
         readonly property bool searchVisible: !root.showPage && !root.composing
         readonly property bool searchStacked: searchVisible
-          && width - headerLeft.width - headerRight.width - MailStyle.space(52) < MailStyle.space(220)
+          && width - headerLeft.width - headerRight.width - MailStyle.space(52) < MailStyle.space(115)
         readonly property real topRowHeight: Math.max(MailStyle.space(48),headerLeft.height + MailStyle.space(12),headerRight.height + MailStyle.space(12))
         anchors.top: parent.top
         anchors.left: parent.left

@@ -696,6 +696,58 @@ Item {
       compare(mailService.count("calendar"), before + 1)
     }
 
+    function test_search_stays_between_the_buttons_at_one_third_screen_width() {
+      var host = null
+      for (var index = 0; index < app.data.length; index++) {
+        var candidate = app.data[index]
+        if (candidate.title === "✉️ Magpie Mail" && candidate.minimumSize !== undefined) host = candidate
+      }
+      verify(host, "the real Magpie window is in the fixture")
+      var oldWidth = host.width
+      var oldHeight = host.height
+      var oldMinimumWidth = host.minimumSize.width
+      var oldMinimumHeight = host.minimumSize.height
+      var oldBody = Style.font.body
+      try {
+        var header = named(app, "app-title-bar")
+        var search = named(app, "search-bar")
+        var folder = named(app, "folder-button")
+        var menu = named(app, "app-menu-button")
+        Style.font.body = 12
+        Style.spacingScale = 2
+        Style.spacingScale = 1
+        waitForRendering(app)
+        host.width = 640
+        host.height = 800
+        waitForRendering(app)
+        compare(header.searchStacked, false, "search stays on the top row at 640 points")
+        var searchRight = search.mapToItem(header, search.width, 0).x
+        var folderLeft = folder.mapToItem(header, 0, 0).x
+        verify(searchRight <= folderLeft, "the inline field does not touch the folder button")
+        var searchLeft = search.mapToItem(header, 0, 0).x
+        var menuRight = menu.mapToItem(header, menu.width, 0).x
+        verify(searchLeft >= menuRight, "the inline field does not touch the menu button")
+        host.minimumSize = Qt.size(240, 480)
+        host.width = 300
+        waitForRendering(app)
+        compare(host.width, 300, "the fixture resized the real window")
+        verify(header.width > 0 && header.width <= 300, "the header follows the real window")
+        compare(header.searchStacked, true, "search moves below only when the controls leave too little room")
+      } finally {
+        host.minimumSize = Qt.binding(function() { return Qt.size(Style.space(640), Style.space(480)) })
+        Style.spacingScale = 2
+        compare(host.minimumSize.width, oldMinimumWidth * 2, "the minimum-width binding follows the shell scale")
+        compare(host.minimumSize.height, oldMinimumHeight * 2, "the minimum-height binding follows the shell scale")
+        Style.spacingScale = 1
+        compare(host.minimumSize.width, oldMinimumWidth, "the original minimum width is restored")
+        compare(host.minimumSize.height, oldMinimumHeight, "the original minimum height is restored")
+        host.width = oldWidth
+        host.height = oldHeight
+        Style.font.body = oldBody
+        waitForRendering(app)
+      }
+    }
+
     function test_calendar_handoff_keeps_the_mail_header() {
       var compose = named(app, "compose-button")
       verify(compose && compose.visible)

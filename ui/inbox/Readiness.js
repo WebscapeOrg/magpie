@@ -20,9 +20,10 @@ function problem(value) {
 // holds every Point. Magpie asks again quietly, and the Point fades in if it works.
 function status(value, at, held) {
   if (ready(value, at)) return "ready"
-  if (held || failedOnItsOwn(value)) return "plain"
+  if (held || previousPoint(value) || failedOnItsOwn(value)) return "plain"
   return value && value.state === "failed" && problem(value) === "" ? "plain" : "writing"
 }
+function previousPoint(value) { return !!value && (value.previousPoint === true || value.state === "ready" || value.state === "stale") }
 function failedOnItsOwn(value) { return !!value && typeof value.attempts === "number" && value.attempts >= 1 }
 // "25 minutes", "2 hours", "1 hour 5 minutes": how long Claude has not answered.
 function waited(ms) {

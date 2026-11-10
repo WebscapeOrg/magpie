@@ -204,6 +204,15 @@ fn shown_labels(labels: Value) -> Value {
     }
 }
 
+pub(crate) const DOWNLOAD_MS: &str = "_magpieDownloadMs";
+
+fn downloaded(mut resource: Value, started: std::time::Instant) -> Value {
+    if let Some(fields) = resource.as_object_mut() {
+        fields.insert(DOWNLOAD_MS.into(), json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)));
+    }
+    resource
+}
+
 impl Session {
     pub(crate) async fn replica_call(
         &self,
@@ -211,6 +220,7 @@ impl Session {
         operation: &str,
         params: &Value,
     ) -> Result<Value, &'static str> {
+        let started = std::time::Instant::now();
         self.access_token(account).await?;
         let budget = self.account(account)?.budget.clone();
         let mut query = Vec::new();
@@ -265,7 +275,7 @@ impl Session {
             "labels" => vec!["labels"],
             _ => return Err("invalid_params"),
         };
-        self.get_with(
+        let answer = self.get_with(
             account,
             || refresh_grant(account.to_owned()),
             |token| {
@@ -275,7 +285,9 @@ impl Session {
                 async move { gmail_http::get_replica(path, query, &token, &budget).await }
             },
         )
-        .await
+        .await?;
+        let answer = resources::normalize("gmail.read", answer);
+        Ok(if operation == "content" { downloaded(answer, started) } else { answer })
     }
     /// Internal, read-only thread context. Never accepts a caller-selected URL.
     pub(crate) async fn thread_resources(
@@ -620,6 +632,7 @@ impl Session {
             return Err("gmail_account_unknown");
         }
         let budget = Arc::clone(&self.account(&account)?.budget);
+        let started = std::time::Instant::now();
         let answer = self
             .get_with(
                 &account,
@@ -633,7 +646,9 @@ impl Session {
             )
             .await?;
         if method != "gmail.list" {
-            return Ok(resources::normalize(method, answer));
+            let answer = resources::normalize(method, answer);
+            let full = method == "gmail.read" && !metadata && params["full"] != false;
+            return Ok(if full { downloaded(answer, started) } else { answer });
         }
         let messages = match answer.get("messages") {
             None => Vec::new(),

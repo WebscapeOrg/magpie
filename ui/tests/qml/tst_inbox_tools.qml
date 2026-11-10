@@ -38,7 +38,9 @@ Item {
       compare(tools.stack.currentId,"two-message","account plus message, not a bare Gmail id")
       compare(service.rawMessages.length,2,"collapsing never removes scheduler candidates")
       tools.overviews=({"two@example.org\nshared-id":{state:"ready",version:2,text:"Your books are ready.",expiresAt:0,refresh:true}})
-      compare(tools.stack.currentId,"one-message");compare(tools.stack.messages.length,2)
+      compare(tools.stack.currentId,"two-message","ready card stays briefly while it lifts");
+      tryCompare(tools,"departingId","two-message");
+      tryVerify(function(){return tools.stack.currentId === "one-message"});compare(tools.stack.messages.length,2)
       tools.selecting=true
       compare(tools.stack.currentId,"");compare(tools.stack.messages.length,2)
       tools.selecting=false;tools.paused=true

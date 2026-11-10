@@ -11,6 +11,7 @@ Item {
   QtObject {
     id: fakeService
 
+    property string activeAccountId: "personal"
     property bool canArchive: true
     property bool canReportSpam: true
     property bool canStar: true
@@ -57,10 +58,9 @@ Item {
     name: "MessageMenuInbox"
     when: windowShown
 
-    // Invariant: these unnamed rows use the same array positions as keyboard navigation.
     function continueRow() { return menu.menuRows[0] }
-    function unarchiveRow() { return menu.menuRows[5] }
-    function archiveRow() { return menu.menuRows[4] }
+    function unarchiveRow() { return findChild(menu,"message-menu-unarchive") }
+    function archiveRow() { return findChild(menu,"message-menu-archive") }
 
     // Invariant: open the popup before inspecting its lazily constructed rows.
     function show(summary) {
@@ -80,6 +80,19 @@ Item {
       fakeService.canReportSpam = true
     }
 
+    function test_account_turnover_closes_and_invalidates_menu() {
+      show(archivedMessage())
+      tryCompare(menu,"opened",true)
+      fakeService.activeAccountId="work"
+      tryCompare(menu,"opened",false)
+      fakeService.activeAccountId="personal"
+      menu.run("trash")
+      menu.compose("reply")
+      compare(actionSpy.count,0);compare(composeSpy.count,0)
+      show(archivedMessage())
+      menu.run("unarchive")
+      compare(actionSpy.count,1,"a freshly opened menu remains usable")
+    }
     function test_down_arrow_follows_visible_menu_order_data() {
       return [{tag: "application", application: true}, {tag: "message", application: false}]
     }

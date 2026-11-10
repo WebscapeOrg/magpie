@@ -25,6 +25,8 @@ struct Mailbox {
     unlisted: BTreeSet<String>,
     /// A labels answer that lists nothing, not even Gmail's own labels.
     empty_labels: bool,
+    /// Labels readings fail while message reads still work.
+    labels_down: bool,
     page_size: usize,
     accounts: Option<Vec<String>>,
     writes: Vec<String>,
@@ -146,7 +148,7 @@ impl Mail for Fake {
     async fn labels(&self, _: &str) -> Result<Value> {
         let mut mailbox = self.0.lock().unwrap();
         mailbox.calls.push("labels".into());
-        if mailbox.offline {
+        if mailbox.offline || mailbox.labels_down {
             return Err("gmail_http_failed");
         }
         if mailbox.empty_labels {
@@ -683,6 +685,234 @@ async fn a_snooze_action_must_be_a_plain_id() {
         Err("invalid_params")
     );
     assert!(row("a").is_none());
+}
+
+const BUNDLE: &str = "bundle-1";
+
+fn labels_down(fake: &Fake, down: bool) {
+    fake.with(|mailbox| mailbox.labels_down = down);
+}
+
+/// A tick that reaches every waiting snooze, as the next 30-second tick would.
+async fn next_tick(fake: &Fake) {
+    forget_discovery();
+    call("inbox.tick", &json!({}), fake).await.unwrap();
+}
+
+async fn fails_for_now(fake: &Fake, id: &str, until: i64) {
+    assert_eq!(snooze_in(fake, id, until, BUNDLE).await, Err("snooze_pending_retry"));
+}
+
+async fn lands(fake: &Fake, id: &str, until: i64) {
+    assert_eq!(snooze_in(fake, id, until, BUNDLE).await.unwrap()["ok"], true);
+}
+
+fn two_mails_in_one_conversation() -> (Fake, i64) {
+    (Fake::new(&[("a", "t7", &["INBOX"]), ("b", "t7", &["INBOX"])]), now() + 24 * HOUR)
+}
+
+fn assert_both_returned(fake: &Fake) {
+    assert_in_inbox(fake, "a");
+    assert_in_inbox(fake, "b");
+}
+
+#[tokio::test]
+async fn undo_returns_a_conversation_whose_first_entry_a_tick_finished_after_labels_failed() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (fake, until) = two_mails_in_one_conversation();
+    labels_down(&fake, true);
+    fails_for_now(&fake, "a", until).await;
+    labels_down(&fake, false);
+    next_tick(&fake).await;
+    assert_eq!(row("a").unwrap()["state"], "sleeping");
+    lands(&fake, "b", until).await;
+    undo(&fake, "b").await.unwrap();
+    assert_both_returned(&fake);
+}
+
+#[tokio::test]
+async fn undo_returns_a_conversation_whose_offline_first_entry_a_tick_finished() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (fake, until) = two_mails_in_one_conversation();
+    fake.set(true, false);
+    fails_for_now(&fake, "a", until).await;
+    fake.set(false, false);
+    next_tick(&fake).await;
+    assert_eq!(row("a").unwrap()["state"], "sleeping");
+    lands(&fake, "b", until).await;
+    undo(&fake, "b").await.unwrap();
+    assert_both_returned(&fake);
+}
+
+#[tokio::test]
+async fn a_bundles_offline_entry_finished_by_a_tick_returns_at_its_time() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (fake, until) = two_mails_in_one_conversation();
+    fake.set(true, false);
+    fails_for_now(&fake, "a", until).await;
+    fake.set(false, false);
+    next_tick(&fake).await;
+    lands(&fake, "b", until).await;
+    edit("b", "until", json!(now() - 1));
+    next_tick(&fake).await;
+    assert_both_returned(&fake);
+    assert!(row("a").is_none() && row("b").is_none());
+}
+
+#[tokio::test]
+async fn undo_cancels_a_first_entry_still_offline_so_the_mail_stays_returned() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (fake, until) = two_mails_in_one_conversation();
+    fake.set(true, false);
+    fails_for_now(&fake, "a", until).await;
+    fake.set(false, false);
+    lands(&fake, "b", until).await;
+    undo(&fake, "b").await.unwrap();
+    next_tick(&fake).await;
+    assert_both_returned(&fake);
+    assert!(row("a").is_none());
+}
+
+#[tokio::test]
+async fn undo_cancels_a_second_entry_still_offline_so_the_mail_stays_returned() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (fake, until) = two_mails_in_one_conversation();
+    lands(&fake, "a", until).await;
+    fake.set(true, false);
+    fails_for_now(&fake, "b", until).await;
+    fake.set(false, false);
+    undo(&fake, "a").await.unwrap();
+    next_tick(&fake).await;
+    assert_both_returned(&fake);
+    assert!(row("b").is_none());
+}
+
+#[tokio::test]
+async fn undo_after_a_tick_finished_an_offline_first_entry_returns_the_conversation() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (fake, until) = two_mails_in_one_conversation();
+    fake.set(true, false);
+    fails_for_now(&fake, "a", until).await;
+    fake.set(false, false);
+    lands(&fake, "b", until).await;
+    next_tick(&fake).await;
+    undo(&fake, "b").await.unwrap();
+    assert_both_returned(&fake);
+}
+
+#[tokio::test]
+async fn undo_after_a_tick_finished_an_offline_second_entry_returns_the_conversation() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (fake, until) = two_mails_in_one_conversation();
+    lands(&fake, "a", until).await;
+    fake.set(true, false);
+    fails_for_now(&fake, "b", until).await;
+    fake.set(false, false);
+    next_tick(&fake).await;
+    undo(&fake, "a").await.unwrap();
+    assert_both_returned(&fake);
+}
+
+#[tokio::test]
+async fn undo_returns_the_conversation_when_labels_failed_on_a_second_entry() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let (fake, until) = two_mails_in_one_conversation();
+    lands(&fake, "a", until).await;
+    labels_down(&fake, true);
+    fails_for_now(&fake, "b", until).await;
+    labels_down(&fake, false);
+    undo(&fake, "a").await.unwrap();
+    assert_both_returned(&fake);
+}
+
+#[tokio::test]
+async fn undo_cancels_only_the_entries_of_its_own_bundle_that_never_reached_gmail() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"]), ("c", "t8", &["INBOX"]), ("d", "t9", &["INBOX"]), ("e", "t10", &["INBOX"]), ("f", "t11", &["INBOX"])]);
+    let until = now() + 24 * HOUR;
+    labels_down(&fake, true);
+    fails_for_now(&fake, "c", until).await;
+    fails_for_now(&fake, "d", until).await;
+    assert_eq!(snooze_in(&fake, "e", until, "another-bundle").await, Err("snooze_pending_retry"));
+    labels_down(&fake, false);
+    edit("d", "state", json!("sleeping"));
+    fake.with(|mailbox| mailbox.refuse_modify = true);
+    fails_for_now(&fake, "f", until).await;
+    fake.with(|mailbox| mailbox.refuse_modify = false);
+    lands(&fake, "a", until).await;
+    undo(&fake, "a").await.unwrap();
+    assert!(row("c").is_none(), "never reached Gmail, and Undo covers the whole bundle");
+    assert!(row("d").is_some(), "a snooze that landed stays");
+    assert!(row("e").is_some(), "another bundle's snooze stays");
+    assert!(row("f").is_some(), "Gmail may have made this change, so it is not cancelled");
+}
+
+#[tokio::test]
+async fn returning_one_mail_from_snoozed_does_not_cancel_the_rest_of_its_bundle() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &["INBOX"]), ("c", "t8", &["INBOX"])]);
+    let until = now() + 24 * HOUR;
+    lands(&fake, "a", until).await;
+    fake.set(true, false);
+    fails_for_now(&fake, "c", until).await;
+    fake.set(false, false);
+    call("inbox.wake", &json!({"accountId":ACCOUNT,"id":"a"}), &fake).await.unwrap();
+    assert!(row("c").is_some());
+}
+
+#[tokio::test]
+async fn a_bundle_id_in_another_account_is_not_this_bundle() {
+    if crate::mail::tests::isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let fake = Fake::new(&[("a", "t7", &[]), ("b", "t7", &["INBOX"])]);
+    let until = now() + 24 * HOUR;
+    let elsewhere = |key: &str, row: Value| {
+        change(|rows| {
+            rows.insert(key.to_owned(), row);
+            Ok(())
+        })
+        .unwrap();
+    };
+    let other = "someone-else@example.org";
+    elsewhere("recorded", json!({"accountId":other,"id":"x","ids":["x"],"threadId":"t7","state":"sleeping","action":BUNDLE,"before":{"a":"inbox"}}));
+    elsewhere("waiting", json!({"accountId":other,"id":"y","ids":[],"threadId":"","state":"pending","action":BUNDLE}));
+    lands(&fake, "b", until).await;
+    undo(&fake, "b").await.unwrap();
+    assert!(!fake.labels_of("a").contains(&"INBOX".to_owned()), "another account's record never speaks for this mail");
+    let saved = rows().unwrap();
+    assert!(saved.contains_key("recorded") && saved.contains_key("waiting"), "another account's snoozes stay");
 }
 
 #[tokio::test]

@@ -596,7 +596,7 @@ async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
             let over = seen(&rows()?, &key, &account, None);
             record(
                 &key,
-                json!({"generation":random()?,"accountId":account,"id":id,"ids":[],"until":until,"state":"pending","subject":shown,"threadId":"","label":name,"at":at,"over":over}),
+                json!({"generation":random()?,"accountId":account,"id":id,"ids":[],"until":until,"state":"pending","subject":shown,"threadId":"","label":name,"at":at,"over":over,"action":action}),
             )?;
             return Err("snooze_pending_retry");
         }
@@ -606,7 +606,7 @@ async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
     let saved = rows()?;
     // Invariant: a snooze this one replaces has already taken its mail out of the Inbox, and Undo
     // must still return that mail.
-    let replaced: Vec<&Value> = saved.values().filter(|row| row["accountId"] == *account && row["threadId"] == *thread.id).collect();
+    let replaced = in_conversation(&saved, &account, &thread.id);
     let over = seen(&saved, &key, &account, Some(&thread.id));
     let generation = advance(&account, &thread.id)?;
     record(
@@ -614,10 +614,15 @@ async fn snooze(gmail: &impl Mail, p: &Value) -> Result<Value> {
         json!({"generation":generation,"accountId":account,"id":id,"ids":ids,"until":until,"state":"pending","subject":thread.subject,"threadId":thread.id,"label":name,"at":at,"over":over,"action":action}),
     )?;
     let known = listing(gmail.labels(&account).await);
-    // Invariant: sleeping mail can only be recognised from the labels, so without them nothing is
-    // saved for Undo and the snooze cannot be undone.
-    if let Ok(known) = &known {
-        note_before(&key, before_this(&thread, known, action, &replaced))?;
+    // Invariant: sleeping mail can only be recognised from the labels, so without them only what
+    // an earlier snooze of this action saved for Undo is kept.
+    match &known {
+        Ok(known) => note_before(&key, before_this(&thread, known, action, &replaced))?,
+        Err(_) => {
+            if let Some(saved) = carried(action, &replaced) {
+                note_before(&key, Value::Object(saved.clone()))?;
+            }
+        }
     }
     let landed = match known {
         Ok(known) => settle(gmail, &account, &thread, &ids, &name, &known).await,
@@ -659,11 +664,32 @@ fn places(thread: &Thread, known: &[Slot]) -> Value {
 /// summary is not loaded, so Undo goes back to before the first snooze of that action.
 fn before_this(thread: &Thread, known: &[Slot], action: Option<&str>, replaced: &[&Value]) -> Value {
     let mut before = places(thread, known);
-    let earlier = action.and_then(|action| replaced.iter().find(|row| row["action"] == action));
-    if let (Some(fields), Some(saved)) = (before.as_object_mut(), earlier.and_then(|row| row["before"].as_object())) {
+    if let (Some(fields), Some(saved)) = (before.as_object_mut(), carried(action, replaced)) {
         fields.extend(saved.clone());
     }
     before
+}
+
+/// What an earlier snooze of this action saved for Undo.
+fn carried<'a>(action: Option<&str>, replaced: &[&'a Value]) -> Option<&'a Map<String, Value>> {
+    let action = action?;
+    replaced.iter().find(|row| row["action"] == action && row["before"].is_object())?["before"].as_object()
+}
+
+/// This account's snoozes of a conversation.
+fn in_conversation<'a>(saved: &'a Map<String, Value>, account: &str, thread: &str) -> Vec<&'a Value> {
+    saved.values().filter(|row| row["accountId"] == account && row["threadId"] == thread).collect()
+}
+
+/// Cancels the snoozes of a bundle that never reached Gmail, so mail Undo returned is not snoozed later.
+/// Invariant: `before` is saved before a snooze first changes Gmail, so a pending row without it has not.
+fn cancel_unapplied(account: &str, action: &str) -> Result<()> {
+    change(|rows| {
+        rows.retain(|_, saved| {
+            !(saved["accountId"] == account && saved["action"] == action && saved["state"] == "pending" && !saved["before"].is_object())
+        });
+        Ok(())
+    })
 }
 
 /// Forgets what discovery last saw of a label.
@@ -719,6 +745,9 @@ async fn retry(gmail: &impl Mail, account: &str, key: &str, row: &Value, known: 
         None => mid == id || at.zip(received(message)).is_none_or(|(at, got)| got <= at),
     };
     let on_thread: Vec<&Slot> = known.iter().filter(|slot| thread.carries(&slot.id)).collect();
+    let saved = rows()?;
+    let replaced = in_conversation(&saved, account, &thread.id);
+    let action = row["action"].as_str();
     let mut fresh = row.clone();
     settled(&mut fresh);
     fresh["threadId"] = json!(thread.id);
@@ -731,6 +760,11 @@ async fn retry(gmail: &impl Mail, account: &str, key: &str, row: &Value, known: 
     {
         // The earlier change reached Gmail; only its answer was lost.
         fresh["ids"] = json!(thread.ids(|message, mid| has(message, &own.id) || wanted(message, mid)).unwrap_or_default());
+        // Invariant: mail found already under this snooze's label says nothing about where it was,
+        // so only what an earlier snooze of this action saved can be put back.
+        if let Some(earlier) = carried(action, &replaced).filter(|_| !fresh["before"].is_object()) {
+            fresh["before"] = Value::Object(earlier.clone());
+        }
         record(key, fresh)?;
         return confirm(key, &name, &own.id);
     }
@@ -759,6 +793,9 @@ async fn retry(gmail: &impl Mail, account: &str, key: &str, row: &Value, known: 
     };
     fresh["generation"] = json!(advance(account, &thread.id)?);
     fresh["ids"] = json!(ids);
+    if !fresh["before"].is_object() {
+        fresh["before"] = before_this(&thread, known, action, &replaced);
+    }
     record(key, fresh)?;
     match settle(gmail, account, &thread, &ids, &name, known).await {
         Ok(label) => confirm(key, &name, &label),
@@ -1024,6 +1061,9 @@ async fn wake_chosen(gmail: &impl Mail, p: &Value) -> Result<Value> {
         listing(gmail.labels(&account).await)?
     };
     wake(gmail, &account, &row, true, restore, &known).await?;
+    if let Some(action) = row["action"].as_str().filter(|_| restore) {
+        cancel_unapplied(&account, action)?;
+    }
     forget(&key)?;
     Ok(json!({"ok":true}))
 }

@@ -208,10 +208,9 @@ Item {
     || (currentView === "reader" && !singleContent)
   readonly property bool selectionActive: checkedIds.length > 0 && listOnScreen
   Binding {
-    target: root.service && root.service.inboxTools && root.service.inboxTools.selecting !== undefined ? root.service.inboxTools : null
+    target: root.service && root.service.inboxTools && root.service.inboxTools.hasOwnProperty("selecting") ? root.service.inboxTools : null
     property: "selecting"
     value: root.checkedIds.length > 0 || focusScope.ctrlHeld
-    when: target !== null
   }
 
 

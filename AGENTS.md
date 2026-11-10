@@ -1,6 +1,6 @@
-# Magpie
+# Magpie Mail
 
-Magpie is Dave's mail app. On Linux it is an Omarchy shell plugin (QML under `ui/`) over a Rust engine, the
+Magpie Mail (Magpie for short, and in every identifier) is Dave's mail app. On Linux it is an Omarchy shell plugin (QML under `ui/`) over a Rust engine, the
 `omamail` binary built from `src/`; the same engine, built from `mobile/`, runs inside Magpie for iPhone and iPad
 (`magpie-ios`). Magpie began as a fork of [Omamail](https://github.com/huacnlee/omamail), and omamail's rules
 for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) first.**

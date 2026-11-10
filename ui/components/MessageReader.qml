@@ -71,7 +71,7 @@ Item {
     // Invariant: a link Magpie will not open says so, in words that never name it.
     if (opened === "") {
       if (typeof root.service.note === "function")
-        root.service.note("Magpie did not open the link, because it is not a public web address.")
+        root.service.note("Magpie Mail did not open the link, because it is not a public web address.")
       return
     }
     if (typeof root.service.openMessageLink !== "function") return

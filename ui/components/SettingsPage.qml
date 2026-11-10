@@ -462,7 +462,7 @@ Column {
 
       Text {
         width: parent.width
-        text: "o.bind(\"SUPER + SHIFT + G\", \"Magpie\", "
+        text: "o.bind(\"SUPER + SHIFT + G\", \"Magpie Mail\", "
           + "\"omarchy shell shell toggle omamail '\{}'\")"
         color: root.dimColor
         font.family: root.panelFontFamily
@@ -522,8 +522,8 @@ Column {
       Text {
         width: parent.width
         text: mailClientRow.isDefault
-          ? "Magpie is the default mail client"
-          : "Set up Magpie as the default mail client"
+          ? "Magpie Mail is the default mail client"
+          : "Set up Magpie Mail as the default mail client"
         color: root.textColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.bodySmall
@@ -564,7 +564,7 @@ Column {
       text: mailClientRow.isDefault ? "Undo" : "Set as default"
       tooltipText: mailClientRow.isDefault
         ? "Give SUPER+SHIFT+E back to Omarchy's own email binding"
-        : "Make Magpie open mailto: links and SUPER+SHIFT+E"
+        : "Make Magpie Mail open mailto: links and SUPER+SHIFT+E"
       foreground: root.textColor
       fontFamily: root.panelFontFamily
       onClicked: root.service.setDefaultMailClient(!mailClientRow.isDefault)
@@ -998,7 +998,7 @@ Column {
 
       Text {
         width: parent.width
-        text: "Magpie waits before delivery. Press alt+z or select Undo to cancel. Set 0 to send now."
+        text: "Magpie Mail waits before delivery. Press alt+z or select Undo to cancel. Set 0 to send now."
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.caption
@@ -1255,7 +1255,7 @@ Column {
     Text {
       width: parent.width
       textFormat: Text.PlainText
-      text: "What this mailbox is called in Magpie — in the switcher, in this "
+      text: "What this mailbox is called in Magpie Mail — in the switcher, in this "
         + "list, and beside every message in a combined view. Leave it empty "
         + "to use the address. It is not sent to anyone."
       color: root.dimColor

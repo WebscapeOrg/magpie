@@ -30,7 +30,7 @@ Column {
       if (!failure && result) { root.periodStarts = starts; root.reply = result; root.error = ""; return }
       // An engine without the page keeps the section hidden.
       if (failure && (failure.code === -32012 || failure.code === -32601)) { root.reply = null; root.error = ""; return }
-      if (root.reply === null) root.error = "Magpie could not read what it has spent. It tries again in a minute."
+      if (root.reply === null) root.error = "Magpie Mail could not read what it has spent. It tries again in a minute."
     })
   }
   onReadyChanged: load()

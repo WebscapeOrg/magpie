@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "magpie",
-  "name": "🐦 Magpie",
+  "name": "✉️ Magpie Mail",
   "version": "1.0.0",
   "author": "dreinecke (fork of huacnlee/omamail)",
   "license": "MIT",
@@ -19,7 +19,7 @@
     "panel": "ui/App.qml"
   },
   "barWidget": {
-    "displayName": "🐦 Magpie",
+    "displayName": "✉️ Magpie Mail",
     "description": "Unread Gmail count in the bar; the inbox opens in its own window.",
     "category": "Communication",
     "aliases": [
@@ -53,7 +53,7 @@
         "type": "boolean",
         "label": "Show the icon in the bar",
         "defaultValue": true,
-        "description": "Turn this off to run Magpie with no envelope in the bar. Mail is still checked and still notifies; only the icon goes. With it off the window opens from a keybinding or a terminal and nowhere else, so bind a key first: o.bind(\"SUPER + SHIFT + G\", \"Magpie\", \"omarchy shell shell toggle magpie '{}'\")"
+        "description": "Turn this off to run Magpie Mail with no envelope in the bar. Mail is still checked and still notifies; only the icon goes. With it off the window opens from a keybinding or a terminal and nowhere else, so bind a key first: o.bind(\"SUPER + SHIFT + G\", \"Magpie Mail\", \"omarchy shell shell toggle magpie '{}'\")"
       },
       {
         "key": "refreshIntervalSec",

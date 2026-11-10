@@ -27,7 +27,7 @@ Item {
   readonly property bool showLegend: height > MailStyle.space(300) && width > MailStyle.space(320)
 
   readonly property string versionText: !!service && service.version
-    ? String(service.pluginName || "Magpie") + " " + String(service.version)
+    ? String(service.pluginName || "Magpie Mail") + " " + String(service.version)
     : ""
   // Invariant: available space below the centered column controls version visibility; a fixed
   // threshold overlaps the variable-height legend.
@@ -55,8 +55,6 @@ Item {
       anchors.horizontalCenter: parent.horizontalCenter
       width: MailStyle.space(44)
       height: width
-      foreground: Qt.alpha(root.dimColor, 0.5)
-      accent: root.accentColor
     }
 
     Item { width: 1; height: MailStyle.space(4) }

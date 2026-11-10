@@ -2370,7 +2370,7 @@
       "method": "inbox.interview",
       "params": {},
       "equals": {
-        "question": "What name should Magpie use, and where do you live? You can include your birthday and nationality if they matter to your mail.",
+        "question": "What name should Magpie Mail use, and where do you live? You can include your birthday and nationality if they matter to your mail.",
         "draft": "",
         "completed": 0,
         "total": 6,

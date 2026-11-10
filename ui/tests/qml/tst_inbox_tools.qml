@@ -133,7 +133,7 @@ Item {
       tools.overviews={"one@example.org\nshared-id":{state:"failed",version:2,problem:"ai_unreachable",updated:Date.now()}}
       var now=Date.now();tools.overviewClock=now
       tools.unansweredSince=now-14*60000;compare(tools.hold,"","a short silence shows as Points being written");compare(tools.writingCount,2)
-      tools.unansweredSince=now-25*60000-1000;compare(tools.hold,"unanswered");compare(tools.holdText,"Claude has not answered for 25 minutes. Magpie keeps trying.")
+      tools.unansweredSince=now-25*60000-1000;compare(tools.hold,"unanswered");compare(tools.holdText,"Claude has not answered for 25 minutes. Magpie Mail keeps trying.")
       compare(tools.status(service.rawMessages[0]),"plain")
       tools.overviews={"one@example.org\nshared-id":{state:"ready",version:2,text:"Prepared",expiresAt:0},"two@example.org\nshared-id":{state:"ready",version:2,text:"Prepared",expiresAt:0}}
       compare(tools.hold,"","nothing unfinished, nothing to report")

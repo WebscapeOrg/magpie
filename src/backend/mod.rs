@@ -92,7 +92,7 @@ impl Engine {
             crate::providers::gmail::DOWNLOAD_RUN:resource[crate::providers::gmail::DOWNLOAD_RUN],
         })).collect();
         if let Err(error) = self.local_mail.record_downloads(account, records).await {
-            eprintln!("Magpie could not save download activity: {error}");
+            eprintln!("Magpie Mail could not save download activity: {error}");
         }
     }
 

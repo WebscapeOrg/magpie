@@ -183,12 +183,10 @@ Item {
           anchors.verticalCenter: parent.verticalCenter
           width: MailStyle.space(26)
           height: width
-          foreground: root.textColor
-          accent: root.textColor
         }
         Text {
           anchors.verticalCenter: parent.verticalCenter
-          text: root.helpPage ? "Help" : "Magpie"
+          text: root.helpPage ? "Help" : "Magpie Mail"
           textFormat: Text.PlainText
           color: root.textColor
           font.family: root.panelFontFamily

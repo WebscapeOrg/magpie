@@ -35,7 +35,7 @@ assert.ok(url.indexOf("redirect_uri=http%3A%2F%2F127.0.0.1%3A9481%2Foauth2callba
 assert.ok(url.indexOf("scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.modify%20") > 0)
 // Magpie Calendar owns calendars (e7b6832); Magpie only reads them as context for The Point
 // (C-050, 4 November 2026), so the one calendar scope is read-only.
-assert.strictEqual(JSON.stringify(oauth.SCOPES.filter(scope => scope.includes("/calendar"))), JSON.stringify(["https://www.googleapis.com/auth/calendar.readonly"]), "Magpie never asks to change a calendar")
+assert.strictEqual(JSON.stringify(oauth.SCOPES.filter(scope => scope.includes("/calendar"))), JSON.stringify(["https://www.googleapis.com/auth/calendar.readonly"]), "Magpie Mail never asks to change a calendar")
 assert.ok(url.indexOf("login_hint") < 0, "an absent hint is omitted, not sent empty")
 
 const hinted = oauth.authorizationUrl({

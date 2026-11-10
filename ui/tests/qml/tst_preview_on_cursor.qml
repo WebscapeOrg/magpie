@@ -144,7 +144,7 @@ Item {
 
     // Invariant: the App window is identified by its title, not unstable child ordering.
     function appWindow() {
-      return findMatching(app, function(item) { return item.title === "🐦 Magpie" })
+      return findMatching(app, function(item) { return item.title === "✉️ Magpie Mail" })
     }
 
     // Invariant: the reader has no objectName; identify its public forceRichAnyway property.

@@ -164,7 +164,7 @@ Item {
 
     // Invariant: size the real App window; the test root is not its layout viewport.
     function appWindow() {
-      return findMatching(app, function(item) { return item.title === "🐦 Magpie" })
+      return findMatching(app, function(item) { return item.title === "✉️ Magpie Mail" })
     }
 
     function findMatching(item, accept) {

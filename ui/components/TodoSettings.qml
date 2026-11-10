@@ -27,7 +27,7 @@ Column {
   function problem(code) {
     if (code === "todos_link_invalid")
       return "That is not Atlas's link for Magpie. In Atlas, open Settings → Connections → Magpie and copy the link again."
-    return "Magpie could not reach Atlas just now. Try again in a few minutes."
+    return "Magpie Mail could not reach Atlas just now. Try again in a few minutes."
   }
   function load() {
     if (!ready) return
@@ -64,7 +64,7 @@ Column {
       return "Read for The Point: " + Number(connection.open || 0) + " open, " + Number(connection.done || 0) + " done in the last two weeks."
     if (state === "unauthorized")
       return "Atlas no longer accepts this connection. Connect Magpie again in Atlas and paste the new link."
-    if (state === "unavailable") return "Could not be read just now. Magpie tries again in a few minutes."
+    if (state === "unavailable") return "Could not be read just now. Magpie Mail tries again in a few minutes."
     return "Checking"
   }
   onReadyChanged: load()
@@ -82,7 +82,7 @@ Column {
     objectName: "settings-todos-caption"
     width: parent.width
     textFormat: Text.PlainText
-    text: "The Point reads your open todos in Atlas, and those done in the last two weeks, so it knows what you have planned and handled. Magpie never changes them, and they go to Claude with the mail it reads."
+    text: "The Point reads your open todos in Atlas, and those done in the last two weeks, so it knows what you have planned and handled. Magpie Mail never changes them, and they go to Claude with the mail it reads."
     color: root.dimColor
     font.family: root.panelFontFamily
     font.pixelSize: MailStyle.caption

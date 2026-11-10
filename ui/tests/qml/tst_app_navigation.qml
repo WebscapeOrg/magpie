@@ -647,7 +647,7 @@ Item {
       mailService.actionStatus = ""
       var banner = named(app, "mail-notice")
       var text = having(banner, function(item) { return typeof item.text === "string" })
-      var host = having(app, function(item) { return item.title === "🐦 Magpie" })
+      var host = having(app, function(item) { return item.title === "✉️ Magpie Mail" })
       var oldWidth = host.width
       var oldPreferences = MailStyle.preferences
       failOnWarning(/Binding loop detected for property "height"/)
@@ -658,7 +658,7 @@ Item {
             host.width = width
             app.notice = ""
             wait(10)
-            app.notice = "Magpie could not confirm this change. Check the message’s current state before trying again."
+            app.notice = "Magpie Mail could not confirm this change. Check the message’s current state before trying again."
             waitForRendering(banner)
             verify(banner.height > 0)
             verify(text.paintedWidth <= text.width + 1)

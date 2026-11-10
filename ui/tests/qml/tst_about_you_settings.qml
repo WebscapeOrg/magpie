@@ -62,7 +62,7 @@ Item {
       var status = findChild(panel, "settings-about-you-status")
       compare(field.text, "Sam Example, lives in Cork.")
       verify(!save.visible, "nothing to save until the text changes")
-      verify(status.text.indexOf("Magpie reads each email against this") === 0)
+      verify(status.text.indexOf("Magpie Mail reads each email against this") === 0)
       field.text = "  Sam Example, lives in Cork.\nTwo children, Ada and Ben.  "
       verify(save.visible)
       save.clicked()
@@ -103,7 +103,7 @@ Item {
       compare(status.text, "Keep it to 20 characters or fewer.")
       compare(writes().length, 0)
       field.text = "Sam Example"
-      verify(status.text.indexOf("Magpie reads each email against this") === 0, "fixing the text clears the problem")
+      verify(status.text.indexOf("Magpie Mail reads each email against this") === 0, "fixing the text clears the problem")
     }
     function test_clearing_the_bio_sends_empty_text_and_a_failure_keeps_the_text() {
       last("inbox.aboutYou").done({text: "Sam Example", updated: 1, limit: 2000}, null)

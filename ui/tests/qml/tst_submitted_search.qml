@@ -314,7 +314,7 @@ Item {
       tryCompare(account.submittedSearch,"phase","failed",1000)
       compare(ids(),["saved"])
       compare(account.searchStatus.errorCode,"gmail_request_deferred")
-      verify(account.searchStatus.error.indexOf("Magpie") >= 0)
+      verify(account.searchStatus.error.indexOf("Magpie Mail") >= 0)
       compare(account.nextPageToken,"local-next")
       wait(50)
       compare(fixture.calls("gmail.list").length,1)

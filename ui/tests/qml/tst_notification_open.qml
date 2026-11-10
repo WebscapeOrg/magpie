@@ -37,8 +37,6 @@ Item {
     Account.NewMailNotification {
       pluginDir: "/tmp/omamail-test"
       accountId: "imap:plain@example.org"
-      notificationForeground: "#112233"
-      notificationAccent: "#445566"
       nativeNotifications: true
     }
   }
@@ -48,8 +46,6 @@ Item {
     Account.NewMailNotification {
       pluginDir: "/tmp/omamail-test"
       accountId: "imap:plain@example.org"
-      notificationForeground: "#112233"
-      notificationAccent: "#445566"
       nativeNotifications: false
       pluginNotifications: false
     }
@@ -127,22 +123,12 @@ Item {
       compare(host.opens, 2)
     }
 
-    function test_new_notifications_follow_theme_without_bar_foreground() {
+    function test_new_notifications_carry_only_the_message_text() {
       var account = service.findAccount(second)
-      var firstNotice = notification(account, [{ id: "one" }])
-      compare(firstNotice.command[2], String(Commons.Color.foreground))
-      compare(firstNotice.command[3], String(Commons.Color.accent))
-      var previous = Commons.Color.foreground
-      try {
-        Commons.Color.foreground = Qt.rgba(0.1, 0.2, 0.3, 1)
-        var nextNotice = notification(account, [{ id: "two" }])
-        compare(nextNotice.command[2], String(Commons.Color.foreground))
-        verify(firstNotice.command[2] !== nextNotice.command[2])
-        finish(firstNotice, "")
-        finish(nextNotice, "")
-      } finally {
-        Commons.Color.foreground = previous
-      }
+      var notice = notification(account, [{ id: "one" }])
+      compare(notice.command.length, 5)
+      compare(notice.command[2], "--")
+      finish(notice, "")
     }
 
     function test_removed_account_is_ignored() {

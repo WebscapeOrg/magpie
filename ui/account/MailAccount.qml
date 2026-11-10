@@ -2036,16 +2036,12 @@ Item {
     account: root
   }
 
-  property string notificationForeground: ""
-  property string notificationAccent: ""
   signal notificationActivated(string targetAccountId, string messageId)
 
   NewMailNotification {
     id: newMailNotification
     pluginDir: root.pluginDir
     accountId: root.accountId
-    notificationForeground: root.notificationForeground
-    notificationAccent: root.notificationAccent
     nativeNotifications: !!root.platform && root.platform.standalone === true
       && root.platform.hasNotifications === true
     pluginNotifications: !root.platform || root.platform.standalone !== true

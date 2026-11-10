@@ -30,7 +30,7 @@ Item {
     id: dialog
     objectName: "removal-confirmation"
     question: "Remove " + String(root.request ? root.request.email : "") + "?"
-    message: "This mailbox will be removed from Magpie."
+    message: "This mailbox will be removed from Magpie Mail."
     cancelName: "removal-cancel"
     choices: [{value: "remove", label: "Remove", objectName: "removal-confirm"}]
     focusIndex: -1

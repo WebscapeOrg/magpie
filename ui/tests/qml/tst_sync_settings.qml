@@ -133,7 +133,7 @@ Item {
       mailbox.status = healthy({unsaved: 2, unsavedReasons: {local_text_unreadable: 2}})
       compare(find(panel, "settings-sync-unsaved").text,
         "2 messages could not be saved in full because Gmail's copy of their text is damaged.")
-      mailbox.problem = "Some mail downloads are still failing. Magpie will keep trying."
+      mailbox.problem = "Some mail downloads are still failing. Magpie Mail will keep trying."
       verify(find(panel, "settings-sync-problem").visible)
       compare(find(panel, "settings-sync-problem").text, mailbox.problem)
       compare(find(panel, "settings-sync-status").text, "Needs attention")
@@ -157,7 +157,7 @@ Item {
     function test_the_lists_needs_gmail_message_stays_out_of_settings() {
       mailbox.error = "This search needs Gmail. Choose Search online to continue."
       verify(!find(panel, "settings-sync-problem").visible)
-      mailbox.problem = "Some mail downloads are still failing. Magpie will keep trying."
+      mailbox.problem = "Some mail downloads are still failing. Magpie Mail will keep trying."
       compare(find(panel, "settings-sync-problem").text, mailbox.problem)
     }
     function test_undo_needs_a_queued_change_even_beside_a_failed_one() {

@@ -1,6 +1,6 @@
-# 🐦 Magpie
+# ✉️ Magpie Mail
 
-Magpie is Dave's MIT-licensed fork of [Omamail](https://github.com/huacnlee/omamail). It uses Omarchy's theme with proportional fonts and offers a single-pane reading flow alongside the original split view.
+Magpie Mail, called Magpie until 8 November 2026 (Dave, C-065), is Dave's MIT-licensed fork of [Omamail](https://github.com/huacnlee/omamail). It uses Omarchy's theme with proportional fonts and offers a single-pane reading flow alongside the original split view. The name people see is Magpie Mail and its icon is Apple's ✉️; the repository, plugin id `magpie`, `magpie-engine.service`, `magpie://` links, the iPhone bundle id `net.anotherdave.magpie` and the install addresses keep `magpie`, so installs, links and saved data carry on. The rest of these docs say Magpie for short.
 
 Open a message with a click or Enter. **Back**, Escape, or Left returns to the list. **Menu → Split view / Single pane** changes layouts. The first launch uses single pane; the choice is saved.
 
@@ -105,7 +105,7 @@ The font-aware primitives in `ui/controls` are copies of the installed Omarchy Q
 
 ### List view refinements
 
-The list header keeps Search, Folder, Compose and the account selector; the Magpie name and bird appear at the top of Menu. The content frame uses equal insets on all four edges. Dates occupy the right edge of message rows without mailbox symbols, and row action centers are 15% farther apart. Interface icons use bundled [Lucide vectors](ui/assets/lucide/README.md), with theme colors and a filled star for starred mail. Provider artwork and the Magpie bird retain their own designs.
+The list header keeps Search, Folder, Compose and the account selector; the Magpie Mail name and Apple's ✉️ appear at the top of Menu. The content frame uses equal insets on all four edges. Dates occupy the right edge of message rows without mailbox symbols, and row action centers are 15% farther apart. Interface icons use bundled [Lucide vectors](ui/assets/lucide/README.md), with theme colors and a filled star for starred mail. Provider artwork and the Magpie bird retain their own designs.
 
 In the list view, the mailbox selector sits beside the menu in the position used by Back when reading a message. In the single-column message reader, ← Back sits beside the menu in the top toolbar and uses the same outlined button style as Compose. Escape keeps its existing navigation behavior. Folder and the mailbox selector share the outlined toolbar style; the menu glyph is twice its former size.
 

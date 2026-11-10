@@ -92,10 +92,10 @@ console.log("Point arrival sequencing checks passed");
 const backgroundRun = {origin:"backgroundRefresh",startedAt:100,finishedAt:200,startedActive:false,finishedActive:false,leftApp:false};
 const appRun = {...backgroundRun,origin:"app",startedActive:true,finishedActive:true};
 assert.strictEqual(details.activity(backgroundRun),"Background refresh");
-assert.strictEqual(details.activity(appRun),"While using Magpie");
-assert.strictEqual(details.activity({...appRun,leftApp:true}),"While using Magpie; app left during this step");
+assert.strictEqual(details.activity(appRun),"While using Magpie Mail");
+assert.strictEqual(details.activity({...appRun,leftApp:true}),"While using Magpie Mail; app left during this step");
 assert.strictEqual(details.activity({...backgroundRun,finishedActive:true}),"Background refresh; app opened during this step");
-assert.deepStrictEqual(Array.from(details.rows({details:{downloadRun:backgroundRun,createRun:appRun}}),row=>row.value).slice(-2),["Background refresh","While using Magpie"]);
+assert.deepStrictEqual(Array.from(details.rows({details:{downloadRun:backgroundRun,createRun:appRun}}),row=>row.value).slice(-2),["Background refresh","While using Magpie Mail"]);
 for (const run of [null,{}, {...appRun,origin:"<b>unknown</b>"}, {...appRun,startedAt:"100"}, {...appRun,leftApp:"true"}]) assert.strictEqual(details.activity(run),"Not recorded");
 console.log("Per-email processing context checks passed");
 

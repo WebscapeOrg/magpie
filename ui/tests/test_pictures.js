@@ -28,7 +28,7 @@ assert.strictEqual(
   pictures.summary({ present: true, problem: "pictures_key_invalid" }),
   "OpenAI did not accept this key. Paste a current key.")
 assert.strictEqual(pictures.problem("pictures_key_format"), "That is not an OpenAI API key. OpenAI keys start with sk-.")
-assert.strictEqual(pictures.problem("pictures_request_rejected"), "OpenAI rejected Magpie's picture requests several times in a row, so painting has stopped. Magpie tries again tomorrow.")
+assert.strictEqual(pictures.problem("pictures_request_rejected"), "OpenAI rejected Magpie Mail's picture requests several times in a row, so painting has stopped. Magpie Mail tries again tomorrow.")
 assert.strictEqual(pictures.problem("<b>untrusted</b>"), "Sender pictures are not available right now.")
 assert.strictEqual(pictures.problem(""), "")
 console.log("pictures ok")

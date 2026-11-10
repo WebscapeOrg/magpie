@@ -78,10 +78,10 @@ function errorText(error) {
 
 function stalledText(error) {
   if (error === "gmail_request_deferred")
-    return "Mail sync has stalled. New mail may be delayed. Magpie will keep trying."
+    return "Mail sync has stalled. New mail may be delayed. Magpie Mail will keep trying."
   if (error === "gmail_rate_limited" || error === "gmail_server_rate_limited")
-    return "Google is still limiting mail requests. New mail may be delayed. Magpie will keep trying."
-  return "Magpie still cannot reach Gmail. New mail may be delayed. Check your connection; Magpie will keep trying."
+    return "Google is still limiting mail requests. New mail may be delayed. Magpie Mail will keep trying."
+  return "Magpie Mail still cannot reach Gmail. New mail may be delayed. Check your connection; Magpie Mail will keep trying."
 }
 
 function signIn(error) {
@@ -104,12 +104,12 @@ function problem(status, warnings, now) {
     if (signIn(error) || disk(error)) return errorText(error)
     // Without a queued change the error is a download's from just before pausing, cleared by the next step.
     return whole(status.pendingEdits) > 0
-      ? "A mailbox change could not reach Gmail. Magpie will keep trying while sync is paused." : ""
+      ? "A mailbox change could not reach Gmail. Magpie Mail will keep trying while sync is paused." : ""
   }
   if (error !== "" && !temporary(status)) return errorText(error)
   if (error !== "" && lasting(state.episode, now)) return stalledText(error)
   if (whole(status.failed) > 0 && lasting(state.downloads, now))
-    return "Some mail downloads are still failing. Magpie will keep trying."
+    return "Some mail downloads are still failing. Magpie Mail will keep trying."
   return ""
 }
 

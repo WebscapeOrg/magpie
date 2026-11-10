@@ -62,7 +62,7 @@ Item {
       verify(!child("connect").enabled, "nothing to connect until a link is pasted")
       verify(!child("disconnect").visible)
       verify(child("link").password, "the link carries a key, so it is masked")
-      verify(child("caption").text.indexOf("Magpie never changes them") > 0)
+      verify(child("caption").text.indexOf("Magpie Mail never changes them") > 0)
     }
     function test_connecting_sends_the_link_once_and_clears_it() {
       last().done({connected: false, state: "off", open: 0, done: 0}, null)
@@ -98,7 +98,7 @@ Item {
     }
     function test_a_read_that_failed_says_magpie_tries_again() {
       last().done({connected: true, state: "unavailable", open: 3, done: 0}, null)
-      compare(status(), "Could not be read just now. Magpie tries again in a few minutes.")
+      compare(status(), "Could not be read just now. Magpie Mail tries again in a few minutes.")
       verify(!child("link").visible)
     }
     function test_narrow_rows_keep_clear_space() {

@@ -23,14 +23,14 @@ import urllib.parse
 ROOT = Path(__file__).resolve().parents[1]
 LINK = 'https://jobs.example.com/view/42?trk=mail&x="]]);os.exit()--'
 APP_ADDRESS = '0x5629a4b8a0e0'
-NOT_PUBLIC = 'Magpie did not open the link, because it is not a public web address.'
+NOT_PUBLIC = 'Magpie Mail did not open the link, because it is not a public web address.'
 NO_ANSWER = 'The browser did not answer, so the link did not open.'
 NOT_ANSWERED = 'The browser has not answered, so the link may not open.'
 NO_WINDOW = 'The link window is slow to open, so it may still appear.'
-TOO_LONG = 'Magpie did not open the link, because it is too long for the browser.'
-SPLIT_NAME = ("Magpie did not open the link, because the config folder Chrome reads its flags from has a space "
+TOO_LONG = 'Magpie Mail did not open the link, because it is too long for the browser.'
+SPLIT_NAME = ("Magpie Mail did not open the link, because the config folder Chrome reads its flags from has a space "
               "or one of * ? [ ( in its name.")
-SITE = ['-a', 'Magpie', '-t', '5000', 'Opening jobs.example.com']
+SITE = ['-a', 'Magpie Mail', '-t', '5000', 'Opening jobs.example.com']
 
 FAKE_HYPRCTL = r'''
 import fcntl, json, os, re, sys
@@ -495,7 +495,7 @@ class LinkWindow(unittest.TestCase):
     def assert_too_long(self, result):
         """The link was told too long, and nothing was started, connected to or handed over."""
         self.assertEqual(result.returncode, 3, result.stderr)
-        self.assertEqual(self.told(), [['-a', 'Magpie', TOO_LONG]])
+        self.assertEqual(self.told(), [['-a', 'Magpie Mail', TOO_LONG]])
         self.assertEqual(self.calls('xdg-open'), [])
         self.assertEqual(self.calls('systemd-run'), [])
         self.assertEqual(self.calls('connected'), [])
@@ -505,7 +505,7 @@ class LinkWindow(unittest.TestCase):
         result = self.run_opener(link, 'reader@work.example')
         self.assertEqual(result.returncode, 2)
         self.assertEqual([call for call in self.calls() if call[0] != 'notify-send'], [])
-        self.assertEqual(self.told(), [['-a', 'Magpie', NOT_PUBLIC]])
+        self.assertEqual(self.told(), [['-a', 'Magpie Mail', NOT_PUBLIC]])
         self.assertFalse((self.runtime / 'magpie-links').exists())
 
     def test_the_link_opens_in_the_mailbox_profile_floating_over_the_desk(self):
@@ -723,7 +723,7 @@ class LinkWindow(unittest.TestCase):
                 result = self.run_opener(link, 'reader@work.example')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.client()['opened_link'], link)
-                self.assertEqual(self.told(), [['-a', 'Magpie', '-t', '5000', f'Opening {site}']])
+                self.assertEqual(self.told(), [['-a', 'Magpie Mail', '-t', '5000', f'Opening {site}']])
 
     def test_line_breaks_inside_a_link_are_dropped(self):
         result = self.run_opener('https://jobs.example.com/view/\n42?trk=\tmail\r', 'reader@work.example')
@@ -942,7 +942,7 @@ class LinkWindow(unittest.TestCase):
                 (folder / 'chrome-flags.conf').write_text(refused)
                 result = self.run_opener(LINK, 'reader@work.example', XDG_CONFIG_HOME=str(folder), **environment)
                 self.assertEqual(result.returncode, 3, result.stderr)
-                self.assertEqual(self.told(), [['-a', 'Magpie', SPLIT_NAME]])
+                self.assertEqual(self.told(), [['-a', 'Magpie Mail', SPLIT_NAME]])
                 self.assertEqual(self.calls('systemd-run'), [])
                 self.assertEqual(self.calls('xdg-open'), [])
                 self.assertEqual(self.calls('connected'), [])
@@ -1233,7 +1233,7 @@ class LinkWindow(unittest.TestCase):
                 self.assertEqual(self.calls('systemd-run'), [])
                 self.assertEqual(self.calls('google-chrome-stable'), [])
                 self.assertEqual(self.calls('xdg-open'), [])
-                self.assertEqual(self.told(), [['-a', 'Magpie', NOT_ANSWERED]])
+                self.assertEqual(self.told(), [['-a', 'Magpie Mail', NOT_ANSWERED]])
 
     def test_a_browser_that_is_quitting_is_started_again_for_the_link(self):
         self.write_state({'browser': 'quitting'})
@@ -1268,7 +1268,7 @@ class LinkWindow(unittest.TestCase):
         result = self.run_opener(LINK, 'reader@work.example', MAGPIE_LINK_WINDOW_WAIT='0.5')
         self.assertEqual(result.returncode, 3)
         self.assertEqual(self.calls('systemd-run'), [])
-        self.assertEqual(self.told(), [['-a', 'Magpie', NO_ANSWER]])
+        self.assertEqual(self.told(), [['-a', 'Magpie Mail', NO_ANSWER]])
 
     def test_a_browser_whose_lock_names_another_host_name_still_gets_the_link(self):
         # Invariant: renaming the machine leaves the running browser's lock under the old name.
@@ -1299,7 +1299,7 @@ class LinkWindow(unittest.TestCase):
         self.assertEqual(result.returncode, 3)
         self.assertIn(NO_ANSWER, result.stderr)
         self.assertEqual(self.calls('systemd-run'), [])
-        self.assertEqual(self.told(), [['-a', 'Magpie', NO_ANSWER]])
+        self.assertEqual(self.told(), [['-a', 'Magpie Mail', NO_ANSWER]])
 
     def test_a_lock_naming_a_browser_helper_does_not_stop_it_starting(self):
         self.close_browser()
@@ -1357,7 +1357,7 @@ class LinkWindow(unittest.TestCase):
                     self.assertTrue(received, 'the opener tried the socket')
                     self.assertEqual(set(received), {b''})
                     self.assertEqual(result.returncode, 3)
-                    self.assertEqual(self.told(), [['-a', 'Magpie', NO_ANSWER]])
+                    self.assertEqual(self.told(), [['-a', 'Magpie Mail', NO_ANSWER]])
                     self.assertEqual(self.calls('systemd-run'), [])
         finally:
             server.close()
@@ -1391,7 +1391,7 @@ class LinkWindow(unittest.TestCase):
         self.assertEqual(len(self.handoffs()), 1)
         self.assertEqual(self.calls('xdg-open'), [])
         self.assertEqual(self.calls('systemd-run'), [])
-        self.assertEqual(self.told(), [['-a', 'Magpie', NO_WINDOW]])
+        self.assertEqual(self.told(), [['-a', 'Magpie Mail', NO_WINDOW]])
 
     def test_a_start_that_fails_sends_the_link_to_the_default_opener(self):
         self.close_browser()

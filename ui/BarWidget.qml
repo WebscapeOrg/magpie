@@ -40,7 +40,7 @@ BarWidget {
     readonly property bool windowOpen: !!root.bridgeState && root.bridgeState.windowOpen
     readonly property bool showBarIcon: !root.bridgeState || root.bridgeState.showBarIcon
     readonly property int unreadTotal: root.bridgeState ? root.bridgeState.unreadTotal : 0
-    readonly property string barTooltip: root.bridgeState ? root.bridgeState.barTooltip : "Magpie"
+    readonly property string barTooltip: root.bridgeState ? root.bridgeState.barTooltip : "Magpie Mail"
     readonly property string contentDirection: root.bridgeState ? root.bridgeState.contentDirection : ""
     readonly property var barMessages: root.bridgeState ? root.bridgeState.barMessages : []
     function applySettings(values) {
@@ -113,7 +113,7 @@ BarWidget {
     visible: root.drawsIcon
     anchors.fill: parent
     bar: root.bar
-    tooltipText: root.gmail ? root.gmail.barTooltip : "Magpie"
+    tooltipText: root.gmail ? root.gmail.barTooltip : "Magpie Mail"
 
     // Invariant: Component children resolve their own root identifiers; capture bar properties outside iconComponent.
     readonly property bool connected: !!root.gmail && root.gmail.ready
@@ -124,14 +124,12 @@ BarWidget {
     iconComponent: Component {
       Item {
         MagpieLogo {
-          id: bird
+          id: logo
           readonly property bool crossed: !button.connected
           readonly property bool dot: button.connected && button.hasUnread
           anchors.centerIn: parent
           width: Style.font.iconLarge
           height: width
-          foreground: button.foreground
-          accent: button.foreground
           opacity: button.connected ? 1 : 0.5
         }
         ActionIcon {
@@ -149,7 +147,7 @@ BarWidget {
           width: Style.space(4)
           height: width
           radius: width / 2
-          visible: bird.dot
+          visible: logo.dot
           color: Commons.Color.accent
         }
       }

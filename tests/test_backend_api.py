@@ -288,8 +288,11 @@ function storageSnapshot() {
   const snapshot = {};
   function visit(path) {
     const stat = fs.lstatSync(path, {bigint:true});
-    snapshot[path] = [String(stat.mode), String(stat.ino), String(stat.mtimeNs),
-      stat.isFile() ? fs.readFileSync(path).toString('base64') : null];
+    // Windows can hold the diagnostics RPC lock during persistence. Its metadata proves creation/removal;
+    // its bytes are not application state and cannot be read while it is held. Every other file is hashed.
+    const rpcLock = process.platform === 'win32' && path.replace(/\\/g, '/').endsWith('/diagnostics/.rpc.lock');
+    const contents = stat.isFile() && !rpcLock ? fs.readFileSync(path).toString('base64') : null;
+    snapshot[path] = [String(stat.mode), String(stat.ino), String(stat.mtimeNs), contents];
     if (stat.isDirectory()) for (const name of fs.readdirSync(path).sort()) visit(path + '/' + name);
   }
   for (const directory of JSON.parse(process.env.CONTRACT_STORAGE_ROOTS)) visit(directory);

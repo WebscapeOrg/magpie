@@ -55,7 +55,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/components/AccountRemovalDialog.qml \
 	ui/components/ComposeExitDialog.qml \
 	ui/components/BackBar.qml \
-	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/PhoneSettings.qml \
+	ui/components/SettingsPage.qml ui/components/AiSettings.qml \
 	ui/components/SettingsSidebar.qml \
 	ui/components/ConfirmDeleteDialog.qml \
 	ui/components/SetupPage.qml \
@@ -113,7 +113,6 @@ test-backend-process:
 	node ui/tests/test_backend_queue.js target/debug/omamail
 	python3 tests/test_backend_process.py
 	python3 tests/test_mail_backup.py
-	python3 tests/test_phone_cli.py
 	python3 tests/test_search_backend.py
 	python3 tests/test_removed_providers.py
 	python3 tests/test_agent_native_bridge.py

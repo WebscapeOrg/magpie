@@ -13,6 +13,7 @@ from unittest.mock import patch
 spec = importlib.util.spec_from_file_location('service', Path(__file__).resolve().parents[1]/'scripts/phone-service.py')
 service = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(service)
+RUNTIME = service.runtime
 
 
 class ServiceTests(unittest.TestCase):
@@ -27,7 +28,7 @@ class ServiceTests(unittest.TestCase):
         self.calls = []
         def command(args):
             self.calls.append(args)
-            return '100.100.100.100' if args[:2] == ['tailscale','ip'] else ''
+            return ''
         self.start(patch.object(service,'command',side_effect=command))
         def certificate():
             service.write(service.PHONE/'server.crt',b'synthetic certificate')
@@ -85,7 +86,7 @@ class ServiceTests(unittest.TestCase):
         unit = (service.CONFIG/'systemd/user'/service.UNIT).read_text()
         self.assertIn('KillMode=control-group',unit)
         self.assertIn('Environment=MAGPIE_WORKER_SERVICES=1',unit)
-        self.assertEqual(json.loads((service.PHONE/'server.json').read_bytes()),{'listen':'100.100.100.100:3450','host':'service.<tailnet>.ts.net:3450'})
+        self.assertFalse((service.PHONE/'server.json').exists(),'the engine no longer listens for phones')
 
     def test_certificate_install_cannot_start_or_prepare_mail_engine(self):
         with patch.object(service,'runtime',side_effect=AssertionError('No mail runtime during certificate setup')):
@@ -95,6 +96,42 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse((service.CONFIG/'systemd/user'/service.UNIT).exists())
         self.assertEqual(self.calls,[['systemctl','--user','daemon-reload'],['systemctl','--user','enable','--now','magpie-certificate.timer']])
         self.assertEqual((service.DATA/'phone-service.py').stat().st_mode & 0o777,0o700)
+
+    def test_certificate_renewal_restarts_only_the_installation_page(self):
+        units = service.CONFIG/'systemd/user'
+        units.mkdir(parents=True)
+        for name in [service.UNIT,'magpie-ota.service']:
+            (units/name).write_text('[Service]\n')
+        with patch.object(service,'certificate',return_value=True), patch('sys.argv',['phone-service.py','certificate']):
+            service.main()
+        self.assertEqual(self.calls,[['systemctl','--user','try-restart','magpie-ota.service']])
+        self.calls.clear()
+        with patch.object(service,'certificate',return_value=False), patch('sys.argv',['phone-service.py','certificate']):
+            service.main()
+        self.assertEqual(self.calls,[],'an unchanged certificate restarts nothing')
+
+    def test_runtime_refuses_builds_that_still_serve_phones(self):
+        executable = str(service.DATA/'bin/omamail')
+        manager = type('Manager',(),{'run':staticmethod(lambda action: {'state':'ready','executable':executable})})
+        loader = type('Loader',(),{'exec_module':staticmethod(lambda module: None)})
+        current = {'apiVersion':8,'engineService':False,'methods':['system.info','inbox.list']}
+        cases = [
+            ({**current,'methods':['system.info','phone.pairBegin']},False),
+            ({k:v for k,v in current.items() if k != 'engineService'},False),
+            ({**current,'apiVersion':7},False),
+            ({**current,'methods':None},False),
+            (current,True),
+        ]
+        for info, accepted in cases:
+            with self.subTest(info=info), \
+                    patch('importlib.util.spec_from_file_location',return_value=type('Spec',(),{'loader':loader})()), \
+                    patch('importlib.util.module_from_spec',return_value=manager), \
+                    patch.object(service,'command',return_value=json.dumps(info)):
+                if accepted:
+                    self.assertEqual(RUNTIME(),executable)
+                else:
+                    with self.assertRaises(RuntimeError):
+                        RUNTIME()
 
     def test_engine_unit_requires_activation_and_no_pending_uninstall(self):
         service.prepare()

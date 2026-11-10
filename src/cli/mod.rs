@@ -3,8 +3,6 @@ use std::io::{self, Read};
 mod call;
 mod mail;
 mod output;
-#[cfg(target_os = "linux")]
-mod phone;
 
 #[derive(Parser)]
 #[command(
@@ -23,12 +21,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Pair an iPhone with the running main-machine mail service
-    #[cfg(target_os = "linux")]
-    Phone {
-        #[command(subcommand)]
-        command: phone::Command,
-    },
     /// List messages (Inbox, 25 rows by default)
     List(mail::List),
     /// Read safe message content without changing its read state
@@ -186,11 +178,6 @@ pub fn run() {
         return;
     }
     #[cfg(target_os = "linux")]
-    if let Command::Phone { command } = command {
-        phone::run(command, cli.json);
-        return;
-    }
-    #[cfg(target_os = "linux")]
     if matches!(command, Command::Backup { .. }) {
         if !cli.json {
             eprintln!(
@@ -248,8 +235,6 @@ pub fn run() {
         Command::Call { method } => call::read_params(io::stdin())
             .and_then(|params| runtime.block_on(call::dispatch(&session, &method, &params))),
         Command::Serve | Command::Licenses => unreachable!(),
-        #[cfg(target_os = "linux")]
-        Command::Phone { .. } => unreachable!(),
         #[cfg(target_os = "linux")]
         Command::Backup { .. } => unreachable!(),
         #[cfg(target_os = "linux")]

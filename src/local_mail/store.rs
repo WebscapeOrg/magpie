@@ -263,21 +263,6 @@ impl Store {
             Ok(ids)
         })
     }
-    #[cfg(target_os = "linux")]
-    pub(super) fn notification_snapshot(&self) -> Result<Value> {
-        self.read(|db| {
-            let transaction=sql(db.unchecked_transaction())?;
-            let db=&transaction;
-            let waiting:i64=sql(db.query_row("SELECT (SELECT count(*) FROM jobs)+(SELECT count(*) FROM messages WHERE text_complete=0)",[],|r|r.get(0)))?;
-            if state(db,"inventoryComplete")?!="true" || waiting!=0 || state(db,"paused")?=="true" || !state(db,"error")?.is_empty() { return Err("local_snapshot_incomplete"); }
-            let mut query=sql(db.prepare("SELECT id FROM messages ORDER BY id LIMIT 500001"))?;
-            let ids:Vec<String>=sql(query.query_map([],|r|r.get(0)))?.map(sql).collect::<Result<_>>()?;
-            if ids.len()>500_000 { return Err("local_snapshot_too_large"); }
-            let mut query=sql(db.prepare("SELECT a.message_id FROM labels a JOIN labels b ON a.message_id=b.message_id AND b.label='UNREAD' WHERE a.label='INBOX' ORDER BY a.message_id"))?;
-            let unread:Vec<String>=sql(query.query_map([],|r|r.get(0)))?.map(sql).collect::<Result<_>>()?;
-            Ok(json!({"ids":ids,"unread":unread}))
-        })
-    }
     pub(super) fn status(&self) -> Result<Value> {
         self.read(|db| {
             let snapshot = sql(db.unchecked_transaction())?;
@@ -294,7 +279,7 @@ impl Store {
                 "estimatedTotal":state(db,"estimate")?.parse::<u64>().unwrap_or(0),"health":super::inbox::health(db)?}))
         })
     }
-    #[cfg(any(feature = "mobile", target_os = "linux"))]
+    #[cfg(feature = "mobile")]
     pub(super) fn background_ids(&self) -> Result<Vec<String>> {
         self.read(|db| {
             let mut query = sql(db.prepare("SELECT m.id FROM messages m JOIN labels l ON m.id=l.message_id WHERE l.label='INBOX' AND m.text_complete=1 ORDER BY m.date DESC,m.id LIMIT 5000"))?;
@@ -327,12 +312,6 @@ impl Store {
             }
             Ok(json!({"ready":state(db,"inboxReady")?=="true","paused":state(db,"paused")?=="true","inbox":inbox,"unread":unread}))
         })
-    }
-    #[cfg(target_os = "linux")]
-    pub(super) fn background_snapshot(&self) -> Result<Value> {
-        let (history, paused) =
-            self.read(|db| Ok((state(db, "history")?, state(db, "paused")? == "true")))?;
-        Ok(json!({"history":history,"paused":paused,"ids":self.background_ids()?}))
     }
     pub(super) fn label_counts(&self, id: &str) -> Result<Value> {
         self.read(|db| {

@@ -14,8 +14,6 @@ pub(crate) mod claude;
 pub(crate) mod assistant;
 #[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 mod overview_tests;
-#[cfg(target_os = "linux")]
-mod phone;
 mod snooze;
 pub(crate) use snooze::is_snooze_label;
 mod store;
@@ -580,43 +578,6 @@ fn overview_message(id: &str, raw: &Value) -> Result<Value, &'static str> {
     Ok(
         json!({"id":id,"from":summary["from"],"to":first(&summary["to"]),"cc":first(&summary["cc"]),"bcc":first(&summary["bcc"]),"subject":summary["subject"],"date":summary["date"],"currentDate":current.format("%Y-%m-%d").to_string(),"currentTime":current.to_rfc3339(),"validUntil":valid_until,"sentByOwner":summary["isSent"],"body":context::bounded(body,48000),"attachments":first(&prepared["attachments"])}),
     )
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn ready_ids(account: &str, ids: &[Value]) -> Result<Vec<Value>, &'static str> {
-    let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
-    if !saved.is_object() {
-        return Err("inbox_storage_invalid");
-    }
-    Ok(ids
-        .iter()
-        .filter(|id| {
-            id.as_str()
-                .is_some_and(|id| overview_current(&saved[id], now()))
-        })
-        .cloned()
-        .collect())
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn background_revision(account: &str, ids: &[Value]) -> Result<String, &'static str> {
-    let saved = store::read(&store::key(&["overviews", account]))?.unwrap_or(json!({}));
-    if !saved.is_object() {
-        return Err("inbox_storage_invalid");
-    }
-    let ready: Vec<_> = ids
-        .iter()
-        .filter_map(|id| {
-            let id = id.as_str()?;
-            overview_current(&saved[id], now())
-                .then(|| json!([id, saved[id]["text"], saved[id]["expiresAt"]]))
-        })
-        .collect();
-    use sha2::{Digest, Sha256};
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&ready).map_err(|_| "inbox_storage_invalid")?)
-    ))
 }
 
 fn preferences(account: &str) -> Result<Value, &'static str> {

@@ -51,7 +51,12 @@ impl Engine {
         for (account, _) in &work {
             reader::registered(account).await?;
         }
-        crate::inbox::claude::ready().await?;
+        if let Err(problem) = crate::inbox::claude::ready().await {
+            use crate::inbox::claude::diagnostics;
+            diagnostics::record(diagnostics::Event { outcome: diagnostics::outcome(problem), ..diagnostics::event("background") });
+            diagnostics::flush().await;
+            return Err(problem);
+        }
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(14);
         let mut pages = Vec::new();
         for (account, ids) in work {
@@ -59,13 +64,18 @@ impl Engine {
             if left < std::time::Duration::from_secs(3) {
                 break;
             }
+            let started = std::time::Instant::now();
+            let suspensions = crate::inbox::claude::diagnostics::suspensions();
             let page = self
                 .inbox
                 .describe_waiting(&account, &ids, self.gmail.clone(), self.local_mail.clone(), left)
                 .await
                 .unwrap_or_else(|error| json!({"accountId":account,"error":error}));
+            note_background(&page, started.elapsed(), suspensions);
             pages.push(page);
         }
+        // iOS can end the app soon after a background run, before the record is written on its own.
+        crate::inbox::claude::diagnostics::flush().await;
         Ok(json!({"accounts":pages}))
     }
     /// The same page of descriptions the main machine served the phone, now written on the phone.
@@ -98,7 +108,7 @@ impl Engine {
         }
         let ids: Vec<&str> = ids.iter().filter_map(Value::as_str).collect();
         let page = self.inbox.overview_page(account, &ids)?;
-        let keys = ["text", "state", "updated", "version", "expiresAt", "reason", "pendingSince", "attempts"];
+        let keys = ["text", "state", "updated", "version", "expiresAt", "reason", "pendingSince", "attempts", "retryAt"];
         let rows: serde_json::Map<String, Value> = page["overviews"]
             .as_object()
             .into_iter()
@@ -236,10 +246,27 @@ impl Engine {
         .await
         .map_err(|_| "worker_failed")?
     }
+    /// Invariant: leaving the app first waits, at most 8 seconds and only until the app returns, for
+    /// a description being written; the batch stops after the message under way, so the rest wait
+    /// rather than freeze half asked.
     pub async fn mobile_suspend(&self) -> Result<(), &'static str> {
-        self.local_mail.quiesce().await?;
-        self.queries.shutdown().await?;
-        self.outbox.quiesce().await
+        use crate::inbox::claude::diagnostics;
+        let started = std::time::Instant::now();
+        let settled = self.inbox.settle(std::time::Duration::from_secs(8)).await;
+        diagnostics::record(diagnostics::Event {
+            outcome: settled.into(),
+            wait_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            ..diagnostics::event("settle")
+        });
+        let result = async {
+            self.local_mail.quiesce().await?;
+            self.queries.shutdown().await?;
+            self.outbox.quiesce().await
+        }
+        .await;
+        diagnostics::flush().await;
+        crate::providers::gmail_http::flush_diagnostics().await;
+        result
     }
 
     pub async fn mobile_authorize(&self, params: &Value) -> Result<(), &'static str> {
@@ -413,4 +440,20 @@ impl Engine {
         }
         Ok(json!({"summaries":summaries}))
     }
+}
+
+/// Records how one account's background describing ended: finished, cut off by the time limit, or failed.
+fn note_background(page: &Value, elapsed: std::time::Duration, suspensions: u64) {
+    use crate::inbox::claude::diagnostics;
+    let outcome = match page["error"].as_str() {
+        Some(error) => diagnostics::outcome(error),
+        None if page["finished"] == false => "cut".into(),
+        None => "finished".into(),
+    };
+    diagnostics::record(diagnostics::Event {
+        outcome,
+        elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+        suspended: diagnostics::suspensions() != suspensions,
+        ..diagnostics::event("background")
+    });
 }

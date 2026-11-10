@@ -759,6 +759,16 @@ Column {
     panelFontFamily: root.panelFontFamily
   }
 
+  CalendarSettings {
+    objectName: "settings-calendar-section"
+    width: parent.width
+    service: root.service
+    textColor: root.textColor
+    dimColor: root.dimColor
+    accentColor: root.accentColor
+    panelFontFamily: root.panelFontFamily
+  }
+
   PictureSettings {
     id: pictureSettings
     objectName: "settings-pictures"

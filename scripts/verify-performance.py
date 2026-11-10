@@ -240,7 +240,7 @@ def main():
                   platform=platform.platform(), sourceSha256=digest.hexdigest(),
                   commit=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                   status="running", gates=[])
-    with tempfile.TemporaryDirectory(prefix="magpie-verification-") as temporary:
+    with tempfile.TemporaryDirectory(prefix=".magpie-verification-", dir=Path.home().resolve()) as temporary:
         directory = Path(temporary)
         environment = test_environment(directory)
         available = capabilities(directory)

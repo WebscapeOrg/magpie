@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn round2_proposal_history_cannot_cross_account_or_conversation() {
-        let path = std::env::temp_dir().join(format!(
+        let path = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "omamail-proposal-binding-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()

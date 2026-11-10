@@ -30,6 +30,7 @@ struct World {
 struct Provider {
     origin: String,
     world: Arc<Mutex<World>>,
+    paused: Arc<tokio::sync::Notify>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -50,11 +51,14 @@ impl Provider {
             expired_history: false,
         }));
         let state = world.clone();
+        let paused = Arc::new(tokio::sync::Notify::new());
+        let ready = paused.clone();
         let task = tokio::spawn(async move {
             let mut handlers = tokio::task::JoinSet::new();
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let state = state.clone();
+                let ready = ready.clone();
                 handlers.spawn(async move {
                     let mut bytes = Vec::new();
                     while !bytes.ends_with(b"\r\n\r\n") {
@@ -81,6 +85,7 @@ impl Provider {
                         (status, response.to_string(), pause)
                     };
                     if pause {
+                        ready.notify_one();
                         while !state.lock().unwrap().pause.is_empty() {
                             tokio::time::sleep(Duration::from_millis(5)).await;
                         }
@@ -93,7 +98,18 @@ impl Provider {
         Self {
             origin,
             world,
+            paused,
             task,
+        }
+    }
+
+    async fn interrupt(&self, step: impl std::future::Future<Output = Result<bool, &'static str>>) {
+        tokio::select! {
+            result = step => panic!("sync completed before the controlled request paused: {result:?}"),
+            () = self.paused.notified() => {},
+            () = tokio::time::sleep(Duration::from_secs(10)) => {
+                panic!("sync did not reach the controlled provider pause");
+            }
         }
     }
 }
@@ -291,14 +307,7 @@ async fn interrupted_provider_body_keeps_inventory_checkpoint_and_unvisited_mail
             .unwrap();
         set(&store, "legacyImported", "true");
         provider.world.lock().unwrap().pause = "/messages/one".into();
-        assert!(
-            tokio::time::timeout(
-                Duration::from_millis(300),
-                sync::step(&store, &gmail, ACCOUNT)
-            )
-            .await
-            .is_err()
-        );
+        provider.interrupt(sync::step(&store, &gmail, ACCOUNT)).await;
         assert!(
             provider
                 .world
@@ -365,14 +374,7 @@ async fn interrupted_inventory_and_history_requests_resume_their_saved_page() {
                 sync::step(&store, &gmail, ACCOUNT).await.unwrap();
             }
             provider.world.lock().unwrap().pause = pause.into();
-            assert!(
-                tokio::time::timeout(
-                    Duration::from_millis(300),
-                    sync::step(&store, &gmail, ACCOUNT)
-                )
-                .await
-                .is_err()
-            );
+            provider.interrupt(sync::step(&store, &gmail, ACCOUNT)).await;
             assert!(
                 provider
                     .world

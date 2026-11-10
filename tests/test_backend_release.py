@@ -84,6 +84,155 @@ class ReleaseTests(unittest.TestCase):
                     raise OSError('synthetic test failure')
             self.assertEqual(current, original, 'no redirected folder may survive a failed fixture')
 
+    def test_windows_fixture_owns_only_new_data_and_preserves_replacements(self):
+        spec = importlib.util.spec_from_file_location('backend_api_owned_data', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        owned = self.root / 'OmamailData'
+        sibling = self.root / 'other-app'
+        sibling.write_bytes(b'preserve')
+        with self.assertRaisesRegex(OSError, 'synthetic failure'):
+            with backend_api.exclusive_fixture_directory(owned):
+                (owned / 'synthetic').write_bytes(b'test')
+                raise OSError('synthetic failure')
+        self.assertFalse(owned.exists())
+        self.assertEqual(sibling.read_bytes(), b'preserve')
+        owned.mkdir()
+        (owned / 'existing').write_bytes(b'untouched')
+        with self.assertRaises(FileExistsError):
+            with backend_api.exclusive_fixture_directory(owned):
+                self.fail('must not enter an existing directory')
+        self.assertEqual((owned / 'existing').read_bytes(), b'untouched')
+        owned.rename(self.root / 'old-data')
+        with self.assertRaisesRegex(RuntimeError, 'replaced fixture'):
+            with backend_api.exclusive_fixture_directory(owned):
+                owned.rename(self.root / 'moved-fixture')
+                owned.mkdir()
+                (owned / 'replacement').write_bytes(b'preserve replacement')
+        self.assertEqual((owned / 'replacement').read_bytes(), b'preserve replacement')
+
+    @unittest.skipUnless(os.name == 'nt', 'requires native Windows Known Folders')
+    def test_windows_fixture_resolves_native_app_data_in_child(self):
+        spec = importlib.util.spec_from_file_location('backend_api_child_folders', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        get_path, _ = backend_api.windows_known_folders()
+        expected = {
+            'profile': get_path('5e6c858f-0e22-4760-9afe-ea3317b67173'),
+            'config': get_path('3eb685db-65f9-4cf6-a03a-e3ef65729f3d'),
+            'local': get_path('f1b32785-6fba-4fcf-9d55-7b8e7f157091'),
+            'downloads': get_path('374de290-123f-4565-9164-39c4925e467b'),
+        }
+        env = {key: value for key, value in os.environ.items()
+               if key in ('PATH', 'LANG', 'LC_ALL', 'SYSTEMROOT', 'QT_QPA_PLATFORM')}
+        env.update(HOME=str(self.root), TMP=str(self.root), TEMP=str(self.root))
+        env.update(backend_api.windows_fixture_environment(expected['config'], expected['local'], get_path))
+        backend_api.verify_windows_fixture_folders(env, expected)
+        altered = backend_api.windows_child_folders({**env, 'USERPROFILE': str(self.root)})
+        print('Synthetic USERPROFILE changes child LocalAppData:',
+              Path(altered['local']) != Path(expected['local']))
+
+    def test_windows_fixture_refuses_child_root_drift_before_use(self):
+        spec = importlib.util.spec_from_file_location('backend_api_child_root_guard', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        with mock.patch.object(backend_api, 'windows_child_folders', return_value={'local': '/other'}):
+            with self.assertRaisesRegex(RuntimeError, 'local differs in child'):
+                backend_api.verify_windows_fixture_folders({}, {'local': '/owned'})
+
+    @unittest.skipUnless(os.name == 'nt', 'requires native Windows ACLs')
+    def test_windows_fixture_applies_private_acl(self):
+        spec = importlib.util.spec_from_file_location('backend_api_private_acl', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        directory = self.root / 'private [fixture]'
+        directory.mkdir(mode=0o700)
+        child = directory / 'child'
+        child.mkdir(mode=0o700)
+        (child / 'file').write_text('synthetic')
+        backend_api.make_windows_fixture_private([directory])
+        script = r"""
+$ErrorActionPreference = 'Stop'
+$paths = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$results = foreach ($path in $paths) {
+    $acl = if ([System.IO.Directory]::Exists($path)) {
+        [System.IO.Directory]::GetAccessControl($path)
+    } else {
+        [System.IO.File]::GetAccessControl($path)
+    }
+    $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+    [pscustomobject]@{
+        owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+        expectedOwner = $owner
+        protected = $acl.AreAccessRulesProtected
+        rules = @($rules | ForEach-Object { [pscustomobject]@{
+            sid = $_.IdentityReference.Value
+            allow = $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow
+            fullControl = $_.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl
+            inherited = $_.IsInherited
+            inheritance = [int]$_.InheritanceFlags
+            propagation = [int]$_.PropagationFlags
+        } })
+    }
+}
+ConvertTo-Json -InputObject @($results) -Depth 5 -Compress
+"""
+        paths = [directory, child, child / 'file']
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                                input=json.dumps([str(path) for path in paths]), text=True,
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        records = json.loads(result.stdout)
+        self.assertEqual(len(records), len(paths))
+        for path, record in zip(paths, records):
+            self.assertEqual(record['owner'], record['expectedOwner'])
+            self.assertTrue(record['protected'])
+            self.assertEqual(record['rules'], [{'sid': record['owner'], 'allow': True,
+                             'fullControl': True, 'inherited': False,
+                             'inheritance': 3 if path.is_dir() else 0, 'propagation': 0}])
+
+    def test_contract_snapshot_detects_writes_outside_temporary_home(self):
+        spec = importlib.util.spec_from_file_location('backend_api_storage_snapshot', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        home = self.root / 'home'
+        home.mkdir()
+        local = self.root / 'local-data'
+        local.mkdir()
+        sentinel = local / 'sentinel'
+        sentinel.write_text('preserve')
+        start = backend_api.HARNESS.index('function storageSnapshot()')
+        end = backend_api.HARNESS.index('(async () =>', start)
+        script = "const fs = require('fs'); const assert = require('assert/strict');\n"
+        script += backend_api.HARNESS[start:end]
+        script += """
+const before = storageSnapshot();
+fs.writeFileSync(process.env.SENTINEL, 'forbidden change outside HOME');
+assert.notDeepEqual(storageSnapshot(), before);
+"""
+        result = subprocess.run(['node', '-e', script], env=dict(os.environ,
+                                HOME=str(home), SENTINEL=str(sentinel),
+                                CONTRACT_STORAGE_ROOTS=json.dumps([str(home), str(local)])),
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_windows_fixture_never_redirects_local_app_data(self):
+        spec = importlib.util.spec_from_file_location('backend_api_native_local', ROOT / 'tests/test_backend_api.py')
+        backend_api = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(backend_api)
+        config_key = '3eb685db-65f9-4cf6-a03a-e3ef65729f3d'
+        downloads_key = '374de290-123f-4565-9164-39c4925e467b'
+        current = {config_key: 'original-config', downloads_key: 'original-downloads'}
+        original = dict(current)
+        def set_path(key, value):
+            self.assertIn(key, original, 'LocalAppData must never be redirected')
+            current[key] = value
+        with backend_api.windows_fixture_folders(self.root, self.root / 'config', current.__getitem__, set_path):
+            self.assertEqual(current[config_key], str(self.root / 'config'))
+            self.assertEqual(current[downloads_key], str(self.root / 'Downloads'))
+        self.assertEqual(current, original)
+
     def test_preparation_allows_old_pin_but_merge_requires_equality(self):
         self.metadata()
         self.assertEqual(self.run_helper('check', '--root', self.root, '--tag', 'v0.8.2').returncode, 0)
@@ -120,6 +269,27 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text()), plugin)
         (self.root / 'app/CMakeLists.txt').write_text('project(omamail-app VERSION 0.8.1 LANGUAGES CXX)\n')
         self.assertNotEqual(self.run_helper('standalone-manifest', '--root', self.root).returncode, 0)
+
+    def test_standalone_manifest_preserves_unicode_through_ascii_pipes(self):
+        self.metadata()
+        plugin = {'id': 'magpie', 'name': 'Magpie', 'version': '1.0.0',
+                  'icon': '🐦', 'description': '日本語 — café'}
+        path = self.root / 'manifest.json'
+        original = json.dumps(plugin, ensure_ascii=False).encode('utf-8')
+        path.write_bytes(original)
+        command = ['python3', str(ROOT / 'scripts/package-backend.py'),
+                   'standalone-manifest', '--root', str(self.root)]
+        env = {**os.environ, 'PYTHONIOENCODING': 'ascii:strict'}
+        result = subprocess.run(command, env=env, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.isascii())
+        expected = dict(plugin, id='omamail', name='Omamail', version='0.8.2')
+        self.assertEqual(json.loads(result.stdout), expected)
+        output = self.root / 'bundled.json'
+        written = subprocess.run(command + ['--output', str(output)], env=env, capture_output=True)
+        self.assertEqual(written.returncode, 0, written.stderr)
+        self.assertEqual(json.loads(output.read_text(encoding='utf-8')), expected)
+        self.assertEqual(path.read_bytes(), original)
 
     def test_release_pr_gate_requires_published_version_before_merge(self):
         # Execute the actual workflow guard: removing or weakening it must let

@@ -207,6 +207,31 @@ fn validated_response(messages: Value) -> std::future::Ready<Result<Value, &'sta
 }
 
 #[tokio::test]
+async fn attachment_context_uses_only_the_owning_account_and_supplied_attachment_id() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let _credentials = credentials::tests::isolated_store(Credentials(reads.clone()));
+    let provider = Provider::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    gmail_http::with_test_transport(client,provider.origin.clone(),async {
+        let gmail = gmail::Session::default();
+        let mut raw = message("safe-id","See attachment.");
+        raw["payload"]["parts"] = json!([{ "mimeType":"text/plain","filename":"../../private.txt","body":{"attachmentId":"text-body","size":38}}]);
+        let mut context = json!({});
+        super::context::enrich(ACCOUNT,"safe-id",&raw,&mut context,&gmail,false).await.unwrap();
+        assert_eq!(context["files"][0]["content"][0]["text"],"Hydrated request: confirm the meeting.");
+        let requests = provider.requests();
+        assert_eq!(requests.len(),2);
+        assert!(requests.iter().any(|request|request.contains("/messages/safe-id/attachments/text-body")));
+        assert!(requests.iter().all(|request| !request.contains("private.txt") && !request.contains(OTHER)));
+        assert_eq!(*reads.lock().unwrap(),vec![ACCOUNT]);
+    }).await;
+}
+
+#[tokio::test]
 async fn four_cached_overviews_use_one_ordered_ai_batch_without_credentials_or_http() {
     if isolated() {
         return;
@@ -494,14 +519,11 @@ fn overview_preparation_keeps_opening_and_end_without_truncating_unicode() {
         "終".repeat(12000)
     );
     let prepared = overview_message("long", &message("long", &body)).unwrap();
-    assert_eq!(
-        prepared["body"],
-        format!(
-            "{}\n[Middle omitted]\n{}",
-            "開".repeat(36000),
-            "終".repeat(12000)
-        )
-    );
+    let text = prepared["body"].as_str().unwrap();
+    assert!(text.chars().count() <= 48_000);
+    assert!(text.starts_with(&"開".repeat(35_000)));
+    assert!(text.ends_with(&"終".repeat(11_000)));
+    assert!(text.contains("[Middle omitted]"));
 }
 
 #[tokio::test]

@@ -47,7 +47,17 @@ fn raster(bytes: &[u8]) -> Result<String, &'static str> {
 }
 
 #[cfg(target_os = "linux")]
-fn sandbox(program: &str, arguments: &[&str]) -> tokio::process::Command {
+pub(crate) fn sandbox(program: &str, arguments: &[&str]) -> tokio::process::Command {
+    bounded_sandbox(program, arguments, "--fsize=1048576")
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn document_sandbox(program: &str, arguments: &[&str]) -> tokio::process::Command {
+    bounded_sandbox(program, arguments, "--fsize=2097152")
+}
+
+#[cfg(target_os = "linux")]
+fn bounded_sandbox(program: &str, arguments: &[&str], file_limit: &str) -> tokio::process::Command {
     let mut command = tokio::process::Command::new("/usr/bin/bwrap");
     command
         .args([
@@ -80,7 +90,7 @@ fn sandbox(program: &str, arguments: &[&str]) -> tokio::process::Command {
             "/usr/bin/prlimit",
             "--as=536870912",
             "--cpu=4",
-            "--fsize=1048576",
+            file_limit,
             "--nproc=32",
             "--",
             program,

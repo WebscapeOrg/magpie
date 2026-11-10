@@ -219,3 +219,28 @@ async fn oversized_prompt_refuses_before_process_start() {
     assert!(outcome.failure.is_some());
     assert!(!path.exists());
 }
+
+#[tokio::test]
+async fn oversized_media_input_never_starts_the_child() {
+    let directory = std::env::temp_dir().join(format!("magpie-media-limit-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let marker = directory.join("spawned");
+    let mut command = Command::new("python3");
+    command
+        .args([
+            "-c",
+            "import pathlib,sys;pathlib.Path(sys.argv[1]).write_text('bad')",
+        ])
+        .arg(&marker);
+    let mut parser = parser();
+    let result = execute_multimodal(
+        command,
+        &vec![b'x'; 16 * 1024 * 1024 + 1],
+        &mut parser,
+        Duration::from_secs(2),
+    )
+    .await;
+    assert!(result.failure.is_some());
+    assert!(!marker.exists());
+    std::fs::remove_dir(directory).unwrap();
+}

@@ -149,7 +149,7 @@ ListView {
         && Number(root.service.backend.apiVersion) >= 8
       snoozeOpen: root.snoozeId === modelData.id
       avatarData: root.service.inboxTools ? root.service.inboxTools.avatarFor(modelData) : ""
-      overview: root.service.inboxTools ? String(overviewDetails.text || "") : ""
+      overview: root.service.inboxTools && root.service.inboxTools.descriptionsEnabled !== false ? String(overviewDetails.text || "") : ""
       overviewReason: root.service.inboxTools ? (root.service.inboxTools.available === false ? (!root.service.backend || !root.service.backend.ready ? "mail backend is disconnected" : "backend update required") : String(overviewDetails.reason || "")) : ""
       overviewState: root.service.inboxTools ? (root.service.inboxTools.available === false ? "unavailable" : root.service.inboxTools.paused === true ? "paused" : String(overviewDetails.state || "")) : ""
       onUnreadRequested: root.rowActionRequested(modelData.id, "markUnread")

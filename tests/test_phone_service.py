@@ -17,7 +17,7 @@ RUNTIME = service.runtime
 CERTIFICATE = service.certificate
 NAME = 'service.example-tailnet.ts.net'
 LONG_LABEL = 'a'*64 + '.example-tailnet.ts.net'
-LONG_NAME = '.'.join(['a'*63]*4)
+LONG_NAME = '.'.join(['a'*63]*3 + ['b'*62])
 
 
 def status(name=NAME + '.', domains=(NAME,)):

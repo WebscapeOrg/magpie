@@ -1973,6 +1973,7 @@ Item {
 
         Flickable {
           id: settingsFlick
+          objectName: "settings-flick"
 
           WheelScroller { view: settingsFlick }
           // Invariant: The viewport spans the rail so wheel input anywhere in the block scrolls Settings.

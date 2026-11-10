@@ -1227,6 +1227,29 @@ Column {
       font.pixelSize: MailStyle.caption
       wrapMode: Text.WordWrap
     }
+
+    Item {
+      width: parent.width
+      implicitHeight: MailStyle.space(6)
+      visible: syncSettings.visible
+    }
+
+    // Reads root.accounts so the lookup runs again when mailboxes are added or removed.
+    SyncSettings {
+      id: syncSettings
+      objectName: "settings-sync"
+      width: parent.width
+      mailbox: {
+        var known = root.accounts.length
+        var host = known > 0 && root.service && typeof root.service.findAccount === "function"
+          ? root.service.findAccount(root.selectedNameAccountId) : null
+        return host && host.local ? host.local : null
+      }
+      textColor: root.textColor
+      dimColor: root.dimColor
+      accentColor: root.accentColor
+      panelFontFamily: root.panelFontFamily
+    }
   }
 
   Column {

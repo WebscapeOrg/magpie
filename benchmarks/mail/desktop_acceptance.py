@@ -2,7 +2,7 @@
 """Invariant: display measurements use a synthetic mailbox in a private session."""
 import argparse
 import base64
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 import hashlib
 import io
@@ -12,8 +12,11 @@ import os
 from pathlib import Path
 import platform
 import queue
+import re
+import shutil
 import sqlite3
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -22,6 +25,7 @@ from PIL import Image, ImageGrab
 ROOT = Path(__file__).resolve().parents[2]
 ACCOUNT = "desktop-fixture@example.test"
 STARTUP_TIMEOUT = 10
+REGISTRY = "/usr/lib/at-spi2-registryd"
 
 
 def write_private(path, content):
@@ -40,8 +44,10 @@ def source_hash():
     return digest.hexdigest()
 
 
-def seed(folder, binary, count, html_bytes):
-    env = dict(os.environ)
+def seed(folder, binary, count, html_bytes, runtime):
+    env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime))
+    for key in ("AT_SPI_BUS_ADDRESS", "DBUS_STARTER_ADDRESS", "DBUS_STARTER_BUS_TYPE"):
+        env.pop(key, None)
     for key in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"):
         path = folder / key.lower()
         path.mkdir(mode=0o700)
@@ -93,13 +99,26 @@ def seed(folder, binary, count, html_bytes):
     database.executemany("INSERT OR REPLACE INTO state VALUES(?,?)", state.items())
     database.commit()
     database.close()
+    def inbox_key(*parts):
+        digest = hashlib.sha256()
+        for part in parts:
+            encoded = part.encode()
+            digest.update(len(encoded).to_bytes(8, "little") + encoded)
+        return digest.hexdigest() + ".json"
+    inbox = Path(env["XDG_STATE_HOME"]) / "omamail/inbox"
+    overviews = {f"synthetic-{index:08}": {"version": 2, "promptRevision": 1, "state": "ready",
+                 "text": f"Synthetic saved message {index}", "expiresAt": 0} for index in range(count)}
+    write_private(inbox / inbox_key("overviews", ACCOUNT), json.dumps(overviews))
+    write_private(inbox / inbox_key("preferences", ACCOUNT), json.dumps({"paused": True, "allowRemoteImages": False}))
     return env
 
 
 def hypr(env, *arguments):
     if arguments[0] == "dispatch":
         arguments = ("dispatch", ", ".join(json.dumps(value) for value in arguments[1:]))
-    result = subprocess.run(["hyprctl", *arguments], env=env, text=True, capture_output=True, timeout=10)
+    # hyprctl finds the compositor in the desktop's own runtime folder, not the run's private one.
+    host = dict(env, XDG_RUNTIME_DIR=os.environ["XDG_RUNTIME_DIR"]) if "XDG_RUNTIME_DIR" in os.environ else env
+    result = subprocess.run(["hyprctl", *arguments], env=host, text=True, capture_output=True, timeout=10)
     if result.returncode:
         raise RuntimeError(f"hyprctl {arguments}: {result.stdout} {result.stderr}")
     return result.stdout
@@ -130,7 +149,10 @@ def accessible_nodes(pid):
         while GLib.MainContext.default().pending(): GLib.MainContext.default().iteration(False)
         for i in range(desktop.get_child_count()):
             application = desktop.get_child_at_index(i)
-            if application.get_process_id() == pid: walk(application)
+            if application.get_process_id() != pid: continue
+            # Each walk reads names and states afresh rather than from an earlier walk's cache.
+            application.clear_cache()
+            walk(application)
         if not rows: time.sleep(.05)
     if not rows: raise RuntimeError("Synthetic application is absent from AT-SPI")
     return rows
@@ -142,13 +164,19 @@ def accessibility(pid, stage, output):
         found = [node for node in visible if node.get_name() == name]
         if len(found) != 1: raise RuntimeError(f"Expected one visible accessible {name}, found {len(found)}")
         return found[0]
-    def press(name):
-        action = find(name).get_action_iface()
+    def press_index(node):
+        action = node.get_action_iface()
+        if not action: return None
         for i in range(action.get_n_actions()):
-            if action.get_action_name(i).lower() == "press":
-                if not action.do_action(i): raise RuntimeError(f"AT-SPI refused {name}")
-                return
-        raise RuntimeError(f"No accessible press action for {name}")
+            if action.get_action_name(i).lower() == "toggle": return i
+        for i in range(action.get_n_actions()):
+            if action.get_action_name(i).lower() == "press": return i
+        return None
+    def press(name, nodes=None):
+        # A labelled wrapper and its control can share a name; press the one that has a press action.
+        pressable = [node for node in (nodes or visible) if node.get_name() == name and press_index(node) is not None]
+        if len(pressable) != 1: raise RuntimeError(f"Expected one pressable {name}, found {len(pressable)}")
+        if not pressable[0].get_action_iface().do_action(press_index(pressable[0])): raise RuntimeError(f"AT-SPI refused {name}")
     rows = []
     for node in visible:
         action = node.get_action_iface()
@@ -156,15 +184,29 @@ def accessibility(pid, stage, output):
                      "actions": [action.get_action_name(i) for i in range(action.get_n_actions())] if action else []})
     write_private(output / (stage + ".json"), json.dumps(rows, indent=2))
     if stage == "accessibility-inbox":
-        find("Mail downloads paused. Saved mail is available.")
-        press("Resume downloads")
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            from gi.repository import GLib
-            while GLib.MainContext.default().pending(): GLib.MainContext.default().iteration(False)
-            if any(node.get_name() == "Pause downloads" for node in visible): break
-            time.sleep(.05)
-        press("Pause downloads")
+        # The walk reached the list, so the absence checks below mean something.
+        if not any(node.get_name() == "Synthetic sender" for node in visible): raise RuntimeError("The Inbox rows are absent from AT-SPI")
+        # Q-011: a paused mailbox is routine, so nothing about it shows above the Inbox.
+        for name in ("Mail downloads paused. Saved mail is available.", "Pause downloads", "Resume downloads"):
+            if any(node.get_name() == name for node in visible): raise RuntimeError(f"{name} shows above the Inbox")
+    elif stage == "accessibility-settings":
+        from gi.repository import Atspi
+        find("Status: Sync paused")
+        def wait_paused(expected):
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                nodes = accessible_nodes(pid)
+                switches = [node for node in nodes if node.get_name() == "Pause sync" and press_index(node) is not None]
+                if len(switches) == 1 and switches[0].get_state_set().contains(Atspi.StateType.CHECKED) == expected:
+                    return nodes
+                time.sleep(.1)
+            raise RuntimeError(f"Pause sync did not reach checked={expected}")
+        press("Pause sync")
+        nodes = wait_paused(False)
+        names = [node.get_name() for node in nodes if node.get_name().startswith("Status: ")]
+        if len(names) != 1 or names[0] == "Status: Sync paused": raise RuntimeError(f"Pause sync did not resume downloads: {names}")
+        press("Pause sync", nodes)
+        wait_paused(True)
     else:
         for name, value in (("To", "recipient@example.test"), ("Subject", "Synthetic accessible send"), ("Message body", "Synthetic body")):
             editable = find(name).get_editable_text_iface()
@@ -172,6 +214,41 @@ def accessibility(pid, stage, output):
         find("Attach...")
         press("Send")
     (output / (stage + ".done")).touch()
+
+
+@contextmanager
+def private_runtime():
+    # Qt's per-app accessibility socket path (<runtime>/at-spi2-XXXXXX/socket) must fit in 108 bytes,
+    # so the folder is short and in /tmp rather than under the output folder.
+    folder = Path(tempfile.mkdtemp(prefix="magpie-rt-", dir="/tmp"))
+    if folder.parent != Path("/tmp") or not folder.name.startswith("magpie-rt-") or folder.is_symlink():
+        raise RuntimeError("Unexpected private runtime folder")
+    try:
+        yield folder
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def start_registry(env, output, cleanup):
+    # The private bus cannot ask systemd to start the screen-reader registry, so it runs here on
+    # the private accessibility bus before the app starts and registers with it.
+    reply = subprocess.run(["gdbus", "call", "--session", "--dest", "org.a11y.Bus", "--object-path", "/org/a11y/bus",
+                            "--method", "org.a11y.Bus.GetAddress"], check=True, capture_output=True, text=True, env=env, timeout=10)
+    address = re.fullmatch(r"\('(unix:[^']+)',\)\s*", reply.stdout)
+    if not address: raise RuntimeError("The private accessibility bus gave no address")
+    env["AT_SPI_BUS_ADDRESS"] = os.environ["AT_SPI_BUS_ADDRESS"] = address.group(1)
+    registry = subprocess.Popen([REGISTRY], env=env, stdout=subprocess.DEVNULL,
+                                stderr=cleanup.enter_context((output / "registry.log").open("w")))
+    cleanup.callback(stop_process, registry)
+    deadline = time.monotonic() + STARTUP_TIMEOUT
+    while time.monotonic() < deadline:
+        owner = subprocess.run(["gdbus", "call", "--address", address.group(1), "--dest", "org.freedesktop.DBus",
+                                "--object-path", "/org/freedesktop/DBus", "--method", "org.freedesktop.DBus.NameHasOwner",
+                                "org.a11y.atspi.Registry"], capture_output=True, text=True, env=env, timeout=10)
+        if owner.stdout.strip() == "(true,)": return
+        if registry.poll() is not None: break
+        time.sleep(.1)
+    raise RuntimeError("The screen-reader registry did not start on the private bus")
 
 
 def stop_process(process):
@@ -304,10 +381,14 @@ def main():
     driver_hash = hashlib.sha256(driver.read_bytes()).hexdigest()
     if args.messages < 50 or args.samples < 3 or args.html_bytes < 0:
         parser.error("Use at least 50 messages, 3 samples and nonnegative HTML size")
-    env = seed(output, binary, args.messages, args.html_bytes)
-    env["GSETTINGS_BACKEND"] = "memory"
     with ExitStack() as cleanup:
-        bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"], env=env,
+        # Invariant: everything the run starts, including the accessibility bus the private session bus
+        # launches, keeps its sockets in a private runtime folder; Dave's /run/user/<uid> is never touched.
+        env = seed(output, binary, args.messages, args.html_bytes, cleanup.enter_context(private_runtime()))
+        env["GSETTINGS_BACKEND"] = "memory"
+        # Nothing the bus launches, such as the accessibility bus, sees the desktop's display.
+        host_display = {key: value for key, value in env.items() if key not in ("DISPLAY", "WAYLAND_DISPLAY")}
+        bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"], env=host_display,
                                stdout=subprocess.PIPE, stderr=cleanup.enter_context((output / "dbus.log").open("w")), text=True)
         cleanup.callback(stop_process, bus)
         env["DBUS_SESSION_BUS_ADDRESS"] = readiness(bus, "DBus")
@@ -316,13 +397,16 @@ def main():
             instances = json.loads(subprocess.check_output(["hyprctl", "instances", "-j"], text=True, timeout=10))
             if len(instances) != 1:
                 raise RuntimeError("Expected one available Hyprland session")
-            env.update(HYPRLAND_INSTANCE_SIGNATURE=instances[0]["instance"], WAYLAND_DISPLAY=instances[0]["wl_socket"],
+            socket = Path(os.environ["XDG_RUNTIME_DIR"]) / instances[0]["wl_socket"]
+            env.update(HYPRLAND_INSTANCE_SIGNATURE=instances[0]["instance"], WAYLAND_DISPLAY=str(socket),
                        QT_QPA_PLATFORM="wayland")
+            env.pop("DISPLAY", None)
         else:
             server = subprocess.Popen(["Xvfb", "-displayfd", "1", "-screen", "0", "1920x1600x24", "-nolisten", "tcp"],
                                       stdout=subprocess.PIPE, stderr=cleanup.enter_context((output / "xvfb.log").open("w")), text=True)
             cleanup.callback(stop_process, server)
             env.update(DISPLAY=":" + readiness(server, "Xvfb"), QT_QPA_PLATFORM="xcb")
+            env.pop("WAYLAND_DISPLAY", None)
         env.update(QT_SCALE_FACTOR=args.scale, OMAMAIL_DEVELOPMENT_RESOURCES="1",
                    OMAMAIL_BIN=str(binary), MAGPIE_DESKTOP_OPTIONS=str(output / "options.json"),
                    QT_ACCESSIBILITY="1", QT_LINUX_ACCESSIBILITY_ALWAYS_ON="1")
@@ -334,6 +418,7 @@ def main():
             subprocess.run(["gdbus", "call", "--session", "--dest", "org.a11y.Bus", "--object-path", "/org/a11y/bus",
                             "--method", "org.freedesktop.DBus.Properties.Set", "org.a11y.Status", "IsEnabled", "<true>"],
                            check=True, capture_output=True, text=True, env=env, timeout=10)
+            start_registry(env, output, cleanup)
         launched = time.time() * 1000
         process = subprocess.Popen([str(driver), "-input", str(ROOT / "benchmarks/mail/tst_desktop.qml")],
                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -354,7 +439,7 @@ def main():
         checkpoints = []
         required_checkpoints = ["cached-inbox-visible-without-credentials"]
         if args.accessibility:
-            required_checkpoints.append("accessibility-inbox")
+            required_checkpoints.extend(["accessibility-inbox", "accessibility-settings"])
         required_checkpoints.append("offline-star-and-archive-visible-and-undo-restores-mail")
         if args.accessibility:
             required_checkpoints.extend(["accessibility-compose", "accessible-send-durably-queued-without-credentials"])

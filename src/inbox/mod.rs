@@ -1,4 +1,5 @@
 mod avatars;
+mod progress;
 #[cfg(test)]
 include!("readiness_tests.rs");
 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
@@ -90,6 +91,7 @@ const OWN_WAITS: [i64; 2] = [60_000, 300_000];
 
 pub struct Inbox {
     overview_slots: Arc<Semaphore>,
+    overview_progress: progress::Progress,
     avatar_slots: Arc<Semaphore>,
     snooze_lock: Mutex<()>,
     #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
@@ -102,6 +104,7 @@ impl Default for Inbox {
         }
         Self {
             overview_slots: Arc::new(Semaphore::new(1)),
+            overview_progress: Default::default(),
             avatar_slots: Arc::new(Semaphore::new(3)),
             snooze_lock: Mutex::new(()),
             #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
@@ -262,8 +265,10 @@ impl Inbox {
         if chosen.is_empty() {
             return Ok(json!({"accepted":true}));
         }
+        let running = self.overview_progress.begin(&account, &chosen);
         let task = tokio::spawn(async move {
             let _permit = permit;
+            let _running = running;
             let started = std::time::Instant::now();
             let result =
                 overview_batch(&account, &chosen, &gmail, &local_mail, remote, left_before, PHONE_WRITER && limit.is_some()).await;
@@ -364,7 +369,7 @@ impl Inbox {
                 page.insert((*id).to_owned(), row.clone());
             }
         }
-        Ok(json!({"overviews":overview_snapshot(Value::Object(page), now())?,"preferences":preferences(&account)?}))
+        Ok(json!({"overviews":overview_snapshot(Value::Object(page), now())?,"preferences":preferences(&account)?,"writingIds":self.overview_progress.ids(&account)}))
     }
     /// The iPhone's background refresh: describe the app's chosen Inbox mail still waiting, within a time limit.
     #[cfg(feature = "mobile")]
@@ -407,7 +412,7 @@ impl Inbox {
                 fields(params, &["accountId"])?;
                 let account = account(params)?;
                 #[allow(unused_mut)]
-                let mut snapshot = json!({"overviews":overview_snapshot(store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})), now())?,"snoozes":snooze::snapshot(&account)?,"preferences":preferences(&account)?});
+                let mut snapshot = json!({"overviews":overview_snapshot(store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})), now())?,"snoozes":snooze::snapshot(&account)?,"preferences":preferences(&account)?,"writingIds":self.overview_progress.ids(&account)});
                 #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
                 {
                     snapshot["pictures"] = json!(pictures::revision());

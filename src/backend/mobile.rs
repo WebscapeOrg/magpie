@@ -148,7 +148,7 @@ impl Engine {
             .flatten()
             .map(|(id, row)| (id.clone(), json!(keys.iter().filter_map(|key| row.get(*key).map(|value| (key.to_string(), value.clone()))).collect::<serde_json::Map<_, _>>())))
             .collect();
-        let mut answer = json!({"overviews":rows,"accepted":submitted["accepted"],"preferences":page["preferences"]});
+        let mut answer = json!({"overviews":rows,"accepted":submitted["accepted"],"preferences":page["preferences"],"writingIds":page["writingIds"]});
         if let Some(problem) = submitted["problem"].as_str() {
             answer["problem"] = json!(problem);
         }

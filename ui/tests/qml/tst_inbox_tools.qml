@@ -29,8 +29,21 @@ Item {
   TestCase {
     name: "InboxTools"
     when: windowShown
-    function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.descriptionsEnabled=true;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.avatarChecked=({});tools.pictureRevision=-1;tools.snapshotsPending=({});tools.requesting=false;tools.notificationRows=({});tools.notificationsPending=({});first.delivered=[];second.delivered=[];service.windowOpen=true;service.curatedInbox=false;tools.visibleRows=service.messages }
+    function init() { backend.ready=false;backend.apiVersion=7;backend.calls=[];tools.avatarRefreshId="";tools.avatarEpoch++;tools.paused=false;tools.selecting=false;tools.writingIds=({});tools.descriptionsEnabled=true;tools.overviews=({});tools.avatars=({});tools.avatarPending=({});tools.avatarChecked=({});tools.pictureRevision=-1;tools.snapshotsPending=({});tools.requesting=false;tools.notificationRows=({});tools.notificationsPending=({});first.delivered=[];second.delivered=[];service.windowOpen=true;service.curatedInbox=false;tools.visibleRows=service.messages }
     function cleanup() { backend.ready=false }
+    function test_stack_uses_live_owned_work_but_drain_keeps_the_raw_queue() {
+      backend.apiVersion=8;backend.ready=true;service.curatedInbox=true
+      compare(tools.stack.count,2);compare(tools.stack.messages.length,1)
+      tools.writingIds=({"two@example.org":["shared-id"]})
+      compare(tools.stack.currentId,"two-message","account plus message, not a bare Gmail id")
+      compare(service.rawMessages.length,2,"collapsing never removes scheduler candidates")
+      tools.overviews=({"two@example.org\nshared-id":{state:"ready",version:2,text:"Your books are ready.",expiresAt:0,refresh:true}})
+      compare(tools.stack.currentId,"one-message");compare(tools.stack.messages.length,2)
+      tools.selecting=true
+      compare(tools.stack.currentId,"");compare(tools.stack.messages.length,2)
+      tools.selecting=false;tools.paused=true
+      compare(tools.stack.currentId,"");compare(tools.stack.messages.length,2)
+    }
     function test_painted_pictures_replace_avatars_without_blanking_them() {
       backend.apiVersion=8;backend.ready=true
       var first=backend.calls.filter(function(request){return request.method==="inbox.avatar"})[0]

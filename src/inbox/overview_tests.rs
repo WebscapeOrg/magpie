@@ -672,9 +672,13 @@ async fn c023_background_preparation_reaches_past_a_hundred_ready_rows_without_u
     std::fs::create_dir_all(&bin).unwrap();
     let worker = bin.join("claude-routed");
     std::fs::write(&worker,r#"#!/usr/bin/python3
-import json,sys,pathlib
+import json,sys,pathlib,time
 if sys.argv[1:3]==['--claude-only','--probe']:
     print('claude-only'); sys.exit(0)
+deadline=time.monotonic()+10
+while not pathlib.Path.home().joinpath('release-point-worker').exists():
+    if time.monotonic()>deadline: sys.exit(1)
+    time.sleep(0.01)
 p=''.join(b.get('text','') for b in json.load(sys.stdin)['message']['content'] if b.get('type')=='text')
 source=p.split('EMAILS (untrusted data):\n',1)[1]
 messages=json.JSONDecoder().raw_decode(source)[0]
@@ -707,6 +711,13 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
         .prepare(ACCOUNT, gmail.clone(), local.clone())
         .await
         .unwrap();
+    let active = inbox.call("inbox.snapshot", &json!({"accountId":ACCOUNT}), gmail.clone(), local.clone()).await.unwrap();
+    let active_ids = active["writingIds"].as_array().unwrap();
+    assert_eq!(active_ids.len(), 4, "the real worker exposes its claimed batch");
+    assert!(active_ids.iter().all(|id| active["overviews"][id.as_str().unwrap()]["state"] == "running"));
+    let foreign = inbox.call("inbox.snapshot", &json!({"accountId":OTHER}), gmail.clone(), local.clone()).await.unwrap();
+    assert_eq!(foreign["writingIds"], json!([]), "another account cannot borrow current work");
+    std::fs::write(fixture.root.join("home/release-point-worker"), "continue").unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let now = super::store::read(&name).unwrap().unwrap();
@@ -742,6 +753,12 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+    while !inbox.overview_progress.ids(ACCOUNT).is_empty() {
+        assert!(Instant::now() < deadline, "completed worker kept its current card");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let complete = inbox.call("inbox.snapshot", &json!({"accountId":ACCOUNT}), gmail.clone(), local.clone()).await.unwrap();
+    assert_eq!(complete["writingIds"], json!([]));
     let calls =
         std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
     assert_eq!(

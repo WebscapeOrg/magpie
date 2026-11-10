@@ -98,11 +98,11 @@ def host():
     try:
         status = json.loads(command(["tailscale", "status", "--json"]))
         name = status["Self"]["DNSName"].rstrip(".")
-        domains = status["CertDomains"] or []
     except (ValueError, TypeError, KeyError, AttributeError):
         raise RuntimeError("Tailscale did not report this machine's name") from None
-    if not isinstance(name, str) or not DNS_NAME.match(name):
+    if not DNS_NAME.match(name):
         raise RuntimeError("Tailscale reported an unusable name for this machine")
+    domains = status.get("CertDomains")
     if not isinstance(domains, list) or name not in domains:
         raise RuntimeError("Tailscale cannot issue an HTTPS certificate for this machine; turn on HTTPS for the tailnet")
     return name
@@ -116,9 +116,10 @@ def certificate():
         safe(path)
         if path.exists() and (path.stat().st_uid != os.getuid() or path.stat().st_mode & 0o077):
             raise RuntimeError("HTTPS credentials must be private")
+    name = host()
     with tempfile.TemporaryDirectory(prefix=".certificate-", dir=PHONE) as stage:
         cert, key = Path(stage) / "server.crt", Path(stage) / "server.key"
-        command(["tailscale", "cert", "--cert-file", str(cert), "--key-file", str(key), host()])
+        command(["tailscale", "cert", "--cert-file", str(cert), "--key-file", str(key), name])
         changed = not (PHONE / "server.crt").exists() or (PHONE / "server.crt").read_bytes() != cert.read_bytes()
         write(PHONE / "server.key", key.read_bytes())
         write(PHONE / "server.crt", cert.read_bytes())

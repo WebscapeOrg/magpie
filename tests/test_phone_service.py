@@ -16,6 +16,8 @@ spec.loader.exec_module(service)
 RUNTIME = service.runtime
 CERTIFICATE = service.certificate
 NAME = 'service.example-tailnet.ts.net'
+LONG_LABEL = 'a'*64 + '.example-tailnet.ts.net'
+LONG_NAME = '.'.join(['a'*63]*4)
 
 
 def status(name=NAME + '.', domains=(NAME,)):
@@ -304,6 +306,11 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual((service.PHONE/'server.crt').read_bytes(),b'synthetic certificate')
         self.assertEqual((service.PHONE/'server.key').stat().st_mode & 0o777,0o600)
 
+    def test_names_at_the_dns_limits_are_accepted(self):
+        for name in ['a'*63 + '.example-tailnet.ts.net', '.'.join(['a'*63]*3 + ['b'*61])]:
+            with self.subTest(len(name)), self.answer(status(name + '.',[name])):
+                self.assertEqual(service.host(),name)
+
     def test_an_unusable_tailscale_answer_issues_no_certificate(self):
         answers = {
             'not JSON': 'tailscale is stopped',
@@ -319,6 +326,10 @@ class ServiceTests(unittest.TestCase):
             'certificates off': status(domains=None),
             'another machine\'s certificate': status(domains=('other.example-tailnet.ts.net',)),
             'names as one string': json.dumps({'Self':{'DNSName':NAME + '.'},'CertDomains':'x ' + NAME}),
+            'a space inside a label': status('ent erprise.example-tailnet.ts.net.',['ent erprise.example-tailnet.ts.net']),
+            'no certificate names listed': json.dumps({'Self':{'DNSName':NAME + '.'}}),
+            'a label over 63 characters': status(LONG_LABEL + '.',[LONG_LABEL]),
+            'a name over 253 characters': status(LONG_NAME + '.',[LONG_NAME]),
         }
         for case, reply in answers.items():
             with self.subTest(case), self.answer(reply):

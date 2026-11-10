@@ -1065,7 +1065,8 @@ print(json.dumps({'type':'turn.completed','usage':{'input_tokens':2345,'output_t
     assert_eq!(saved["ask-1"]["details"]["requestedModel"], "sonnet");
     assert_eq!(saved["ask-1"]["details"]["model"], "gpt-6.1-sol");
     assert_eq!(saved["ask-1"]["details"]["contextTokens"], 2345);
-    assert_eq!(saved["ask-1"]["details"]["contextTokensPartial"], true, "the routed Claude check preceded the Codex fallback");
+    assert_eq!(saved["ask-1"]["details"]["contextTokensPartial"], false, "the routed Claude check refused as out was not billed");
+    assert_eq!(saved["ask-1"]["details"]["passes"], json!([{"model":"gpt-6.1-sol","effort":"low"}]), "only the model that answered is named");
     let calls = std::fs::read_to_string(home.join("synthetic-codex-calls.jsonl")).unwrap();
     let lines: Vec<Value> = calls.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines.len(), 2, "tried Codex P first, then fell back to Codex W");
@@ -1185,7 +1186,16 @@ print(json.dumps({'providers':{'claude':{'stuck':True,'new_session':None},'codex
     assert_eq!(saved["ask-1"]["details"]["requestedModel"], "sonnet");
     assert_eq!(saved["ask-1"]["details"]["model"], "gemini-4-argon");
     assert_eq!(saved["ask-1"]["details"]["contextTokens"], 3456);
-    assert_eq!(saved["ask-1"]["details"]["contextTokensPartial"], true);
+    assert_eq!(saved["ask-1"]["details"]["contextTokensPartial"], false, "Claude and Codex refused as out were not billed");
+    let argon = crate::inbox::prices::cost(
+        "gemini-4-argon",
+        &crate::inbox::prices::Usage { fresh: 3456, output: 25, ..Default::default() },
+    )
+    .unwrap();
+    let details = &saved["ask-1"]["details"];
+    assert_eq!(details["passes"], json!([{"model":"gemini-4-argon","effort":"low"}]), "only the model that answered is named: {details}");
+    assert_eq!(details["costNanos"], argon, "Gemini's request is priced: {details}");
+    assert_eq!(details["costPartial"], false);
     let requests = seen.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0]["model"], "gemini-4-argon-low");

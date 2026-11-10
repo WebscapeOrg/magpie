@@ -18,6 +18,20 @@ pub(crate) fn model(value: &Value) -> Option<&str> {
         | "gemini-4-argon" | "gemini-4-argon-low" | "gemini-4-argon-high"))
 }
 
+/// The efforts Magpie asks for; anything else is not shown.
+pub(crate) fn effort(value: &str) -> bool {
+    matches!(value, "low" | "medium" | "high")
+}
+
+fn passes(value: &Value) -> Option<Value> {
+    let passes: Vec<Value> = value.as_array()?.iter().take(super::context_tokens::PASSES).filter_map(|pass| {
+        let model = model(&pass["model"])?;
+        let effort = pass["effort"].as_str().filter(|name| self::effort(name))?;
+        Some(json!({"model": model, "effort": effort}))
+    }).collect();
+    (!passes.is_empty()).then(|| json!(passes))
+}
+
 pub(crate) fn clean(value: &Value) -> Value {
     let mut details = json!({});
     for key in ["gmailMs", "decideMs", "createMs"] {
@@ -27,6 +41,14 @@ pub(crate) fn clean(value: &Value) -> Value {
         details["contextTokens"] = json!(tokens);
         if let Some(partial) = value["contextTokensPartial"].as_bool() { details["contextTokensPartial"] = json!(partial); }
     }
+    if let Some(cost) = value["costNanos"].as_u64().filter(|n| *n <= super::context_tokens::MAX) {
+        details["costNanos"] = json!(cost);
+        if let Some(partial) = value["costPartial"].as_bool() { details["costPartial"] = json!(partial); }
+    }
+    if let Some(cost) = value["decideCostNanos"].as_u64().filter(|n| *n <= super::context_tokens::MAX) {
+        details["decideCostNanos"] = json!(cost);
+    }
+    if let Some(passes) = passes(&value["passes"]) { details["passes"] = passes; }
     for key in ["requestedModel", "model"] {
         if let Some(name) = model(&value[key]) { details[key] = json!(name); }
     }
@@ -64,6 +86,14 @@ mod tests {
         }
         assert_eq!(clean(&json!({"contextTokens":12345,"contextTokensPartial":true})), json!({"contextTokens":12345,"contextTokensPartial":true}));
         assert_eq!(clean(&json!({"contextTokens":0,"contextTokensPartial":"true"})), json!({"contextTokens":0}));
+        assert_eq!(clean(&json!({"costNanos":4200,"costPartial":true,"decideCostNanos":40})), json!({"costNanos":4200,"costPartial":true,"decideCostNanos":40}));
+        for cost in [json!(-1), json!(0.5), json!("1"), json!(super::super::context_tokens::MAX + 1)] {
+            assert_eq!(clean(&json!({"costNanos":cost,"costPartial":false,"decideCostNanos":cost})), json!({}));
+        }
+        let passes = json!([{"model":"claude-opus-5-5","effort":"low"},{"model":"<img>","effort":"low"},{"model":"gemini-4-argon","effort":"SECRET"},{"model":"gemini-4-argon","effort":"high","extra":1}]);
+        assert_eq!(clean(&json!({"passes":passes})), json!({"passes":[{"model":"claude-opus-5-5","effort":"low"},{"model":"gemini-4-argon","effort":"high"}]}));
+        assert_eq!(clean(&json!({"passes":[{"model":"<img>","effort":"low"}]})), json!({}));
+        assert_eq!(clean(&json!({"passes":(0..20).map(|_| json!({"model":"haiku","effort":"low"})).collect::<Vec<_>>()}))["passes"].as_array().unwrap().len(), super::super::context_tokens::PASSES);
         for model in ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra", "gemini-3.8-flash", "gemini-4-argon"] {
             assert_eq!(clean(&json!({"model":model})), json!({"model":model}));
         }

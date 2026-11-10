@@ -141,15 +141,10 @@ fn admit(at: i64) -> Result<(), &'static str> {
     })
 }
 
-/// Billionths of a dollar per token for fresh input, cache writes, cache reads and output, at list
-/// prices: Haiku 5.5 $0.10/$0.50 a million (five times that above 100,000 prompt tokens), Sonnet
-/// 5.5 $2/$10 and Opus 5.5 $4/$20, cache writes at 1.25 times input, reads at $0.01, $0.20, $0.20.
+/// Billionths of a dollar per token for fresh input, cache writes, cache reads and output, at the
+/// list prices in `prices.rs`; Haiku costs five times that above 100,000 prompt tokens.
 fn prices(tier: Tier) -> [u64; 4] {
-    match tier {
-        Tier::Haiku => [100, 125, 10, 500],
-        Tier::Sonnet => [2_000, 2_500, 200, 10_000],
-        Tier::Opus => [4_000, 5_000, 200, 20_000],
-    }
+    super::prices::claude(tier.name()).unwrap_or([u64::MAX; 4])
 }
 
 /// What a reply cost in billionths of a dollar, from the token counts Claude reports.
@@ -698,6 +693,8 @@ async fn exchange(
     body: Option<Vec<u8>>,
     counted: bool,
 ) -> Result<Reply, Fault> {
+    let requested = body.as_deref().filter(|_| operation == "describe").and_then(|body| serde_json::from_slice::<Value>(body).ok())
+        .and_then(|body| body["model"].as_str().map(str::to_owned)).unwrap_or_default();
     let request = build(client, key, method, path, body)?;
     let serial = diagnostics::serial();
     let mut started = std::time::Instant::now();
@@ -711,15 +708,26 @@ async fn exchange(
         }
         let mut event = diagnostics::event("attempt");
         let sent = std::time::Instant::now();
-        let answer = match request.try_clone() {
+        let copy = request.try_clone();
+        let unsent = copy.is_none();
+        let answer = match copy {
             Some(request) => send(client, request).await,
             None => Err(Fault { code: "ai_unavailable", class: "request" }),
         };
         if operation == "describe" {
-            let tokens = answer.as_ref().ok().filter(|reply| reply.status == 200)
-                .and_then(|reply| serde_json::from_slice::<Value>(&reply.body).ok())
-                .and_then(|reply| super::context_tokens::input(&reply["usage"]));
-            super::context_tokens::record(tokens);
+            // Anthropic bills the model asked for, at low effort for every describe request. An error
+            // status, or a request never sent or never received, is not billed and names no model; one
+            // cut off after it was sent, or whose reply was too large to read, may have been, so the
+            // totals become lower bounds.
+            match &answer {
+                Ok(reply) if reply.status == 200 => {
+                    let usage = serde_json::from_slice::<Value>(&reply.body).ok().and_then(|reply| super::prices::anthropic(&reply["usage"]));
+                    super::context_tokens::record(&requested, "low", usage);
+                }
+                Ok(_) => {}
+                Err(fault) if unsent || fault.class == "connect" => {}
+                Err(_) => super::context_tokens::unreported(),
+            }
         }
         let count = diagnostics::suspensions();
         let suspended = count != seen;
@@ -1231,6 +1239,9 @@ mod tests {
             assert!(rows[0]["details"]["createMs"].as_u64().unwrap() >= 10);
             assert_eq!(rows[0]["details"]["contextTokens"], 4000, "two Haiku writing passes; preflight counting excluded");
             assert_eq!(rows[0]["details"]["contextTokensPartial"], false);
+            assert_eq!(rows[0]["details"]["passes"], json!([{"model":Tier::Haiku.model(),"effort":"low"}]), "Sonnet's unbilled refusal names no model");
+            assert_eq!(rows[0]["details"]["costNanos"], 2 * (1000 * 100 + 300 * 125 + 700 * 10 + 20 * 500), "two Haiku passes at Haiku's prices");
+            assert_eq!(rows[0]["details"]["costPartial"], false, "a refusal is not billed, so the cost is complete");
             assert_eq!(rows[0]["text"], "Your R780 payment arrived.");
             assert_eq!(rows[0]["tier"], "haiku", "the row says which model wrote it");
             let models = seen.lock().unwrap().clone();

@@ -56,6 +56,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 	ui/components/ComposeExitDialog.qml \
 	ui/components/BackBar.qml \
 	ui/components/SettingsPage.qml ui/components/AiSettings.qml ui/components/PictureSettings.qml \
+	ui/components/SpendingSettings.qml \
 	ui/components/SettingsSidebar.qml \
 	ui/components/ConfirmDeleteDialog.qml \
 	ui/components/SetupPage.qml \
@@ -65,6 +66,7 @@ QML_FILES := ui/components/MarkedText.qml ui/tests/qml/tst_attachment_preview.qm
 QML_FILES += ui/tests/qml/tst_account_message_identity.qml
 QML_FILES += ui/tests/qml/tst_picture_settings.qml
 QML_FILES += ui/tests/qml/tst_settings_pictures.qml
+QML_FILES += ui/tests/qml/tst_spending_settings.qml
 QML_FILES += ui/tests/qml/tst_compose_attachment_recovery.qml
 QML_FILES += ui/tests/qml/tst_compose_geometry.qml
 QML_FILES += ui/tests/qml/tst_event_suggestion_lifecycle.qml
@@ -142,6 +144,9 @@ test-js:
 	node --test tests/test_website.js
 	node ui/tests/test_inbox.js
 	node ui/tests/test_pictures.js
+	node ui/tests/test_spending.js
+	TZ=America/Santiago node ui/tests/test_spending.js
+	TZ=America/Havana node ui/tests/test_spending.js
 	node ui/tests/test_unsaved.js
 	node ui/tests/test_display.js
 	node app/tests/test_theme.js
@@ -260,6 +265,10 @@ test-qml:
 		exit 1; }
 	cargo build --locked --bin omamail
 	python3 tests/run_qml_native.py "$(QMLTESTRUNNER)" -input ui/tests/qml
+	# Settings → AI spending counts from local midnight; these zones skip or repeat a midnight
+	# when the clocks change, which Qt's JavaScript handles differently from Node's.
+	TZ=America/Santiago python3 tests/run_qml_native.py "$(QMLTESTRUNNER)" -input ui/tests/qml/tst_spending_settings.qml
+	TZ=America/Havana python3 tests/run_qml_native.py "$(QMLTESTRUNNER)" -input ui/tests/qml/tst_spending_settings.qml
 	python3 tests/test_sidebar_text.py "$(QMLTESTRUNNER)"
 	python3 tests/test_view_resources.py "$(QMLTESTRUNNER)"
 	python3 tests/test_attachment_resources.py "$(QMLTESTRUNNER)"

@@ -3,7 +3,8 @@ import QtTest 1.3
 import "../../components" as Omamail
 
 // Invariant: the Settings page is shown and hidden, not rebuilt, so opening it must read the sender
-// picture status again; otherwise a keyring problem stays on screen after the keyring is unlocked.
+// picture status and the spending again; otherwise a keyring problem stays on screen after the
+// keyring is unlocked, and the amounts stay as they were when Settings was first opened.
 Item {
   width: 700
   height: 500
@@ -72,11 +73,14 @@ Item {
 
       page.visible = false
       var asked = fakeBackend.count("inbox.pictureStatus")
+      var spendingAsked = fakeBackend.count("ai.spending")
+      verify(spendingAsked > 0, "the spending section asks when the page is built")
       page.visible = true
       compare(fakeBackend.count("inbox.pictureStatus"), asked + 1)
+      compare(fakeBackend.count("ai.spending"), spendingAsked + 1, "opening Settings reads the spending again")
       fakeBackend.last("inbox.pictureStatus").callback({present: true, problem: null, painted: 2, waiting: 0,
         spentTodayCents: 14, dailyLimitCents: 300}, null)
-      compare(status.text, "2 sender pictures painted. About $0.14 spent today of the $3.00 daily limit.")
+      compare(status.text, "2 sender pictures painted. About $0.14 of the $3.00 daily limit used today.")
       verify(findChild(page, "settings-picture-remove").visible)
     }
   }

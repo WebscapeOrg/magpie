@@ -187,7 +187,7 @@ impl Engine {
         if method.starts_with("agent.") {
             return Err("unknown_method");
         }
-        if method.starts_with("inbox.") {
+        if method.starts_with("inbox.") || method == "ai.spending" {
             return self
                 .inbox
                 .call(method, params, self.gmail.clone(), self.local_mail.clone())

@@ -45,7 +45,7 @@ function summary(status) {
   var text = painted + (painted === 1 ? " sender picture" : " sender pictures") + " painted"
   if (waiting > 0) text += ", " + waiting + " waiting"
   if (failed > 0) text += ", " + failed + " could not be painted"
-  text += ". About " + money(spent) + " spent today of the " + money(limit) + " daily limit."
+  text += ". About " + money(spent) + " of the " + money(limit) + " daily limit used today."
   if (waiting > 0 && limit > 0 && spent >= limit - 7) text += " The rest are painted tomorrow."
   return text
 }

@@ -12,6 +12,7 @@
     "inbox.pictureStatus",
     "inbox.setPictureKey",
     "inbox.removePictureKey",
+    "ai.spending",
     "inbox.snooze",
     "inbox.wake",
     "inbox.tick",
@@ -2232,6 +2233,44 @@
       "errorCode": -32602
     },
     {
+      "name": "AI spending needs the starts of today, this week and this month",
+      "method": "ai.spending",
+      "params": {
+        "day": 0,
+        "week": 0
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "AI spending answers each period by feature",
+      "method": "ai.spending",
+      "params": {
+        "day": 0,
+        "week": 0,
+        "month": 0
+      },
+      "equals": {
+        "periods.day.pictures": 0,
+        "periods.week.descriptions": 0,
+        "periods.month.assistant": 0
+      },
+      "types": {
+        "periods.day": "object",
+        "periods.week": "object",
+        "periods.month": "object"
+      }
+    },
+    {
+      "name": "AI spending refuses periods that start in the future",
+      "method": "ai.spending",
+      "params": {
+        "day": 4102444800000,
+        "week": 4102444800000,
+        "month": 4102444800000
+      },
+      "errorCode": -32602
+    },
+    {
       "name": "Inbox snapshot reports the sender picture revision",
       "method": "inbox.snapshot",
       "params": {
@@ -2251,6 +2290,7 @@
       "inbox.pictureStatus",
       "inbox.setPictureKey",
       "inbox.removePictureKey",
+      "ai.spending",
       "inbox.snooze",
       "inbox.wake",
       "inbox.tick",
@@ -2354,6 +2394,9 @@
       "Inbox picture status takes no parameters",
       "Inbox picture status reports the counts Settings shows",
       "Inbox picture key removal takes no parameters",
+      "AI spending needs the starts of today, this week and this month",
+      "AI spending refuses periods that start in the future",
+      "AI spending answers each period by feature",
       "Inbox snapshot reports the sender picture revision",
       "Local status counts mail that cannot be saved"
     ]

@@ -949,6 +949,7 @@ fn a_store_from_an_earlier_build_of_this_change_gains_the_unsaved_generation() {
     drop(store);
     std::fs::remove_dir_all(path).unwrap();
 }
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 #[test]
 fn replies_name_the_newest_message_the_owner_sent_in_each_thread() {
     let path = directory();

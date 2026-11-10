@@ -260,19 +260,19 @@ Item {
       }
       MenuRow {
         id: descriptionsRow
-        text: root.descriptionsEnabled ? "Show original subjects" : "Show AI descriptions"
+        text: root.descriptionsEnabled ? "Show original subjects" : "Show the Point"
         visible: root.hasAgent
         onActivated: { menu.close(); root.descriptionsToggleRequested() }
       }
       MenuRow {
         id: pauseOverviewRow
-        text: root.overviewsPaused ? "Resume AI descriptions" : "Pause new AI descriptions"
+        text: root.overviewsPaused ? "Resume new Points" : "Pause new Points"
         visible: root.hasAgent
         onActivated: { menu.close(); root.overviewPauseRequested() }
       }
       MenuRow {
         id: overviewRow
-        text: "Retry AI descriptions"
+        text: "Retry Points"
         visible: root.hasAgent
         onActivated: { menu.close(); root.overviewRetryRequested() }
       }

@@ -11,10 +11,11 @@
 //! - Only a contact photo or a company logo, and the prompt text in `prompts`, leave Magpie. Names,
 //!   addresses, subjects and message text are never sent. On the phone the painted pictures also go
 //!   to Dave's private iCloud database for his other devices, each with its picture id, kind, paint
-//!   time and, for a portrait, the photo's fingerprint.
+//!   time, the model when it is `MODEL` and, for a portrait, the photo's fingerprint.
 //! - Each picture is paid for once on each device, and usually once across Dave's devices: a
 //!   picture taken in from iCloud is not painted again, but two devices can both paint a new sender
-//!   before either has shared it. A contact whose photo address changes is painted again only
+//!   before either has shared it. The one exception is a picture a device painted with `FLARE`: that
+//!   device paints it once more with `MODEL` (Q-015), after every new picture, and shares it. A contact whose photo address changes is painted again only
 //!   when the photo's pixels changed. A refused picture is not asked for again, a lost one at most
 //!   three times, and a day's spending stops at `DAILY_LIMIT_CENTS`, counted before each request.
 //! - A paid picture outlives a passing gap in the contacts answer: senders keep their portraits
@@ -43,10 +44,12 @@ use std::{
     },
 };
 
-/// OpenAI's gpt-image-2.5 Sunburst, which Dave chose for Magpie on Linux and for Marmalade (Q-007).
-/// The iPhone and iPad use gpt-image-2.5 Flare, which Dave chose for them to get a feel for that
-/// model (C-040); both are billed at the same token prices.
-pub(crate) const MODEL: &str = if super::PHONE_WRITER { "gpt-image-2.5-flare" } else { "gpt-image-2.5-sunburst" };
+/// OpenAI's gpt-image-2.5 Sunburst, which Dave chose for Magpie on Linux and for Marmalade (Q-007),
+/// and for the iPhone and iPad in place of gpt-image-2.5 Flare, whose pictures looked worse (C-048).
+pub(crate) const MODEL: &str = "gpt-image-2.5-sunburst";
+/// gpt-image-2.5 Flare, which the iPhone and iPad painted with before 0.1.38 (C-040). Dave chose to
+/// have the pictures a device painted with it painted again with `MODEL` (Q-015).
+const FLARE: &str = "gpt-image-2.5-flare";
 pub(crate) const DAILY_LIMIT_CENTS: i64 = 300;
 /// Attempts for a picture that keeps failing for reasons that may pass, with the waits between them.
 const ATTEMPTS: i64 = 3;
@@ -406,8 +409,9 @@ fn adopt(row: &mut Value, photo: &str) {
 }
 
 /// Records which picture each Inbox sender gets and returns the pictures due for painting, each
-/// once, portraits first. While `contacts_known` is false a sender keeps a portrait it already has,
-/// because a missing photo then means only that the contacts could not be read.
+/// once, portraits first, and pictures to be painted again with `MODEL` after every new one. While
+/// `contacts_known` is false a sender keeps a portrait it already has, because a missing photo then
+/// means only that the contacts could not be read.
 fn assign(
     state: &mut Value,
     account: &str,
@@ -419,6 +423,7 @@ fn assign(
     let mut senders = object(state, "senders")?;
     let mut subjects = object(state, "subjects")?;
     let mut due = Vec::new();
+    let mut repaints = Vec::new();
     let mut listed = HashSet::new();
     for (sender, subject) in assignments {
         let subject_id = subject.id();
@@ -435,14 +440,25 @@ fn assign(
         if let Subject::Person { photo, .. } = subject {
             adopt(row, photo);
         }
+        // Invariant: a picture this device painted with Flare is painted again with MODEL, once
+        // (Q-015). One taken in from iCloud carries no Flare model, so only the device that painted
+        // it pays for it again, and the others take the new painting in.
+        if row["state"] == "painted" && row["model"] == FLARE && row["repaintGivenUp"].is_null() {
+            row["state"] = json!("repaint");
+            row["attempts"] = json!(0);
+            clear_retry(row);
+        }
         let state = row["state"].as_str().unwrap_or("");
         let ready = row["retryAt"].as_i64().is_none_or(|retry| retry <= at);
-        if matches!(state, "waiting" | "recheck") && ready && listed.insert(subject_id) {
+        if matches!(state, "waiting" | "recheck" | "repaint") && ready && listed.insert(subject_id) {
             let previous = (state == "recheck").then(|| row["reference"].as_str().map(str::to_owned)).flatten();
-            due.push((subject.clone(), previous));
+            let list = if state == "repaint" { &mut repaints } else { &mut due };
+            list.push((subject.clone(), previous));
         }
     }
     due.sort_by_key(|(subject, _)| !matches!(subject, Subject::Person { .. }));
+    repaints.sort_by_key(|(subject, _)| !matches!(subject, Subject::Person { .. }));
+    due.append(&mut repaints);
     state["senders"] = Value::Object(senders);
     state["subjects"] = Value::Object(subjects);
     Ok(due)
@@ -486,9 +502,17 @@ enum Outcome {
     Fault(openai::Fault),
 }
 
-/// Ends a picture's attempts: a portrait being checked again keeps its current picture.
+/// Ends a picture's attempts: a portrait being checked again, or a picture being painted again with
+/// `MODEL`, keeps its current picture, and the second is not painted again.
 fn give_up(row: &mut Value) {
-    let next = if row["state"] == "recheck" { "painted" } else { "failed" };
+    let next = match row["state"].as_str() {
+        Some("recheck") => "painted",
+        Some("repaint") => {
+            row["repaintGivenUp"] = json!(true);
+            "painted"
+        }
+        _ => "failed",
+    };
     row["state"] = json!(next);
     if let Some(row) = row.as_object_mut() {
         row.remove("retryAt");
@@ -941,7 +965,7 @@ async fn run(
 fn has_pictures(state: &Value) -> bool {
     state["subjects"]
         .as_object()
-        .is_some_and(|subjects| subjects.values().any(|row| matches!(row["state"].as_str(), Some("painted" | "recheck"))))
+        .is_some_and(|subjects| subjects.values().any(|row| shows(row)))
 }
 
 /// Records which picture each sender gets and, with a key, paints the ones due. A sender newly
@@ -980,7 +1004,7 @@ fn shown_pictures(state: &Value, assignments: &[(String, Subject)]) -> Vec<Optio
         .iter()
         .map(|(sender, _)| {
             let subject = state["senders"][sender]["subject"].as_str()?;
-            matches!(state["subjects"][subject]["state"].as_str(), Some("painted" | "recheck")).then(|| subject.to_owned())
+            shows(&state["subjects"][subject]).then(|| subject.to_owned())
         })
         .collect()
 }
@@ -988,7 +1012,13 @@ fn shown_pictures(state: &Value, assignments: &[(String, Subject)]) -> Vec<Optio
 /// Whether a listed picture still waits for painting; one taken in from iCloud since the run listed
 /// it does not.
 fn still_due(state: &Value, subject: &str) -> bool {
-    matches!(state["subjects"][subject]["state"].as_str(), Some("waiting" | "recheck"))
+    matches!(state["subjects"][subject]["state"].as_str(), Some("waiting" | "recheck" | "repaint"))
+}
+
+/// Whether a picture is shown: a painted one, including one being checked or painted again, which
+/// keeps showing until its new painting is saved.
+fn shows(row: &Value) -> bool {
+    matches!(row["state"].as_str(), Some("painted" | "recheck" | "repaint"))
 }
 
 /// What a finished request cost in billionths of a dollar for the spending page: a painted picture
@@ -1210,7 +1240,7 @@ pub(crate) fn painted(account: &str, address: &str) -> Result<Option<(String, i6
     let sender = id(&["picture-sender", account, address]);
     let subject = state["senders"][&sender]["subject"].as_str().unwrap_or("").to_owned();
     let row = &state["subjects"][&subject];
-    let shown = matches!(row["state"].as_str(), Some("painted" | "recheck"));
+    let shown = shows(row);
     Ok(shown
         .then(|| row["painted"].as_i64())
         .flatten()
@@ -1259,7 +1289,7 @@ pub(crate) async fn status() -> Result<Value, &'static str> {
     let mut counts: HashMap<&str, i64> = HashMap::new();
     for row in state["subjects"].as_object().into_iter().flatten().map(|(_, row)| row) {
         let shown = match row["state"].as_str().unwrap_or("") {
-            "recheck" => "painted",
+            "recheck" | "repaint" => "painted",
             other => other,
         };
         *counts.entry(shown).or_default() += 1;
@@ -1355,7 +1385,8 @@ const SHARED_LIMIT: u64 = 1024 * 1024;
 /// Pictures painted on this device that iCloud does not have yet, with their JPEGs, for the app to
 /// share with Dave's other devices. A row's `uploaded` is the `painted` time iCloud has, so a
 /// picture painted again is shared again, and one taken from iCloud is never sent back. The photo
-/// address is not shared: the other device has its own from the contacts.
+/// address is not shared: the other device has its own from the contacts. A picture painted with
+/// `MODEL` says so, so the other device knows it is not one to paint again.
 #[cfg(any(feature = "mobile", test))]
 pub(crate) async fn to_share(params: &Value) -> Result<Value, &'static str> {
     use base64::{Engine, engine::general_purpose::STANDARD};
@@ -1390,6 +1421,9 @@ pub(crate) async fn to_share(params: &Value) -> Result<Value, &'static str> {
             let mut picture = json!({"subject": subject, "kind": kind, "painted": painted, "jpeg": STANDARD.encode(bytes)});
             if let Some(reference) = row["reference"].as_str() {
                 picture["reference"] = json!(reference);
+            }
+            if row["model"] == MODEL {
+                picture["model"] = json!(MODEL);
             }
             pictures.push(picture);
         }
@@ -1473,13 +1507,15 @@ struct Shared {
     painted: i64,
     jpeg: Vec<u8>,
     reference: Option<String>,
+    /// Whether the other device painted it with `MODEL`.
+    current_model: bool,
 }
 
 #[cfg(any(feature = "mobile", test))]
 fn shared_picture(row: &Value, at: i64) -> Option<Shared> {
     use base64::{Engine, engine::general_purpose::STANDARD};
     let fields = row.as_object()?;
-    let known = ["subject", "kind", "painted", "jpeg", "reference"];
+    let known = ["subject", "kind", "painted", "jpeg", "reference", "model"];
     if !fields.keys().all(|key| known.contains(&key.as_str())) {
         return None;
     }
@@ -1509,7 +1545,14 @@ fn shared_picture(row: &Value, at: i64) -> Option<Shared> {
         Value::String(text) if is_name(text) => Some(text.clone()),
         _ => return None,
     };
-    Some(Shared { subject: subject.to_owned(), kind: kind.to_owned(), painted, jpeg, reference })
+    // A model other than this device's, such as a newer one on a device updated first, is not kept:
+    // the picture is shown, and this device never paints it again.
+    let current_model = match &row["model"] {
+        Value::Null => false,
+        Value::String(model) => model == MODEL,
+        _ => return None,
+    };
+    Some(Shared { subject: subject.to_owned(), kind: kind.to_owned(), painted, jpeg, reference, current_model })
 }
 
 /// Takes pictures another of Dave's devices painted, so this one shows them without painting
@@ -1542,7 +1585,7 @@ pub(crate) async fn import(params: &Value) -> Result<Value, &'static str> {
                     refused += 1;
                     continue;
                 }
-                let shown = current.is_some_and(|row| matches!(row["state"].as_str(), Some("painted" | "recheck")));
+                let shown = current.is_some_and(shows);
                 if shown && current.and_then(|row| row["painted"].as_i64()).is_some_and(|mine| mine >= picture.painted) {
                     kept += 1;
                     continue;
@@ -1555,6 +1598,9 @@ pub(crate) async fn import(params: &Value) -> Result<Value, &'static str> {
                     json!({"state":"painted","painted":picture.painted,"attempts":0,"kind":picture.kind,"uploaded":picture.painted});
                 if let Some(reference) = picture.reference {
                     row["reference"] = json!(reference);
+                }
+                if picture.current_model {
+                    row["model"] = json!(MODEL);
                 }
                 for field in ["photo", "orphaned"] {
                     if let Some(value) = current.map(|row| &row[field]).filter(|value| !value.is_null()) {

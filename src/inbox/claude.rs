@@ -20,11 +20,12 @@ const REPLY_LIMIT: usize = 8 * 1024 * 1024;
 pub(crate) const REQUEST_LIMIT: usize = 30 * 1024 * 1024;
 // Q-005: Dave chose Sonnet 5.5 for the assistant, with a daily limit of its own (assistant.rs).
 pub(crate) const ASSISTANT_MODEL: &str = "claude-sonnet-5-5";
-// Invariant: spending stops for the day at about $0.50. Each message is counted before it is sent and
-// stays below PROMPT_LIMIT tokens; with the rules and earlier answers a request stays below 100,000
-// tokens, where Haiku 5.5 bills $0.10 per million input and $0.50 per million output tokens.
-const DAILY_SPEND: u64 = 500_000_000;
-const DAILY_CALLS: u64 = 1_500;
+// Invariant: spending stops for the day at about $5, Dave's limit for The Point (4 Nov 2026). Each
+// message is counted with the shared context before it is sent and stays below PROMPT_LIMIT tokens;
+// with the editor's candidates a request stays below 100,000 tokens, where Haiku 5.5 bills $0.10 per
+// million input and $0.50 per million output tokens.
+const DAILY_SPEND: u64 = 5_000_000_000;
+const DAILY_CALLS: u64 = 3_000;
 const PROMPT_LIMIT: u64 = 80_000;
 const PAUSE: i64 = 5 * 60_000;
 // Invariant: a request that failed for a reason that says nothing about it (a lost connection, a
@@ -194,11 +195,11 @@ pub(crate) async fn ready() -> Result<(), &'static str> {
 /// the app leaving the foreground; the messages after it are returned as not asked ("stage":"batch"),
 /// so they are neither sent while Claude cannot answer nor counted against themselves.
 /// `left_before` is the count of times the app left the foreground when the request arrived.
-pub(crate) async fn generate(messages: &Value, left_before: u64) -> Result<Value, &'static str> {
+pub(crate) async fn generate(messages: &Value, context: &Value, left_before: u64) -> Result<Value, &'static str> {
     let key = key().await?;
     let client = client()?;
     let (client, key) = (&client, &key);
-    each_message(messages, |message| async move { describe_one(client, key, &message).await }, diagnostics::suspensions, left_before).await
+    each_message(messages, |message| async move { describe_one(client, key, &message, context).await }, diagnostics::suspensions, left_before).await
 }
 
 async fn each_message<F, Fut>(messages: &Value, mut describe: F, suspensions: fn() -> u64, started: u64) -> Result<Value, &'static str>
@@ -236,23 +237,24 @@ where
     Ok(json!(rows))
 }
 
-async fn describe_one(client: &reqwest::Client, key: &Secret, message: &Value) -> Result<Value, &'static str> {
-    let batch = fit(client, key, json!([message])).await?;
-    match passes(client, key, &batch).await {
-        Err(DOCUMENT_REFUSED) => passes(client, key, &without_documents(&batch).ok_or(INVALID)?).await,
+async fn describe_one(client: &reqwest::Client, key: &Secret, message: &Value, context: &Value) -> Result<Value, &'static str> {
+    let batch = fit(client, key, json!([message]), context).await?;
+    match passes(client, key, &batch, context).await {
+        Err(DOCUMENT_REFUSED) => passes(client, key, &without_documents(&batch).ok_or(INVALID)?, context).await,
         result => result,
     }
 }
 
-async fn passes(client: &reqwest::Client, key: &Secret, batch: &Value) -> Result<Value, &'static str> {
-    describe::generate_with(batch, |prompt| async move { complete(client, key, &prompt, batch).await }).await
+async fn passes(client: &reqwest::Client, key: &Secret, batch: &Value, context: &Value) -> Result<Value, &'static str> {
+    describe::generate_with(batch, context, |prompt| async move { complete(client, key, &prompt, batch).await }).await
 }
 
-/// Counts every message, then drops PDFs and pictures until it fits below PROMPT_LIMIT, so no message
-/// can move a request into the dearer long-prompt price. A message too long without them fails alone.
-async fn fit(client: &reqwest::Client, key: &Secret, mut batch: Value) -> Result<Value, &'static str> {
+/// Counts every message with the rules and context it is sent with, then drops PDFs and pictures
+/// until it fits below PROMPT_LIMIT, so no message can move a request into the dearer long-prompt
+/// price. A message too long without them fails alone.
+async fn fit(client: &reqwest::Client, key: &Secret, mut batch: Value, context: &Value) -> Result<Value, &'static str> {
     loop {
-        let fits = match count(client, key, &batch).await {
+        let fits = match count(client, key, &batch, context).await {
             Ok(tokens) => tokens <= PROMPT_LIMIT,
             Err(DOCUMENT_REFUSED) => false,
             Err(error) => return Err(error),
@@ -477,7 +479,7 @@ async fn counted(reply: &Value) -> Result<(), &'static str> {
 async fn complete(
     client: &reqwest::Client,
     key: &Secret,
-    prompt: &str,
+    prompt: &describe::Prompt,
     messages: &Value,
 ) -> Result<Value, &'static str> {
     let reply = call(client, key, "describe", "/v1/messages", request(prompt, messages)?, messages).await?;
@@ -489,11 +491,10 @@ async fn complete(
     answer(&reply)
 }
 
-/// Counts the tokens of a message's first request, which Anthropic does without charge.
-async fn count(client: &reqwest::Client, key: &Secret, messages: &Value) -> Result<u64, &'static str> {
-    let text = serde_json::to_string(&describe::text_context(messages)).map_err(|_| "overview_input_invalid")?;
-    let mut content = describe::media(messages)?;
-    content.push(json!({"type":"text","text":text}));
+/// Counts the tokens of a message's first request, rules and context included, which Anthropic
+/// does without charge.
+async fn count(client: &reqwest::Client, key: &Secret, messages: &Value, context: &Value) -> Result<u64, &'static str> {
+    let content = contents(&describe::draft(messages, context)?, messages)?;
     let body = serde_json::to_vec(&json!({"model": MODEL, "messages": [{"role": "user", "content": content}]}))
         .map_err(|_| "overview_input_invalid")?;
     if body.len() > REQUEST_LIMIT {
@@ -501,7 +502,7 @@ async fn count(client: &reqwest::Client, key: &Secret, messages: &Value) -> Resu
     }
     let reply = call(client, key, "count", "/v1/messages/count_tokens", body, messages).await?;
     let value: Value = serde_json::from_slice(&reply).map_err(|_| INVALID)?;
-    // The rules sent with the real request add a few thousand tokens; PROMPT_LIMIT leaves room for them.
+    // The editing and repair passes add the earlier answers; PROMPT_LIMIT leaves room for them.
     value["input_tokens"].as_u64().ok_or(INVALID)
 }
 
@@ -568,13 +569,23 @@ fn without(messages: &Value, kind: &str) -> Option<Value> {
     removed.then_some(plain)
 }
 
-/// Media first and the instructions last, so the second and third passes reuse the cached media.
-fn request(prompt: &str, messages: &Value) -> Result<Vec<u8>, &'static str> {
-    let mut content = describe::media(messages)?;
-    if let Some(last) = content.last_mut() {
+/// The rules and context first, then the media, then this pass's task, with a cache point after the
+/// shared part (the same for every message in a run) and after the media (the same for each of a
+/// message's passes).
+fn contents(prompt: &describe::Prompt, messages: &Value) -> Result<Vec<Value>, &'static str> {
+    let mut content = vec![json!({"type": "text", "text": prompt.shared, "cache_control": {"type": "ephemeral"}})];
+    let media = describe::media(messages)?;
+    let pictures = !media.is_empty();
+    content.extend(media);
+    if pictures && let Some(last) = content.last_mut() {
         last["cache_control"] = json!({"type": "ephemeral"});
     }
-    content.push(json!({"type": "text", "text": prompt}));
+    content.push(json!({"type": "text", "text": prompt.task}));
+    Ok(content)
+}
+
+fn request(prompt: &describe::Prompt, messages: &Value) -> Result<Vec<u8>, &'static str> {
+    let content = contents(prompt, messages)?;
     let body = json!({
         "model": MODEL,
         "max_tokens": 8000,
@@ -913,6 +924,8 @@ mod tests {
         assert_eq!(cost(&json!({"usage":{"cache_read_input_tokens":50_000}})), 500_000, "cached media costs a tenth");
         assert_eq!(cost(&json!({})), 0);
         let at = 1_800_000_000_000;
+        assert_eq!(DAILY_SPEND, 5_000_000_000, "Dave's limit for The Point is about $5 a day");
+        assert_eq!(waiting(&json!({"day":today(at),"spent":4_999_999_999u64}), at), None, "$4.99 of reading leaves room for more");
         assert_eq!(waiting(&json!({"day":today(at),"spent":DAILY_SPEND}), at), Some("ai_daily_limit"));
         assert_eq!(waiting(&json!({"day":today(at),"calls":DAILY_CALLS}), at), Some("ai_daily_limit"));
         assert_eq!(waiting(&json!({"day":today(at),"spent":DAILY_SPEND - 1,"calls":DAILY_CALLS - 1}), at), None);
@@ -942,10 +955,14 @@ mod tests {
         }
     }
 
+    fn prompt() -> describe::Prompt {
+        describe::Prompt { shared: "RULES AND CONTEXT".into(), task: "TASK".into() }
+    }
+
     #[test]
-    fn requests_use_haiku_low_effort_and_put_cached_media_before_the_instructions() {
+    fn requests_use_haiku_low_effort_and_cache_the_shared_part_and_the_media_before_the_task() {
         let messages = json!([{"id":"a","body":"Invoice attached","files":[{"name":"scan.png","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}},{"type":"text","text":"ignored here"}]}]}]);
-        let body: Value = serde_json::from_slice(&request("RULES", &messages).unwrap()).unwrap();
+        let body: Value = serde_json::from_slice(&request(&prompt(), &messages).unwrap()).unwrap();
         assert_eq!(body["model"], "claude-haiku-5-5");
         assert_eq!(body["output_config"]["effort"], "low");
         for removed in ["temperature", "top_p", "top_k", "system", "thinking"] {
@@ -954,13 +971,18 @@ mod tests {
         let content = body["messages"][0]["content"].as_array().unwrap();
         assert_eq!(body["messages"].as_array().unwrap().len(), 1);
         assert_eq!(body["messages"][0]["role"], "user");
-        assert!(content[0]["text"].as_str().unwrap().contains("message \"a\" file:0"));
-        assert_eq!(content[1]["type"], "image");
-        assert_eq!(content[1]["cache_control"], json!({"type":"ephemeral"}));
-        assert_eq!(content[2], json!({"type":"text","text":"RULES"}));
-        assert_eq!(content.len(), 3);
-        let plain: Value = serde_json::from_slice(&request("RULES", &json!([{"id":"b","body":"Hello"}])).unwrap()).unwrap();
-        assert_eq!(plain["messages"][0]["content"], json!([{"type":"text","text":"RULES"}]), "text-only mail sets no cache point");
+        assert_eq!(content[0], json!({"type":"text","text":"RULES AND CONTEXT","cache_control":{"type":"ephemeral"}}));
+        assert!(content[1]["text"].as_str().unwrap().contains("message \"a\" file:0"));
+        assert_eq!(content[2]["type"], "image");
+        assert_eq!(content[2]["cache_control"], json!({"type":"ephemeral"}));
+        assert_eq!(content[3], json!({"type":"text","text":"TASK"}));
+        assert_eq!(content.len(), 4);
+        let plain: Value = serde_json::from_slice(&request(&prompt(), &json!([{"id":"b","body":"Hello"}])).unwrap()).unwrap();
+        assert_eq!(
+            plain["messages"][0]["content"],
+            json!([{"type":"text","text":"RULES AND CONTEXT","cache_control":{"type":"ephemeral"}},{"type":"text","text":"TASK"}]),
+            "text-only mail caches only the shared part"
+        );
     }
 
     #[test]
@@ -1045,7 +1067,7 @@ mod tests {
         });
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
         let key = Secret::new(synthetic_key().into_bytes()).unwrap();
-        let _ = TEST_ORIGIN.scope(origin, complete(&client, &key, "Describe.", &json!([{"id":"a"}]))).await;
+        let _ = TEST_ORIGIN.scope(origin, complete(&client, &key, &describe::Prompt { shared: "Rules.".into(), task: "Describe.".into() }, &json!([{"id":"a"}]))).await;
         assert_eq!(server.await.unwrap(), "POST /v1/messages HTTP/1.1");
         let since = now() - 3_600_000;
         let ledger = super::super::spending::spending(&json!({"day":since,"week":since,"month":since})).await.unwrap();

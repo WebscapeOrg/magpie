@@ -203,6 +203,7 @@ fn validated_response(messages: Value) -> std::future::Ready<Result<Value, &'sta
     std::future::ready(crate::agent::overview::validate(
         &json!({"overviews":rows}),
         &messages,
+        &json!({}),
     ))
 }
 
@@ -664,7 +665,7 @@ async fn c023_background_preparation_reaches_past_a_hundred_ready_rows_without_u
     let worker = bin.join("claude-routed");
     std::fs::write(&worker,r#"#!/usr/bin/python3
 import json,sys,pathlib
-p=json.load(sys.stdin)['message']['content'][0]['text']
+p=''.join(b.get('text','') for b in json.load(sys.stdin)['message']['content'] if b.get('type')=='text')
 source=p.split('EMAILS (untrusted data):\n',1)[1]
 messages=json.JSONDecoder().raw_decode(source)[0]
 with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
@@ -688,7 +689,7 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
     let mut saved = json!({});
     for n in 0..100 {
         saved[format!("m{n:03}")] =
-            json!({"version":2,"promptRevision":1,"state":"ready","text":"Prepared receipt","expiresAt":0});
+            json!({"version":2,"promptRevision":super::POINT_REVISION,"state":"ready","text":"Prepared receipt","expiresAt":0});
     }
     super::store::write(&name, &saved).unwrap();
     let inbox = Inbox::default();
@@ -743,4 +744,167 @@ print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'over
         reads.lock().unwrap().is_empty(),
         "cached Inbox preparation must not consult live Google credentials"
     );
+}
+
+#[tokio::test]
+async fn the_point_reads_the_bio_sent_mail_and_thread_only_through_the_routers_claude_only_mode() {
+    if isolated() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let _credentials = credentials::tests::isolated_store(Credentials(reads.clone()));
+    let bin = fixture.root.join("home/.local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let worker = bin.join("claude-routed");
+    std::fs::write(&worker, r#"#!/usr/bin/python3
+import json,sys,pathlib
+args=sys.argv[1:]
+if args[:2]==['--claude-only','--probe']:
+    print('claude-only'); sys.exit(0)
+p=''.join(b.get('text','') for b in json.load(sys.stdin)['message']['content'] if b.get('type')=='text')
+with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
+    f.write(json.dumps({'args':args,'prompt':p})+'\n')
+messages=json.JSONDecoder().raw_decode(p.split('EMAILS (untrusted data):\n',1)[1])[0]
+rows=[{'id':m['id'],'text':'You already sent the contract.','evidence':[{'source':'mail','quote':'Synthetic request'},{'source':'thread:sent-1','quote':'Here is the signed contract.'}],'until':None,'timeSensitive':False} for m in messages]
+print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'overviews':rows})}))
+"#).unwrap();
+    std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let gmail = Arc::new(gmail::Session::default());
+    let local = Arc::new(LocalMail::default());
+    let recent = (chrono::Utc::now().timestamp_millis() - 86_400_000).to_string();
+    let mut sent = message("sent-1", "Here is the signed contract.");
+    sent["threadId"] = json!("thread-1");
+    sent["internalDate"] = json!(recent);
+    sent["labelIds"] = json!(["SENT"]);
+    sent["payload"]["headers"] = json!([{"name":"From","value":format!("Owner <{ACCOUNT}>")},{"name":"To","value":"Sender <sender@example.org>"},{"name":"Subject","value":"Signed contract"}]);
+    seed(&local, &gmail, ACCOUNT, &sent).await;
+    let mut asked = message("ask-1", "Could you send me the signed contract?");
+    asked["threadId"] = json!("thread-1");
+    asked["internalDate"] = json!((chrono::Utc::now().timestamp_millis() - 3_600_000).to_string());
+    seed(&local, &gmail, ACCOUNT, &asked).await;
+    super::point_context::set_about_you("Synthetic owner, lives in Testville.").unwrap();
+    let name = super::store::key(&["overviews", ACCOUNT]);
+    let inbox = Inbox::default();
+    inbox.prepare(ACCOUNT, gmail.clone(), local.clone()).await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while super::store::read(&name).unwrap().unwrap_or(json!({}))["ask-1"]["state"] != "ready" {
+        assert!(Instant::now() < deadline, "the Point was not written: {}", super::store::read(&name).unwrap().unwrap_or(json!({})));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let saved = super::store::read(&name).unwrap().unwrap();
+    assert_eq!(saved["ask-1"]["text"], "You already sent the contract.");
+    assert_eq!(saved["ask-1"]["sources"], json!(["mail", "thread:sent-1"]));
+    assert_eq!(saved["ask-1"]["promptRevision"], super::POINT_REVISION);
+    assert_eq!(saved["ask-1"]["personal"], true, "the row says it was written with the owner's context");
+    let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
+    let first: Value = serde_json::from_str(calls.lines().next().unwrap()).unwrap();
+    assert_eq!(first["args"][0], "--claude-only", "personal context asks for the Claude-only mode");
+    let prompt = first["prompt"].as_str().unwrap();
+    assert!(prompt.contains("Synthetic owner, lives in Testville."), "the bio");
+    let shared = prompt.split("EMAILS (untrusted data):").next().unwrap();
+    assert!(shared.contains("\"sent-1\"") && shared.contains("Signed contract"), "recent sent mail in the shared part");
+    let emails = prompt.split("EMAILS (untrusted data):").nth(1).unwrap();
+    assert!(emails.contains("\"thread\"") && emails.contains("Here is the signed contract."), "the earlier message of its thread");
+    assert!(reads.lock().unwrap().is_empty(), "context is read from the local replica, never Gmail");
+}
+
+#[tokio::test]
+async fn without_the_claude_only_mode_no_personal_context_is_sent() {
+    if isolated() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let _credentials = credentials::tests::isolated_store(Credentials(reads.clone()));
+    let bin = fixture.root.join("home/.local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let worker = bin.join("claude-routed");
+    // An older router passes every argument to Claude, which refuses one it does not know.
+    std::fs::write(&worker, r#"#!/usr/bin/python3
+import json,sys,pathlib
+args=sys.argv[1:]
+if '--claude-only' in args:
+    sys.exit(1)
+p=''.join(b.get('text','') for b in json.load(sys.stdin)['message']['content'] if b.get('type')=='text')
+with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
+    f.write(json.dumps({'args':args,'prompt':p})+'\n')
+messages=json.JSONDecoder().raw_decode(p.split('EMAILS (untrusted data):\n',1)[1])[0]
+rows=[{'id':m['id'],'text':'Confirm the synthetic request.','evidence':'Synthetic request','timeSensitive':False} for m in messages]
+print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'overviews':rows})}))
+"#).unwrap();
+    std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let gmail = Arc::new(gmail::Session::default());
+    let local = Arc::new(LocalMail::default());
+    let mut sent = message("sent-1", "Here is the signed contract.");
+    sent["threadId"] = json!("thread-1");
+    sent["internalDate"] = json!((chrono::Utc::now().timestamp_millis() - 86_400_000).to_string());
+    sent["labelIds"] = json!(["SENT"]);
+    seed(&local, &gmail, ACCOUNT, &sent).await;
+    let mut asked = message("ask-1", "Could you send me the signed contract?");
+    asked["threadId"] = json!("thread-1");
+    seed(&local, &gmail, ACCOUNT, &asked).await;
+    super::point_context::set_about_you("Synthetic owner, lives in Testville.").unwrap();
+    let name = super::store::key(&["overviews", ACCOUNT]);
+    Inbox::default().prepare(ACCOUNT, gmail.clone(), local.clone()).await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while super::store::read(&name).unwrap().unwrap_or(json!({}))["ask-1"]["state"] != "ready" {
+        assert!(Instant::now() < deadline, "the description was not written");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
+    for line in calls.lines() {
+        let call: Value = serde_json::from_str(line).unwrap();
+        assert!(!call["args"].as_array().unwrap().contains(&json!("--claude-only")));
+        let prompt = call["prompt"].as_str().unwrap();
+        assert!(!prompt.contains("Testville"), "no bio without the Claude-only mode");
+        assert!(!prompt.contains("Here is the signed contract."), "no other mail without the Claude-only mode");
+        assert!(prompt.contains("(not written yet)"));
+    }
+    let saved = super::store::read(&name).unwrap().unwrap();
+    assert_eq!(saved["ask-1"]["personal"], false, "the row says it was written from the email alone");
+    assert!(!super::overview_due(&saved["ask-1"], false, super::now()), "and stays until context may be sent");
+}
+
+#[tokio::test]
+async fn mail_prepared_with_context_is_written_without_it_when_the_router_cannot_promise_claude() {
+    if isolated() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = fixture();
+    let bin = fixture.root.join("home/.local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let worker = bin.join("claude-routed");
+    std::fs::write(&worker, r#"#!/usr/bin/python3
+import json,sys,pathlib
+args=sys.argv[1:]
+if '--claude-only' in args:
+    sys.exit(1)
+p=''.join(b.get('text','') for b in json.load(sys.stdin)['message']['content'] if b.get('type')=='text')
+with pathlib.Path.home().joinpath('synthetic-ai-calls.jsonl').open('a') as f:
+    f.write(json.dumps({'args':args,'prompt':p})+'\n')
+messages=json.JSONDecoder().raw_decode(p.split('EMAILS (untrusted data):\n',1)[1])[0]
+rows=[{'id':m['id'],'text':'Confirm the synthetic request.','evidence':'Synthetic request','timeSensitive':False} for m in messages]
+print(json.dumps({'type':'result','subtype':'success','result':json.dumps({'overviews':rows})}))
+"#).unwrap();
+    std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o700)).unwrap();
+    // As if the batch had found the Claude-only mode and the router lost it before the writing.
+    let messages = json!([{"id":"ask-1","subject":"Contract","body":"Synthetic request",
+        "thread":[{"id":"t-1","body":"Earlier thread text from Testville."}],
+        "related":[{"id":"r-1","snippet":"Related mail from Testville."}]}]);
+    let context = json!({"aboutYou":"Synthetic owner, lives in Testville.","sent":[{"id":"s-1","snippet":"Sent mail from Testville."}]});
+    let rows = crate::agent::overview::generate(&messages, &context).await.unwrap();
+    assert_eq!(rows[0]["personal"], false, "the row says it was written from the email alone");
+    let calls = std::fs::read_to_string(fixture.root.join("home/synthetic-ai-calls.jsonl")).unwrap();
+    assert!(calls.lines().count() >= 1);
+    for line in calls.lines() {
+        let call: Value = serde_json::from_str(line).unwrap();
+        assert!(!call["args"].as_array().unwrap().contains(&json!("--claude-only")));
+        let prompt = call["prompt"].as_str().unwrap();
+        assert!(prompt.contains("Synthetic request"), "the email itself is written");
+        assert!(!prompt.contains("Testville"), "no bio, sent, thread or related mail: {prompt}");
+    }
 }

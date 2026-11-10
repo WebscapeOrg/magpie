@@ -722,9 +722,9 @@ fn prepared_painted_avatars_of_removed_accounts_are_deleted() {
 }
 
 #[test]
-fn the_phone_paints_one_flare_picture_at_a_time_and_linux_two_with_sunburst() {
+fn the_phone_paints_one_picture_at_a_time_and_linux_two_both_with_sunburst() {
     if super::super::PHONE_WRITER {
-        assert_eq!((MODEL, IN_FLIGHT), ("gpt-image-2.5-flare", 1));
+        assert_eq!((MODEL, IN_FLIGHT), ("gpt-image-2.5-sunburst", 1));
     } else {
         assert_eq!((MODEL, IN_FLIGHT), ("gpt-image-2.5-sunburst", 2));
     }
@@ -1243,4 +1243,173 @@ async fn sharing_calls_refuse_unexpected_shapes() {
     for params in [json!(null), json!([]), json!({"all": true})] {
         assert_eq!(unshared(&params).await.unwrap_err(), "invalid_params", "{params}");
     }
+}
+
+fn painted_row(kind: &str, painted: i64, model: Option<&str>) -> Value {
+    let mut row = json!({"state":"painted","painted":painted,"attempts":0,"kind":kind,"uploaded":painted});
+    if let Some(model) = model {
+        row["model"] = json!(model);
+    }
+    row
+}
+
+/// A picture this device painted with Flare is painted again with Sunburst once, after every new
+/// picture; one taken in from iCloud or already painted with Sunburst is not, and one that cannot be
+/// painted again keeps its picture and is not tried again (Q-015).
+#[test]
+fn a_picture_painted_here_with_flare_is_painted_again_once_after_new_ones() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let flare_letter = Subject::Monogram { letter: 'F' };
+    let flare_face = person("pat@gmail.com", "https://lh3.googleusercontent.com/a/pat");
+    let sunburst = Subject::Monogram { letter: 'S' };
+    let taken_in = Subject::Monogram { letter: 'I' };
+    let new = Subject::Monogram { letter: 'N' };
+    let mut face = painted_row("person", AT - 10, Some(FLARE));
+    face["photo"] = json!("https://lh3.googleusercontent.com/a/pat");
+    face["reference"] = json!("a".repeat(64));
+    let dir = directory(true).unwrap().unwrap();
+    let mut state = json!({"subjects": {
+        flare_letter.id(): painted_row("monogram", AT - 10, Some(FLARE)),
+        flare_face.id(): face,
+        sunburst.id(): painted_row("monogram", AT - 10, Some(MODEL)),
+        taken_in.id(): painted_row("monogram", AT - 10, None),
+    }});
+    let assignments: Vec<(String, Subject)> = [&flare_letter, &flare_face, &sunburst, &taken_in, &new]
+        .iter()
+        .enumerate()
+        .map(|(index, subject)| (format!("s{index}"), (*subject).clone()))
+        .collect();
+
+    let due = assign(&mut state, "one", &assignments, true, AT).unwrap();
+    assert_eq!(due, vec![(new.clone(), None), (flare_face.clone(), None), (flare_letter.clone(), None)],
+        "the new picture first, then the portrait and the letter painted with Flare, with no fingerprint to skip on");
+    assert_eq!(state["subjects"][flare_letter.id()]["state"], "repaint");
+    assert_eq!(shown_pictures(&state, &assignments)[0], Some(flare_letter.id()), "it shows its picture until the new one is saved");
+    assert!(still_due(&state, &flare_letter.id()));
+    assert!(!still_due(&state, &sunburst.id()) && !still_due(&state, &taken_in.id()));
+
+    let painted = Outcome::Painted { jpeg: b"jpeg".to_vec(), cents: 2, micro_dollars: 14_000, reference: None };
+    record(&dir, &mut state, &flare_letter.id(), painted, AT, 0).unwrap();
+    let row = &state["subjects"][flare_letter.id()];
+    assert_eq!((&row["state"], &row["model"], &row["painted"]), (&json!("painted"), &json!(MODEL), &json!(AT)));
+    assert!(row["uploaded"].is_null(), "the new painting is shared again");
+
+    // A portrait whose photo cannot be fetched keeps its Flare picture, and is not tried again.
+    for _ in 0..ATTEMPTS {
+        record(&dir, &mut state, &flare_face.id(), Outcome::NoReference, AT, 0).unwrap();
+    }
+    let row = &state["subjects"][flare_face.id()];
+    assert_eq!((&row["state"], &row["model"], &row["repaintGivenUp"]), (&json!("painted"), &json!(FLARE), &json!(true)));
+
+    let due = assign(&mut state, "one", &assignments, true, AT + 7 * 3_600_000).unwrap();
+    assert_eq!(due, vec![(new.clone(), None)], "a picture painted again, or given up, is not painted again");
+}
+
+/// A run sends a picture painted here with Flare to OpenAI again with Sunburst. Until the new one is
+/// saved, the old one shows and Settings counts it as painted; then the new one is offered to iCloud.
+#[tokio::test]
+async fn a_run_paints_a_flare_picture_again_and_shares_the_new_one() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let _store = crate::credentials::tests::isolated_store(Recording(Arc::new(StdMutex::new(Vec::new()))));
+    let server = Server::new(vec![(200, picture_reply())]).await;
+    let subject = Subject::Monogram { letter: 'K' };
+    let name = subject.id();
+    change(|dir, state| {
+        fs::atomic_replace(dir, &format!("{name}.jpg"), &jpeg_bytes(8))?;
+        state["subjects"] = json!({&name: painted_row("monogram", AT, Some(FLARE))});
+        Ok(())
+    })
+    .unwrap();
+    let assignments = vec![(id(&["picture-sender", "me@example.org", "kim@gmail.com"]), subject.clone())];
+    let due = change(|_, state| assign(state, &id(&["picture-account", "me@example.org"]), &assignments, true, now())).unwrap();
+    assert_eq!(due, vec![(subject.clone(), None)]);
+    assert_eq!(painted("me@example.org", "kim@gmail.com").unwrap(), Some((name.clone(), AT)), "the Flare picture shows meanwhile");
+    let status = status().await.unwrap();
+    assert_eq!((status["painted"].as_i64(), status["waiting"].as_i64()), (Some(1), Some(0)));
+    assert_eq!(to_share(&json!({"limit": 8})).await.unwrap()["pictures"], json!([]));
+
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    openai::with_test_transport(client, server.origin.clone(), paint_all(due, key(), 0)).await.unwrap();
+    let requests = server.requests();
+    assert_eq!(requests.len(), 1);
+    let sent: Value = serde_json::from_slice(&requests[0].2).unwrap();
+    assert_eq!(sent["model"], MODEL);
+    let (shown, painted_at) = painted("me@example.org", "kim@gmail.com").unwrap().unwrap();
+    assert!(shown == name && painted_at > AT, "the new painting shows");
+    assert_ne!(picture_bytes(&name), jpeg_bytes(8));
+    let listed = to_share(&json!({"limit": 8})).await.unwrap();
+    let pictures = listed["pictures"].as_array().unwrap();
+    assert_eq!(pictures.len(), 1);
+    assert_eq!((&pictures[0]["painted"], &pictures[0]["model"]), (&json!(painted_at), &json!(MODEL)));
+}
+
+/// A picture from iCloud keeps its model only when it is Sunburst, so a device never paints again a
+/// picture another device painted with Flare: that device paints it again, and this one takes the
+/// newer painting in. An older painting does not replace a picture waiting to be painted again.
+#[tokio::test]
+async fn only_the_device_that_painted_a_flare_picture_paints_it_again() {
+    if isolated() {
+        return;
+    }
+    let _fixture = fixture();
+    let mine = Subject::Monogram { letter: 'M' };
+    let waiting = Subject::Monogram { letter: 'W' };
+    change(|dir, state| {
+        for subject in [&mine, &waiting] {
+            fs::atomic_replace(dir, &format!("{}.jpg", subject.id()), &jpeg_bytes(8))?;
+        }
+        state["subjects"] = json!({
+            mine.id(): painted_row("monogram", AT - 10, Some(FLARE)),
+            waiting.id(): painted_row("monogram", AT - 10, Some(FLARE)),
+        });
+        Ok(())
+    })
+    .unwrap();
+    let with_model = |subject: &Subject, painted: i64, model: Value| {
+        let mut row = shared_row(&subject.id(), "monogram", painted, &jpeg_bytes(16));
+        row["model"] = model;
+        row
+    };
+    let (flare, sunburst, unmarked) =
+        (Subject::Monogram { letter: 'T' }, Subject::Monogram { letter: 'U' }, Subject::Monogram { letter: 'V' });
+    let reply = import(&json!({"pictures": [
+        with_model(&flare, AT, json!(FLARE)),
+        with_model(&sunburst, AT, json!(MODEL)),
+        shared_row(&unmarked.id(), "monogram", AT, &jpeg_bytes(16)),
+        with_model(&Subject::Monogram { letter: 'X' }, AT, json!(5)),
+    ]}))
+    .await
+    .unwrap();
+    assert_eq!((reply["stored"].as_i64(), reply["refused"].as_i64()), (Some(3), Some(1)), "a model that is not text is refused");
+    let rows = subjects();
+    assert_eq!(
+        (&rows[flare.id()]["model"], &rows[sunburst.id()]["model"], &rows[unmarked.id()]["model"]),
+        (&Value::Null, &json!(MODEL), &Value::Null)
+    );
+
+    let assignments: Vec<(String, Subject)> = [&mine, &waiting, &flare, &sunburst, &unmarked]
+        .iter()
+        .enumerate()
+        .map(|(index, subject)| (format!("s{index}"), (*subject).clone()))
+        .collect();
+    let due = change(|_, state| assign(state, "one", &assignments, true, AT)).unwrap();
+    assert_eq!(due, vec![(mine.clone(), None), (waiting.clone(), None)], "only the pictures painted here with Flare");
+
+    // The other device painted M again first: its newer painting replaces this one's, which is no
+    // longer due. An older painting of W does not replace it.
+    let reply = import(&json!({"pictures": [with_model(&mine, AT, json!(MODEL)), with_model(&waiting, AT - 20, json!(MODEL))]}))
+        .await
+        .unwrap();
+    assert_eq!((reply["stored"].as_i64(), reply["kept"].as_i64()), (Some(1), Some(1)));
+    let state = read_state(&directory(false).unwrap().unwrap()).unwrap();
+    assert_eq!((&state["subjects"][mine.id()]["state"], &state["subjects"][mine.id()]["model"]), (&json!("painted"), &json!(MODEL)));
+    assert!(!still_due(&state, &mine.id()));
+    assert!(still_due(&state, &waiting.id()));
+    assert_eq!(picture_bytes(&waiting.id()), jpeg_bytes(8));
 }

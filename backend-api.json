@@ -12,6 +12,7 @@
     "inbox.pictureStatus",
     "inbox.setPictureKey",
     "inbox.removePictureKey",
+    "inbox.aboutYou",
     "ai.spending",
     "inbox.snooze",
     "inbox.wake",
@@ -2234,6 +2235,33 @@
       "errorCode": -32602
     },
     {
+      "name": "Inbox about you rejects unknown fields",
+      "method": "inbox.aboutYou",
+      "params": {
+        "text": "Synthetic owner",
+        "accountId": "contract@example.org"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox about you refuses markup and invisible characters",
+      "method": "inbox.aboutYou",
+      "params": {
+        "text": "Synthetic <b>owner</b>"
+      },
+      "errorCode": -32602
+    },
+    {
+      "name": "Inbox about you returns the saved bio and its limit",
+      "method": "inbox.aboutYou",
+      "params": {},
+      "types": {
+        "text": "string",
+        "updated": "number",
+        "limit": "number"
+      }
+    },
+    {
       "name": "AI spending needs the starts of today, this week and this month",
       "method": "ai.spending",
       "params": {
@@ -2291,6 +2319,7 @@
       "inbox.pictureStatus",
       "inbox.setPictureKey",
       "inbox.removePictureKey",
+      "inbox.aboutYou",
       "ai.spending",
       "inbox.snooze",
       "inbox.wake",
@@ -2399,7 +2428,10 @@
       "AI spending refuses periods that start in the future",
       "AI spending answers each period by feature",
       "Inbox snapshot reports the sender picture revision",
-      "Local status counts mail that cannot be saved"
+      "Local status counts mail that cannot be saved",
+      "Inbox about you rejects unknown fields",
+      "Inbox about you refuses markup and invisible characters",
+      "Inbox about you returns the saved bio and its limit"
     ]
   },
   "releasedContract": {

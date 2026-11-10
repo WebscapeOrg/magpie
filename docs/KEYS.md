@@ -177,7 +177,7 @@ Back and `Escape` close an untouched composition immediately without saving, inc
 
 The attachment shelf reveals a card when Tab reaches its Open or Save control. Enter or Space activates the focused control. Those controls accept Qt’s shortcut override for their activation keys so the reader’s Open and selection shortcuts do not intercept them. Escape keeps the reader’s normal Back behavior.
 
-The label delete confirmation initially focuses Delete. Tab and Shift+Tab cycle between Delete and Cancel; Return or Enter activates the focused button. Escape cancels.
+The label delete confirmation opens on Cancel, as Magpie Calendar's does, so Return on opening deletes nothing. Tab and Shift+Tab move between Cancel, Delete and any other choices it offers; Return or Enter activates the focused button. Escape cancels.
 
 ## Why the rail is numbered and not chorded
 

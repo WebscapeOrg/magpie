@@ -250,6 +250,15 @@ Item {
 
     function kinds() { return app.navKinds.join(",") }
 
+    // Invariant: a test that stopped with a confirmation open must not leave it over the next one.
+    property var tip: null
+    function cleanup() {
+      var dialog = findChild(app, "delete-confirmation")
+      if (dialog && dialog.opened) dialog.close()
+      if (tip) { tip.destroy(); tip = null }
+      if (app.composing) app.back()
+    }
+
     function init() {
       // Invariant: A test that failed part way through its scales must not leave the next
       // one measuring at somebody else's.
@@ -738,6 +747,100 @@ Item {
       compare(field.text, "", "the letter is a shortcut again, not text")
       compare(mailService.count("act:archive:message-1"), 1,
         "and the list's keys work with the reader open")
+    }
+
+    // Invariant: Down and Up stay on in the list and the reader while an overlay is open, but with a
+    // confirmation open they scroll its words and run no shortcut behind it, and Escape closes only it.
+    function test_down_in_a_confirmation_scrolls_its_words_not_the_list_data() {
+      return [{ tag: "list", context: "list", kinds: "list" },
+              { tag: "reader", context: "reader", kinds: "list,reader" }]
+    }
+    function test_down_in_a_confirmation_scrolls_its_words_not_the_list(data) {
+      if (data.context === "reader") app.openMessage("message-1")
+      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      verify(scope)
+      tryCompare(scope, "keyContext", data.context)
+      scope.applyContextFocus()
+      var router = findChild(app, "key-router")
+      var shortcuts = []
+      var heard = function(id) { shortcuts.push(id) }
+      router.triggered.connect(heard)
+      var cursor = app.cursorId
+      var dialog = findChild(app, "delete-confirmation")
+      var long = ""
+      for (var sentence = 0; sentence < 80; sentence++) long += "Every label beneath it is removed from the server. "
+      dialog.parent.openFor({ kind: "label", labelId: "Work", name: "Work", accountId: "", message: long })
+      tryCompare(dialog, "opened", true)
+      wait(30)
+      // A focus call from navigation or a change of context, as when a send finishes behind it.
+      scope.applyContextFocus()
+      verify(named(dialog.contentItem, "delete-cancel").activeFocus, "the confirmation keeps the keyboard")
+      var words = findChild(dialog, "confirm-words")
+      verify(words.contentHeight > words.height + 1, "the words do not fit: " + words.contentHeight + " in " + words.height)
+      compare(words.contentY, 0)
+      keyClick(Qt.Key_Down)
+      verify(words.contentY > 0, "Down scrolls the confirmation's words")
+      keyClick(Qt.Key_Up)
+      compare(words.contentY, 0, "Up scrolls them back")
+      keyClick(Qt.Key_Escape)
+      tryCompare(dialog, "opened", false)
+      router.triggered.disconnect(heard)
+      compare(shortcuts, [], "no shortcut ran behind the confirmation")
+      compare(app.cursorId, cursor, "the list's cursor stayed where it was")
+      compare(kinds(), data.kinds, "Escape closed only the confirmation")
+    }
+
+    // Invariant: a message started from outside while a confirmation is open gets the keyboard once the
+    // confirmation closes, not before, even if another window had the keyboard in between.
+    function test_a_message_started_behind_a_confirmation_gets_the_keyboard_when_it_closes_data() {
+      return [{ tag: "window stays in front", away: false }, { tag: "another window has the keyboard meanwhile", away: true }]
+    }
+    function test_a_message_started_behind_a_confirmation_gets_the_keyboard_when_it_closes(data) {
+      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      tryCompare(scope, "keyContext", "list")
+      scope.applyContextFocus()
+      var dialog = findChild(app, "delete-confirmation")
+      dialog.parent.openFor({ kind: "label", labelId: "Work", name: "Work", accountId: "", message: "" })
+      tryCompare(dialog, "opened", true)
+      wait(30)
+      app.startCompose("new")
+      tryCompare(scope, "keyContext", "compose")
+      wait(30)
+      verify(named(dialog.contentItem, "delete-cancel").activeFocus, "the confirmation keeps the keyboard while open")
+      if (data.away) {
+        // As the window does when another window takes the keyboard, and when it gets it back.
+        var content = app.Window.window.contentItem
+        content.focus = false
+        wait(30)
+        content.focus = true
+        wait(30)
+        verify(named(dialog.contentItem, "delete-cancel").activeFocus, "the confirmation gets the keyboard back")
+      }
+      keyClick(Qt.Key_Escape)
+      tryCompare(dialog, "opened", false)
+      var to = having(app, function(item) { return item.objectName === "compose-to-field" })
+      verify(to)
+      tryVerify(function() { return to.activeFocus }, 1000, "the new message has the keyboard once the confirmation closes")
+      compare(scope.contextFocusWaiting, false, "nothing is left waiting to move the keyboard later")
+      app.back()
+      tryCompare(app, "composing", false)
+    }
+
+    // Invariant: a tooltip on show does not hold the keyboard, so it never keeps a new message from getting it.
+    function test_a_tooltip_on_show_does_not_keep_the_keyboard_from_a_new_message() {
+      var scope = having(app, function(item) { return item.keyContext !== undefined })
+      tryCompare(scope, "keyContext", "list")
+      scope.applyContextFocus()
+      tip = Qt.createQmlObject('import QtQuick.Controls; ToolTip { text: "Archive" }', app)
+      tip.parent = app
+      tip.open()
+      tryCompare(tip, "opened", true)
+      app.startCompose("new")
+      tryCompare(scope, "keyContext", "compose")
+      var to = having(app, function(item) { return item.objectName === "compose-to-field" })
+      tryVerify(function() { return to.activeFocus }, 1000, "the new message has the keyboard while the tooltip shows")
+      app.back()
+      tryCompare(app, "composing", false)
     }
 
     function test_search_context_changes_preserve_typing_and_caret() {

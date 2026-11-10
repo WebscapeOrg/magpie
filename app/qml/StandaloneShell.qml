@@ -14,6 +14,7 @@ QtObject {
 
   readonly property bool standalone: true
   readonly property string backendPath: String(host && host.backendPath || "")
+  readonly property var backendContract: host && host.backendContract || ({})
   readonly property string calendarPalettePath: ""
   readonly property string notificationError: String(host && host.notificationError || "")
   readonly property var capabilities: ({

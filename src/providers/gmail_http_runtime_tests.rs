@@ -754,6 +754,7 @@ async fn diagnostics_store_safe_transport_fields_without_credentials_or_mail() {
         })
         .await;
     assert_eq!(peer.requests.lock().unwrap().len(), 1);
+    diagnostics::flush().await;
     let saved =
         std::fs::read_to_string(fixture.state.join("omamail/diagnostics/gmail.json")).unwrap();
     for forbidden in [

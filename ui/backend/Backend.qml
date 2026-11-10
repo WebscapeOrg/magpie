@@ -15,8 +15,10 @@ Item {
   // refused here rather than sent to a binary that never heard of it.
   property int latestApiVersion: 0
   property var unreleasedMethods: []
-  readonly property int apiVersion: Compatibility.connectedApiVersion(protocolInfo)
-  readonly property bool needsUpdate: ready && Compatibility.needsUpdate(protocolInfo, latestApiVersion)
+  property string expectedContractHash: ""
+  readonly property int apiVersion: Compatibility.usableApiVersion(protocolInfo,
+    expectedApiVersion, latestApiVersion, expectedContractHash)
+  readonly property bool needsUpdate: ready && apiVersion < latestApiVersion
   property bool launchEnabled: true
   onLaunchEnabledChanged: Qt.callLater(reconcileProcess)
   onExecutableChanged: Qt.callLater(reconcileProcess)
@@ -67,6 +69,8 @@ Item {
   }
 
   function call(method, params, callback) {
+    if (operationRefusal(method, params) !== null)
+      return request(method, params, callback, false)
     // Keep each physical frame small even for Unicode-heavy MIME/JSON data.
     if (JSON.stringify(params).length > 200000) {
       return Upload.request(method, params, function(nextMethod, nextParams, done) {
@@ -74,6 +78,12 @@ Item {
       }, function() { return root.ready }, callback, uploadQueue)
     }
     return request(method, params, callback, false)
+  }
+
+  function operationRefusal(method, params) {
+    var operation = method === "request.upload" && params ? params.method : method
+    return Compatibility.unreleasedRefusal(operation, unreleasedMethods, needsUpdate)
+      || Compatibility.methodRefusal(protocolInfo, operation)
   }
 
   function request(method, params, callback, internal) {
@@ -88,7 +98,7 @@ Item {
       done(null, { code: -32010, message: message })
       return
     }
-    var refusal = Compatibility.unreleasedRefusal(operation, unreleasedMethods, needsUpdate)
+    var refusal = operationRefusal(method, params)
     if (refusal !== null) {
       done(null, refusal)
       return

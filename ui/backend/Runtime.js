@@ -2,7 +2,7 @@
 
 function decode(raw) {
   var failed = { state: "error", requiredVersion: "", requiredApiVersion: 0, latestApiVersion: 0,
-    unreleasedMethods: [], installedVersion: "",
+    unreleasedMethods: [], contractHash: "", installedVersion: "",
     executable: "", error: "Could not read backend runtime status", development: false, cliInstalled: false }
   var value
   try { value = JSON.parse(raw) } catch (e) { return failed }
@@ -27,6 +27,8 @@ function decode(raw) {
   return { state: value.state, requiredVersion: value.requiredVersion,
     requiredApiVersion: value.requiredApiVersion || 0,
     latestApiVersion: latest || 0, unreleasedMethods: unreleased,
+    contractHash: typeof value.contractHash === "string" && /^[a-f0-9]{64}$/.test(value.contractHash)
+      ? value.contractHash : "",
     installedVersion: value.installedVersion,
     executable: value.state === "ready" ? value.executable : "",
     error: value.error, development: value.development === true,

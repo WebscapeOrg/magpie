@@ -525,6 +525,54 @@ Item {
       tryCompare(banner,"height",0)
     }
 
+    function test_notices_wrap_without_layout_cycles() {
+      mailService.lastError = ""
+      mailService.actionStatus = ""
+      var banner = named(app, "mail-notice")
+      var text = having(banner, function(item) { return typeof item.text === "string" })
+      var host = having(app, function(item) { return item.title === "🐦 Magpie" })
+      var oldWidth = host.width
+      var oldPreferences = MailStyle.preferences
+      failOnWarning(/Binding loop detected for property "height"/)
+      try {
+        for (var size of [12, 18]) {
+          MailStyle.preferences = {interfaceSize: size}
+          for (var width of [720, 360]) {
+            host.width = width
+            app.notice = ""
+            wait(10)
+            app.notice = "Magpie could not confirm this change. Check the message’s current state before trying again."
+            waitForRendering(banner)
+            verify(banner.height > 0)
+            verify(text.paintedWidth <= text.width + 1)
+            verify(text.paintedHeight <= text.height + 1)
+            app.notice = ""
+            tryCompare(banner, "height", 0)
+          }
+        }
+      } finally {
+        host.width = oldWidth
+        MailStyle.preferences = oldPreferences
+        app.notice = ""
+      }
+    }
+
+    function test_compose_notices_leave_send_visible() {
+      app.startCompose("new")
+      var send = named(app, "compose-send-button")
+      var banner = named(app, "mail-notice")
+      app.notice = "Archived"
+      tryVerify(function() { return send.visible && banner.visible })
+      waitForRendering(banner)
+      var noticeBottom = banner.mapToItem(send, 0, banner.height).y
+      verify(noticeBottom <= 0, "Notices must remain above the compose actions")
+      send.forceActiveFocus()
+      verify(send.activeFocus)
+      app.notice = ""
+      app.back()
+      tryCompare(app, "composing", false)
+    }
+
     function test_header_shows_compose_for_mail_and_view_selector_for_calendar() {
       var compose = named(app, "compose-button")
       verify(compose && compose.visible)
@@ -564,7 +612,13 @@ Item {
       verify(!back.visible)
     }
 
-    function test_status_error_opens_external_diagnosis_once() {
+    function test_status_error_opens_external_diagnosis_once_data() {
+      return [{tag: "mouse"}, {tag: "return", key: Qt.Key_Return},
+              {tag: "keypad-enter", key: Qt.Key_Enter, modifiers: Qt.KeypadModifier},
+              {tag: "space", key: Qt.Key_Space}]
+    }
+
+    function test_status_error_opens_external_diagnosis_once(data) {
       mailService.lastError = "Could not confirm AI started. Check the conversation before retrying."
       mailService.actionStatus = ""
       mailService.diagnosing = false
@@ -574,7 +628,13 @@ Item {
       verify(waitForRendering(app))
       verify(button.visible)
       verify(button.width > 0 && button.height > 0)
-      mouseClick(button, button.width / 2, button.height / 2)
+      if (data.key !== undefined) {
+        button.forceActiveFocus()
+        verify(button.activeFocus)
+        keyClick(data.key, data.modifiers || Qt.NoModifier)
+      } else {
+        mouseClick(button, button.width / 2, button.height / 2)
+      }
       compare(mailService.diagnosisCalls, 1)
       compare(button.enabled, false)
       mailService.diagnosing = false

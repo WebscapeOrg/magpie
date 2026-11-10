@@ -2,6 +2,8 @@ import QtQuick
 Item {
   id: root
   required property var service
+  property var visibleRows: []
+  readonly property bool browsing: !!service && service.windowOpen === true
   property var overviews: ({})
   property var avatars: ({})
   property string avatarRefreshId: ""
@@ -46,10 +48,12 @@ Item {
     for (var i=0;i<rows.length;i++) snapshot(rows[i].id)
     drain()
   }
+  onBrowsingChanged: if (browsing) refresh()
+  onVisibleRowsChanged: refreshSoon.restart()
   function retry() { retryFailed = true; error = ""; refresh() }
   function drain() {
-    if (!available) return
-    var rows = service.messages || []
+    if (!available || !browsing) return
+    var rows = visibleRows
     var chosen = []; var account = ""
     if (!requesting && !paused && service.windowPrefsLoaded !== false) {
     for (var i=0;i<rows.length;i++) {
@@ -132,7 +136,7 @@ Item {
     function onMessagesChanged() { refreshSoon.restart() }
   }
   Timer { id: refreshSoon; interval: 300; onTriggered: root.refresh() }
-  Timer { interval: 5000; repeat: true; running: root.available; onTriggered: root.refresh() }
+  Timer { interval: 5000; repeat: true; running: root.available && root.browsing; onTriggered: root.refresh() }
   Timer { interval: 30000; repeat: true; running: root.available; onTriggered: root.tick() }
   Timer { interval: 8000; running: root.notice !== "" && root.notice !== "Snoozing"; onTriggered: root.notice = "" }
   Component.onCompleted: if (available) { refresh(); tick() }

@@ -204,15 +204,16 @@ TestCase {
     compare(Style.spacing.controlGap, 8)
   }
 
-  function test_standalone_uses_native_text_and_bundles_the_nerd_icon_range() {
+  function test_standalone_fonts_load_and_action_icons_render_vectors() {
     tryCompare(Style.iconFont, "status", FontLoader.Ready)
     compare(Style.font.family, Style.metrics.font.family)
     verify(Style.font.family.length > 0)
     compare(Style.font.iconFamily, "Symbols Nerd Font Mono")
     var icon = createTemporaryObject(actionIconComponent, testCase)
     verify(icon)
-    compare(icon.fontFamily, Style.font.iconFamily)
-    compare(icon.glyphText.codePointAt(0), 0xF120E)
+    verify(icon.imageSource.indexOf("data:image/svg+xml") === 0)
+    tryCompare(icon.children[0], "status", Image.Ready)
+    compare(icon.children[0].sourceSize.width, Math.ceil(icon.iconSize * 2))
   }
 
   function test_current_omarchy_theme_wins_over_stale_legacy_theme() {

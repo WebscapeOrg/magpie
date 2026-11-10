@@ -256,6 +256,9 @@ pub(super) fn production(
         let provider = provider.clone();
         let queries = queries.clone();
         Box::pin(async move {
+            if !account.contains(':') {
+                return Ok(());
+            }
             let page = provider.page(&account, limit, &live).await?;
             current(&live)?;
             let ids: Vec<String> = page["ids"]

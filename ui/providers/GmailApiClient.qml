@@ -53,6 +53,7 @@ Item {
 
   function backendError(error, method) {
     var code = String(error && error.message || "")
+    if (code === "backend_needs_update") return Api.localEditError(error)
     if (code === "gmail_timeout" || code === "request_timed_out")
       return /^(gmail\.(modify|batchModify|createLabel|renameLabel|deleteLabel|trash|untrash|send|saveDraft|updateDraft|deleteDraft))$/.test(method)
         ? "Gmail did not answer in time. The submitted change may have completed."
@@ -289,6 +290,16 @@ Item {
     return handle
   }
 
+  function localRequest(method,params,callback) {
+    var identity=backendIdentity
+    var handle=newHandle()
+    params.accountId=identity
+    backend.call(method,params,function(result,error) {
+      if (handle.aborted || identity!==root.backendIdentity) return
+      callback(result,error ? "Could not read saved mailbox information" : "")
+    })
+    return handle
+  }
   function getLabels(callback) {
     return backendRequest("gmail.labels", {}, function(result, error) {
       if (typeof callback === "function") callback(error ? [] : result, error)
@@ -297,6 +308,8 @@ Item {
   }
 
   function getLabelCounts(labelId, callback) {
+    if (backend && backend.ready && Number(backend.apiVersion)>=8 && backendIdentity)
+      return localRequest("local.labelCounts",{id:String(labelId || "")},callback)
     return backendRequest("gmail.labelCounts", { id: String(labelId || "") }, callback)
 
   }
@@ -314,6 +327,8 @@ Item {
       })
       return handle
     }
+    if (backend && backend.ready && Number(backend.apiVersion)>=8 && backendIdentity)
+      return localRequest("local.overview",{},function(result,error){callback(error ? null : result.profile || {email:root.backendIdentity},error)})
     return backendRequest("gmail.profile", {}, callback)
 
   }
@@ -327,9 +342,13 @@ Item {
 
   // Mail operations and draft resolution are owned by the persistent backend.
   function modifyMessage(id, addLabelIds, removeLabelIds, callback) {
+    if (backend && backend.ready && Number(backend.apiVersion) >= 8)
+      return localEdit([String(id || "")],addLabelIds || [],removeLabelIds || [],callback)
     return backendRequest("gmail.modify", { id: String(id || ""), addLabelIds: addLabelIds || [], removeLabelIds: removeLabelIds || [] }, callback)
   }
   function batchModify(ids, addLabelIds, removeLabelIds, callback) {
+    if (backend && backend.ready && Number(backend.apiVersion) >= 8)
+      return localEdit(ids || [],addLabelIds || [],removeLabelIds || [],callback)
     return backendRequest("gmail.batchModify", { ids: ids || [], addLabelIds: addLabelIds || [], removeLabelIds: removeLabelIds || [] }, callback)
   }
   function createLabel(name, callback) {
@@ -345,6 +364,9 @@ Item {
   function untrashMessage(id, callback) { return trashEach("gmail.untrash", id, callback) }
   function trashEach(method, id, callback) {
     var list = Array.isArray(id) ? id : [id]
+    if (backend && backend.ready && Number(backend.apiVersion) >= 8)
+      return localEdit(list,method === "gmail.trash" ? ["TRASH"] : ["INBOX"],
+        method === "gmail.trash" ? ["INBOX"] : ["TRASH"],callback)
     var handle = newHandle()
     var remaining = list.length
     var firstError = ""
@@ -360,6 +382,17 @@ Item {
         if (!remaining && typeof callback === "function") callback(payload, firstError)
       }))
     }
+    return handle
+  }
+  function localEdit(ids, additions, removals, callback) {
+    var handle = newHandle()
+    var identity = String(auth ? auth.accountId || "" : "")
+    var ticket = "edit-" + Date.now() + "-" + Math.random().toString(36).slice(2)
+    backend.call("local.edit", {accountId:identity,ticket:ticket,ids:ids,
+      addLabelIds:additions,removeLabelIds:removals}, function(result,error) {
+      if (handle.aborted || identity !== String(root.auth ? root.auth.accountId || "" : "")) return
+      if (typeof callback === "function") callback(error ? null : result,Api.localEditError(error))
+    })
     return handle
   }
   Component {

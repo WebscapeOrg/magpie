@@ -19,7 +19,7 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 hickory-resolver = "0.25"
-rusqlite = { version = "0.38", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 sha2 = "0.10"
 unicode-normalization = "0.1"
 futures-util = "0.3"

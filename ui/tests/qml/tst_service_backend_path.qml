@@ -13,6 +13,8 @@ Item {
       var service = createTemporaryObject(factory, parent)
       verify(service !== null)
       var backend = service.backend
+      backend.expectedApiVersion = 7
+      backend.latestApiVersion = 8
       backend.launchEnabled = true
       backend.connected = true
       backend.protocolInfo = ({ apiVersion: 2 })
@@ -45,6 +47,8 @@ Item {
       var service = createTemporaryObject(factory, parent)
       verify(service !== null)
       var backend = service.backend
+      backend.expectedApiVersion = 7
+      backend.latestApiVersion = 8
       backend.launchEnabled = true
       backend.connected = true
       backend.protocolInfo = ({ apiVersion: 6 })
@@ -62,6 +66,8 @@ Item {
       var service = createTemporaryObject(factory, parent)
       verify(service !== null)
       var backend = service.backend
+      backend.expectedApiVersion = 7
+      backend.latestApiVersion = 8
       backend.launchEnabled = true
       backend.connected = true
       backend.protocolInfo = ({ apiVersion: 4 })

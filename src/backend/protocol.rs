@@ -80,6 +80,7 @@ async fn process_frames(
     let mut notifications = session.mail.subscribe();
     let mut outbox_notifications = session.outbox.subscribe();
     let mut gmail_notifications = session.gmail.subscribe();
+    let mut local_notifications = session.local_mail.subscribe();
     let scheduler = schedule(receiver, responses.clone(), |frame| async move {
         super::rpc::handle(&frame.bytes, session, frame.deadline)
             .await
@@ -89,6 +90,12 @@ async fn process_frames(
     let result = loop {
         tokio::select! {
             result = &mut scheduler => break result,
+            event = local_notifications.recv() => {
+                if let Ok(event) = event
+                    && responses.send(event).await.is_err() {
+                    break Err(io::Error::other("output closed"));
+                }
+            }
             event = outbox_notifications.recv() => {
                 if let Ok(event) = event
                     && responses.send(event).await.is_err() {
@@ -112,7 +119,10 @@ async fn process_frames(
     };
     // No watch can write after the accepted requests drain or after quit.
     session.mail.shutdown().await;
+    session.local_mail.shutdown().await;
     session.gmail.shutdown();
+    crate::providers::gmail_http::flush_diagnostics().await;
+    super::diagnostics::flush().await;
     let outbox_result = session.outbox.shutdown().await;
     let cache_result = session.queries.shutdown().await;
     outbox_result.map_err(io::Error::other)?;

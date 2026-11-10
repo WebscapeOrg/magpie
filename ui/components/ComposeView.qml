@@ -37,6 +37,7 @@ DropArea {
   readonly property int formInset: MailStyle.space(18)
   readonly property int formLabelWidth: MailStyle.space(52)
   readonly property int formLabelGap: MailStyle.space(10)
+  readonly property real actionBarHeight: actions.height
 
   property bool opened: false
   property bool userModified: false
@@ -532,12 +533,13 @@ DropArea {
 
   function updateRecipientSuggestions() {
     toSuggestions = toField.activeFocus
-      ? Recipients.suggest(contactBook, toField.text, 5) : []
+      ? Recipients.suggestIndexed(contactIndex, toField.text, 5) : []
     ccSuggestions = ccField.activeFocus
-      ? Recipients.suggest(contactBook, ccField.text, 5) : []
+      ? Recipients.suggestIndexed(contactIndex, ccField.text, 5) : []
     bccSuggestions = bccField.activeFocus
-      ? Recipients.suggest(contactBook, bccField.text, 5) : []
+      ? Recipients.suggestIndexed(contactIndex, bccField.text, 5) : []
   }
+  readonly property var contactIndex: Recipients.index(contactBook)
 
   function acceptTo(contact) {
     toField.text = Recipients.accept(toField.text, contact)
@@ -583,7 +585,7 @@ DropArea {
         root.forwardAttachmentsLoading = false
         root.forwardAttachmentError = String(error || "")
         root.forwardedAttachments = error ? [] : loaded
-      })
+      }, root.draftKey)
   }
 
   function loadDraftAttachments(messageId, attachments) {
@@ -602,7 +604,7 @@ DropArea {
         return
       }
       root.draftAttachments = Array.isArray(loaded) ? loaded : []
-    })
+    }, root.draftKey)
   }
 
   function begin(nextMode, summary, bodyText, attachments) {
@@ -773,6 +775,7 @@ DropArea {
     for (i = 0; i < owned.length; i++) attachments.push(owned[i])
     return ({
       accountId: String(draft.accountId || ""),
+      draftKey: String(draft.draftKey || ""),
       draftId: String(draft.sourceDraftId || ""),
       from: String(draft.fromEmail || ""),
       to: String(draft.to || ""),
@@ -922,6 +925,7 @@ DropArea {
       // turn, so two mailboxes sharing a send-as alias sent B's draft from
       // whichever of them came first.
       accountId: root.accountId,
+      draftKey: root.draftKey,
       from: root.fromEmail,
       to: toField.text,
       cc: ccField.text,
@@ -996,7 +1000,12 @@ DropArea {
         return
       }
       root.attachmentReadPending = true
-      root.service.backend.call(job.mode === "forget" ? "attachment.forget" : "attachment.read", { path: job.path }, function(result, error) {
+      var mailbox = typeof root.service.findAccount === "function" ? root.service.findAccount(root.accountId) : null
+      var stored = job.mode !== "forget" && Number(root.service.backend.apiVersion) >= 8 && (!mailbox || mailbox.providerId !== "hey")
+      var method = job.mode === "forget" ? "attachment.forget" : stored ? "attachment.import" : "attachment.read"
+      var params = {path:job.path}
+      if (stored) { params.accountId = root.accountId; params.draftKey = owner }
+      root.service.backend.call(method, params, function(result, error) {
         root.attachmentReadPending = false
         var code = error ? String(error.message || "") : ""
         finishAttach(job.mode, JSON.stringify(error ? { ok: false,
@@ -1084,6 +1093,7 @@ DropArea {
       mimeType: String(result.mimeType || "application/octet-stream"),
       size: Math.max(0, Math.floor(Number(result.size) || 0)),
       data: String(result.data || ""),
+      handle: String(result.handle || ""),
       path: String(result.path || ""),
       owned: mode === "clipboard" || mode === "recover-owned"
     })
@@ -1345,6 +1355,7 @@ DropArea {
       Widgets.TextField {
         id: toField
         objectName: "compose-to-field"
+        Accessible.name: "To"
         TextMenuTrigger {}
         onTextEdited: root.noteUserModified()
         anchors.left: toLabel.right
@@ -1431,6 +1442,7 @@ DropArea {
       Widgets.TextField {
         id: ccField
         objectName: "compose-cc-field"
+        Accessible.name: "Cc"
         TextMenuTrigger {}
         onTextEdited: root.noteUserModified()
         anchors.left: ccLabel.right
@@ -1511,6 +1523,7 @@ DropArea {
       Widgets.TextField {
         id: bccField
         objectName: "compose-bcc-field"
+        Accessible.name: "Bcc"
         TextMenuTrigger {}
         onTextEdited: root.noteUserModified()
         anchors.left: bccLabel.right
@@ -1591,6 +1604,7 @@ DropArea {
       Widgets.TextField {
         id: replyToField
         objectName: "compose-reply-to-field"
+        Accessible.name: "Reply-To"
         TextMenuTrigger {}
         onTextEdited: root.noteUserModified()
         anchors.left: replyToLabel.right
@@ -1636,6 +1650,7 @@ DropArea {
       Widgets.TextField {
         id: subjectField
         objectName: "compose-subject-field"
+        Accessible.name: "Subject"
         TextMenuTrigger {}
         onTextEdited: root.noteUserModified()
         anchors.left: subjectLabel.right
@@ -1885,6 +1900,7 @@ DropArea {
     TextEdit {
       id: bodyEdit
       objectName: "compose-body-editor"
+      Accessible.name: "Message body"
       TextMenuTrigger {}
       activeFocusOnTab: true
       width: bodyFlick.width
@@ -2045,6 +2061,7 @@ DropArea {
 
       IconTextButton {
         iconName: "send"
+        objectName: "compose-send-button"
         tooltipText: "Send · ctrl+enter"
         // A send in flight or parked is no reason to hold the next: each is
         // parked in its account's line and goes in turn.

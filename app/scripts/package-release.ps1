@@ -4,7 +4,7 @@ param(
     [string]$Backend = "target\release\omamail.exe",
     [string]$Qml = "app\qml",
     [string]$Ui = "ui",
-    [string]$Manifest = "manifest.json",
+    [string]$Manifest = "",
     [string]$Icon = "app\resources\windows\omamail.ico",
     [string]$Dist = "dist",
     [string]$Version = "",
@@ -67,7 +67,7 @@ $HostPath = Resolve-InputPath $HostBinary
 $BackendPath = Resolve-InputPath $Backend
 $QmlPath = Resolve-InputPath $Qml
 $UiPath = Resolve-InputPath $Ui
-$ManifestPath = Resolve-InputPath $Manifest
+$ManifestPath = if ($Manifest) { Resolve-InputPath $Manifest } else { "" }
 $IconPath = Resolve-InputPath $Icon
 $DistPath = Resolve-InputPath $Dist
 $NerdFontsLicensePath = Join-Path $RepoRoot "app\assets\fonts\NerdFonts-LICENSE"
@@ -79,7 +79,7 @@ Assert-File $HostPath "standalone host"
 Assert-File $BackendPath "backend"
 Assert-Directory $QmlPath "standalone QML directory"
 Assert-Directory $UiPath "shared UI directory"
-Assert-File $ManifestPath "manifest"
+if ($ManifestPath) { Assert-File $ManifestPath "manifest" }
 Assert-File $IconPath "application icon"
 Assert-File $NerdFontsLicensePath "Nerd Fonts license"
 Assert-File $NerdFontsReadmePath "Nerd Fonts notices"
@@ -90,7 +90,13 @@ Assert-File (Join-Path $UiPath "Service.qml") "shared UI entry point"
 Assert-X64Pe $HostPath "standalone host"
 Assert-X64Pe $BackendPath "backend"
 
-$ManifestObject = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+if ($ManifestPath) {
+    $ManifestObject = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+} else {
+    $ManifestJson = & $Python (Join-Path $RepoRoot "scripts/package-backend.py") standalone-manifest
+    if ($LASTEXITCODE -ne 0) { throw "standalone manifest generation failed" }
+    $ManifestObject = ($ManifestJson -join "`n") | ConvertFrom-Json
+}
 $ManifestVersion = $ManifestObject.version
 if ($ManifestVersion -isnot [string] -or
     $ManifestVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
@@ -133,7 +139,8 @@ try {
     Copy-Item -LiteralPath $BackendPath -Destination (Join-Path $Bin "omamail.exe")
     Copy-Item -LiteralPath $QmlPath -Destination (Join-Path $Package "qml") -Recurse
     Copy-Item -LiteralPath $UiPath -Destination (Join-Path $Package "ui") -Recurse
-    Copy-Item -LiteralPath $ManifestPath -Destination (Join-Path $Package "manifest.json")
+    [IO.File]::WriteAllText((Join-Path $Package "manifest.json"),
+        ($ManifestObject | ConvertTo-Json -Depth 64), [Text.UTF8Encoding]::new($false))
     $Licenses = Join-Path $Package "licenses"
     New-Item -ItemType Directory -Force $Licenses | Out-Null
     Copy-Item -LiteralPath $NerdFontsLicensePath -Destination (Join-Path $Licenses "NerdFonts-LICENSE")

@@ -1,4 +1,5 @@
 #include "resource_check.h"
+#include "backend_contract.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -259,7 +260,7 @@ ResourcePaths defaultResourcePaths(const QString &executablePath, bool developme
         QDir::cleanPath(executableDir.filePath(QStringLiteral("../manifest.json"))),
         QDir::cleanPath(executableDir.filePath(QStringLiteral("../Resources/manifest.json")))};
     if (developmentMode)
-        manifestCandidates.prepend(sourceRoot.filePath(QStringLiteral("manifest.json")));
+        manifestCandidates.prepend(QStringLiteral(OMAMAIL_MANIFEST_PATH));
     paths.manifest = firstExisting(manifestCandidates);
     return paths;
 }
@@ -365,7 +366,10 @@ bool runSmokeTest(const ResourcePaths &paths, const QString &readyFile, QString 
         || !protocol.isDouble() || protocol.toInt() != 1
         || !apiVersion.isDouble()
         || apiVersion.toDouble() != static_cast<double>(apiVersion.toInt())
-        || apiVersion.toInt() != 7) {
+        || apiVersion.toInt() != OMAMAIL_BACKEND_API_VERSION
+        || (OMAMAIL_BACKEND_API_VERSION > OMAMAIL_RELEASED_API_VERSION
+            && info.value(QStringLiteral("contractHash")).toString()
+                != QStringLiteral(OMAMAIL_BACKEND_CONTRACT_HASH))) {
         if (error) *error = QStringLiteral("Bundled backend system.info does not match this app");
         stopProcess(backend);
         return false;

@@ -43,7 +43,25 @@ Rectangle {
 
   signal clicked()
 
-  readonly property bool hot: mouse.containsMouse && enabled
+  activeFocusOnTab: true
+  Accessible.role: Accessible.Button
+  Accessible.name: text || tooltipText
+  Accessible.onPressAction: if (root.enabled) root.clicked()
+  function acceptsActivation(event) {
+    return root.enabled && root.activeFocus
+      && (event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier
+      && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+  }
+  Keys.onShortcutOverride: function(event) {
+    if (root.acceptsActivation(event)) event.accepted = true
+  }
+  Keys.onPressed: function(event) {
+    if (!root.acceptsActivation(event)) return
+    event.accepted = true
+    root.clicked()
+  }
+
+  readonly property bool hot: (mouse.containsMouse || activeFocus) && enabled
 
   implicitWidth: row.implicitWidth + Style.spacing.controlPaddingX * 2
   implicitHeight: ghost
@@ -52,6 +70,7 @@ Rectangle {
   radius: Style.cornerRadius
   opacity: enabled ? 1.0 : 0.4
   color: mouse.pressed ? Style.pressedFillFor(root.foreground, root.accent)
+    : root.activeFocus ? Style.focusFillFor(root.foreground, root.accent)
     : (root.selected ? Style.selectedFillFor(root.foreground, root.accent)
       : (hot ? Style.hoverFillFor(root.foreground, root.accent)
         : (bordered && !ghost && !outline
@@ -95,7 +114,7 @@ Rectangle {
   }
 
   Widgets.PanelToolTip {
-    visible: root.tooltipText !== "" && mouse.containsMouse
+    visible: root.tooltipText !== "" && (mouse.containsMouse || root.activeFocus)
     text: root.tooltipText
     fontFamily: root.fontFamily
   }

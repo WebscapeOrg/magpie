@@ -39,8 +39,19 @@ Item {
   Accessible.role: Accessible.Button
   Accessible.name: tooltipText
   Accessible.onPressAction: if (root.enabled) root.clicked()
-  Keys.onReturnPressed: if (root.enabled) root.clicked()
-  Keys.onSpacePressed: if (root.enabled) root.clicked()
+  function acceptsActivation(event) {
+    return root.enabled && root.activeFocus
+      && (event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier
+      && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+  }
+  Keys.onShortcutOverride: function(event) {
+    if (root.acceptsActivation(event)) event.accepted = true
+  }
+  Keys.onPressed: function(event) {
+    if (!root.acceptsActivation(event)) return
+    event.accepted = true
+    root.clicked()
+  }
   signal clicked()
 
   readonly property bool hot: (mouse.containsMouse || hasCursor || activeFocus) && enabled
@@ -110,7 +121,7 @@ Item {
   }
 
   Widgets.PanelToolTip {
-    visible: root.tooltipText !== "" && mouse.containsMouse
+    visible: root.tooltipText !== "" && (mouse.containsMouse || root.activeFocus)
     text: root.tooltipText
     fontFamily: root.fontFamily
   }

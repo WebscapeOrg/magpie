@@ -1053,3 +1053,170 @@ fn test_directories_retry_collisions_without_reusing_or_removing_existing_data()
         0o700
     );
 }
+
+#[test]
+fn restart_resumes_only_explicitly_authorized_never_started_sends() {
+    let row = |id: &str, state: &str, resume: bool| json!({"id":id,"accountId":"synthetic@example.org","provider":"gmail","state":state,"resumeUnsent":resume,"payload":{"raw":"synthetic"}});
+    let entries = recover(&[
+        row("waiting", "waiting", true),
+        row("sending", "sending", true),
+        row("legacy", "queued", false),
+    ])
+    .unwrap();
+    assert_eq!(entries[0]["state"], "waiting");
+    assert_eq!(entries[1]["state"], "unknown");
+    assert_eq!(entries[2]["state"], "cancelled");
+    assert!(
+        !waiting(&entries[1]),
+        "an uncertain delivery must never enter the worker's eligible set"
+    );
+    assert!(recover(&[row("unapproved", "waiting", false)]).is_err());
+}
+
+#[tokio::test]
+async fn cancelling_during_offline_preflight_never_calls_delivery() {
+    let dir = Temp::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let wait = gate.clone();
+    let signal = entered.clone();
+    let outbox = Outbox::with_root(
+        Arc::new(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(json!({})) })
+        }),
+        Some(dir.0.clone()),
+    )
+    .with_readiness(Arc::new(move |_, _| {
+        let wait = wait.clone();
+        let signal = signal.clone();
+        Box::pin(async move {
+            signal.notify_one();
+            wait.notified().await;
+            Ok(())
+        })
+    }));
+    let mut request = enqueue("offline", "a@example.org", 0);
+    request["resumeUnsent"] = json!(true);
+    outbox.call("outbox.enqueue", &request).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), entered.notified())
+        .await
+        .unwrap();
+    outbox
+        .call(
+            "outbox.undo",
+            &json!({"accountId":"a@example.org","sendId":"offline"}),
+        )
+        .await
+        .unwrap();
+    gate.notify_one();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        state(&outbox, "offline", "a@example.org").await,
+        "cancelled"
+    );
+    outbox.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn recorder_confirms_one_resumed_send_and_no_retry_or_cancelled_delivery() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
+    let records = recorded.clone();
+    let server = tokio::spawn(async move {
+        let mut handlers = tokio::task::JoinSet::new();
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let records = records.clone();
+            handlers.spawn(async move {
+                let mut headers = Vec::new();
+                while !headers.ends_with(b"\r\n\r\n") {
+                    let Ok(byte) = socket.read_u8().await else { return };
+                    headers.push(byte);
+                    assert!(headers.len() < 65_536);
+                }
+                let headers = String::from_utf8(headers).unwrap();
+                let length: usize = headers.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse().unwrap())
+                }).unwrap();
+                assert!(length < 65_536);
+                let mut bytes = vec![0; length];
+                socket.read_exact(&mut bytes).await.unwrap();
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                let id = request["sendId"].as_str().unwrap().to_owned();
+                records.lock().unwrap().push(id.clone());
+                if id == "interrupted" { std::future::pending::<()>().await; }
+                let _ = socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await;
+            });
+        }
+    });
+    let executor: Executor = Arc::new(move |request| {
+        let origin = origin.clone();
+        Box::pin(async move {
+            reqwest::Client::builder().no_proxy().build().unwrap()
+                .post(origin).header("Content-Type", "application/json").body(request.to_string()).send().await
+                .map_err(|_| "network_timed_out")?;
+            Ok(json!({}))
+        })
+    });
+    let gate = Arc::new(Notify::new());
+    let entered = Arc::new(Notify::new());
+    let gate_copy = gate.clone();
+    let entered_copy = entered.clone();
+    let readiness: Readiness = Arc::new(move |_, _| {
+        let gate = gate_copy.clone();
+        let entered = entered_copy.clone();
+        Box::pin(async move {
+            entered.notify_one();
+            gate.notified().await;
+            Ok(())
+        })
+    });
+    let dir = Temp::new();
+    let waiting = Outbox::with_root(executor.clone(), Some(dir.0.clone()))
+        .with_readiness(readiness.clone());
+    let mut request = enqueue("resumed", "a@example.org", 0);
+    request["resumeUnsent"] = json!(true);
+    waiting.call("outbox.enqueue", &request).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), entered.notified()).await.unwrap();
+    assert!(recorded.lock().unwrap().is_empty());
+    waiting.shutdown().await.unwrap();
+    drop(waiting);
+
+    let connected = Outbox::with_root(executor.clone(), Some(dir.0.clone()));
+    wait_state(&connected, "resumed", "a@example.org", "sent").await;
+    assert_eq!(connected.call("outbox.enqueue", &request).await.unwrap()["duplicate"], true);
+    let interrupted = enqueue("interrupted", "a@example.org", 0);
+    connected.call("outbox.enqueue", &interrupted).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while recorded.lock().unwrap().len() != 2 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }).await.unwrap();
+    assert_eq!(state(&connected, "interrupted", "a@example.org").await, "sending");
+    connected.shutdown().await.unwrap();
+    drop(connected);
+
+    let recovered = Outbox::with_root(executor, Some(dir.0.clone())).with_readiness(readiness);
+    assert_eq!(state(&recovered, "interrupted", "a@example.org").await, "unknown");
+    assert_eq!(recovered.call("outbox.enqueue", &interrupted).await.unwrap()["duplicate"], true);
+    let mut cancelled = enqueue("cancelled", "a@example.org", 0);
+    cancelled["resumeUnsent"] = json!(true);
+    recovered.call("outbox.enqueue", &cancelled).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), entered.notified()).await.unwrap();
+    recovered.call("outbox.undo", &json!({"accountId":"a@example.org","sendId":"cancelled"})).await.unwrap();
+    gate.notify_one();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(*recorded.lock().unwrap(), vec!["resumed", "interrupted"]);
+    assert_eq!(state(&recovered, "cancelled", "a@example.org").await, "cancelled");
+    recovered.shutdown().await.unwrap();
+    server.abort();
+    let _ = server.await;
+}

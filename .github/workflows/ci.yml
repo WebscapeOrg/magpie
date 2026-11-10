@@ -183,9 +183,11 @@ jobs:
           ctest --test-dir build/app -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw "Qt tests failed" }
           python app/tests/test_qml_inventory.py
-          qmltestrunner -input app/tests/qml/tst_host_contract.qml -import app/qml/imports -import app/qml/styles -import ui
-          if ($LASTEXITCODE -ne 0) { throw "QML tests failed" }
-          python tests/test_backend_api.py --binary target/release/omamail.exe --expected-version $version --standalone
+          qmltestrunner -input app/tests/qml/tst_host_contract.qml -import app/qml/imports -import app/qml/styles -import ui -o qml-host-contract.txt,txt
+          $qmlStatus = $LASTEXITCODE
+          Get-Content qml-host-contract.txt
+          if ($qmlStatus -ne 0) { throw "QML tests failed ($qmlStatus)" }
+          python tests/test_backend_api.py --binary target/release/omamail.exe --expected-version $version --standalone --isolated-windows-runner
           if ($LASTEXITCODE -ne 0) { throw "backend API contract failed" }
       - name: Build and exercise the production archive
         shell: pwsh
@@ -206,7 +208,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "resource check failed" }
           & $appExecutable --smoke-test (Join-Path $env:RUNNER_TEMP "omamail-ready.json")
           if ($LASTEXITCODE -ne 0) { throw "live smoke failed" }
-          python tests/test_backend_api.py --binary $backend --expected-version $version --standalone
+          python tests/test_backend_api.py --binary $backend --expected-version $version --standalone --isolated-windows-runner
           if ($LASTEXITCODE -ne 0) { throw "packaged backend API contract failed" }
 
   portable-tests:
@@ -325,6 +327,7 @@ jobs:
       - name: Require exact pin and verify the released API against the published binary
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: huacnlee/omamail
           ARCH: ${{ matrix.arch }}
           SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |

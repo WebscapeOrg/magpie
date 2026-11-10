@@ -47,3 +47,21 @@ for (let i = 0; i < 20; i++)
 assert.ok(Object.keys(store.ranges).length <= cache.MAX_RANGES)
 
 console.log("test_calendar_cache.js ok")
+
+{
+  const fresh=cache.putRange(cache.emptyStore(),"sources",0,1000,[],300,[first.sourceId],200)
+  const stale=cache.putRange(fresh,"sources",0,1000,[first],400,[first.sourceId],100)
+  assert.strictEqual(cache.eventsFor(stale,"sources",0,1000,[first.sourceId]).length,0,"an old reply cannot resurrect a removed event")
+  assert.strictEqual(cache.coversSource(stale,"sources",0,1000,first.sourceId),true,"a confirmed empty range is still known")
+}
+
+{
+  let overlap = cache.putRange(cache.emptyStore(), "sources", 0, 1000, [first, second], 10,
+    [first.sourceId, second.sourceId], 10)
+  overlap = cache.putRange(overlap, "sources", 50, 500, [], 20, [first.sourceId], 20)
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(cache.eventsFor(overlap, "sources", 0, 1000,
+    [first.sourceId, second.sourceId]))), [second],
+    "a newer empty overlap removes deleted events without hiding other sources")
+  assert.strictEqual(cache.eventsFor(overlap, "sources", 50, 500, [second.sourceId]).length, 1,
+    "an exact range for one source must retain another source's wider cached range")
+}

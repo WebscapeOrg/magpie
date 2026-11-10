@@ -40,6 +40,8 @@ to make the override available when the shell constructs the plugin, restarting
 the shell with that environment when needed. This is not a second Quickshell
 application. Rust mail migration remains incomplete; see [BACKEND.md](BACKEND.md).
 
+Standalone builds derive their manifest from the plugin settings but use the standalone identity and Cargo/CMake version. The plugin milestone version is independent. CMake and all native packagers use `package-backend.py standalone-manifest`; the packaged host still refuses a mismatched manifest or backend. Generating this build resource does not modify `manifest.json` or `backend-version`.
+
 ### Forcing a clean reconnect
 
 The running `omamail serve` process holds its Secret Service session, its
@@ -88,6 +90,10 @@ meaning require contract review, updated fixtures and a higher API revision.
 predates this field; only that exact version is recognized as legacy API 1. Missing
 revision information from any other version is refused.
 
+Development builds sharing the same unreleased API revision can implement different contracts. `system.info.contractHash` identifies the SHA-256 of the contract compiled into the backend; the plugin runtime independently hashes its own `backend-api.json`. The UI enables the unreleased revision only when those hashes match. A missing or different hash keeps the released features available and refuses unreleased calls before sending a frame or uploading a payload. The bridge also refuses methods absent from the backend's advertised inventory. Released revisions retain their stable version semantics; the exact binary pin and protocol/API checks still apply. Contract identity is a compatibility check, not a replacement for behavioral tests or release verification.
+
+The standalone host derives its released revision, current revision and contract hash from `backend-api.json` at configuration time. CMake reconfigures when that contract changes. Its smoke check rejects an unmatched development contract before writing a readiness file, and QML receives the same compiled metadata instead of a hard-coded API revision.
+
 ## Native AI conversations (API 6)
 
 Settings → AI follows the Omarchy system default or selects Claude, Codex or OpenCode V2, with an optional model override. `agent.providerStatus` resolves the supported provider without starting an agent or creating a job. An unsupported default leaves the AI action visible but disabled; Settings explains the supported choices. Availability checks require API 6 and are repeated while following the system default. Explicit choices bypass the system-default lookup. CLI installation and authentication are still checked when a request starts. Standalone Linux/macOS builds default to OpenCode; Windows does not advertise AI.
@@ -129,6 +135,10 @@ Search includes aggregate All Mail destinations and excludes Trash/Junk membersh
 `message.summarize`, `message.summaries` and reader summaries carry `hasAttachments`. Gmail list reads request MIME metadata through a partial response without body data; IMAP/Outlook request BODYSTRUCTURE alongside header-only PEEK reads; JMAP requests its attachment flag. The shared classifier excludes inline/CID sender images. The list indicator requires a connected API 8 backend.
 
 `attachment.thumbnail` accepts attachment bytes and a supported MIME type and returns prepared PNG data only. The reader fetches visible attachments through their owning account, serializes preview requests, limits each input to 8 MiB and reserves at most 16 MiB per selected message. Raster decoding is bounded to 4096×4096 and 64 MiB; output fits a 384-pixel square and 512 KiB. On Linux, optional `/usr/bin/bwrap`, `/usr/bin/prlimit` and `/usr/bin/pdftoppm` render the first PDF page with no host home or network access, a read-only system mount, CPU/memory/output limits and a six-second deadline. No unsandboxed PDF fallback runs. Other hosts and missing/refused workers retain the file tile; raster previews and Open/Save remain available. QML gates previews on connected API 8 and refuses remote, local-file, SVG and non-PNG preview sources at the image consumer. This is part of the unreleased API step; it does not change the binary release pin.
+
+## Local mail and native performance paths (API 8)
+
+The unreleased API 8 contract also includes `local.*` replica/watch/intent methods, `reader.prefetch`, account-scoped attachment import/preview/download/retain, `outbox.compose`, `draft.compose`, `calendar.read` and `calendar.parse`. Current QML gates these dependencies on revision 8; the pinned release continues to use its existing paths. `calendar-shared` is a separate cache namespace. See [local mail](LOCAL-MAIL.md) for durable-data and retry semantics. These changes do not update `backend-version` or install a development binary.
 
 ## Released and unreleased: one step ahead of the pin
 

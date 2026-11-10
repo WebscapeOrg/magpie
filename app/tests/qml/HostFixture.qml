@@ -8,6 +8,7 @@ QtObject {
   property var capabilities: ({agent:false,tray:false,mailto:false,notifications:true})
   property var settings: ({refreshIntervalSec:333,maxMessages:17,notifyNewMail:"Off"})
   property string backendPath: "/fixture/bin/omamail"
+  property var backendContract: ({apiVersion:8, releasedApiVersion:7, contractHash:"", unreleasedMethods:[]})
   property string notificationError: ""
   property bool hidden: false
   property bool quitCalled: false

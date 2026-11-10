@@ -5,8 +5,8 @@
 // Older ranges cannot recover either value, so they are fetched again instead
 // of restoring rows that are unwritable or unsafe to edit.
 var VERSION = 3
-var MAX_RANGES = 8
-var MAX_EVENTS = 2500
+var MAX_RANGES = 32
+var MAX_EVENTS = 25000
 
 function emptyStore() {
   return { version: VERSION, ranges: {} }
@@ -34,36 +34,70 @@ function rangeKey(scope, startMs, endMs) {
 }
 
 function eventsFor(store, scope, startMs, endMs, enabledSourceIds) {
-  var source = store && store.ranges ? store.ranges[rangeKey(scope, startMs, endMs)] : null
-  if (!source && store && store.ranges) {
-    var candidates = Object.keys(store.ranges).filter(function(key) {
-      var range = store.ranges[key]
-      return key.indexOf(String(scope || "") + "\n") === 0
-        && Number(range.startMs) < Number(endMs) && Number(range.endMs) > Number(startMs)
-    })
-    candidates.sort(function(a, b) { return Number(store.ranges[b].at) - Number(store.ranges[a].at) })
-    if (candidates.length) source = store.ranges[candidates[0]]
-  }
-  var values = source && Array.isArray(source.events) ? source.events : []
-  var enabled = {}
+  var ranges = store && store.ranges || {}
+  var candidates = Object.keys(ranges).filter(function(key) {
+    var range = ranges[key]
+    return key.indexOf(String(scope || "") + "\n") === 0
+      && Number(range.startMs) < Number(endMs) && Number(range.endMs) > Number(startMs)
+  }).map(function(key) { return ranges[key] })
   var ids = Array.isArray(enabledSourceIds) ? enabledSourceIds : []
-  for (var i = 0; i < ids.length; i++) enabled[String(ids[i])] = true
   var out = []
-  for (var j = 0; j < values.length; j++) {
-    var event = values[j]
-    if (event && enabled[String(event.sourceId || "")]
-        && (!event.start || Number(event.start.ms) < Number(endMs))
-        && (!event.end || Number(event.end.ms) > Number(startMs))) out.push(event)
+  for (var i = 0; i < ids.length; i++) {
+    var id = String(ids[i])
+    var sources = candidates.filter(function(range) {
+      return (range.sources || []).indexOf(id) >= 0 || (range.events || []).some(function(event) {
+        return event && String(event.sourceId || "") === id
+      })
+    })
+    sources.sort(function(a,b) {
+      return Number(b.sourceTimes && b.sourceTimes[id] || b.at)
+        - Number(a.sourceTimes && a.sourceTimes[id] || a.at)
+    })
+    var covered = []
+    var seen = {}
+    for (var j = 0; j < sources.length; j++) {
+      var source = sources[j]
+      var values = source.events || []
+      for (var k = 0; k < values.length; k++) {
+        var event = values[k]
+        if (!event || String(event.sourceId || "") !== id) continue
+        var begins = event.start ? Number(event.start.ms) : Number(source.startMs)
+        var ends = event.end ? Number(event.end.ms) : Number(source.endMs)
+        if (begins >= endMs || ends <= startMs) continue
+        if (covered.some(function(range) { return range.startMs < ends && range.endMs > begins })) continue
+        var key = String(event.uid || event.googleId || event.href || "") + ":" + begins
+        if (!seen[key]) out.push(event)
+        seen[key] = true
+      }
+      if ((source.sources || []).indexOf(id) >= 0) covered.push(source)
+    }
   }
   return out
 }
 
-function putRange(store, scope, startMs, endMs, events, nowMs, refreshedSourceIds) {
+function coversSource(store,scope,startMs,endMs,id) {
+  var ranges=store && store.ranges || {}
+  return Object.keys(ranges).some(function(key) {
+    var range=ranges[key]
+    return key.indexOf(String(scope || "")+"\n")===0 && Number(range.startMs)<=startMs && Number(range.endMs)>=endMs
+      && Array.isArray(range.sources) && range.sources.indexOf(String(id))>=0
+  })
+}
+
+function putRange(store, scope, startMs, endMs, events, nowMs, refreshedSourceIds, requestAt) {
   var source = store && isObject(store.ranges) ? store.ranges : {}
   var ranges = {}
   for (var key in source) ranges[key] = source[key]
   var kept = Array.isArray(events) ? events.slice() : []
   var old = source[rangeKey(scope, startMs, endMs)]
+  var stamp = Number(requestAt) || Number(nowMs) || 0
+  var times = Object.assign({},old && old.sourceTimes || {})
+  if (Array.isArray(refreshedSourceIds)) {
+    var accepted = refreshedSourceIds.filter(function(id) {return Number(times[id] || 0) <= stamp})
+    kept = kept.filter(function(event) {return accepted.indexOf(String(event.sourceId || ""))>=0})
+    refreshedSourceIds = accepted
+    for (var s=0;s<accepted.length;s++) times[accepted[s]]=stamp
+  }
   if (Array.isArray(refreshedSourceIds) && old && Array.isArray(old.events)) {
     kept = kept.concat(old.events.filter(function(event) {
       return event && refreshedSourceIds.indexOf(String(event.sourceId || "")) < 0
@@ -73,7 +107,12 @@ function putRange(store, scope, startMs, endMs, events, nowMs, refreshedSourceId
     startMs: Number(startMs) || 0,
     endMs: Number(endMs) || 0,
     at: Number(nowMs) || 0,
-    events: kept.slice(0, MAX_EVENTS)
+    events: kept.slice(0, MAX_EVENTS),
+    sourceTimes: times,
+    sources: kept.length > MAX_EVENTS ? [] : (old && Array.isArray(old.sources) ? old.sources : []).concat(
+      Array.isArray(refreshedSourceIds) ? refreshedSourceIds : []).filter(function(id,index,values) {
+        return values.indexOf(id) === index
+      })
   }
   var keys = Object.keys(ranges)
   keys.sort(function(a, b) { return Number(ranges[b].at) - Number(ranges[a].at) })

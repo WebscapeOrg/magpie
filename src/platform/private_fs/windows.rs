@@ -459,6 +459,28 @@ pub(crate) fn sync_dir(_: &File) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn available_bytes(dir: &File) -> Result<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    let path: Vec<u16> = final_path(dir)?
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut free = 0u64;
+    if unsafe {
+        windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW(
+            path.as_ptr(),
+            &mut free,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err("cache_unavailable");
+    }
+    Ok(free)
+}
+
 pub(crate) struct ExclusiveLock {
     _file: File,
 }

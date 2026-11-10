@@ -328,6 +328,7 @@ Item {
   // an untouched root, so saving an address cannot reopen a dismissed form.
   readonly property var rootState: ({
     anyReady: anyReady,
+    accountReady: ready,
     hasSavedAccounts: !!service && service.hasSavedAccounts === true,
     setupUnderway: setupUnderway,
     provider: service ? String(service.providerId || "") : "",
@@ -335,10 +336,15 @@ Item {
   })
   property bool navUntouched: true
   property bool wasReady: false
+  property bool wasAccountReady: false
   onRootStateChanged: {
     var flipped = rootState.anyReady !== wasReady
+    var signedIn = rootState.accountReady && !wasAccountReady
     wasReady = rootState.anyReady
-    if (flipped || (!rootState.anyReady && navUntouched)) resetNavigation()
+    wasAccountReady = rootState.accountReady
+    var editingUnreadyAccount = page === "setup" && !ready
+    var completedSetup = signedIn && page === "setup" && editingProvider === rootState.provider
+    if ((flipped && !editingUnreadyAccount) || completedSetup || (!rootState.anyReady && navUntouched)) resetNavigation()
   }
   function resetNavigation() {
     var next = Nav.rootFor(rootState)
@@ -617,19 +623,8 @@ Item {
     nav = Nav.replaceRoot(nav, "calendar")
   }
 
-  // Moving the cursor has to bring the row with it. The list is a Column in a
-  // Flickable rather than a ListView — the panel already owns a scroller — so
-  // there is no positionViewAtIndex and this has to be said out loud.
-  //
-  // Called only for keyboard movement. Pointer hover stays local to the row,
-  // and a programmatic selection does not scroll the list under the pointer.
   function revealCursorRow() {
-    if (!listFlick.visible) return
-    var bounds = list.boundsFor(cursorId)
-    if (!bounds) return
-    listFlick.contentY = Model.contentYToReveal(listFlick.contentY,
-      listFlick.height, list.y + bounds.y, bounds.height,
-      listFlick.contentHeight, MailStyle.space(8))
+    if (list.visible) list.reveal(cursorId)
   }
 
   // Keyboard selection is explicit reading, with the same cache, network and
@@ -1903,29 +1898,26 @@ Item {
           visible: width > 0 && !root.showPage && !root.composing
             && !root.calendarVisible
 
-          // The scroller fills the column so its bar sits on the column edge;
-          // the breathing room is padding on the content, not a margin on the
-          // viewport, which would push the bar inward with it.
-          Flickable {
-            id: listFlick
-
-            WheelScroller { view: listFlick }
-            anchors.fill: parent
-            contentWidth: width
-            contentHeight: list.implicitHeight + MailStyle.space(12)
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
-            MessageList {
+          LocalMailStatus {
+              id: localStatus
+              anchors.top: parent.top
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.margins: MailStyle.space(8)
+              mailbox: root.service.localMailbox || null
+              textColor: root.foreground
+              dimColor: root.dim
+              panelFontFamily: MailStyle.listFamily
+          }
+          MessageList {
               id: list
-              scroller: listFlick
-              // Match the sidebar's first row inset below the header.
-              y: MailStyle.space(6)
-              // Full width, so selected and hovered rows meet the splitter.
-              // Text and action breathing room belongs inside MessageRow;
-              // shrinking the whole list leaves a conspicuous dead strip.
-              width: listFlick.width
+              anchors.top: localStatus.visible ? localStatus.bottom : parent.top
+              anchors.topMargin: localStatus.visible ? MailStyle.space(6) : 0
+              anchors.bottom: parent.bottom
+              anchors.left: parent.left
+              anchors.right: parent.right
+              WheelScroller { view: list }
+              ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
               service: root.service
               textColor: root.foreground
               accentColor: root.accent
@@ -1947,7 +1939,6 @@ Item {
                 rowMenu.openAt(id, sceneX, sceneY)
               }
             }
-          }
 
         }
 
@@ -2372,6 +2363,7 @@ Item {
         z: 80
         visible: !!root.service && root.service.sendPending && compose.parkedForSend
         secondsRemaining: root.service ? root.service.sendSecondsRemaining : 0
+        awaitingConnection: !!root.service && root.service.sendAwaitingConnection === true
         queuedCount: root.service && root.service.sendPendingCount !== undefined
           ? root.service.sendPendingCount : 1
         textColor: root.foreground
@@ -2402,6 +2394,7 @@ Item {
         id: statusBar
         objectName: "mail-notice"
         anchors.bottom: parent.bottom
+        anchors.bottomMargin: compose.visible ? compose.actionBarHeight + MailStyle.space(8) : 0
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(parent.width - MailStyle.space(28), MailStyle.space(720))
         height: visible ? noticeText.implicitHeight + MailStyle.space(16) : 0
@@ -2425,7 +2418,9 @@ Item {
         }
         Text {
           id: noticeText
-          anchors.fill: parent
+          anchors.top: parent.top
+          anchors.left: parent.left
+          anchors.right: parent.right
           anchors.margins: MailStyle.space(8)
           textFormat: Text.PlainText
           anchors.rightMargin: diagnoseErrorButton.visible ? diagnoseErrorButton.width + MailStyle.space(8) : MailStyle.space(8)

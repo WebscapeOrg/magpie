@@ -28,6 +28,7 @@ struct Entry {
     key: String,
     prepared: Arc<Prepared>,
     bytes: usize,
+    revision: String,
 }
 struct Prepared {
     source: String,
@@ -63,18 +64,35 @@ impl Job {
     }
 }
 impl ReaderStore {
+    #[cfg(test)]
     fn put(
         &mut self,
         account: &str,
         id: &str,
         prepared: Arc<Prepared>,
     ) -> Result<String, &'static str> {
+        self.put_revision(account, id, prepared, "")
+    }
+    fn put_revision(
+        &mut self,
+        account: &str,
+        id: &str,
+        prepared: Arc<Prepared>,
+        revision: &str,
+    ) -> Result<String, &'static str> {
+        for index in (0..self.entries.len()).rev() {
+            if self.entries[index].account == account && self.entries[index].id == id {
+                if let Some(old) = self.entries.remove(index) {
+                    self.bytes -= old.bytes;
+                }
+            }
+        }
         let bytes = prepared.bytes()?;
         if bytes > MAX_BYTES {
             return Err("reader_resource_too_large");
         }
         while self.bytes + bytes > MAX_BYTES
-            || self.entries.len() >= 64
+            || self.entries.len() >= 32
             || self.entries.iter().filter(|v| v.account == account).count() >= 12
         {
             let at = self
@@ -97,8 +115,24 @@ impl ReaderStore {
             key: key.clone(),
             prepared,
             bytes,
+            revision: revision.into(),
         });
         Ok(key)
+    }
+    fn prepared(
+        &mut self,
+        account: &str,
+        id: &str,
+        revision: &str,
+    ) -> Option<(String, Arc<Prepared>)> {
+        let index = self
+            .entries
+            .iter()
+            .position(|e| e.account == account && e.id == id && e.revision == revision)?;
+        let entry = self.entries.remove(index)?;
+        let value = (entry.key.clone(), entry.prepared.clone());
+        self.entries.push_back(entry);
+        Some(value)
     }
     fn get(&mut self, account: &str, id: &str, key: &str) -> Result<Arc<Prepared>, &'static str> {
         let at = self
@@ -133,7 +167,7 @@ fn field<'a>(p: &'a Value, key: &str) -> Result<&'a str, &'static str> {
         .filter(|s| !s.is_empty() && s.len() <= 4096 && !s.chars().any(char::is_control))
         .ok_or("invalid_params")
 }
-async fn registered(account: &str) -> Result<String, &'static str> {
+pub(super) async fn registered(account: &str) -> Result<String, &'static str> {
     let list = tokio::task::spawn_blocking(crate::account::list_readonly)
         .await
         .map_err(|_| "worker_failed")??;
@@ -154,14 +188,7 @@ impl Session {
         cache::validate_params(&json!({"accountId":account,"id":id}), true)?;
         let provider = registered(account).await?;
         let value = match provider.as_str() {
-            "gmail" => {
-                self.gmail
-                    .call(
-                        "gmail.read",
-                        &json!({"accountId":account,"id":id,"full":true}),
-                    )
-                    .await?
-            }
+            "gmail" => self.local_mail.read(account, id, &self.gmail).await?,
             "jmap" => self
                 .jmap
                 .call(
@@ -203,6 +230,32 @@ impl Session {
         params: &Value,
     ) -> Result<Value, &'static str> {
         let account = field(params, "accountId")?.to_lowercase();
+        if method == "reader.prefetch" {
+            let ids = params["ids"]
+                .as_array()
+                .filter(|ids| ids.len() <= 4)
+                .ok_or("invalid_params")?;
+            let now = params["now"].as_i64().ok_or("invalid_params")?;
+            let options = params["options"].as_object().ok_or("invalid_params")?;
+            if options.get("allowRemoteImages") == Some(&Value::Bool(true)) {
+                return Err("invalid_params");
+            }
+            for id in ids {
+                cache::validate_params(&json!({"accountId":account,"id":id}), true)?;
+            }
+            let Ok(_permit) = self.reader_prefetch.try_acquire() else {
+                return Ok(json!({"warmed":0}));
+            };
+            let mut warmed = 0;
+            for (index, id) in ids.iter().enumerate() {
+                let result=Box::pin(self.reader_call("reader.open",&json!({"accountId":account,"id":id,
+                    "requestId":format!("prefetch-{now}-{index}"),"cacheOnly":true,"now":now,"options":options}))).await;
+                if result.is_ok_and(|v| !v.is_null()) {
+                    warmed += 1;
+                }
+            }
+            return Ok(json!({"warmed":warmed}));
+        }
         if method == "reader.cancel" {
             let request = field(params, "requestId")?;
             let mut store = self.reader.lock().map_err(|_| "session_failed")?;
@@ -292,10 +345,51 @@ impl Session {
             live: job.live.clone(),
         };
         let operation = async {
-            registered(&account).await?;
+            let provider = registered(&account).await?;
             job.current()?;
+            let revision = if provider == "gmail" {
+                self.local_mail.revision(&account, &id).await?
+            } else {
+                None
+            };
+            if let Some(revision) = revision.as_deref() {
+                let prepared = self
+                    .reader
+                    .lock()
+                    .map_err(|_| "session_failed")?
+                    .prepared(&account, &id, revision);
+                if let Some((key, prepared)) = prepared {
+                    let renders = self.renders.clone();
+                    let account = account.clone();
+                    let id = id.clone();
+                    let job = job.clone();
+                    return tokio::task::spawn_blocking(move || {
+                        job.current()?;
+                        render_prepared(
+                            &prepared,
+                            &account,
+                            &id,
+                            &key,
+                            options,
+                            &renders,
+                            Some(&job.live),
+                        )
+                    })
+                    .await
+                    .map_err(|_| "worker_failed")?;
+                }
+            }
             let resource = if cache_only {
-                cache::resource::read(&account, &id).await?
+                if provider == "gmail" {
+                    match self.local_mail.resource(&account, &id).await? {
+                        Some(resource) => Some(resource),
+                        None => cache::resource::read(&account, &id)
+                            .await?
+                            .filter(crate::local_mail::text_complete),
+                    }
+                } else {
+                    cache::resource::read(&account, &id).await?
+                }
             } else {
                 Some(self.fetch_resource(&account, &id).await?)
             };
@@ -303,7 +397,7 @@ impl Session {
             let Some(resource) = resource else {
                 return Ok(Value::Null);
             };
-            if !cache_only {
+            if !cache_only && provider != "gmail" {
                 // Persistence failure does not discard a valid live read. Guarded
                 // writes cannot land after an explicit reader cancellation.
                 let _ =
@@ -321,7 +415,12 @@ impl Session {
                 if !*live_guard {
                     return Err("reader_cancelled");
                 }
-                let key = store_guard.put(&account, &id, prepared.clone())?;
+                let key = store_guard.put_revision(
+                    &account,
+                    &id,
+                    prepared.clone(),
+                    revision.as_deref().unwrap_or(""),
+                )?;
                 drop(live_guard);
                 drop(store_guard);
                 let result = render_prepared(

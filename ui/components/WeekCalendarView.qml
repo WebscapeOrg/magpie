@@ -41,6 +41,15 @@ Item {
     }
   }
 
+  readonly property var eventsByDay: visible ? Calendar.indexDays((root.controller ? root.controller.events : []).map(function(event) {
+                if (!root.pendingGesture || Calendar.eventKey(event) !== root.pendingGesture.key) return event
+                var moved = {}
+                for (var key in event) moved[key] = event[key]
+                moved.start = { ms: root.pendingGesture.start }
+                moved.end = { ms: root.pendingGesture.end }
+                return moved
+              }), days) : ({})
+
   readonly property real timeRailWidth: Math.max(MailStyle.space(52),
     allDayLabelMetrics.advanceWidth + MailStyle.space(12),
     midnightTimeMetrics.advanceWidth + MailStyle.space(12),
@@ -368,15 +377,7 @@ Item {
           delegate: Item {
             id: dayColumn
             required property var modelData
-            readonly property var dayEvents: Calendar.eventsOnDay(
-              (root.controller ? root.controller.events : []).map(function(event) {
-                if (!root.pendingGesture || Calendar.eventKey(event) !== root.pendingGesture.key) return event
-                var moved = {}
-                for (var key in event) moved[key] = event[key]
-                moved.start = { ms: root.pendingGesture.start }
-                moved.end = { ms: root.pendingGesture.end }
-                return moved
-              }), modelData)
+            readonly property var dayEvents: root.eventsByDay[modelData.startMs] || []
             readonly property var positionedEvents: Calendar.timedLayout(dayEvents, modelData)
             width: (timeline.width - root.timeRailWidth) / Math.max(1, root.days.length)
             height: parent.height

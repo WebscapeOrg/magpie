@@ -1,4 +1,3 @@
-import "../message/AttachmentPreview.js" as AttachmentPreview
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -30,6 +29,9 @@ import "../providers/OAuth.js" as OAuth
 //     quota, and the cache means switching to it still paints instantly
 Item {
   id: root
+  readonly property var local: localMailbox
+  LocalMailbox { id: localMailbox; account: root }
+  AccountResources { id: resources; account: root }
 
   visible: false
   width: 0
@@ -481,10 +483,8 @@ Item {
   // what spares each of them a null check of its own. It is not redundant with
   // the sign-in state: the two loaders build in sequence, so there is a frame
   // where the account is signed in and has nothing to fetch with.
-  // Authentication can finish before the private runtime is installed or its
-  // handshake lands. Waiting here makes that later transition run the same
-  // metadata and active-list initialization as a restored sign-in.
-  readonly property bool ready: setupState === "ready" && !!api
+  // Restored local mail can open before network authentication finishes.
+  readonly property bool ready: (setupState === "ready" || (localMailbox.available && localMailbox.hasMail)) && !!api
     && (!backend || !backend.executable || backend.ready === true)
   readonly property bool nativePolling: Provider.nativeSync(providerId) && !!backend
     && !!backend.protocolInfo && Array.isArray(backend.protocolInfo.methods)
@@ -588,6 +588,7 @@ Item {
 
   function refreshCounts() {
     if (!ready || countLoading) return
+    if (localMailbox.available) {localMailbox.refreshOverview(true); return}
     if (nativePolling) {
       backendSync.check()
       return
@@ -697,6 +698,7 @@ Item {
 
   function loadLabels() {
     if (!ready) return
+    if (localMailbox.available) {localMailbox.refreshOverview(false);return}
     if (cacheStore.loaded && cacheStore.store.labels.length > 0 && labels.length === 0)
       labels = cacheStore.store.labels
     api.getLabels(function(result, error) {
@@ -811,7 +813,7 @@ Item {
           resource.nativeSummary = root.hydrateSummary(resource.nativeSummary)
           callback(resource, "", cached, options.allowRemoteImages)
         } else if (!cached) callback(null, "Could not open that message", false)
-        if (cached) read(false)
+        if (cached && !(root.local && root.local.available && resource && !error)) read(false)
       })
     }
     if (!backend) { callback(null, "Mail backend is unavailable", false); return handle }
@@ -938,6 +940,7 @@ Item {
     listLoading = true
     var token = append ? nextPageToken : ""
     var limit = append ? maxMessages : Model.reloadLimit(maxMessages, loadedDepth)
+    if (localMailbox.load(append,limit,serial)) return
 
     // A typed search accepts ids while the provider is still finding them.
     // Mailbox and label listings have no long-running search phase, so their
@@ -1176,6 +1179,8 @@ Item {
   }
 
   function fetchSummaries(ids, append, serial, preservedError) {
+    var base = append ? root.messages.slice() : []
+    var progress = resources.summaryProgress(ids,base,serial)
     root.summarizedRead(ids, false, function(payloads, error) {
       if (serial !== root.listSerial) return
       root.listLoading = false
@@ -1197,6 +1202,7 @@ Item {
         root.fail(metadataError)
         return
       }
+      if (append) root.messages = base
       root.applySummaries(summaries, append, false, metadataError === "", function() {
       if (metadataError !== "") {
         // The list endpoint's token follows every id it returned, including a
@@ -1217,7 +1223,7 @@ Item {
       if (preservedError !== "") root.fail(preservedError)
       })
       })
-    }, listHandle)
+    }, listHandle, progress)
   }
 
   function applySummaries(summaries, append, suppressArrivals, markSynced, callback) {
@@ -1225,6 +1231,7 @@ Item {
     var account = accountId
     var list = listSerial
     var merged = append ? root.messages.concat(summaries) : summaries
+    if (root.local && root.local.available) root.messages = merged
     // A manual search may uncover an old unread row the current mailbox page
     // never held. That is a result, not newly arrived mail, so it must not turn
     // into a desktop notification.
@@ -1339,6 +1346,22 @@ Item {
       }
       if (cached) root.detailCachedResource = true
       else root.detailLive = true
+      var decoded = payload.nativeContent.body
+      root.renderSerial++
+      root.selectedHasHtml = !!payload.hasHtml
+      root.readerSourceKey = payload.hasHtml ? String(payload.readerKey) : ""
+      var ready = payload.nativeRender
+      root.adoptRendered(ready, readAllowsRemoteImages)
+        root.detailLoading = false
+        root.detailPainted = true
+        Qt.callLater(function() { if (serial===root.detailSerial) resources.warmNeighbours(messageId) })
+        root.lastError = ""
+        if (ready.plainText) decoded = ({ text: ready.plainText.text, source: "html", bodyDirection: ready.plainText.bodyDirection || "" })
+        root.selectedBody = decoded
+        root.selectedImages = ready.plainText ? ready.plainText.images : []
+
+      root.selectedAttachments = payload.nativeContent.attachments
+
       // Merged with the row rather than replacing it: a provider whose detail
       // read carries no subject line of its own — HEY reads a conversation, not
       // a message — would otherwise blank the one the list had drawn.
@@ -1359,20 +1382,6 @@ Item {
       if (serial !== root.detailSerial || (cached && root.detailLive)) return
       summary = root.hydrateSummary(summary)
       root.selectedMessage = summary
-      var decoded = payload.nativeContent.body
-      root.renderSerial++
-      root.selectedHasHtml = !!payload.hasHtml
-      root.readerSourceKey = payload.hasHtml ? String(payload.readerKey) : ""
-      var ready = payload.nativeRender
-      root.adoptRendered(ready, readAllowsRemoteImages)
-        root.detailLoading = false
-        root.detailPainted = true
-        root.lastError = ""
-        if (ready.plainText) decoded = ({ text: ready.plainText.text, source: "html", bodyDirection: ready.plainText.bodyDirection || "" })
-        root.selectedBody = decoded
-        root.selectedImages = ready.plainText ? ready.plainText.images : []
-
-      root.selectedAttachments = payload.nativeContent.attachments
       root.selectedInvite = payload.cachedInvite || Calendar.fromPayload(payload.payload)
       root.selectedUnsubscribe = Unsub.fromMessage(payload)
       // Only the invitation overlay may need persistence after its attachment
@@ -2038,7 +2047,7 @@ Item {
 
   // Loads the original bytes before a forward can claim it includes them.
   // Gmail fetches each part; IMAP reads the same part from the full message.
-  function loadAttachments(messageId, attachments, callback) {
+  function loadAttachments(messageId, attachments, callback, draftKey) {
     var listed = Array.isArray(attachments) ? attachments : []
     if (listed.length === 0) {
       if (typeof callback === "function") callback([], "")
@@ -2051,6 +2060,17 @@ Item {
     for (var i = 0; i < listed.length; i++) {
       (function(index) {
         var source = listed[index] || ({})
+        if (draftKey && backend && backend.ready && Number(backend.apiVersion)>=8 && providerId!=="hey") {
+          handles.push(backend.call("attachment.retain",{accountId:accountId,draftKey:String(draftKey),
+            messageId:String(messageId),attachmentId:String(source.attachmentId || ""),
+            filename:String(source.filename || "attachment"),mimeType:String(source.mimeType || "application/octet-stream")},function(result,error) {
+              if (error && firstError === "") firstError = "Could not include " + String(source.filename || "an attachment")
+              loaded[index] = result
+              remaining--
+              if (remaining === 0 && typeof callback === "function") callback(loaded,firstError)
+          }))
+          return
+        }
         handles.push(api.getAttachment(messageId, String(source.attachmentId || ""),
           function(data, error) {
             if (error && firstError === "")
@@ -2072,41 +2092,9 @@ Item {
   }
 
   function previewAttachment(messageId, attachment, callback) {
-    var done = typeof callback === "function" ? callback : function() {}
-    var id = String(messageId || "")
-    var source = null
-    for (var i = 0; i < selectedAttachments.length; i++) {
-      if (attachment && selectedAttachments[i].attachmentId === attachment.attachmentId)
-        source = selectedAttachments[i]
-    }
-    if (!ready || id !== selectedId || !source || !AttachmentPreview.supported(source) || !backend || !backend.ready
-      || Number(backend.apiVersion) < 8) { done(""); return null }
-    var serial = detailSerial
-    var account = accountId
-    var cancelled = false
-    var previewRequest = null
-    var request = api.getAttachment(id, String(source.attachmentId), function(data, error) {
-      if (cancelled || !root) return
-      if (account !== root.accountId || id !== root.selectedId || serial !== root.detailSerial) { done(""); return }
-      if (error || !data || data.length > 11200000) { done(""); return }
-      previewRequest = root.backend.call("attachment.thumbnail", {
-        data: String(data), mimeType: String(source.mimeType || "").toLowerCase()
-      }, function(result, failure) {
-        if (cancelled || !root) return
-        if (account !== root.accountId || id !== root.selectedId || serial !== root.detailSerial) { done(""); return }
-        done(failure || !result ? "" : String(result.data || ""))
-      })
-    })
-    return {cancel: function() {
-      cancelled = true
-      if (root) root.abortRequest(request)
-      if (previewRequest && typeof previewRequest.cancel === "function") previewRequest.cancel()
-    }}
+    return resources.previewAttachment(messageId,attachment,callback)
   }
 
-  // Opens only after the user asks. The provider hands back base64url bytes;
-  // the backend writes them to a private runtime file before the desktop opens
-  // the file with its registered application.
   function openAttachment(messageId, attachment) {
     var source = attachment || ({})
     if (!ready) {
@@ -2117,6 +2105,7 @@ Item {
       fail("That attachment is not available")
       return
     }
+    if (backend && backend.ready && Number(backend.apiVersion)>=8) {resources.downloadAttachment(messageId,source,true);return}
     clearNotice()
     loadAttachments(messageId, [source], function(loaded, error) {
       if (error || !loaded || loaded.length === 0) {
@@ -2160,6 +2149,7 @@ Item {
       fail("That attachment is not available")
       return
     }
+    if (backend && backend.ready && Number(backend.apiVersion)>=8) {resources.downloadAttachment(messageId,source,false);return}
     // One save at a time for one attachment. A download arrow is a single
     // click, and a double one used to start a second fetch that the script
     // then dutifully numbered: two identical files in Downloads, and a notice
@@ -2307,6 +2297,7 @@ Item {
       return null
     }
     var composeFields = ({
+      draftKey: String(values.draftKey || ""),
       from: from,
       fromName: alias ? String(alias.displayName || "") : "",
       // What the generated Message-ID takes its domain from when the draft
@@ -2329,6 +2320,16 @@ Item {
     var handle = {aborted: false, children: []}
     var account = accountId
     if (!backend) { if (typeof callback === "function") callback(null, "Mail backend is unavailable"); return handle }
+    if (Number(backend.apiVersion)>=8 && providerId!=="hey") {
+      var nativeJob=backend.call("draft.compose",{accountId:account,fields:composeFields},function(saved,error) {
+        if (handle.aborted || account!==root.accountId) return
+        if (typeof callback === "function") callback(saved,error ? "Could not save this draft online. Your local draft has been kept." : "")
+        if (!error && root.mailboxKey==="drafts") root.loadMessages(false,true,"")
+        else if (!error) root.refreshCounts()
+      })
+      if (nativeJob) handle.children.push(nativeJob)
+      return handle
+    }
     backend.call("message.compose", {fields: composeFields}, function(payload, composeError) {
       if (handle.aborted || account !== root.accountId) return
       if (composeError || !payload) {
@@ -2378,7 +2379,7 @@ Item {
     var files = Array.isArray(values.attachments) ? values.attachments : []
     var hasFiles = false
     for (var fi = 0; fi < files.length; fi++) {
-      if (files[fi] && (files[fi].data || files[fi].path)) hasFiles = true
+      if (files[fi] && (files[fi].data || files[fi].path || files[fi].handle)) hasFiles = true
     }
     var body = String(values.body || "")
     if (values.exactBody !== true) body = body.trim()
@@ -2401,6 +2402,7 @@ Item {
       return false
     }
     var composeFields = ({
+      draftKey: String(values.draftKey || ""),
       from: from,
       fromName: alias ? String(alias.displayName || "") : "",
       // What the generated Message-ID takes its domain from when the compose
@@ -2425,6 +2427,10 @@ Item {
     })
     var account = accountId
     if (!backend) { reportSendFailure("Mail backend is unavailable", id); return "" }
+    if (Number(backend.apiVersion) >= 8) {
+      if (!sendQueue.park(null,id,order,composeFields)) reportSendFailure("Could not queue this message",id)
+      return id
+    }
     backend.call("message.compose", {fields: composeFields}, function(payload, error) {
       if (account !== root.accountId) return
       if (error || !payload) { root.reportSendFailure("Could not prepare this message", id); return }
@@ -2931,7 +2937,7 @@ Item {
   BackendSync {
     id: backendSync
     backend: root.backend
-    enabled: root.ready && root.nativePolling
+    enabled: root.ready && root.nativePolling && !localMailbox.available
     accountId: root.accountId
     query: Provider.unreadQuery(root.providerId)
     intervalSec: root.refreshIntervalSec

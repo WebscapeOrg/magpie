@@ -47,9 +47,7 @@ Item {
   property var manifest: null
   property var pluginRegistry: null
   property var barWidgetRegistry: null
-  // Optional host seam. The Omarchy shell does not inject it and therefore
-  // keeps every existing plugin path; the standalone composition supplies a
-  // narrow adapter for native operations and its bundled backend.
+  // The native host supplies this adapter; the plugin shell leaves it unset.
   property var platform: null
   property var initialSettings: null
   readonly property var capabilities: platform && platform.capabilities
@@ -65,7 +63,8 @@ Item {
     pluginDir: root.pluginDir
     bundledExecutable: root.standalone ? String(root.platform.backendPath || "") : ""
     bundledVersion: root.standalone ? root.version : ""
-    bundledApiVersion: root.standalone ? 6 : 0
+    bundledApiVersion: Number(bundledContract.releasedApiVersion || 0)
+    bundledContract: root.standalone ? root.platform.backendContract || ({}) : ({})
     bundledMode: root.standalone
     developmentExecutable: root.standalone ? "" : (Quickshell.env("OMAMAIL_BIN") || "")
     onValidated: Qt.callLater(rustBackend.reconcileProcess)
@@ -96,6 +95,7 @@ Item {
     expectedApiVersion: privateRuntime.requiredApiVersion
     latestApiVersion: privateRuntime.latestApiVersion
     unreleasedMethods: privateRuntime.unreleasedMethods
+    expectedContractHash: privateRuntime.contractHash
     onReadyChanged: root.scheduleUnifiedSnapshot()
     onRequestFailed: function(method, error) {
       if (diagnosticsLoader.item) diagnosticsLoader.item.record(method, error)
@@ -1699,10 +1699,8 @@ Item {
 
   readonly property var auth: current ? current.auth : null
   readonly property bool ready: !!current && current.ready
+  readonly property var localMailbox: !unified && current ? current.local : null
   readonly property string accountEmail: current ? current.accountEmail : ""
-  // The short name the switcher shows for the account on screen — the label
-  // the user gave it, or the local part of its address. The sidebar's user
-  // bar shows this; the full address is on the status line.
   readonly property string accountLabel: {
     var entry = Accounts.find(accountList, activeAccountId)
     return entry ? Accounts.label(entry) : ""
@@ -2025,15 +2023,14 @@ Item {
     }
     return newest
   }
+  readonly property bool sendAwaitingConnection: !!pendingSendHost && !!pendingSendHost.latestSend
+    && pendingSendHost.latestSend.error === "outbox_awaiting_connection"
   readonly property bool sendPending: !!pendingSendHost
   readonly property int sendSecondsRemaining: pendingSendHost
     ? pendingSendHost.sendSecondsRemaining : 0
   readonly property string lastError: unified
     ? (unifiedBatchAction.error || unifiedSnapshotError || unifiedSnapshot.error || "") : (current ? current.lastError : "")
-  // The last thing a mailbox said it did, and the undo that goes with it. Read
-  // from `current` alone, archiving a row from a non-active mailbox in a merged
-  // list produced no confirmation and no undo affordance at all — so the most
-  // recent of them wins, which is the one the press just produced.
+  // Unified actions expose the newest notice and undo across all accounts.
   readonly property string actionStatus: {
     if (!unified) return current ? current.actionStatus : ""
     if (unifiedBatchAction.status !== "") return unifiedBatchAction.status
@@ -2391,9 +2388,9 @@ Item {
     }
     return host.undoSend(callback)
   }
-  function loadAttachments(messageId, attachments, callback) {
+  function loadAttachments(messageId, attachments, callback, draftKey) {
     var host = hostForId(messageId)
-    if (host) return host.loadAttachments(sourceIdFor(messageId), attachments, callback)
+    if (host) return host.loadAttachments(sourceIdFor(messageId), attachments, callback, draftKey)
     if (typeof callback === "function") callback([], "No mailbox is selected")
     return null
   }
@@ -2604,6 +2601,9 @@ Item {
   }
 
   // ------------------------------------------------------------- instances
+
+  readonly property alias calendarCache: sharedCalendarCache
+  CalendarCache { id: sharedCalendarCache; backend: root.backend; cacheName: root.backend && Number(root.backend.apiVersion)>=8 ? "calendar-shared" : "calendar" }
 
   CalendarController {
     id: sharedCalendar

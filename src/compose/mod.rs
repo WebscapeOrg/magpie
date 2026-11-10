@@ -156,6 +156,16 @@ fn draft(value: &Value) -> Result<Value> {
                 json!(size)
             };
             attachments.push(json!({"filename":text(&row["filename"]),"mimeType":text(&row["mimeType"]),"size":size,"data":if path.is_empty(){text(&row["data"])}else{String::new()},"path":path,"owned":row["owned"]==true,"attachmentId":text(&row["attachmentId"]),"partId":text(&row["partId"])}));
+            if let Some(handle) = row
+                .get("handle")
+                .and_then(Value::as_str)
+                .filter(|h| !h.is_empty())
+            {
+                if handle.len() != 64 || !handle.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err("invalid_params");
+                }
+                attachments.last_mut().unwrap()["handle"] = json!(handle);
+            }
         }
         out[key] = json!(attachments);
     }

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import "../controls" as Widgets
 import "../settings"
 import QtQuick.Controls as QQC
@@ -16,6 +17,8 @@ Item {
   required property string currentDraftKey
   readonly property bool opened: dialog.opened
   property string requestedDraftKey: ""
+  property var returnFocusItem: null
+  property string returnDraftKey: ""
 
   signal saveRequested(string draftKey)
   signal discardRequested(string draftKey)
@@ -32,6 +35,8 @@ Item {
   function open() {
     if (currentDraftKey === "") return
     requestedDraftKey = currentDraftKey
+    returnDraftKey = currentDraftKey
+    returnFocusItem = root.Window.activeFocusItem
     dialog.open()
   }
   function close() {
@@ -63,7 +68,18 @@ Item {
     focus: true
     closePolicy: QQC.Popup.CloseOnEscape
     onOpened: saveButton.forceActiveFocus()
-    onClosed: root.requestedDraftKey = ""
+    onClosed: {
+      root.requestedDraftKey = ""
+      var target = root.returnFocusItem
+      var key = root.returnDraftKey
+      root.returnFocusItem = null
+      root.returnDraftKey = ""
+      Qt.callLater(function() {
+        if (target && target.visible && target.enabled && key === root.currentDraftKey
+            && root.Window.window && root.Window.window.visible)
+          target.forceActiveFocus()
+      })
+    }
     background: Rectangle {
       radius: Style.cornerRadius
       color: root.popupBackgroundColor

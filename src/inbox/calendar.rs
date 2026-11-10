@@ -32,7 +32,8 @@ const ACCOUNT_TIME: Duration = Duration::from_secs(12);
 #[cfg(feature = "mobile")]
 const APPLE_FRESH: i64 = 24 * 3_600_000;
 
-fn clipped(text: &str, limit: usize) -> String {
+/// Context text on one line: control characters and runs of spaces become one space, cut at `limit`.
+pub(crate) fn clipped(text: &str, limit: usize) -> String {
     let text: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if text.chars().count() <= limit {

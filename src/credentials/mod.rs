@@ -29,6 +29,9 @@ pub enum CredentialKind {
     /// The OpenAI API key that paints sender pictures. One per installation: provider "openai",
     /// account "default".
     OpenAiApiKey,
+    /// The key that reads the owner's todos from Magpie To Do (Atlas's Magpie feed, nothing else).
+    /// One per installation: provider "atlas", account "default".
+    AtlasKey,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,6 +170,16 @@ impl CredentialKey {
                 return Ok(BTreeMap::from([
                     ("service".into(), "omamail".into()),
                     ("kind".into(), "openai-api-key".into()),
+                    ("account".into(), "default".into()),
+                ]));
+            }
+            CredentialKind::AtlasKey => {
+                if self.provider != "atlas" || self.account_id != "default" {
+                    return Err(Error::InvalidKey);
+                }
+                return Ok(BTreeMap::from([
+                    ("service".into(), "omamail".into()),
+                    ("kind".into(), "atlas-key".into()),
                     ("account".into(), "default".into()),
                 ]));
             }

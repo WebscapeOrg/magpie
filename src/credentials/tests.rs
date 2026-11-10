@@ -341,6 +341,33 @@ fn openai_api_key_slot_is_separate_from_other_credentials() {
 }
 
 #[test]
+fn atlas_key_slot_is_separate_from_other_credentials() {
+    let slot = CredentialKey {
+        provider: "atlas".into(),
+        account_id: "default".into(),
+        kind: CredentialKind::AtlasKey,
+    };
+    let attributes = slot.attributes().unwrap();
+    assert_eq!(attributes["kind"], "atlas-key");
+    assert_eq!(attributes["account"], "default");
+    assert_eq!(attributes.len(), 3);
+    let openai = CredentialKey {
+        provider: "openai".into(),
+        account_id: "default".into(),
+        kind: CredentialKind::OpenAiApiKey,
+    };
+    assert_ne!(slot.native_id().unwrap(), openai.native_id().unwrap());
+    for (provider, account) in [("openai", "default"), ("gmail", "default"), ("atlas", "dave@example.test"), ("atlas", "")] {
+        let wrong = CredentialKey {
+            provider: provider.into(),
+            account_id: account.into(),
+            kind: CredentialKind::AtlasKey,
+        };
+        assert!(wrong.attributes().is_err(), "accepted {provider}/{account}");
+    }
+}
+
+#[test]
 fn claude_api_key_slot_is_separate_from_gmail_credentials() {
     let slot = CredentialKey {
         provider: "anthropic".into(),

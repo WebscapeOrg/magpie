@@ -272,6 +272,7 @@ where
         }
         let before = suspensions();
         let started = std::time::Instant::now();
+        let run = crate::processing::Run::start();
         let first = rows.len();
         match describe(message.clone()).await {
             Ok(answer) => rows.extend(answer.as_array().cloned().unwrap_or_default()),
@@ -288,8 +289,10 @@ where
                 }
             }
         }
+        let record = run.finish();
         for row in &mut rows[first..] {
             super::point_details::merge(row, &json!({"createMs":super::point_details::elapsed(started)}));
+            super::point_details::merge(row, &json!({"createRun":record}));
         }
     }
     Ok(json!(rows))
@@ -1273,6 +1276,7 @@ mod tests {
         let mut rows = each_message(&messages, script(vec![Ok("Paid"), Err("overview_invalid_response"), Err("ai_unreachable")]), left, left()).await.unwrap();
         for row in &mut rows.as_array_mut().unwrap()[..3] {
             assert!(row["details"]["createMs"].is_u64());
+            assert_eq!(row["details"]["createRun"]["origin"], if cfg!(feature="mobile") { "app" } else { "desktop" });
             row.as_object_mut().unwrap().remove("details");
         }
         assert!(rows[3]["details"].is_null(), "a message never asked has no writing time");

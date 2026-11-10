@@ -205,10 +205,14 @@ fn shown_labels(labels: Value) -> Value {
 }
 
 pub(crate) const DOWNLOAD_MS: &str = "_magpieDownloadMs";
+pub(crate) const DOWNLOAD_RUN: &str = "_magpieDownloadRun";
+pub(crate) const DOWNLOAD_START: &str = "_magpieDownloadStart";
 
-fn downloaded(mut resource: Value, started: std::time::Instant) -> Value {
+fn downloaded(mut resource: Value, started: crate::processing::Run) -> Value {
     if let Some(fields) = resource.as_object_mut() {
-        fields.insert(DOWNLOAD_MS.into(), json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)));
+        fields.insert(DOWNLOAD_MS.into(), json!(started.millis()));
+        fields.insert(DOWNLOAD_RUN.into(), started.finish());
+        fields.insert(DOWNLOAD_START.into(), started.token());
     }
     resource
 }
@@ -220,7 +224,7 @@ impl Session {
         operation: &str,
         params: &Value,
     ) -> Result<Value, &'static str> {
-        let started = std::time::Instant::now();
+        let started = crate::processing::Run::start();
         self.access_token(account).await?;
         let budget = self.account(account)?.budget.clone();
         let mut query = Vec::new();
@@ -329,6 +333,7 @@ impl Session {
             return Err("gmail_account_unknown");
         }
         let budget = Arc::clone(&self.account(account)?.budget);
+        let started = crate::processing::Run::start();
         let answer = self
             .get_with(
                 account,
@@ -357,7 +362,10 @@ impl Session {
         Ok(rows
             .iter()
             .cloned()
-            .map(|row| resources::normalize("gmail.read", row))
+            .map(|row| {
+                let row = resources::normalize("gmail.read", row);
+                if format == "full" { downloaded(row, started.clone()) } else { row }
+            })
             .collect())
     }
     fn account(&self, account: &str) -> Result<Arc<AccountSession>, &'static str> {
@@ -632,7 +640,7 @@ impl Session {
             return Err("gmail_account_unknown");
         }
         let budget = Arc::clone(&self.account(&account)?.budget);
-        let started = std::time::Instant::now();
+        let started = crate::processing::Run::start();
         let answer = self
             .get_with(
                 &account,

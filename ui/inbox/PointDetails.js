@@ -30,7 +30,26 @@ function rows(value) {
   return rows.concat([
     {title: "Get from Gmail", value: duration(details.gmailMs) || "Not recorded"},
     {title: "Decide on model", value: duration(details.decideMs) || (details.choice === "default" ? "Default model" : "Not recorded")},
-    {title: "Create the Point", value: duration(details.createMs) || "Not recorded"}])
+    {title: "Create the Point", value: duration(details.createMs) || "Not recorded"},
+    {title: "Downloaded during", value: activity(details.downloadRun)},
+    {title: historical ? "Analysed during" : "Analysis attempted during", value: activity(details.createRun)}])
+}
+
+function activity(run) {
+  if (!run || typeof run !== "object") return "Not recorded"
+  for (var i = 0; i < 2; i++) {
+    var at = run[i === 0 ? "startedAt" : "finishedAt"]
+    if (typeof at !== "number" || !isFinite(at) || Math.floor(at) !== at || at < 1 || at > 9007199254740991) return "Not recorded"
+  }
+  if (run.origin === "desktop") return run.startedActive === undefined && run.finishedActive === undefined && run.leftApp === undefined ? "The main machine" + (run.remainingText === true ? " (remaining text)" : "") : "Not recorded"
+  if (run.origin !== "app" && run.origin !== "backgroundRefresh") return "Not recorded"
+  if (typeof run.startedActive !== "boolean" || typeof run.finishedActive !== "boolean" || typeof run.leftApp !== "boolean") return "Not recorded"
+  var label = run.origin === "backgroundRefresh" ? "Background refresh" : run.startedActive ? "While using Magpie" : "After leaving Magpie"
+  if (run.origin === "backgroundRefresh" && run.startedActive) label += "; app already open"
+  if (run.remainingText === true) label += " (remaining text)"
+  if (run.leftApp) return label + "; app left during this step"
+  if (!run.startedActive && run.finishedActive) return label + "; app opened during this step"
+  return label
 }
 
 function note(value) {

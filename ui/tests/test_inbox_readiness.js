@@ -50,8 +50,8 @@ for (let count=0;count<=5;count++) {
 const details = load("inbox/PointDetails.js");
 assert.deepStrictEqual(Array.from(details.rows({state:"stale",tier:"haiku"}), row=>row.title).slice(0,2), ["Requested model","Created with"]);
 assert.deepStrictEqual(Array.from(details.rows({state:"stale",tier:"haiku"}), row=>row.value).slice(0,2), ["Not recorded","Claude Haiku"]);
-assert.deepStrictEqual(Array.from(details.rows({state:"ready",tier:"opus"}), row=>row.value), ["Not recorded","Claude Opus","Not recorded","Not recorded","Not recorded"]);
-assert.deepStrictEqual(Array.from(details.rows({state:"ready",details:{requestedModel:"claude-sonnet-5-5",model:"claude-haiku-5-5",gmailMs:0,decideMs:42,createMs:2500}}), row=>row.value), ["Claude Sonnet 5.5","Claude Haiku 5.5","0 ms","42 ms","2.5 seconds"]);
+assert.deepStrictEqual(Array.from(details.rows({state:"ready",tier:"opus"}), row=>row.value), ["Not recorded","Claude Opus","Not recorded","Not recorded","Not recorded","Not recorded","Not recorded"]);
+assert.deepStrictEqual(Array.from(details.rows({state:"ready",details:{requestedModel:"claude-sonnet-5-5",model:"claude-haiku-5-5",gmailMs:0,decideMs:42,createMs:2500}}), row=>row.value), ["Claude Sonnet 5.5","Claude Haiku 5.5","0 ms","42 ms","2.5 seconds","Not recorded","Not recorded"]);
 for (const value of [null,undefined,-1,0.5,86400001,"125"]) assert.strictEqual(details.duration(value), "");
 for (const value of ["__proto__","constructor","<b>Sonnet</b>"]) assert.strictEqual(details.model(value), "");
 assert.strictEqual(details.duration(62100),"1 min 2 sec");
@@ -88,3 +88,16 @@ let failedState=arrivals.update(null,arrivalRows,()=>({}),()=>false,1000,true,"a
 failedState=arrivals.update(failedState,[arrivalRows[0]],()=>({state:"failed",attempts:1}),()=>false,1000,true,"account");
 assert.strictEqual(failedState.queued.length,0,"removed and failed mail cannot remain stacked");
 console.log("Point arrival sequencing checks passed");
+
+const backgroundRun = {origin:"backgroundRefresh",startedAt:100,finishedAt:200,startedActive:false,finishedActive:false,leftApp:false};
+const appRun = {...backgroundRun,origin:"app",startedActive:true,finishedActive:true};
+assert.strictEqual(details.activity(backgroundRun),"Background refresh");
+assert.strictEqual(details.activity(appRun),"While using Magpie");
+assert.strictEqual(details.activity({...appRun,leftApp:true}),"While using Magpie; app left during this step");
+assert.strictEqual(details.activity({...backgroundRun,finishedActive:true}),"Background refresh; app opened during this step");
+assert.deepStrictEqual(Array.from(details.rows({details:{downloadRun:backgroundRun,createRun:appRun}}),row=>row.value).slice(-2),["Background refresh","While using Magpie"]);
+for (const run of [null,{}, {...appRun,origin:"<b>unknown</b>"}, {...appRun,startedAt:"100"}, {...appRun,leftApp:"true"}]) assert.strictEqual(details.activity(run),"Not recorded");
+console.log("Per-email processing context checks passed");
+
+assert.strictEqual(details.activity({...backgroundRun,startedActive:true,finishedActive:true}),"Background refresh; app already open");
+assert.strictEqual(details.activity({origin:"desktop",startedAt:100,finishedAt:200,remainingText:true}),"The main machine (remaining text)");

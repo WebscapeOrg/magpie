@@ -22,6 +22,9 @@ pub(crate) fn clean(value: &Value) -> Value {
     for key in ["requestedModel", "model"] {
         if let Some(name) = model(&value[key]) { details[key] = json!(name); }
     }
+    for key in ["downloadRun", "createRun"] {
+        if let Some(run) = crate::processing::clean(&value[key]) { details[key] = run; }
+    }
     if let Some(size) = value["batchSize"].as_u64().filter(|size| (1..=4).contains(size)) {
         details["batchSize"] = json!(size);
     }

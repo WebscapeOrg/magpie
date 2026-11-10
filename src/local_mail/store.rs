@@ -254,6 +254,15 @@ impl Store {
     pub(super) fn directory(&self) -> &File {
         self.vfs.directory()
     }
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+    pub(super) fn overview_candidates(&self) -> Result<Vec<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT m.id FROM messages m JOIN labels l ON m.id=l.message_id WHERE l.label='INBOX' AND m.text_complete=1 ORDER BY m.date DESC, m.id LIMIT 500001"))?;
+            let ids: Vec<String> = sql(query.query_map([], |r| r.get(0)))?.map(sql).collect::<Result<_>>()?;
+            if ids.len() > 500_000 { return Err("local_snapshot_too_large"); }
+            Ok(ids)
+        })
+    }
     #[cfg(target_os = "linux")]
     pub(super) fn notification_snapshot(&self) -> Result<Value> {
         self.read(|db| {
@@ -284,6 +293,46 @@ impl Store {
                 "paused":state(db,"paused")?=="true","error":state(db,"error")?,"updated":state(db,"updated")?,
                 "estimatedTotal":state(db,"estimate")?.parse::<u64>().unwrap_or(0),"health":super::inbox::health(db)?}))
         })
+    }
+    #[cfg(any(feature = "mobile", target_os = "linux"))]
+    pub(super) fn background_ids(&self) -> Result<Vec<String>> {
+        self.read(|db| {
+            let mut query = sql(db.prepare("SELECT m.id FROM messages m JOIN labels l ON m.id=l.message_id WHERE l.label='INBOX' AND m.text_complete=1 ORDER BY m.date DESC,m.id LIMIT 5000"))?;
+            sql(query.query_map([], |row| row.get(0)))?.map(sql).collect()
+        })
+    }
+    // Invariant: Read-only; alert decisions stay with the phone host, which knows what it has shown and described.
+    #[cfg(any(feature = "mobile", test))]
+    pub(super) fn alert_snapshot(&self) -> Result<Value> {
+        self.read(|db| {
+            let snapshot = sql(db.unchecked_transaction())?;
+            let db = &snapshot;
+            let mut query = sql(db.prepare("SELECT m.id FROM messages m JOIN labels l ON m.id=l.message_id AND l.label='INBOX' ORDER BY m.date DESC,m.id LIMIT 50000"))?;
+            let inbox: Vec<String> = sql(query.query_map([], |r| r.get(0)))?.map(sql).collect::<Result<_>>()?;
+            const UNREAD: &str = "FROM messages m JOIN labels a ON m.id=a.message_id AND a.label='INBOX' JOIN labels b ON m.id=b.message_id AND b.label='UNREAD' ORDER BY m.date DESC,m.id";
+            let mut query = sql(db.prepare(&format!("SELECT m.id,m.date {UNREAD} LIMIT 20000")))?;
+            let rows: Vec<(String, i64)> = sql(query.query_map([], |r| Ok((r.get(0)?, r.get(1)?))))?.map(sql).collect::<Result<_>>()?;
+            // Only the newest unread mail can be new, so only it carries sender details; the rest counts toward the badge.
+            let mut query = sql(db.prepare(&format!("SELECT m.summary {UNREAD} LIMIT 2000")))?;
+            let summaries: Vec<String> = sql(query.query_map([], |r| r.get(0)))?.map(sql).collect::<Result<_>>()?;
+            let mut unread = Vec::with_capacity(rows.len());
+            for (index, (id, date)) in rows.into_iter().enumerate() {
+                let mut row = json!({"id":id,"date":date});
+                if let Some(summary) = summaries.get(index) {
+                    let summary = decode(summary)?;
+                    row["from"] = summary["from"].clone();
+                    row["subject"] = summary["subject"].clone();
+                }
+                unread.push(row);
+            }
+            Ok(json!({"ready":state(db,"inboxReady")?=="true","paused":state(db,"paused")?=="true","inbox":inbox,"unread":unread}))
+        })
+    }
+    #[cfg(target_os = "linux")]
+    pub(super) fn background_snapshot(&self) -> Result<Value> {
+        let (history, paused) =
+            self.read(|db| Ok((state(db, "history")?, state(db, "paused")? == "true")))?;
+        Ok(json!({"history":history,"paused":paused,"ids":self.background_ids()?}))
     }
     pub(super) fn label_counts(&self, id: &str) -> Result<Value> {
         self.read(|db| {

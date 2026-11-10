@@ -68,6 +68,14 @@ pub(super) async fn step(
     if deliver_edit(store, gmail, account).await? {
         return Ok(true);
     }
+    receive(store, gmail, account).await
+}
+
+pub(super) async fn receive(
+    store: &Arc<Store>,
+    gmail: &gmail::Session,
+    account: &str,
+) -> Result<bool> {
     if disk(store, |s| s.read(|db| Ok(state(db, "paused")? == "true"))).await? {
         return Ok(false);
     }
@@ -221,6 +229,9 @@ pub(super) async fn step(
         Err("gmail_not_found") => {
             disk(store, move |s| s.delete(&id)).await?;
         }
+        // Invariant: a fetch deferred for a foreground request never left the device, so its
+        // message is not put off; the caller's own wait decides when it is asked again.
+        Err("gmail_request_deferred") => return Err("gmail_request_deferred"),
         Err(error) => {
             disk(store, move |s| {
                 s.write(|db| {

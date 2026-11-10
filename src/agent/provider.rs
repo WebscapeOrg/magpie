@@ -61,7 +61,7 @@ impl Provider {
                     json!({})
                 };
                 command.args(["--mcp-config", &json!({"mcpServers":servers}).to_string()]);
-                command.args(["--system-prompt", super::worker::MAIL_ROLE]);
+                command.args(["--system-prompt", super::prompt::MAIL_ROLE]);
                 super::config::claude(&mut command, id)?;
             }
             Self::Codex => {

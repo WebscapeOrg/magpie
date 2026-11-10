@@ -1,8 +1,8 @@
 //! Generic-password items through Apple's Security framework; no CLI helpers.
 use super::*;
-use security_framework::passwords::{
-    delete_generic_password, get_generic_password, set_generic_password,
-};
+#[cfg(not(target_os = "ios"))]
+use security_framework::passwords::set_generic_password;
+use security_framework::passwords::{delete_generic_password, get_generic_password};
 const SERVICE: &str = "org.omamail.credentials.v1";
 
 fn error(error: security_framework::base::Error) -> Error {

@@ -549,8 +549,8 @@ def run(base, path, ident):
                         if len(pending) > EVENT_LIMIT:
                             raise ValueError('The AI stream event exceeded its size limit.')
                     if time.monotonic() - last_write >= .1:
-                        write(fd, 'display.json', parser.value)
                         with locked(base):
+                            write(fd, 'display.json', parser.value)
                             job.update(progress=parser.progress, updated=int(time.time()))
                             write(fd, 'job.json', job)
                         last_write = time.monotonic()
@@ -581,13 +581,13 @@ def run(base, path, ident):
                     failure = 'The AI request failed. Check its login or permissions and retry.'
             # Persist only already validated snapshots; oversized/invalid events
             # must never poison a previously readable conversation.
-            try:
-                transcript_check(parser.value['transcript'])
-                if len(parser.value['output'].encode('utf-8')) <= RESULT_LIMIT:
-                    write(fd, 'display.json', parser.value)
-            except (ValueError, UnicodeError):
-                pass
             with locked(base):
+                try:
+                    transcript_check(parser.value['transcript'])
+                    if len(parser.value['output'].encode('utf-8')) <= RESULT_LIMIT:
+                        write(fd, 'display.json', parser.value)
+                except (ValueError, UnicodeError):
+                    pass
                 job.update(state='cancelled' if cancelled else 'failed' if failure else 'done', updated=int(time.time()), progress='Stopped' if cancelled else 'Failed' if failure else 'Finished', resultReady=not cancelled and not failure, sessionId=parser.value['sessionId'])
                 job.pop('pid', None)
                 if failure:

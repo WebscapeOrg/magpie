@@ -1,6 +1,211 @@
 use super::{Engine, reader};
 use serde_json::{Value, json};
 impl Engine {
+    pub async fn mobile_background_drain(&self) -> Result<(), &'static str> {
+        self.local_mail.drain(std::time::Duration::from_secs(2)).await
+    }
+    pub async fn mobile_background_refresh(&self, params: &Value) -> Result<Value, &'static str> {
+        if params.as_object().is_none_or(|p| !p.is_empty()) {
+            return Err("invalid_params");
+        }
+        let registry = crate::account::list_readonly()?;
+        let accounts: Vec<_> = registry["accounts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|account| account["provider"] == "gmail")
+            .filter_map(|account| account["id"].as_str().filter(|id| !id.is_empty()))
+            .collect();
+        let pages = futures_util::future::join_all(accounts.iter().map(|account| async move {
+            self.local_mail.background_refresh(account, &self.gmail).await
+                .unwrap_or_else(|error| json!({"accountId":account,"changed":false,"checked":false,"error":error,"ids":[]}))
+        })).await;
+        Ok(json!({"accounts":pages}))
+    }
+    /// Describes the waiting Inbox mail the app names, while iOS keeps the app awake.
+    /// Invariant: the app names only unread Inbox mail with no saved description, at most 20 per account;
+    /// the engine describes the first four of them that are due.
+    pub async fn mobile_background_describe(&self, params: &Value) -> Result<Value, &'static str> {
+        let fields = params.as_object().ok_or("invalid_params")?;
+        let rows = params["accounts"].as_array().filter(|rows| fields.len() == 1 && rows.len() <= 32).ok_or("invalid_params")?;
+        let mut work: Vec<(String, Vec<String>)> = Vec::new();
+        for row in rows {
+            if row.as_object().is_none_or(|fields| fields.len() != 2) {
+                return Err("invalid_params");
+            }
+            let account = row["accountId"].as_str().filter(|id| !id.is_empty()).ok_or("invalid_params")?;
+            let ids = row["ids"].as_array().filter(|ids| !ids.is_empty() && ids.len() <= 20).ok_or("invalid_params")?;
+            let ids = ids
+                .iter()
+                .map(|id| {
+                    let id = id.as_str().ok_or("invalid_params")?;
+                    crate::mail::action::validate_message_id(crate::mail::Provider::Gmail, id)?;
+                    Ok(id.to_owned())
+                })
+                .collect::<Result<Vec<_>, &'static str>>()?;
+            if work.iter().any(|(seen, _)| seen == account) {
+                return Err("invalid_params");
+            }
+            work.push((account.to_owned(), ids));
+        }
+        for (account, _) in &work {
+            reader::registered(account).await?;
+        }
+        crate::inbox::claude::ready().await?;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(14);
+        let mut pages = Vec::new();
+        for (account, ids) in work {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if left < std::time::Duration::from_secs(3) {
+                break;
+            }
+            let page = self
+                .inbox
+                .describe_waiting(&account, &ids, self.gmail.clone(), self.local_mail.clone(), left)
+                .await
+                .unwrap_or_else(|error| json!({"accountId":account,"error":error}));
+            pages.push(page);
+        }
+        Ok(json!({"accounts":pages}))
+    }
+    /// The same page of descriptions the main machine served the phone, now written on the phone.
+    pub async fn mobile_overviews(&self, params: &Value) -> Result<Value, &'static str> {
+        let fields = params.as_object().ok_or("invalid_params")?;
+        if !fields.keys().all(|key| ["accountId", "ids", "request", "retry", "allowRemoteImages"].contains(&key.as_str())) {
+            return Err("invalid_params");
+        }
+        let account = params["accountId"].as_str().filter(|id| !id.is_empty()).ok_or("invalid_params")?;
+        let ids = params["ids"].as_array().filter(|ids| ids.len() <= 100).ok_or("invalid_params")?;
+        for id in ids {
+            crate::mail::action::validate_message_id(crate::mail::Provider::Gmail, id.as_str().ok_or("invalid_params")?)?;
+        }
+        for key in ["request", "retry", "allowRemoteImages"] {
+            if params.get(key).is_some_and(|value| !value.is_boolean()) {
+                return Err("invalid_params");
+            }
+        }
+        if params["retry"] == true {
+            self.inbox.forgive_failed(account)?;
+        }
+        let mut submitted = json!({"accepted":null});
+        if params["request"] == true {
+            if ids.is_empty() || ids.len() > 4 {
+                return Err("invalid_params");
+            }
+            submitted = self
+                .dispatch("inbox.overviews", &json!({"accountId":account,"ids":ids,"retry":params["retry"] == true,"allowRemoteImages":params["allowRemoteImages"] == true}))
+                .await?;
+        }
+        let ids: Vec<&str> = ids.iter().filter_map(Value::as_str).collect();
+        let page = self.inbox.overview_page(account, &ids)?;
+        let keys = ["text", "state", "updated", "version", "expiresAt", "reason", "pendingSince", "attempts"];
+        let rows: serde_json::Map<String, Value> = page["overviews"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(id, row)| (id.clone(), json!(keys.iter().filter_map(|key| row.get(*key).map(|value| (key.to_string(), value.clone()))).collect::<serde_json::Map<_, _>>())))
+            .collect();
+        let mut answer = json!({"overviews":rows,"accepted":submitted["accepted"],"preferences":page["preferences"]});
+        if let Some(problem) = submitted["problem"].as_str() {
+            answer["problem"] = json!(problem);
+        }
+        Ok(answer)
+    }
+    pub async fn mobile_overview_settings(&self, params: &Value) -> Result<Value, &'static str> {
+        self.dispatch("inbox.preferences", params).await
+    }
+    /// The Claude API key: set (checked with Anthropic first), removed or described. Never returned.
+    pub async fn mobile_ai_key(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        let fields = params.as_object().ok_or("invalid_params")?;
+        match method {
+            "ai.setKey" => {
+                if fields.len() != 1 {
+                    return Err("invalid_params");
+                }
+                let key = params["key"].as_str().filter(|key| key.len() <= 4096).ok_or("invalid_params")?;
+                crate::inbox::claude::set_key(key).await
+            }
+            "ai.removeKey" if fields.is_empty() => crate::inbox::claude::remove_key().await,
+            "ai.keyStatus" if fields.is_empty() => crate::inbox::claude::key_status().await,
+            _ => Err("invalid_params"),
+        }
+    }
+    /// The phone's own assistant: start, show, cancel and list questions about mail and drafts.
+    /// Invariant: a question is accepted only for a signed-in account and only while the key could
+    /// be used; the turn itself runs in its own task, never inside this call. The assistant's
+    /// store work runs on blocking threads, never on the engine's request thread.
+    pub async fn mobile_ai(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        let reading = |read: fn(&crate::inbox::assistant::Assistant, &Value) -> Result<Value, &'static str>| {
+            let params = params.clone();
+            self.assistant.blocking(move |assistant| read(assistant, &params))
+        };
+        match method {
+            "ai.start" => {
+                let account = params["accountId"].as_str().ok_or("invalid_params")?;
+                reader::registered(account).await?;
+                // A retry of a question already accepted gets its job back, whatever the key's state now.
+                let accepted = {
+                    let params = params.clone();
+                    self.assistant.blocking(move |assistant| assistant.accepted(&params)).await?
+                };
+                if let Some(accepted) = accepted {
+                    return Ok(accepted);
+                }
+                crate::inbox::claude::conversation_ready().await?;
+                self.assistant
+                    .start(params, |request| async move {
+                        self.agent_context.call("agent.context", &request, self).await
+                    })
+                    .await
+            }
+            "ai.show" => reading(|assistant, params| assistant.show(params)).await,
+            "ai.list" => reading(|assistant, params| assistant.list(params)).await,
+            "ai.cancel" => {
+                let cancelled = reading(|assistant, params| assistant.cancel(params)).await?;
+                // A question cancelled while its mail is still being read stops that reading too.
+                if params["id"].as_str().is_none_or(str::is_empty) {
+                    if let (Some(account), Some(request)) =
+                        (params["accountId"].as_str(), params["requestId"].as_str())
+                    {
+                        let _ = self
+                            .agent_context
+                            .call(
+                                "agent.contextCancel",
+                                &json!({"accountId":account,"requestId":request}),
+                                self,
+                            )
+                            .await;
+                    }
+                }
+                Ok(cancelled)
+            }
+            _ => Err("invalid_params"),
+        }
+    }
+    pub async fn mobile_mail_alerts(&self, params: &Value) -> Result<Value, &'static str> {
+        if params.as_object().is_none_or(|p| !p.is_empty()) {
+            return Err("invalid_params");
+        }
+        let registry = crate::account::list_readonly()?;
+        let accounts: Vec<_> = registry["accounts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|account| account["provider"] == "gmail")
+            .filter_map(|account| account["id"].as_str().filter(|id| !id.is_empty()))
+            .collect();
+        let pages = futures_util::future::join_all(accounts.iter().map(|account| async move {
+            match self.local_mail.alert_snapshot(account).await {
+                Ok(mut page) => {
+                    page["accountId"] = json!(account);
+                    page
+                }
+                Err(error) => json!({"accountId":account,"error":error}),
+            }
+        }))
+        .await;
+        Ok(json!({"accounts":pages}))
+    }
     pub async fn mobile_draft_attachments(
         &self,
         method: &str,
@@ -53,6 +258,7 @@ impl Engine {
         let account = params["accountId"].as_str().ok_or("invalid_params")?;
         reader::registered(account).await?;
         self.outbox.remove_account(account).await?;
+        self.assistant.forget(account.to_owned()).await?;
         self.local_mail.retire(account).await?;
         self.gmail.call("gmail.invalidate", params).await?;
         self.queries.forget_account(account).await;

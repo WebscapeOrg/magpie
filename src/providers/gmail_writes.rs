@@ -72,7 +72,7 @@ fn plan(method: &str, params: &Value) -> Result<Plan, &'static str> {
     let allowed: &[&str] = match method {
         "gmail.modify" => &["accountId", "id", "addLabelIds", "removeLabelIds"],
         "gmail.batchModify" => &["accountId", "ids", "addLabelIds", "removeLabelIds"],
-        "gmail.createLabel" => &["accountId", "name"],
+        "gmail.createLabel" => &["accountId", "name", "hidden"],
         "gmail.renameLabel" => &["accountId", "id", "name"],
         "gmail.deleteLabel" | "gmail.trash" | "gmail.untrash" | "gmail.deleteDraft" => {
             &["accountId", "id"]
@@ -114,10 +114,18 @@ fn plan(method: &str, params: &Value) -> Result<Plan, &'static str> {
             result.body = Some(body);
         }
         "gmail.createLabel" => {
+            // A hidden label is kept out of Gmail's label list and message chips; Magpie uses it for snooze.
+            let hidden = match params.get("hidden") {
+                None => false,
+                Some(Value::Bool(value)) => *value,
+                Some(_) => return Err("invalid_params"),
+            };
             result.path = vec!["labels".into()];
-            result.body = Some(
-                json!({"name":field(params,"name",true)?,"labelListVisibility":"labelShow","messageListVisibility":"show"}),
-            );
+            result.body = Some(if hidden {
+                json!({"name":field(params,"name",true)?,"labelListVisibility":"labelHide","messageListVisibility":"hide"})
+            } else {
+                json!({"name":field(params,"name",true)?,"labelListVisibility":"labelShow","messageListVisibility":"show"})
+            });
         }
         "gmail.renameLabel" | "gmail.deleteLabel" => {
             result.path = vec!["labels".into(), field(params, "id", true)?.into()];
@@ -217,6 +225,7 @@ impl Session {
         &self,
         method: &str,
         params: &Value,
+        withdrawable: bool,
     ) -> Result<(u64, tokio::sync::oneshot::Receiver<queue::Outcome>), &'static str> {
         let plan = plan(method, params)?;
         let account = field(params, "accountId", true)?.to_lowercase();
@@ -239,6 +248,7 @@ impl Session {
                 http: plan.method,
                 path: plan.path,
                 body: plan.body,
+                withdrawable,
             },
         )
     }
@@ -341,6 +351,25 @@ mod tests {
         );
         assert!(plan("gmail.send", &json!({"raw":"bad\r\n"})).is_err());
         assert!(plan("gmail.trash", &json!({"id":".."})).is_err());
+        assert!(plan("gmail.createLabel", &json!({"name":"x","hidden":"yes"})).is_err());
+    }
+    #[test]
+    fn creates_hidden_labels_only_when_asked() {
+        let shown = plan("gmail.createLabel", &json!({"name":"Receipts"})).unwrap();
+        assert_eq!(
+            shown.body,
+            Some(json!({"name":"Receipts","labelListVisibility":"labelShow","messageListVisibility":"show"}))
+        );
+        let hidden = plan(
+            "gmail.createLabel",
+            &json!({"name":"Magpie-snooze-2026-11-02-0500-UTC","hidden":true}),
+        )
+        .unwrap();
+        assert_eq!(
+            hidden.body,
+            Some(json!({"name":"Magpie-snooze-2026-11-02-0500-UTC","labelListVisibility":"labelHide","messageListVisibility":"hide"}))
+        );
+        assert_eq!(hidden.path, vec!["labels"]);
     }
     #[test]
     fn preserves_message_bytes_and_mutation_semantics() {

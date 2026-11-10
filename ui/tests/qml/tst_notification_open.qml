@@ -80,7 +80,7 @@ Item {
     }
 
     function notification(account, arrivals) {
-      account.notify(arrivals)
+      account.deliverNotification(arrivals)
       var process = latestNotification(account)
       verify(!!process, "Notification must listen for a click instead of being detached")
       return process

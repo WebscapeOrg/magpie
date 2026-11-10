@@ -1256,8 +1256,13 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
             secret: crate::credentials::Secret::new(b"synthetic-refresh-token".to_vec()).unwrap(),
         });
 
+    let until = chrono::Utc::now().timestamp_millis() + 600_000;
+    let slot = (until + 299_999) / 300_000 * 300_000;
+    let name = chrono::DateTime::from_timestamp_millis(slot)
+        .unwrap()
+        .format("Magpie-snooze-%Y-%m-%d-%H%M-UTC")
+        .to_string();
     let message = json!({"id":"abc","threadId":"thread","labelIds":["INBOX","UNREAD"],"payload":{"headers":[{"name":"Subject","value":"Synthetic meeting"}]}});
-    let second = json!({"id":"def","threadId":"thread","labelIds":["INBOX"]});
     let response = |body: Value| {
         let body = body.to_string();
         format!(
@@ -1267,18 +1272,52 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
         .into_bytes()
     };
     let grant = json!({"access_token":"synthetic-access-token","expires_in":3600});
-    let peer=server_sequence(vec![response(grant.clone()),response(message.clone()),response(json!({"messages":[message.clone(),second]})),ok(),response(grant),response(json!({"messages":[{"id":"abc","labelIds":["UNREAD"]},{"id":"def","labelIds":["TRASH"]}]})),ok()],Duration::ZERO).await;
+    let system = json!({"id":"INBOX","name":"INBOX","type":"system"});
+    let labelled = json!({"labels":[system.clone(),{"id":"Label_9","name":name,"type":"user"}]});
+    let peer = server_sequence(
+        vec![
+            // Snooze: read, thread, labels, create the hidden slot label, archive.
+            response(grant.clone()),
+            response(message.clone()),
+            response(json!({"messages":[
+                {"id":"abc","threadId":"thread","labelIds":["INBOX","UNREAD"],"internalDate":"1700000000000"},
+                {"id":"def","threadId":"thread","labelIds":["INBOX"],"internalDate":"1700000060000"}]})),
+            response(json!({"labels":[system]})),
+            response(json!({"id":"Label_9","name":name})),
+            ok(),
+            // After restart, tick wakes first: labels, the thread, then the two changes.
+            response(grant),
+            response(labelled.clone()),
+            response(json!({"messages":[
+                {"id":"abc","threadId":"thread","labelIds":["UNREAD","Label_9"],"internalDate":"1700000000000"},
+                {"id":"def","threadId":"thread","labelIds":["TRASH","Label_9"],"internalDate":"1700000060000"}]})),
+            ok(),
+            ok(),
+            // Then discovery with the time left: labels, and the now empty due slot is listed.
+            response(labelled),
+            response(json!({"resultSizeEstimate":0})),
+        ],
+        Duration::ZERO,
+    )
+    .await;
     let transport = client_builder().https_only(false).build().unwrap();
     let origin = peer.url.strip_suffix("/messages/abc").unwrap().to_owned();
     with_test_transport(transport,origin,async {
         let session=crate::backend::Session::default();
         assert!(session.dispatch("inbox.snooze",&json!({"accountId":"snooze@example.org","id":"abc","until":0})).await.is_err());
-        assert!(peer.requests.lock().unwrap().is_empty(),"invalid schedules must not contact Gmail");
-        let answer=session.dispatch("inbox.snooze",&json!({"accountId":"snooze@example.org","id":"abc","until":chrono::Utc::now().timestamp_millis()+600_000})).await.unwrap();
+        assert_eq!(
+            session.dispatch("gmail.list",&json!({"accountId":"snooze@example.org","labelId":"../labels"})).await,
+            Err("invalid_params")
+        );
+        assert!(peer.requests.lock().unwrap().is_empty(),"invalid schedules and label filters must not contact Gmail");
+        let answer=session.dispatch("inbox.snooze",&json!({"accountId":"snooze@example.org","id":"abc","until":until})).await.unwrap();
         assert_eq!(answer["ok"],true);
         let snapshot=session.dispatch("inbox.snapshot",&json!({"accountId":"snooze@example.org"})).await.unwrap();
         assert_eq!(snapshot["snoozes"].as_array().unwrap().len(),1);
         assert_eq!(snapshot["snoozes"][0]["ids"],json!(["abc","def"]));
+        assert_eq!(snapshot["snoozes"][0]["labelId"],"Label_9");
+        assert_eq!(snapshot["snoozes"][0]["state"],"sleeping");
+        assert_eq!(snapshot["snoozes"][0]["subject"],"Synthetic meeting");
         let path=fixture.state.join("omamail/inbox/snoozes.json");
         let bytes=std::fs::read(&path).unwrap();
         assert!(!String::from_utf8_lossy(&bytes).contains("synthetic-access-token"));
@@ -1293,24 +1332,50 @@ async fn magpie_snooze_survives_restart_and_never_resurrects_trash() {
         assert!(restarted.dispatch("inbox.snapshot",&json!({"accountId":"snooze@example.org"})).await.unwrap()["snoozes"].as_array().unwrap().is_empty());
     }).await;
     let requests = peer.requests.lock().unwrap();
-    let writes: Vec<_> = requests
-        .iter()
-        .filter(|r| r.starts_with("POST /gmail/v1/users/me/messages/batchModify "))
-        .collect();
-    assert_eq!(writes.len(), 2);
-    let body = |request: &&String| {
+    assert_eq!(requests.len(), 13, "{requests:#?}");
+    let body = |request: &String| {
         serde_json::from_str::<Value>(request.split_once("\r\n\r\n").unwrap().1).unwrap()
     };
-    let archive = body(&writes[0]);
-    assert_eq!(archive["removeLabelIds"], json!(["INBOX"]));
-    assert_eq!(archive["ids"], json!(["abc", "def"]));
-    let wake = body(&writes[1]);
+    let created = requests
+        .iter()
+        .find(|r| r.starts_with("POST /gmail/v1/users/me/labels "))
+        .unwrap();
     assert_eq!(
-        wake["ids"],
-        json!(["abc"]),
+        body(created),
+        json!({"name":name,"labelListVisibility":"labelHide","messageListVisibility":"hide"})
+    );
+    assert!(
+        requests
+            .iter()
+            .filter(|r| r.starts_with("GET /gmail/v1/users/me/threads/thread?"))
+            .all(|r| r.contains("format=minimal")),
+        "snooze reads label ids, not whole threads"
+    );
+    assert!(
+        requests
+            .iter()
+            .any(|r| r.starts_with("GET /gmail/v1/users/me/messages?") && r.contains("labelIds=Label_9")),
+        "the slot is listed by its exact label id"
+    );
+    let writes: Vec<Value> = requests
+        .iter()
+        .filter(|r| r.starts_with("POST /gmail/v1/users/me/messages/batchModify "))
+        .map(body)
+        .collect();
+    assert_eq!(writes.len(), 3);
+    assert_eq!(
+        writes[0],
+        json!({"ids":["abc","def"],"addLabelIds":["Label_9"],"removeLabelIds":["INBOX"]})
+    );
+    assert_eq!(
+        writes[1],
+        json!({"ids":["abc"],"addLabelIds":["INBOX","UNREAD"],"removeLabelIds":["Label_9"]}),
         "the message trashed after snoozing must never return"
     );
-    assert_eq!(wake["addLabelIds"], json!(["INBOX", "UNREAD"]));
+    assert_eq!(
+        writes[2],
+        json!({"ids":["def"],"addLabelIds":[],"removeLabelIds":["Label_9"]})
+    );
 }
 
 #[tokio::test]

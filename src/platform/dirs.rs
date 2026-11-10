@@ -1,9 +1,8 @@
 //! Platform data roots. Consumers append their existing `omamail` subdirectory,
 //! retaining Linux plugin layouts. Discovery never creates or writes directories.
-use std::{
-    ffi::OsString,
-    path::{Component, Path, PathBuf},
-};
+use std::path::{Component, PathBuf};
+#[cfg(any(not(target_os = "ios"), test))]
+use std::{ffi::OsString, path::Path};
 
 /// Shared backend/standalone-host contract: every application-owned directory
 /// is this single component below its platform-native root.

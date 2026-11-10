@@ -49,6 +49,11 @@ impl Engine {
         self.inbox.stop_pictures();
         Ok(json!({"stopped": true}))
     }
+    /// The sender pictures the app shares with Dave's other devices through iCloud: those painted
+    /// here that iCloud lacks, the acknowledgement that iCloud has them, and the ones taken in.
+    pub async fn mobile_shared_pictures(&self, method: &str, params: &Value) -> Result<Value, &'static str> {
+        self.inbox.shared_pictures(method, params).await
+    }
     /// Describes the waiting Inbox mail the app names, while iOS keeps the app awake.
     /// Invariant: the app names only unread Inbox mail with no saved description, at most 20 per account;
     /// the engine describes the first four of them that are due.

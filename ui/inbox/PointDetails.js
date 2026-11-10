@@ -31,8 +31,15 @@ function rows(value) {
     {title: "Get from Gmail", value: duration(details.gmailMs) || "Not recorded"},
     {title: "Decide on model", value: duration(details.decideMs) || (details.choice === "default" ? "Default model" : "Not recorded")},
     {title: "Create the Point", value: duration(details.createMs) || "Not recorded"},
+    {title: "Context tokens sent", value: tokens(details)},
     {title: "Downloaded during", value: activity(details.downloadRun)},
     {title: historical ? "Analysed during" : "Analysis attempted during", value: activity(details.createRun)}])
+}
+
+function tokens(details) {
+  var n = details && details.contextTokens
+  if (typeof n !== "number" || !isFinite(n) || n < 0 || n > 9007199254740991 || Math.floor(n) !== n) return "Not recorded"
+  return (details.contextTokensPartial === true ? "At least " : "") + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 }
 
 function activity(run) {
@@ -54,8 +61,11 @@ function activity(run) {
 
 function note(value) {
   value = value || {}
-  var size = value.details && value.details.batchSize
+  var details = value.details || {}, size = details.batchSize, known = tokens(details) !== "Not recorded"
+  var note = ""
   if (typeof size === "number" && size >= 2 && size <= 4 && Math.floor(size) === size)
-    return "The writing time is shared by " + size + " Points written together."
-  return value.state === "running" || value.state === "waiting" ? "The Point is not finished yet." : ""
+    note = known ? "The writing time and token count are shared by " + size + " Points written together." : "The writing time is shared by " + size + " Points written together."
+  else if (value.state === "running" || value.state === "waiting") note = "The Point is not finished yet."
+  if (known) note += (note ? " " : "") + "This counts reported input across writing passes, including reused context."
+  return note
 }

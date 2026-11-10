@@ -12,4 +12,14 @@ docs/design/
 docs/superpowers/
 .superpowers/
 
+# Agents' working files (carrots, questions, Dave's tasks) stay on this machine: the repository is public (Q-007).
+/docs/agent-closed-tasks.md
+/docs/agent-open-tasks.md
+/docs/user-closed-tasks.md
+/docs/user-open-tasks.md
+/docs/open-questions.md
+/docs/settled-questions.md
+/docs/carrot-files/
+/docs/pickle-files/
+
 __pycache__/

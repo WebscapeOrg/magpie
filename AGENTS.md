@@ -2,7 +2,7 @@
 
 Magpie Mail (Magpie for short) is Dave's mail app. On Linux it is an Omarchy shell plugin (QML under `ui/`) over a Rust engine, the
 `omamail` binary built from `src/`; the same engine, built from `mobile/`, runs inside Magpie for iPhone and iPad
-(`magpie-mail-ios`). Magpie began as a fork of [Omamail](https://github.com/huacnlee/omamail), and omamail's rules
+(in its own repository, magpie-mail-ios). Magpie began as a fork of [Omamail](https://github.com/huacnlee/omamail), and omamail's rules
 for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) first.**
 
 ## Rules
@@ -33,8 +33,8 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
   `folklore compile --here` here or commit an AGENTS.md that contains Folklore's generated block, even when Folklore's
   session check calls this file stale: the repository is public, and Dave chose to keep the rules off GitHub and erase
   them from its history (Q-002 in Medley, 10 November 2026).
-- **Magpie on Linux is installed only by the main machine's installer.** `magpie-mail-install` from the private machine repo
-  copies the plugin files from `magpie-mail` (not from a worktree) and the engine from its `target/release/omamail`
+- **Magpie on Linux is installed only by the main machine's installer.** the main machine's `omarchy/bin/magpie-mail-install`
+  copies the plugin files from this repository's main checkout (not from a worktree) and the engine from its `target/release/omamail`
   (built there with `make backend`) to `~/.local/share/omamail/bin/omamail`, which `magpie-mail-engine.service` runs. It
   installs nothing, and says so, while the desktop is locked or `~/.local/state/magpie-mail/install-hold` exists, and it
   never restarts the engine: run `systemctl --user restart magpie-mail-engine.service` yourself afterwards. The open
@@ -65,10 +65,11 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
   `qs.Ui` and `qs.Commons` are expected; the exit code is the gate.
 - **Work goes on a branch and a draft pull request in WebscapeOrg/magpie-mail, never on `main`.** The branches stack: each
   pull request's base is the branch before it. Plain `gh` in this repository resolves to huacnlee/omamail, in
-  `magpie-mail` and in every worktree, so pass `--repo WebscapeOrg/magpie-mail` to every `gh` command. A pull request that
+  the main checkout and in every worktree, so pass `--repo WebscapeOrg/magpie-mail` to every `gh` command. A pull request that
   changes a screen names the Peacock note with its pictures by its number (P-NNN); nobody uploads screenshots to
-  GitHub. Never paste a Peacock link or any other address on Dave's private network into a commit, a file or a pull
-  request: this repository is public, and Dave chose to keep those addresses off GitHub (Q-006 in Medley).
+  GitHub. Nothing private goes into a commit, a file or a pull request: no Peacock link, address or name on Dave's
+  private network, home folder path, real email address, phone number or agent's working notes, and tests use made-up
+  details. This repository is public, and Dave chose to keep such details off GitHub (Q-006 and Q-007 in Medley).
 
 ## Asking Dave for decisions: Pickle
 
@@ -120,12 +121,14 @@ every agent.
 
 ## Environment
 
-- Repo: `magpie-mail`, GitHub `WebscapeOrg/magpie-mail` (public, as omamail's fork). The `upstream` remote keeps
+- Repo: GitHub `WebscapeOrg/magpie-mail` (public, as omamail's fork); its main checkout is the one the main machine
+  installs from. The `upstream` remote keeps
   huacnlee/omamail for reference; Magpie holds omamail's history up to 11 October 2026.
-- The main machine runs copies made from `magpie-mail`: the plugin files, and its `target/release/omamail` as
+- The main machine runs copies made from the main checkout: the plugin files, and its `target/release/omamail` as
   `~/.local/share/omamail/bin/omamail` under `magpie-mail-engine.service`. Data and keyring entries keep omamail's names
   (`~/.local/share/omamail` and the rest), so Google sign-ins survive ([MAGPIE.md](MAGPIE.md#installation-on-the-main-machine)).
-- Branch work trees live under `${XDG_STATE_HOME:-~/.local/state}/magpie-work/`, not `/tmp`, and so do Cargo target folders.
-- Siblings: `magpie-mail-ios` (Magpie for iPhone and iPad, which bundles `mobile/`), `magpie-calendar`
-  (Magpie Calendar, which took the calendars out of Magpie), `the private machine repo` (installs and heals Magpie on this
-  machine), `marmalade` (whose avatar style sender pictures follow).
+- Branch work trees live in a `magpie-work` folder under `${XDG_STATE_HOME:-~/.local/state}`, not in `/tmp`, and so do
+  Cargo target folders.
+- Siblings, each a checkout beside this one: magpie-mail-ios (Magpie for iPhone and iPad, which bundles `mobile/`),
+  magpie-calendar (Magpie Calendar, which took the calendars out of Magpie), the private machine repo (installs and heals Magpie on
+  this machine) and marmalade (whose avatar style sender pictures follow).

@@ -13,7 +13,7 @@ pub(super) async fn disk<T: Send + 'static>(
         .await
         .map_err(|_| "local_storage_unavailable")?
 }
-fn valid_id(value: &Value) -> Result<&str> {
+pub(super) fn valid_id(value: &Value) -> Result<&str> {
     value
         .as_str()
         .filter(|v| !v.is_empty() && v.len() <= 1024 && !v.chars().any(char::is_control))
@@ -111,9 +111,9 @@ pub(super) async fn step(
     }
     let due = disk(store, |s| {
         s.read(|db| {
-            Ok(chrono::Utc::now().timestamp_millis()
-                - state(db, "lastHistory")?.parse::<i64>().unwrap_or(0)
-                >= 30_000)
+            let now = chrono::Utc::now().timestamp_millis();
+            let previous = state(db, "lastHistory")?.parse::<i64>().unwrap_or(0);
+            Ok(now < previous || now - previous >= 30_000)
         })
     })
     .await?;
@@ -126,20 +126,6 @@ pub(super) async fn step(
             }
             answer => answer?,
         };
-        disk(store, |s| {
-            s.write(|db| {
-                if state(db, "historyPage")?.is_empty() {
-                    set_state(
-                        db,
-                        "lastHistory",
-                        &chrono::Utc::now().timestamp_millis().to_string(),
-                    )
-                } else {
-                    Ok(())
-                }
-            })
-        })
-        .await?;
         let labels = gmail.replica_call(account, "labels", &json!({})).await?;
         disk(store,move|s|s.write(|db| {
             if !labels["labels"].is_array() {return Err("gmail_invalid_response");}
@@ -153,6 +139,7 @@ pub(super) async fn step(
             Ok(())
         })).await?;
     }
+    changed |= super::inbox::scan(store, gmail, account).await?;
     let (complete, page, generation) = disk(store, |s| {
         s.read(|db| {
             Ok((
@@ -251,7 +238,8 @@ pub(super) async fn step(
     Ok(true)
 }
 fn reset_inventory(db: &rusqlite::Connection) -> Result<()> {
-    let generation = state(db, "generation")?.parse::<u64>().unwrap_or(0) + 1;
+    super::inbox::reset(db)?;
+    let generation = state(db, "generation")?.parse::<u64>().unwrap_or(1) + 1;
     set_state(db, "generation", &generation.to_string())?;
     set_state(db, "history", "")?;
     set_state(db, "historyPage", "")?;
@@ -300,6 +288,7 @@ pub(super) fn apply_inventory(
         return Err("gmail_invalid_response");
     }
     store.write(|db| {
+        if state(db,"generation")?.parse::<i64>().unwrap_or(1)!=generation || state(db,"page")?!=page || state(db,"inventoryListed")?=="true" {return Ok(());}
         if !next.is_empty()
             && sql(db.execute(
                 "INSERT OR IGNORE INTO inventory_pages VALUES(?1,?2)",
@@ -335,7 +324,31 @@ async fn changes(
     account: &str,
     history: &str,
 ) -> Result<bool> {
-    let page = disk(store, |s| s.read(|db| state(db, "historyPage"))).await?;
+    let expected_history = history.to_owned();
+    let context = disk(store, move |s| {
+        s.write(|db| {
+            if state(db, "history")? != expected_history {
+                return Ok(None);
+            }
+            let page = state(db, "historyPage")?;
+            if page.is_empty() {
+                set_state(
+                    db,
+                    "historyStarted",
+                    &chrono::Utc::now().timestamp_millis().to_string(),
+                )?;
+            }
+            Ok(Some((
+                page,
+                state(db, "generation")?.parse::<i64>().unwrap_or(1),
+                state(db, "historyStarted")?,
+            )))
+        })
+    })
+    .await?;
+    let Some((page, generation, started)) = context else {
+        return Ok(false);
+    };
     let response = gmail
         .replica_call(
             account,
@@ -343,9 +356,22 @@ async fn changes(
             &json!({"historyId":history,"pageToken":page}),
         )
         .await?;
-    disk(store, move |s| apply_history(s, &response, &page)).await
+    let history = history.to_owned();
+    disk(store, move |s| {
+        apply_history_checked(s, &response, &page, Some((generation, &history, &started)))
+    })
+    .await
 }
+#[cfg(test)]
 pub(super) fn apply_history(store: &Store, response: &Value, page: &str) -> Result<bool> {
+    apply_history_checked(store, response, page, None)
+}
+fn apply_history_checked(
+    store: &Store,
+    response: &Value,
+    page: &str,
+    expected: Option<(i64, &str, &str)>,
+) -> Result<bool> {
     if !response.is_object()
         || response
             .get("nextPageToken")
@@ -359,6 +385,9 @@ pub(super) fn apply_history(store: &Store, response: &Value, page: &str) -> Resu
     }
     let checkpoint = valid_id(&response["historyId"])?.to_owned();
     store.write(|db| {
+        if let Some((generation,history,_))=expected {
+            if state(db,"generation")?.parse::<i64>().unwrap_or(1)!=generation || state(db,"history")?!=history || state(db,"historyPage")?!=page {return Ok(false);}
+        }
         let mut changed = false;
         let generation = state(db,"generation")?.parse::<i64>().unwrap_or(1);
         if response.get("history").is_some_and(|v|!v.is_array()) {return Err("gmail_invalid_response");}
@@ -372,12 +401,14 @@ pub(super) fn apply_history(store: &Store, response: &Value, page: &str) -> Resu
                 let id = valid_id(&added["message"]["id"])?;
                     sql(db.execute("INSERT INTO jobs(id,priority,generation) VALUES(?1,1000,?2) ON CONFLICT(id) DO UPDATE SET priority=1000,generation=excluded.generation",params![id,generation]))?;
                 sql(db.execute("UPDATE messages SET generation=?2 WHERE id=?1",params![id,generation]))?;
+                super::inbox::changed(db,id)?;
             }
             for kind in ["labelsAdded","labelsRemoved"] {
                 for changed in event[kind].as_array().into_iter().flatten() {
                     let id = valid_id(&changed["message"]["id"])?;
                     sql(db.execute("UPDATE messages SET generation=?2 WHERE id=?1",params![id,generation]))?;
                     sql(db.execute("INSERT INTO jobs(id,kind,priority,generation) VALUES(?1,CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=?1) THEN 'metadata' ELSE 'content' END,100,?2) ON CONFLICT(id) DO UPDATE SET priority=max(priority,100),retry_at=0,generation=max(jobs.generation,excluded.generation)",params![id,generation]))?;
+                    super::inbox::changed(db,id)?;
                 }
             }
             for removed in event["messagesDeleted"].as_array().into_iter().flatten() {
@@ -387,7 +418,12 @@ pub(super) fn apply_history(store: &Store, response: &Value, page: &str) -> Resu
         }
         set_state(db,"historyPage",&next)?;
         if next.is_empty() {
+            if let Some((_,_,started))=expected {
+                set_state(db,"lastHistory",&chrono::Utc::now().timestamp_millis().to_string())?;
+                set_state(db,"lastChecked",started)?;
+            }
             set_state(db,"history",&checkpoint)?;
+            if state(db,"inboxListed")?=="true" {set_state(db,"inboxReady","true")?;}
             sql(db.execute("DELETE FROM history_pages",[]))?;
             if state(db,"inventoryListed")?=="true" && state(db,"inventoryComplete")?!="true" {
                 let mut statement=sql(db.prepare("SELECT id FROM messages WHERE generation<?1 UNION SELECT id FROM jobs WHERE generation<?1 AND NOT EXISTS(SELECT 1 FROM messages WHERE messages.id=jobs.id AND messages.generation>=?1)"))?;

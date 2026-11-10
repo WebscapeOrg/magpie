@@ -1698,7 +1698,13 @@
       "equals": {
         "error": "gmail_request_deferred",
         "pending": 1,
-        "failed": 0
+        "failed": 0,
+        "health.inboxKnown": false,
+        "health.inboxComplete": false,
+        "health.missing": 1,
+        "health.missingExact": false,
+        "health.otherMissing": null,
+        "health.lastChecked": null
       }
     },
     {

@@ -136,6 +136,7 @@ fn inventory_and_history_checkpoints_survive_process_exit() {
 fn malformed_and_cyclic_inventory_pages_commit_nothing() {
     let mailbox = Mailbox::new();
     let store = mailbox.open();
+    set(&store, "generation", "2");
     store.put(&message("cached", "sentinel"), 1).unwrap();
     let invalid =
         json!({"messages":[{"id":"cached"},{"id":"new-job"},{"id":""}],"nextPageToken":"next"});

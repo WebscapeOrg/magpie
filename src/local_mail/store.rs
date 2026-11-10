@@ -188,6 +188,7 @@ impl Store {
         }
         let transaction = sql(writer.connection.transaction())?;
         sql(transaction.execute_batch(include_str!("schema.sql")))?;
+        super::inbox::reset(&transaction)?;
         sql(transaction.commit())?;
         let readers = (0..2)
             .map(|_| vfs.connect().map(Mutex::new))
@@ -270,6 +271,8 @@ impl Store {
     }
     pub(super) fn status(&self) -> Result<Value> {
         self.read(|db| {
+            let snapshot = sql(db.unchecked_transaction())?;
+            let db = &snapshot;
             let (stored, complete): (i64,i64) = sql(db.query_row("SELECT (SELECT count(*) FROM messages),(SELECT count(*) FROM messages WHERE text_complete=1)", [], |r| Ok((r.get(0)?,r.get(1)?))))?;
             let pending: i64 = sql(db.query_row("SELECT count(*) FROM jobs", [], |r| r.get(0)))?;
             let failed: i64 = sql(db.query_row("SELECT count(*) FROM jobs WHERE error NOT IN ('','gmail_request_deferred')", [], |r| r.get(0)))?;
@@ -279,7 +282,7 @@ impl Store {
             Ok(json!({"stored":stored,"textComplete":complete,"pending":pending,"failed":failed,
                 "pendingEdits":edits,"editConflicts":conflicts,"inventoryComplete":inventory,"complete":inventory && pending==0 && stored==complete,
                 "paused":state(db,"paused")?=="true","error":state(db,"error")?,"updated":state(db,"updated")?,
-                "estimatedTotal":state(db,"estimate")?.parse::<u64>().unwrap_or(0)}))
+                "estimatedTotal":state(db,"estimate")?.parse::<u64>().unwrap_or(0),"health":super::inbox::health(db)?}))
         })
     }
     pub(super) fn label_counts(&self, id: &str) -> Result<Value> {
@@ -575,6 +578,7 @@ impl Store {
             if sql(db.query_row("SELECT EXISTS(SELECT 1 FROM deleted_messages WHERE id=?1)", [id], |row| row.get::<_,bool>(0)))? {
                 return Err("gmail_not_found");
             }
+            let previously_complete: bool = sql(db.query_row("SELECT EXISTS(SELECT 1 FROM messages WHERE id=?1 AND text_complete=1)", [id], |r| r.get(0)))?;
             let mut base = json!(server_labels(resource)?);
             if !authoritative {
                 let previous: Option<String> = sql(db.query_row("SELECT server_labels FROM messages WHERE id=?1", [id], |row| row.get(0)).optional())?;
@@ -584,6 +588,10 @@ impl Store {
                 params![id,resource["threadId"].as_str().unwrap_or(""),resource["internalDate"].as_str().and_then(|v|v.parse::<i64>().ok()).unwrap_or(0),
                     summary.to_string(),hash,base.to_string(),sender.to_lowercase(),recipients.to_lowercase(),copied.to_lowercase(),subject,text.filenames.to_lowercase(),summary["hasAttachments"]==true,text.complete,generation]))?;
             replace_labels(db,id,&base)?;
+            if authoritative {
+                super::inbox::resource(db,id,&base)?;
+                if text.complete && !previously_complete {super::inbox::downloaded(db,id)?;}
+            }
             sql(db.execute("DELETE FROM search WHERE rowid=(SELECT rowid FROM messages WHERE id=?1)",[id]))?;
             sql(db.execute("INSERT INTO search(rowid,id,subject,sender,recipients,copied,filenames,body) VALUES((SELECT rowid FROM messages WHERE id=?1),?1,?2,?3,?4,?5,?6,?7)",
                 params![id,subject,sender,recipients,copied,text.filenames,text.body]))?;
@@ -603,6 +611,7 @@ impl Store {
             ))?;
             if changed > 0 {
                 replace_labels(db, id, &json!(labels))?;
+                super::inbox::resource(db, id, &json!(labels))?;
             }
             sql(db.execute("DELETE FROM jobs WHERE id=?1 AND kind='metadata'", [id]))?;
             Ok(())
@@ -704,6 +713,7 @@ impl Drop for Store {
     }
 }
 pub(super) fn delete(db: &Connection, id: &str) -> Result<()> {
+    super::inbox::deleted(db, id)?;
     sql(db.execute("INSERT OR IGNORE INTO deleted_messages VALUES(?1)", [id]))?;
     sql(db.execute("UPDATE edits SET state='conflict',error='message_deleted' WHERE id=?1 AND state IN ('queued','sending')",[id]))?;
     sql(db.execute(

@@ -17,7 +17,7 @@ import time
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
-BASELINE = "aeac13160f70a86f6419eaf2ceb1695fad078c7c"
+BASELINE_TREE = "7fbec2cf760a1a0b325695e4bd2942880a028a5a"
 
 
 class Gate(NamedTuple):
@@ -222,7 +222,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=["ci", "desktop", "benchmarks"], default="ci")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--baseline", default=BASELINE)
+    parser.add_argument("--baseline", default=BASELINE_TREE, metavar="TREE")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--timeout", type=int, default=1800)
     args = parser.parse_args()

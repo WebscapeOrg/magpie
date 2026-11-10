@@ -222,13 +222,13 @@ const selected = released ? (whole.releasedContract || {
 // Standalone Linux/macOS share the native assistant. Windows remains deferred
 // and must reject the unavailable methods without touching storage.
 const agentUnavailable = standalone && process.platform === 'win32';
-// Sender pictures, the owner's bio and AI spending are built with the assistant, so Windows has none. Reading
+// Sender pictures, the owner's bio, Points and AI spending are built with the assistant, so Windows has none. Reading
 // the picture status opens the keyring, which the Linux fixture leaves unreachable (no session
 // bus); macOS would open the runner's real keychain.
 const picturesUnavailable = process.platform === 'win32';
-const pictureMethods = ['inbox.pictureStatus', 'inbox.setPictureKey', 'inbox.removePictureKey', 'inbox.aboutYou', 'inbox.interview', 'inbox.calendarAccess', 'inbox.todoConnection', 'ai.spending'];
+const agentBackedMethods = ['inbox.pictureStatus', 'inbox.setPictureKey', 'inbox.removePictureKey', 'inbox.aboutYou', 'inbox.interview', 'inbox.calendarAccess', 'inbox.todoConnection', 'inbox.bundles', 'inbox.approveBundle', 'inbox.refuseBundle', 'inbox.approvedSenders', 'inbox.removeApprovedSender', 'ai.spending'];
 const methodUnavailable = method => (agentUnavailable && method.startsWith('agent.')) ||
-  (picturesUnavailable && pictureMethods.includes(method)) ||
+  (picturesUnavailable && agentBackedMethods.includes(method)) ||
   (process.platform !== 'linux' && method === 'backup.export');
 const caseUnavailable = fixture => methodUnavailable(fixture.method) ||
   (picturesUnavailable && fixture.name === 'Inbox snapshot reports the sender picture revision') ||

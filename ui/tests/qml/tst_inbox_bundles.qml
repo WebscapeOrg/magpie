@@ -667,8 +667,8 @@ Item {
     }
 
     function test_the_offer_shortens_only_what_is_not_the_domain() {
-      var long = "averyveryveryveryverylongnewsletterlocalpart"
-      var question = Bundles.proposalQuestion({sender:{email:long + "@courier.example"},covered:["a"]}, function() { return "S".repeat(60) })
+      var longLocalPart = "averyveryveryveryverylongnewsletterlocalpart"
+      var question = Bundles.proposalQuestion({sender:{email:longLocalPart + "@courier.example"},covered:["a"]}, function() { return "S".repeat(60) })
       verify(question.indexOf("averyveryveryveryverylo\u2026@courier.example") > 0, question)
       verify(question.indexOf("S".repeat(39) + "\u2026\u201d?") > 0, question)
     }

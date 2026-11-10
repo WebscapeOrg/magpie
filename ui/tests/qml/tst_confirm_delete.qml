@@ -323,16 +323,16 @@ Item {
     // Invariant: a confirmation opened again after the last one ended on another button opens on its question,
     // and keeps it in view when the window then changes size, since the focus has not been moved.
     function test_opening_again_after_ending_on_another_button_shows_the_question() {
-      var short = Object.assign({}, label, {name: "Clients/Acme"})
+      var shortLabel = Object.assign({}, label, {name: "Clients/Acme"})
       MailStyle.preferences = Display.normalize({interfaceSize: 36})
       resize(480, 360)
-      openFor(short)
+      openFor(shortLabel)
       keyClick(Qt.Key_Tab)
       verify(named(popup(), "delete-confirm").activeFocus)
       keyClick(Qt.Key_Escape)
       tryCompare(dialog, "opened", false)
       resize(360, 240)
-      openFor(short)
+      openFor(shortLabel)
       verify(popup().stacked, "the buttons scroll with the words in the small window")
       verify(named(popup(), "delete-cancel").activeFocus)
       questionShows(popup())

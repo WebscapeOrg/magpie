@@ -16,7 +16,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-BASELINE = "aeac13160f70a86f6419eaf2ceb1695fad078c7c"
+BASELINE_TREE = "7fbec2cf760a1a0b325695e4bd2942880a028a5a"
 
 QML = r'''
 import QtQuick
@@ -135,7 +135,7 @@ def tree_hash(root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--baseline", default=BASELINE)
+    parser.add_argument("--baseline", default=BASELINE_TREE, metavar="TREE")
     parser.add_argument("--counts", nargs="+", type=int, default=[100, 1000])
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--runner", default=shutil.which("qmltestrunner6") or (
@@ -146,8 +146,8 @@ def main():
     if not 1 <= args.repetitions <= 10 or any(n < 2 or n > 10000 for n in args.counts):
         parser.error("use 1–10 repetitions and 2–10000 rows")
     revision = subprocess.check_output(
-        ["git", "rev-parse", "--verify", args.baseline + "^{commit}"], cwd=ROOT, text=True).strip()
-    archive = subprocess.check_output(["git", "archive", revision, "ui"], cwd=ROOT)
+        ["git", "rev-parse", "--verify", args.baseline + "^{tree}"], cwd=ROOT, text=True).strip()
+    archive = subprocess.check_output(["git", "archive", "--prefix=ui/", revision], cwd=ROOT)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     logs = args.output.parent / (args.output.stem + "-logs")
     logs.mkdir(exist_ok=True)
@@ -194,7 +194,7 @@ def main():
                                     reductionPercent=(1 - medians["after"] / medians["before"]) * 100
                                     if medians["before"] else None))
     report = dict(
-        measuredAt=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), baselineCommit=revision,
+        measuredAt=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), baselineTree=revision,
         sourceHashes=hashes, harnessSha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         platform=platform.platform(), cpu=platform.processor(), logicalCpus=os.cpu_count(),
         loadBefore=started, loadAfter=os.getloadavg(), qt=sorted(qt_versions),

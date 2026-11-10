@@ -8,6 +8,7 @@ import signal
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from types import SimpleNamespace
@@ -58,6 +59,21 @@ class Child:
 
 
 class BenchmarkProcesses(unittest.TestCase):
+    def test_ui_baseline_is_a_frozen_tree_not_a_rewritable_commit(self):
+        comparison = load("compare_ui")
+        specification = importlib.util.spec_from_file_location(
+            "performance_verification", ROOT / "scripts/verify-performance.py")
+        verification = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(verification)
+        self.assertEqual(comparison.BASELINE_TREE, verification.BASELINE_TREE)
+        self.assertEqual(subprocess.check_output(
+            ["git", "cat-file", "-t", comparison.BASELINE_TREE], cwd=ROOT, text=True).strip(), "tree")
+        archive = subprocess.check_output(
+            ["git", "archive", "--prefix=ui/", comparison.BASELINE_TREE], cwd=ROOT)
+        with tarfile.open(fileobj=io.BytesIO(archive)) as files:
+            self.assertIn("ui/components/MessageList.qml", files.getnames())
+            self.assertIn("ui/account/Model.js", files.getnames())
+
     def roundtrip(self, child, external_target=False, change_binary=False, cases=None):
         module = load("roundtrip")
         with tempfile.TemporaryDirectory() as directory:

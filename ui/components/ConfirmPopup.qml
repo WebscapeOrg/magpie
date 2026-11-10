@@ -112,7 +112,9 @@ QQC.Popup {
   // at most half the room; when they need more (several long choices at the largest size in a small
   // window) the buttons scroll with the words, so the question always keeps room on screen.
   readonly property real room: window ? window.height - 2 * edge - topPadding - bottomPadding : 0
+  readonly property real minimumWordsHeight: 2 * questionText.contentHeight / Math.max(1, questionText.lineCount)
   readonly property bool stacked: buttons.implicitHeight > room / 2
+    || buttons.implicitHeight + gap + minimumWordsHeight > room
   contentItem: Item {
     id: area
     implicitHeight: wordsColumn.implicitHeight + root.gap + buttons.implicitHeight
@@ -158,6 +160,7 @@ QQC.Popup {
         width: words.width
         spacing: MailStyle.space(14)
         Text {
+          id: questionText
           objectName: "confirm-question"
           width: parent.width
           text: root.question

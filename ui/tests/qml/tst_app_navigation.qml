@@ -812,9 +812,9 @@ Item {
       router.triggered.connect(heard)
       var cursor = app.cursorId
       var dialog = findChild(app, "delete-confirmation")
-      var long = ""
-      for (var sentence = 0; sentence < 80; sentence++) long += "Every label beneath it is removed from the server. "
-      dialog.parent.openFor({ kind: "label", labelId: "Work", name: "Work", accountId: "", message: long })
+      var longMessage = ""
+      for (var sentence = 0; sentence < 80; sentence++) longMessage += "Every label beneath it is removed from the server. "
+      dialog.parent.openFor({ kind: "label", labelId: "Work", name: "Work", accountId: "", message: longMessage })
       tryCompare(dialog, "opened", true)
       wait(30)
       // A focus call from navigation or a change of context, as when a send finishes behind it.

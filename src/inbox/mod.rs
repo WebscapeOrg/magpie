@@ -834,6 +834,7 @@ fn phone_unfinished(previous: &Value, error: Option<&str>, own: bool, asked: boo
 const INTERRUPTED: &str = "overview_interrupted";
 /// The first four messages the phone's background run may describe. A message the picker gave
 /// Sonnet or Opus is left for the foreground, so the background run does not ask about it again.
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 #[cfg_attr(not(feature = "mobile"), allow(dead_code))]
 fn background_due(saved: &Value, ids: &[String], at: i64) -> Vec<String> {
     ids.iter().filter(|id| saved[id.as_str()]["foreground"] != true && overview_due(&saved[id.as_str()], false, at)).take(4).cloned().collect()

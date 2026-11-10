@@ -314,9 +314,9 @@ Item {
     }
     function test_a_long_subject_without_a_point_stops_at_three_lines_and_shows_whole_on_hover() {
       row.width=360;row.hasCursor=false;row.overview=""
-      var long=""
-      for(var i=0;i<30;i++) long+="Quarterly statement and notes "
-      row.summary={id:"one",subject:long,from:{display:"Sender"},time:"09:14",unread:false}
+      var longSubject=""
+      for(var i=0;i<30;i++) longSubject+="Quarterly statement and notes "
+      row.summary={id:"one",subject:longSubject,from:{display:"Sender"},time:"09:14",unread:false}
       waitForRendering(row)
       var subject=findChild(row,"message-subject")
       compare(subject.lineCount,3)
@@ -324,7 +324,7 @@ Item {
       mouseMove(subject,5,5)
       var tooltip=findChild(row,"overview-tooltip")
       tryCompare(tooltip,"visible",true)
-      compare(tooltip.text,long)
+      compare(tooltip.text,longSubject)
       mouseMove(row,-20,-20)
     }
     function test_time_stays_fixed_when_actions_appear() {

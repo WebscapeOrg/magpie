@@ -227,8 +227,8 @@ Rectangle {
         id: bundleBadge
         objectName: "message-bundle-count"
         visible: root.bundleCount > 1
-        readonly property bool rightToLeft: sender.effectiveHorizontalAlignment === Text.AlignRight
-        x: rightToLeft ? sender.x + sender.width + MailStyle.space(6) : sender.x + sender.paintedWidth + MailStyle.space(6)
+        // The allocated width stays authoritative while Qt elides and remeasures the painted text.
+        x: sender.x + sender.width + MailStyle.space(6)
         anchors.verticalCenter: sender.verticalCenter
         height: bundleBadgeText.implicitHeight + MailStyle.space(2)
         width: Math.max(height, bundleBadgeText.implicitWidth + MailStyle.space(8))

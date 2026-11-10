@@ -156,8 +156,8 @@ Item {
       verify(allow.y >= status.y + status.height + 2, "the button sits below the status with space between")
       verify(allow.x + allow.width <= first.width)
       verify(second.y >= first.y + first.height + 4, "the rows do not touch")
-      var long = findChild(second, "settings-calendar-status")
-      verify(long.lineCount > 1 && long.width <= second.width, "a long status wraps inside the row")
+      var longStatus = findChild(second, "settings-calendar-status")
+      verify(longStatus.lineCount > 1 && longStatus.width <= second.width, "a long status wraps inside the row")
     }
   }
 }

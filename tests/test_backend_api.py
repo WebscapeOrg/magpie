@@ -222,13 +222,13 @@ const selected = released ? (whole.releasedContract || {
 // Standalone Linux/macOS share the native assistant. Windows remains deferred
 // and must reject the unavailable methods without touching storage.
 const agentUnavailable = standalone && process.platform === 'win32';
-// Sender pictures, the owner's bio and AI spending are built with the assistant, so Windows has none. Reading
+// Sender pictures, the owner's bio, Points and AI spending are built with the assistant, so Windows has none. Reading
 // the picture status opens the keyring, which the Linux fixture leaves unreachable (no session
 // bus); macOS would open the runner's real keychain.
 const picturesUnavailable = process.platform === 'win32';
-const pictureMethods = ['inbox.pictureStatus', 'inbox.setPictureKey', 'inbox.removePictureKey', 'inbox.aboutYou', 'inbox.interview', 'inbox.calendarAccess', 'inbox.todoConnection', 'ai.spending'];
+const agentBackedMethods = ['inbox.pictureStatus', 'inbox.setPictureKey', 'inbox.removePictureKey', 'inbox.aboutYou', 'inbox.interview', 'inbox.calendarAccess', 'inbox.todoConnection', 'inbox.bundles', 'inbox.approveBundle', 'inbox.refuseBundle', 'inbox.approvedSenders', 'inbox.removeApprovedSender', 'ai.spending'];
 const methodUnavailable = method => (agentUnavailable && method.startsWith('agent.')) ||
-  (picturesUnavailable && pictureMethods.includes(method)) ||
+  (picturesUnavailable && agentBackedMethods.includes(method)) ||
   (process.platform !== 'linux' && method === 'backup.export');
 const caseUnavailable = fixture => methodUnavailable(fixture.method) ||
   (picturesUnavailable && fixture.name === 'Inbox snapshot reports the sender picture revision') ||
@@ -288,8 +288,11 @@ function storageSnapshot() {
   const snapshot = {};
   function visit(path) {
     const stat = fs.lstatSync(path, {bigint:true});
-    snapshot[path] = [String(stat.mode), String(stat.ino), String(stat.mtimeNs),
-      stat.isFile() ? fs.readFileSync(path).toString('base64') : null];
+    // Windows can hold the diagnostics RPC lock during persistence. Its metadata proves creation/removal;
+    // its bytes are not application state and cannot be read while it is held. Every other file is hashed.
+    const rpcLock = process.platform === 'win32' && path.replace(/\\/g, '/').endsWith('/diagnostics/.rpc.lock');
+    const contents = stat.isFile() && !rpcLock ? fs.readFileSync(path).toString('base64') : null;
+    snapshot[path] = [String(stat.mode), String(stat.ino), String(stat.mtimeNs), contents];
     if (stat.isDirectory()) for (const name of fs.readdirSync(path).sort()) visit(path + '/' + name);
   }
   for (const directory of JSON.parse(process.env.CONTRACT_STORAGE_ROOTS)) visit(directory);

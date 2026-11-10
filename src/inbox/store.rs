@@ -2,10 +2,10 @@ use crate::platform::{dirs::AppDirs, private_fs as fs};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{fs::File, io::Read};
-#[cfg(feature = "mobile")]
+#[cfg(any(feature = "mobile", all(feature = "agent", unix, not(target_os = "ios"))))]
 use std::time::{Duration, Instant};
 /// How long a change under a waiting lock waits for another holder before reporting it busy.
-#[cfg(feature = "mobile")]
+#[cfg(any(feature = "mobile", all(feature = "agent", unix, not(target_os = "ios"))))]
 const LOCK_WAIT: Duration = Duration::from_secs(2);
 pub fn key(parts: &[&str]) -> String {
     let mut hash = Sha256::new();
@@ -18,7 +18,7 @@ pub fn key(parts: &[&str]) -> String {
 /// Takes the lock `name`, waiting for another holder up to `LOCK_WAIT`; one still held then is
 /// reported as `private_fs_busy`. The wait blocks the calling thread, so callers run it on a
 /// blocking thread, never on the engine's request thread.
-#[cfg(feature = "mobile")]
+#[cfg(any(feature = "mobile", all(feature = "agent", unix, not(target_os = "ios"))))]
 fn wait_for(dir: &File, name: &str) -> Result<impl Sized, &'static str> {
     let deadline = Instant::now() + LOCK_WAIT;
     loop {
@@ -94,7 +94,7 @@ pub fn update<T>(
 /// Changes `name` under its own lock `lock` instead of `.lock`, waiting briefly for another
 /// holder. Invariant: only files changed under `lock` alone use it, so a long write there never
 /// holds up the changes made under `.lock`, and those never wait.
-#[cfg(feature = "mobile")]
+#[cfg(any(feature = "mobile", all(feature = "agent", unix, not(target_os = "ios"))))]
 pub(crate) fn update_waiting<T>(
     lock: &str,
     name: &str,

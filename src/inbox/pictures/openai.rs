@@ -25,7 +25,10 @@ pub(super) enum Request {
 
 pub(super) struct Painted {
     pub png: Vec<u8>,
+    /// What the picture cost in whole cents, rounded up, as the daily limit counts it.
     pub cents: i64,
+    /// What the picture cost in millionths of a dollar, as the spending page counts it.
+    pub micro_dollars: i64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,10 +120,12 @@ fn authorization(key: &Secret) -> Result<reqwest::header::HeaderValue, Fault> {
     Ok(value)
 }
 
-/// An OpenAI secret key: `sk-` and URL-safe characters only.
+/// An OpenAI secret key: `sk-` and URL-safe characters only. A Claude key (`sk-ant-`) is refused,
+/// so a key pasted in the wrong place is never sent to OpenAI.
 pub(super) fn valid_key(key: &str) -> bool {
     (20..=512).contains(&key.len())
         && key.starts_with("sk-")
+        && !key.starts_with("sk-ant-")
         && key
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
@@ -272,22 +277,28 @@ fn parse(body: &[u8]) -> Result<Painted, Fault> {
     let png = STANDARD
         .decode(encoded)
         .map_err(|_| Fault::Lost { charged: true })?;
-    Ok(Painted { png, cents: cents(&reply["usage"]) })
+    let usage = &reply["usage"];
+    Ok(Painted { png, cents: cents(usage), micro_dollars: micro_dollars(usage) })
 }
 
-fn cents(usage: &Value) -> i64 {
+/// What a reply's usage cost in millionths of a dollar, or the estimate when it gives no usage.
+fn micro_dollars(usage: &Value) -> i64 {
     let count = |value: &Value| value.as_i64().filter(|n| *n >= 0);
     let Some(output) = count(&usage["output_tokens"]) else {
-        return ESTIMATE_CENTS;
+        return ESTIMATE_CENTS * 10_000;
     };
     let details = &usage["input_tokens_details"];
     let (text, image) = match (count(&details["text_tokens"]), count(&details["image_tokens"])) {
         (Some(text), Some(image)) => (text, image),
         _ => (count(&usage["input_tokens"]).unwrap_or(0), 0),
     };
-    let micro_dollars = text.saturating_mul(5).saturating_add(image.saturating_mul(8)).saturating_add(output.saturating_mul(30));
-    // A million tokens at $1 is one micro-dollar per token; a cent is 10,000 micro-dollars.
-    ((micro_dollars + 9_999) / 10_000).max(1)
+    // A million tokens at $1 is one micro-dollar per token.
+    text.saturating_mul(5).saturating_add(image.saturating_mul(8)).saturating_add(output.saturating_mul(30))
+}
+
+fn cents(usage: &Value) -> i64 {
+    // A cent is 10,000 micro-dollars.
+    (micro_dollars(usage).saturating_add(9_999) / 10_000).max(1)
 }
 
 #[cfg(test)]
@@ -350,6 +361,7 @@ mod tests {
             assert!(!valid_key(key), "{key:?}");
         }
         assert!(!valid_key(&format!("sk-{}", "a".repeat(510))));
+        assert!(!valid_key("sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"), "a Claude key is never sent to OpenAI");
     }
 
     #[test]

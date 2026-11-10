@@ -96,7 +96,7 @@ impl LocalMail {
         sync::disk(&store, |store| store.overview_candidates()).await
     }
     /// The From headers of the account's Inbox, newest first, for its sender pictures.
-    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     pub(crate) async fn inbox_senders(
         &self,
         account: &str,

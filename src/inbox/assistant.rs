@@ -1116,11 +1116,13 @@ impl Assistant {
             }
             let reserved = reservation(bytes.len(), max_tokens);
             let call = format!("{id}-{round}");
-            recorded(self, {
+            let admitted = recorded(self, {
                 let call = call.clone();
                 move |_| admit_call(&call, reserved, now())
             })
             .await?;
+            // The spending page counts the reservation until the cost is known, as the limit does.
+            let ledger = admitted && super::spending::reserve(call.clone(), "assistant", reserved).await;
             let reply = (self.sender)(bytes).await;
             // A request Claude refused costs nothing. One cut off on the way back may have been
             // charged, so its reservation stays counted. A settlement that cannot be written
@@ -1130,7 +1132,14 @@ impl Assistant {
                 Err("ai_unreachable" | "ai_invalid_response") => reserved,
                 Err(_) => 0,
             };
-            let _ = recorded(self, move |_| settle(&call, actual, now())).await;
+            if let Ok(true) = recorded(self, {
+                let call = call.clone();
+                move |_| settle(&call, actual, now())
+            })
+            .await
+            {
+                super::spending::settle(call, "assistant", actual, ledger).await;
+            }
             let reply = reply?;
             let content = reply["content"]
                 .as_array()
@@ -1780,12 +1789,13 @@ fn spend_left(at: i64) -> Result<()> {
 }
 
 /// Counts request `call` before it is sent, with the most it could cost; `settle` corrects it to
-/// what Claude reports. A request counted already is not counted again, so a retry is safe.
-fn admit_call(call: &str, reserved: u64, at: i64) -> Result<()> {
+/// what Claude reports. A request counted already is not counted again, so a retry is safe. Says
+/// whether this call counted it.
+fn admit_call(call: &str, reserved: u64, at: i64) -> Result<bool> {
     change(&ledger_name(), |saved| {
         same_day(saved, at)?;
         if saved["open"].get(call).is_some() {
-            return Ok(());
+            return Ok(false);
         }
         let calls = saved["calls"].as_u64().unwrap_or(0);
         let spent = saved["spent"].as_u64().unwrap_or(0);
@@ -1800,25 +1810,25 @@ fn admit_call(call: &str, reserved: u64, at: i64) -> Result<()> {
         saved["calls"] = json!(calls.saturating_add(1));
         saved["spent"] = json!(spent.saturating_add(reserved));
         saved["open"][call] = json!({"reserved":reserved,"at":at});
-        Ok(())
+        Ok(true)
     })
 }
 
-/// Replaces open request `call`'s reservation with what it cost. Only an open request is settled,
-/// so a retry after a write that was kept changes nothing.
-fn settle(call: &str, actual: u64, at: i64) -> Result<()> {
+/// Replaces open request `call`'s reservation with what it cost, and says whether it did. Only an
+/// open request is settled, so a retry after a write that was kept changes nothing.
+fn settle(call: &str, actual: u64, at: i64) -> Result<bool> {
     change(&ledger_name(), |saved| {
         same_day(saved, at)?;
         let Some(entry) = saved["open"]
             .as_object_mut()
             .and_then(|open| open.remove(call))
         else {
-            return Ok(());
+            return Ok(false);
         };
         let reserved = entry["reserved"].as_u64().unwrap_or(0);
         let spent = saved["spent"].as_u64().unwrap_or(0).saturating_sub(reserved);
         saved["spent"] = json!(spent.saturating_add(actual));
-        Ok(())
+        Ok(true)
     })
 }
 

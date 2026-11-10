@@ -22,6 +22,33 @@ impl Engine {
         })).await;
         Ok(json!({"accounts":pages}))
     }
+    /// Starts painting sender pictures for the next signed-in account that is due, and returns at
+    /// once. Invariant: only the app in the foreground asks; the inactive engine refuses the call,
+    /// and the painter starts no picture while the app is away (`pictures::may_start`).
+    pub async fn mobile_paint_pictures(&self, params: &Value) -> Result<Value, &'static str> {
+        if params.as_object().is_none_or(|p| !p.is_empty()) {
+            return Err("invalid_params");
+        }
+        let registry = crate::account::list_readonly()?;
+        let accounts: Vec<String> = registry["accounts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|account| account["provider"] == "gmail")
+            .filter_map(|account| account["id"].as_str().filter(|id| !id.is_empty()).map(str::to_owned))
+            .collect();
+        self.inbox.paint_pictures(accounts, self.gmail.clone(), self.local_mail.clone());
+        Ok(json!({"pictures": self.inbox.picture_revision()}))
+    }
+    /// Stops painting after the picture in hand when the app hides sender pictures, until
+    /// `engine.paintPictures` asks again.
+    pub async fn mobile_stop_pictures(&self, params: &Value) -> Result<Value, &'static str> {
+        if params.as_object().is_none_or(|p| !p.is_empty()) {
+            return Err("invalid_params");
+        }
+        self.inbox.stop_pictures();
+        Ok(json!({"stopped": true}))
+    }
     /// Describes the waiting Inbox mail the app names, while iOS keeps the app awake.
     /// Invariant: the app names only unread Inbox mail with no saved description, at most 20 per account;
     /// the engine describes the first four of them that are due.
@@ -137,6 +164,7 @@ impl Engine {
             }
             "ai.removeKey" if fields.is_empty() => crate::inbox::claude::remove_key().await,
             "ai.keyStatus" if fields.is_empty() => crate::inbox::claude::key_status().await,
+            "ai.spending" => crate::inbox::spending::spending(params).await,
             _ => Err("invalid_params"),
         }
     }
@@ -319,6 +347,11 @@ impl Engine {
             }
             crate::inbox::forget_phone_account(&account)?;
             crate::account::mobile_remove(&account)?;
+            // The account is already removed, so an account list or picture record that cannot be
+            // read now is left for the next painting run rather than reported as a failed removal.
+            if let Some(remaining) = remaining_accounts(crate::account::list_readonly()) {
+                let _ = crate::inbox::Inbox::forget_removed_pictures(&remaining);
+            }
             Ok::<_, &'static str>(json!({"removed":true}))
         })
         .await
@@ -456,4 +489,26 @@ fn note_background(page: &Value, elapsed: std::time::Duration, suspensions: u64)
         suspended: diagnostics::suspensions() != suspensions,
         ..diagnostics::event("background")
     });
+}
+
+/// The ids of the accounts left after a removal, or None when the account list could not be read.
+fn remaining_accounts(registry: Result<Value, &'static str>) -> Option<Vec<String>> {
+    let registry = registry.ok()?;
+    let accounts = registry["accounts"].as_array().into_iter().flatten();
+    Some(accounts.filter_map(|row| row["id"].as_str().filter(|id| !id.is_empty()).map(str::to_owned)).collect())
+}
+
+#[cfg(test)]
+mod removal_tests {
+    use super::*;
+
+    #[test]
+    fn pictures_are_forgotten_only_against_an_account_list_that_was_read() {
+        let registry = json!({"accounts":[{"id":"ann@example.org"},{"id":""},{"provider":"gmail"},{"id":"bob@example.org"}]});
+        assert_eq!(remaining_accounts(Ok(registry)), Some(vec!["ann@example.org".to_owned(), "bob@example.org".to_owned()]));
+        assert_eq!(remaining_accounts(Ok(json!({}))), Some(Vec::new()));
+        // A list that cannot be read after the removal is not taken as "no accounts left", which
+        // would forget every picture, and does not fail the removal.
+        assert_eq!(remaining_accounts(Err("accounts_invalid")), None);
+    }
 }

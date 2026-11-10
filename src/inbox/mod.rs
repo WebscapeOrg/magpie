@@ -14,8 +14,10 @@ pub(crate) mod claude;
 pub(crate) mod assistant;
 #[cfg(all(test, feature = "agent", unix, not(target_os = "ios")))]
 mod overview_tests;
-#[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
 mod pictures;
+#[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
+pub(crate) mod spending;
 mod snooze;
 pub(crate) use snooze::is_snooze_label;
 mod store;
@@ -54,7 +56,7 @@ pub struct Inbox {
     overview_slots: Arc<Semaphore>,
     avatar_slots: Arc<Semaphore>,
     snooze_lock: Mutex<()>,
-    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     painter: pictures::Painter,
 }
 impl Default for Inbox {
@@ -66,7 +68,7 @@ impl Default for Inbox {
             overview_slots: Arc::new(Semaphore::new(1)),
             avatar_slots: Arc::new(Semaphore::new(3)),
             snooze_lock: Mutex::new(()),
-            #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
             painter: Default::default(),
         }
     }
@@ -108,14 +110,33 @@ fn fields(params: &Value, allowed: &[&str]) -> Result<(), &'static str> {
 }
 impl Inbox {
     /// Starts painting sender pictures for the next signed-in account that is due; never waits.
-    #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+    #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
     pub(crate) fn paint_pictures(
         &self,
         accounts: Vec<String>,
         gmail: Arc<crate::providers::gmail::Session>,
         local_mail: Arc<crate::local_mail::LocalMail>,
     ) {
+        // Asking for pictures is the phone showing them again.
+        #[cfg(feature = "mobile")]
+        pictures::want(true);
         self.painter.start(accounts, gmail, local_mail);
+    }
+    /// Stops painting after the picture in hand, because the phone no longer shows sender
+    /// pictures, until they are asked for again.
+    #[cfg(feature = "mobile")]
+    pub(crate) fn stop_pictures(&self) {
+        pictures::want(false);
+    }
+    /// A number that changes whenever a sender picture is painted.
+    #[cfg(feature = "mobile")]
+    pub(crate) fn picture_revision(&self) -> u64 {
+        pictures::revision()
+    }
+    /// Forgets the sender pictures of accounts no longer on the phone. Blocks.
+    #[cfg(feature = "mobile")]
+    pub(crate) fn forget_removed_pictures(accounts: &[String]) -> Result<(), &'static str> {
+        pictures::forget_removed(accounts)
     }
     #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
     pub(crate) async fn prepare(
@@ -246,13 +267,14 @@ impl Inbox {
         }
         Ok(json!({"accepted":true}))
     }
-    /// Waits until no description is being written, at most `limit` and only while the app stays
-    /// in the background, so leaving the app does not freeze a request half done.
+    /// Waits until no description is being written and no sender picture is being asked for or
+    /// saved, at most `limit` and only while the app stays in the background, so leaving the app
+    /// does not freeze a request half done or lose a picture that was paid for.
     #[cfg(feature = "mobile")]
     pub(crate) async fn settle(&self, limit: std::time::Duration) -> &'static str {
         let deadline = tokio::time::Instant::now() + limit;
         loop {
-            if self.overview_slots.try_acquire().is_ok() {
+            if self.overview_slots.try_acquire().is_ok() && !pictures::under_way() {
                 return "settled";
             }
             if claude::diagnostics::active() {
@@ -329,18 +351,18 @@ impl Inbox {
                 let account = account(params)?;
                 #[allow(unused_mut)]
                 let mut snapshot = json!({"overviews":overview_snapshot(store::read(&store::key(&["overviews",&account]))?.unwrap_or(json!({})), now())?,"snoozes":snooze::snapshot(&account)?,"preferences":preferences(&account)?});
-                #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+                #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
                 {
                     snapshot["pictures"] = json!(pictures::revision());
                 }
                 Ok(snapshot)
             }
-            #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
             "inbox.pictureStatus" => {
                 fields(params, &[])?;
                 pictures::status().await
             }
-            #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
             "inbox.setPictureKey" => {
                 fields(params, &["key"])?;
                 let key = params["key"]
@@ -349,7 +371,7 @@ impl Inbox {
                     .ok_or("invalid_params")?;
                 pictures::set_key(key).await
             }
-            #[cfg(all(feature = "agent", unix, not(target_os = "ios")))]
+            #[cfg(any(all(feature = "agent", unix, not(target_os = "ios")), feature = "mobile"))]
             "inbox.removePictureKey" => {
                 fields(params, &[])?;
                 pictures::remove_key().await

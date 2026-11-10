@@ -44,9 +44,9 @@ use std::{
     },
 };
 
-/// OpenAI's gpt-image-2.5 Sunburst, which Dave chose for Magpie on Linux and for Marmalade (Q-007),
-/// and for the iPhone and iPad in place of gpt-image-2.5 Flare, whose pictures looked worse (C-048).
-pub(crate) const MODEL: &str = "gpt-image-2.5-sunburst";
+/// OpenAI's gpt-image-2.6 Sunburst for new paintings (C-067). Dave chose its 2.5 predecessor for
+/// Magpie on Linux and Marmalade (Q-007), and for the iPhone and iPad in place of Flare (C-048).
+pub(crate) const MODEL: &str = "gpt-image-2.6-sunburst";
 /// gpt-image-2.5 Flare, which the iPhone and iPad painted with before 0.1.38 (C-040). Dave chose to
 /// have the pictures a device painted with it painted again with `MODEL` (Q-015).
 const FLARE: &str = "gpt-image-2.5-flare";

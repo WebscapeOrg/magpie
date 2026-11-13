@@ -356,7 +356,7 @@ else:
         "scripts/attachment.sh", "scripts/default-mail.sh", "scripts/register-mailto.sh",
         "scripts/mailto.sh", "scripts/diagnostics.py", "scripts/open-link-window.py",
         "scripts/link-window.html", "scripts/open-magpie-calendar.py",
-        "share/applications/omamail.desktop", "share/icons/hicolor/160x160/apps/omamail.png",
+        "share/applications/omamail.desktop", "share/icons/hicolor/256x256/apps/omamail.png",
     ]
     executable = required[:2]
 for relative in required:
@@ -507,7 +507,7 @@ install_transaction() {
     mv -f "$link_temp" "$bin_link" || return 1
     desktop_temp="$desktop_file.new.$$"
     python3 - "$install_dir/share/applications/omamail.desktop" "$desktop_temp" \
-      "$install_dir/bin/omamail-app" "$install_dir/share/icons/hicolor/160x160/apps/omamail.png" <<'PY' || return 1
+      "$install_dir/bin/omamail-app" "$install_dir/share/icons/hicolor/256x256/apps/omamail.png" <<'PY' || return 1
 import pathlib, sys
 source, destination, executable, icon = sys.argv[1:]
 def entry_value(value):

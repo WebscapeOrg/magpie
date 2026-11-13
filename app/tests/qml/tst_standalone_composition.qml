@@ -504,6 +504,8 @@ TestCase {
   }
 
   function test_live_activation_waits_for_registry_and_acknowledges_after_routing() {
+    host.startInBackground = true
+    host.files["/fixture/config/omamail/window.json"] = JSON.stringify({ windowOpen: true })
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
     composition.service.accountsLoaded = false
@@ -516,6 +518,10 @@ TestCase {
     composition.service.accountsLoaded = true
     tryCompare(composition.app, "cursorId", "message-8")
     compare(host.pendingNotificationActivation, {})
+    composition.app.requestClose()
+    host.reopenRequested()
+    compare(composition.app.opened, true,
+      "notification activation counts as explicit activation for later reopen")
   }
 
   function test_cold_start_rejects_an_account_missing_from_the_registry() {
@@ -594,15 +600,21 @@ TestCase {
 
   function test_background_starts_hidden_and_later_open_raises() {
     host.startInBackground = true
+    host.files["/fixture/config/omamail/window.json"] = JSON.stringify({ windowOpen: true })
     var composition = createTemporaryObject(compositionComponent, testCase)
     verify(composition)
     compare(composition.app.opened, false)
     compare(composition.visible, false)
     compare(host.hidden, false)
     compare(host.quitCalled, false)
+    host.reopenRequested()
+    compare(composition.app.opened, false, "application activation must not defeat --background")
     host.activationRequested("{}")
     compare(composition.app.opened, true)
     verify(composition.visible)
+    composition.app.requestClose()
+    host.reopenRequested()
+    compare(composition.app.opened, true, "an explicitly opened app can reopen after close")
   }
 
   function test_cold_compose_activation_uses_existing_app_open() {

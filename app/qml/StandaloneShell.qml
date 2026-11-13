@@ -14,6 +14,8 @@ QtObject {
   property var app: null
 
   readonly property bool standalone: true
+  readonly property bool startInBackground: !!host && host.startInBackground === true
+  property bool backgroundActivationReceived: false
   readonly property string backendPath: String(host && host.backendPath || "")
   readonly property string resourceRoot: String(host && host.resourceRoot || "")
   readonly property var backendContract: host && host.backendContract || ({})

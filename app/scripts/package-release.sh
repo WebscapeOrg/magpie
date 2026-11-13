@@ -157,12 +157,12 @@ else
   top_level=omamail.app
   app="$stage/$top_level"
   mkdir -p "$app/bin" "$app/lib" "$app/plugins/platforms" "$app/share/applications" \
-    "$app/share/icons/hicolor/160x160/apps"
+    "$app/share/icons/hicolor/256x256/apps"
   cp "$host" "$app/bin/omamail-app"
   cp "$backend" "$app/bin/omamail"
   copy_product_files "$app"
   cp "$repo_root/app/resources/linux/omamail.desktop" "$app/share/applications/omamail.desktop"
-  cp "$repo_root/ui/assets/magpie-mail.png" "$app/share/icons/hicolor/160x160/apps/omamail.png"
+  cp "$repo_root/ui/assets/magpie-mail.png" "$app/share/icons/hicolor/256x256/apps/omamail.png"
   cat > "$app/bin/qt.conf" <<'EOF'
 [Paths]
 Prefix=..

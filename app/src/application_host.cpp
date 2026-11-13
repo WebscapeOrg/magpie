@@ -22,6 +22,13 @@
 #include <QUrl>
 #include <QWindow>
 
+namespace {
+bool migrationNotificationsDisabled()
+{
+    return qgetenv("OMAMAIL_DISABLE_NOTIFICATIONS") == QByteArrayLiteral("1");
+}
+}
+
 ApplicationHost::ApplicationHost(QObject *parent)
     : ApplicationHost(defaultResourcePaths({}, developmentResourcesEnabled()).manifest,
                       defaultResourcePaths({}, developmentResourcesEnabled()).backend, {}, parent)
@@ -64,7 +71,8 @@ ApplicationHost::ApplicationHost(
         {QStringLiteral("defaultMailClient"), false},
 #endif
         {QStringLiteral("systemTray"), false},
-        {QStringLiteral("notifications"), m_notifications->available()},
+        {QStringLiteral("notifications"), !migrationNotificationsDisabled()
+         && m_notifications->available()},
         // Invariant: The Dock keeps a running application reachable after its window is
         // shut; elsewhere a windowless process has no such door.
 #ifdef Q_OS_MACOS
@@ -200,6 +208,7 @@ bool ApplicationHost::showNotification(const QString &id, const QString &title,
                                        const QString &body, const QString &accountId,
                                        const QString &messageId)
 {
+    if (migrationNotificationsDisabled()) return false;
     return m_notifications
         && m_notifications->show(id, title, body, accountId, messageId);
 }

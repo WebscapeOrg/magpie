@@ -1258,6 +1258,11 @@ Item {
   }
 
   function reopenWindow() {
+    if (platform && platform.startInBackground === true
+        && platform.backgroundActivationReceived !== true) {
+      restoreWindow = false
+      return false
+    }
     if (!restoreWindow || windowOpen) return
     if (restoreAttempts > 10) return
     restoreAttempts = restoreAttempts + 1

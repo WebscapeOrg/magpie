@@ -18,6 +18,8 @@ main = (APP / "src/main.cpp").read_text(encoding="utf-8")
 require(main, 'setApplicationName(QStringLiteral("Omamail"))', "stable Qt data identity")
 require(main, 'setApplicationDisplayName(QStringLiteral("Magpie Mail"))',
         "Qt application display name")
+require(main, 'setDesktopFileName(QStringLiteral("omamail"))',
+        "desktop entry and window class identity")
 require(main, 'setWindowIcon(QIcon(QStringLiteral(', "Qt window icon")
 require(main, ':/omamail/ui/assets/magpie-mail.png', "Qt Apple envelope icon resource")
 # Invariant: The Apple envelope is the Linux and Windows window icon. A packaged
@@ -103,5 +105,5 @@ if len(icon) < 4 or icon[:4] != b"\x00\x00\x01\x00":
 
 package = (APP / "scripts/package-release.sh").read_text(encoding="utf-8")
 require(package, 'ui/assets/magpie-mail.png', "packaged Apple envelope artwork")
-require(package, 'share/icons/hicolor/160x160/apps/omamail.png',
+require(package, 'share/icons/hicolor/256x256/apps/omamail.png',
         "packaged hicolor envelope path")

@@ -375,6 +375,14 @@ void SettingsTest::environmentUsesFixedAllowlist()
     QCOMPARE(host.environment(QStringLiteral("OMAMAIL_BIN")), QStringLiteral("/synthetic/backend"));
     QCOMPARE(host.environment(QStringLiteral("XDG_DATA_HOME")), QStringLiteral("/synthetic/data"));
     QCOMPARE(host.environment(QStringLiteral("OMAMAIL_TEST_SECRET")), QString());
+
+    qputenv("OMAMAIL_DISABLE_NOTIFICATIONS", "1");
+    ApplicationHost quiet;
+    QCOMPARE(quiet.capabilities().value(QStringLiteral("notifications")).toBool(), false);
+    QVERIFY(!quiet.showNotification(QStringLiteral("synthetic"), QStringLiteral("Title"),
+                                    QStringLiteral("Body"), QStringLiteral("account"),
+                                    QStringLiteral("message")));
+    qunsetenv("OMAMAIL_DISABLE_NOTIFICATIONS");
 }
 
 void SettingsTest::applicationPathsMatchBackendRoots()

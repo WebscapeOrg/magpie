@@ -58,6 +58,7 @@ int main(int argc, char *argv[])
     QGuiApplication application(argc, argv);
     application.installEventFilter(&activationChannel);
     QGuiApplication::setApplicationDisplayName(QStringLiteral("Magpie Mail"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("omamail"));
     // Invariant: The host decides when the process ends: the app menu's Quit, or the
     // shell hiding a window it has no way to bring back. Qt's own reflex of
     // quitting once the last window is hidden would turn Cmd+W into Cmd+Q.

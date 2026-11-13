@@ -112,7 +112,7 @@ entries = {
     "manifest.json": json.dumps({"version": metadata_version}).encode(),
     "plugins/platforms/libqxcb.so": elf(),
     "share/applications/omamail.desktop": b"[Desktop Entry]\nType=Application\nName=Synthetic app\nExec=omamail %u\nIcon=omamail\nMimeType=x-scheme-handler/mailto;\n",
-    "share/icons/hicolor/160x160/apps/omamail.png": b"png",
+    "share/icons/hicolor/256x256/apps/omamail.png": b"png",
     "release.json": json.dumps({
         "schemaVersion": {"schema-bool": True, "schema-float": 1.0}.get(kind, 1), "version": metadata_version,
         "name": "omamail", "target": target, "topLevel": top,

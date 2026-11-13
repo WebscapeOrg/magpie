@@ -160,7 +160,7 @@ class PackageTest(unittest.TestCase):
                 "scripts/open-link-window.py", "scripts/link-window.html",
                 "scripts/open-magpie-calendar.py",
                 "share/applications/omamail.desktop",
-                "share/icons/hicolor/160x160/apps/omamail.png",
+                "share/icons/hicolor/256x256/apps/omamail.png",
             ],
         )
 
@@ -174,7 +174,7 @@ class PackageTest(unittest.TestCase):
             self.assertIn("\nExec=omamail %u\n", "\n" + desktop)
             self.assertIn("\nMimeType=x-scheme-handler/mailto;\n", "\n" + desktop)
             icon = package.extractfile(
-                "omamail.app/share/icons/hicolor/160x160/apps/omamail.png"
+                "omamail.app/share/icons/hicolor/256x256/apps/omamail.png"
             ).read()
             self.assertEqual(icon, (ROOT / "ui/assets/magpie-mail.png").read_bytes())
 

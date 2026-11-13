@@ -35,6 +35,7 @@ ApplicationWindow {
   readonly property alias app: mailApp
   property var pendingActivation: null
   property bool initialOpenIssued: false
+  property bool backgroundActivationReceived: false
   property bool windowSizeLoaded: false
   property int normalWindowWidth: 1024
   property int normalWindowHeight: 768
@@ -103,6 +104,8 @@ ApplicationWindow {
 
   function activate(payload) {
     initialOpenIssued = true
+    backgroundActivationReceived = true
+    shellAdapter.backgroundActivationReceived = true
     activationFallback.stop()
     shellAdapter.summon(manifestAdapter.value.id, String(payload || "{}"))
     // Invariant: App.open() is idempotent when the window is already visible. Native
@@ -137,7 +140,11 @@ ApplicationWindow {
     // durable native route. A stale cold-start activation still opens the
     // ordinary window without navigating to its values.
     var accepted = mailService.openNotification(String(target.accountId), String(target.messageId))
-    if (accepted) initialOpenIssued = true
+    if (accepted) {
+      initialOpenIssued = true
+      backgroundActivationReceived = true
+      shellAdapter.backgroundActivationReceived = true
+    }
     if (root.nativeHost && typeof root.nativeHost.takePendingNotificationActivation === "function")
       root.nativeHost.takePendingNotificationActivation()
     if (!accepted) openInitialWindow()
@@ -273,7 +280,8 @@ ApplicationWindow {
       if (root.nativeHost) mailService.applySettings(root.nativeHost.settings)
     }
     function onReopenRequested() {
-      if (!mailApp.opened) root.activate("{}")
+      var background = root.nativeHost && root.nativeHost.startInBackground === true
+      if (!mailApp.opened && (!background || backgroundActivationReceived)) root.activate("{}")
     }
     function onActivationRequested(payload) { root.activate(String(payload || "{}")) }
     // Invariant: The host saw the platform close chord before Qt did — on macOS it takes
@@ -306,8 +314,10 @@ ApplicationWindow {
       root.routePendingActivation()
       if (root.pendingActivation) activationFallback.start()
     }
-    else if (root.nativeHost && root.nativeHost.startInBackground === true)
+    else if (root.nativeHost && root.nativeHost.startInBackground === true) {
       initialOpenIssued = true
+      mailService.restoreWindow = false
+    }
     else openInitialWindow()
   }
 }

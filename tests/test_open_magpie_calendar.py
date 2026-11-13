@@ -53,16 +53,29 @@ class CalendarOpener(unittest.TestCase):
         shell.chmod(0o755)
         self.log = root / 'log'
         self.log.write_text('')
+        self.data = root / 'data'
+        self.data.mkdir()
 
     def run_opener(self, *arguments, answers='ok'):
-        environment = {'PATH': str(self.bin), 'FAKE_LOG': str(self.log), 'FAKE_ANSWERS': answers}
+        environment = {'PATH': str(self.bin), 'XDG_DATA_HOME': str(self.data),
+                       'FAKE_LOG': str(self.log), 'FAKE_ANSWERS': answers}
         return subprocess.run([sys.executable, '-I', str(ROOT / 'scripts/open-magpie-calendar.py'), *arguments],
                               env=environment, capture_output=True, text=True, timeout=30)
 
     def summons(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
-    def test_the_calendar_is_summoned_by_its_name(self):
+    def test_an_installed_calendar_opener_receives_the_same_handoff(self):
+        native = self.data / 'magpie-calendar/open-magpie-calendar.py'
+        native.parent.mkdir()
+        native.write_text('import json, os, sys\n'
+                          'with open(os.environ["FAKE_LOG"], "a") as log:\n'
+                          '    log.write(json.dumps(sys.argv[1:]) + "\\n")\n')
+        result = self.run_opener(json.dumps(REQUEST))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.summons(), [[json.dumps({'handoff': REQUEST})]])
+
+    def test_the_calendar_is_summoned_by_its_name_when_no_installed_opener_exists(self):
         result = self.run_opener()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.summons(), [['shell', 'summon', 'magpie-calendar', '{}']])

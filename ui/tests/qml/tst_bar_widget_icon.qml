@@ -1,62 +1,35 @@
 import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
-import "../../bar/Bridge.js" as BarBridge
 
 Item {
   width: 400
   height: 60
 
   QtObject {
-    id: fakeService
-
-    property bool showBarIcon: true
-    property bool ready: true
-    property bool windowOpen: false
-    property int unreadTotal: 3
-    property string barTooltip: "Omamail"
-    property var barMessages: []
-    property var barEvents: []
-    property string contentDirection: "Auto"
-    property int refreshCount: 0
-    property int calendarRefreshCount: 0
-
-    property var appliedSettings: null
-    property int applyCount: 0
-
-    function applySettings(values) {
-      appliedSettings = values
-      applyCount += 1
-    }
-
-    function refresh() { refreshCount += 1 }
-    function refreshCalendarPreview() { calendarRefreshCount += 1 }
-  }
-
-  QtObject {
     id: fakeShell
-    function serviceFor(_id) { return fakeService }
-    function summon(_id, _payload) {}
-  }
-
-  QtObject {
-    id: startingShell
-    property string lastPayload: ""
-    function serviceFor(_id) { return null }
-    function summon(_id, payload) { lastPayload = payload }
+    property int serviceCalls: 0
+    property int summonCalls: 0
+    property int toggleCalls: 0
+    function serviceFor(_id) { serviceCalls += 1; return null }
+    function summon(_id, _payload) { summonCalls += 1 }
+    function toggle(_id, _payload) { toggleCalls += 1 }
   }
 
   QtObject {
     id: fakeBar
     property var shell: fakeShell
     property bool vertical: false
+    property string position: "bottom"
+    property string fontFamily: "monospace"
     property color barForeground: Qt.rgba(1, 1, 1, 1)
   }
 
   Omamail.BarWidget {
     id: widget
     bar: fakeBar
-    settings: ({ refreshIntervalSec: 300, showBarIcon: true })
+    statusPath: ""
+    settings: ({ showBarIcon: true })
   }
 
   TestCase {
@@ -64,28 +37,32 @@ Item {
     when: windowShown
 
     function init() {
-      BarBridge.clear(BarBridge.current())
-      if (typeof widget.syncBridge === "function") widget.syncBridge()
-      fakeBar.shell = fakeShell
-      fakeService.ready = true
-      fakeService.windowOpen = false
-      fakeService.showBarIcon = true
-      fakeService.applyCount = 0
-      fakeService.refreshCount = 0
-      fakeService.calendarRefreshCount = 0
-      widget.previewOpen = false
+      fakeBar.vertical = false
+      fakeShell.serviceCalls = 0
+      fakeShell.summonCalls = 0
+      fakeShell.toggleCalls = 0
+      widget.settings = ({ showBarIcon: true })
+      widget.activationCommand = ["magpie-mail"]
+      widget.launchFailed = false
+      statusFile().contents = ""
+      statusFile().loaded()
+      launchProcess().running = false
     }
 
-    function cleanup() {
-      BarBridge.clear(BarBridge.current())
-      if (typeof widget.syncBridge === "function") widget.syncBridge()
-    }
+    function statusFile() { return findChild(widget, "bar-status-file") }
+    function launchProcess() { return findChild(widget, "bar-launch-process") }
 
-    function publishPreview() {
-      return BarBridge.publish(function() { return fakeService },
-        function(values) { fakeService.applySettings(values) },
-        function() { fakeService.refresh() },
-        function() { fakeService.refreshCalendarPreview() })
+    function publish(overrides) {
+      var value = {
+        ready: true,
+        windowOpen: false,
+        showBarIcon: true,
+        unreadTotal: 3,
+        updated: Date.now()
+      }
+      for (var key in overrides) value[key] = overrides[key]
+      statusFile().contents = JSON.stringify(value)
+      statusFile().loaded()
     }
 
     function button() {
@@ -94,114 +71,113 @@ Item {
       fail("bar button was not instantiated")
     }
 
-    function test_replacement_bar_restores_status_settings_and_actions() {
-      fakeBar.shell = startingShell
-      var api = publishPreview()
-      tryVerify(function() { return widget.gmail !== null && widget.gmail.ready }, 2000,
-        "a connected mailbox must remain connected inside a restricted replacement bar")
-      tryCompare(widget, "bridgeApi", api, 2000)
-      verify(widget.gmail !== null)
-      verify(widget.gmail !== fakeService, "the full service must stay private")
-      compare(widget.gmail.ready, true)
-      compare(widget.gmail.unreadTotal, 3)
-      verify(fakeService.applyCount > 0, "settings reach the service through the bridge")
+    function test_a_fresh_snapshot_shows_a_numeric_count_and_open_state() {
+      publish({ windowOpen: true, accountEmail: "private@example.test", subject: "private" })
+      compare(widget.connected, true)
+      compare(widget.unreadTotal, 3)
+      compare(widget.countText, "3")
+      compare(widget.windowOpen, true)
+      compare(widget.barStatus.accountEmail, undefined)
+      compare(widget.barStatus.subject, undefined)
+      compare(widget.barTooltip, "Open Magpie Mail · 3 unread messages")
+      compare(findChild(widget, "bar-open-indicator").visible, true)
+      verify(button().slotSize > widget.baseSlot)
 
       var icon = button().iconComponent.createObject(widget)
-      verify(icon !== null)
-      compare(icon.children[0].crossed, false)
-      compare(icon.children[0].dot, true)
-      fakeService.ready = false
-      fakeService.windowOpen = true
-      widget.syncBridge()
-      compare(icon.children[0].crossed, true, "real disconnects still show a slash")
-      compare(button().windowOpen, true)
+      var count = findChild(icon, "bar-count-horizontal")
+      verify(count !== null)
+      compare(count.text, "3")
+      compare(count.visible, true)
+      compare(count.textFormat, Text.PlainText)
+      compare(count.Accessible.ignored, true)
+      compare(count.parent.children[0].Accessible.ignored, true)
+      compare(button().Accessible.name, widget.barTooltip)
       icon.destroy()
 
-      button().pressed(Qt.MiddleButton)
-      compare(fakeService.refreshCount, 1)
-      button().pressed(Qt.RightButton)
-      compare(widget.previewOpen, true)
-      compare(fakeService.calendarRefreshCount, 0)
-      widget.openMessage("ada@example.org", "mail-1")
-      compare(JSON.parse(startingShell.lastPayload).messageId, "mail-1")
-
-      fakeService.showBarIcon = false
-      widget.syncBridge()
-      compare(widget.drawsIcon, false)
-      compare(widget.implicitWidth, 0)
-      fakeService.applyCount = 0
-      var replacement = publishPreview()
-      BarBridge.clear(api)
-      widget.syncBridge()
-      verify(fakeService.applyCount > 0, "hot reload reapplies the widget settings")
-      compare(widget.bridgeApi, replacement)
-      BarBridge.clear(replacement)
-      BarBridge.clear(api)
-      widget.syncBridge()
-      compare(widget.gmail, null, "no stale session survives service shutdown")
+      publish({ unreadTotal: 1000, windowOpen: false })
+      compare(widget.countText, "999+")
+      compare(widget.barTooltip, "Open Magpie Mail · 1000 unread messages")
+      publish({ unreadTotal: 0 })
+      compare(widget.countText, "")
+      compare(button().slotSize, widget.baseSlot)
     }
 
-    function test_the_icon_is_drawn_by_default() {
+    function test_count_never_overlaps_the_envelope_in_either_bar_direction() {
+      publish({})
+      var icon = button().iconComponent.createObject(widget)
+      var horizontal = findChild(icon, "bar-count-horizontal")
+      var horizontalLogo = horizontal.parent.children[0]
+      verify(horizontal.x >= horizontalLogo.x + horizontalLogo.width)
+      verify(horizontal.parent.width >= horizontal.x + horizontal.width)
+
+      fakeBar.vertical = true
+      publish({ unreadTotal: 1000 })
+      var vertical = findChild(icon, "bar-count-horizontal")
+      var verticalLogo = vertical.parent.children[0]
+      verify(vertical.visible)
+      verify(vertical.x >= verticalLogo.x + verticalLogo.width)
+      verify(vertical.parent.width >= vertical.x + vertical.width)
+      icon.destroy()
+    }
+
+    function test_stale_and_malformed_status_never_show_a_count() {
+      publish({ updated: Date.now() - 45001 })
+      compare(widget.barStatus, null)
+      compare(widget.connected, false)
+      compare(widget.countText, "")
       compare(widget.drawsIcon, true)
-      compare(widget.visible, true)
-      verify(widget.implicitWidth > 0)
+      compare(widget.barTooltip, "Open Magpie Mail")
+
+      statusFile().contents = '{"ready":true,"unreadTotal":99}'
+      statusFile().loaded()
+      compare(widget.barStatus, null)
+      compare(widget.countText, "")
     }
 
-    function test_normal_bar_keeps_direct_service_when_bridge_is_available() {
-      var bridgeCalls = 0
-      var api = BarBridge.publish(function() { return { ready: false, unreadTotal: 0 } },
-        function(_values) { bridgeCalls += 1 },
-        function() { bridgeCalls += 1 },
-        function() { bridgeCalls += 1 })
-      widget.syncBridge()
-      compare(widget.gmail, fakeService)
-      compare(widget.gmail.ready, true)
-      fakeService.applyCount = 0
-      widget.pushSettings()
-      compare(fakeService.applyCount, 1)
-      var icon = button().iconComponent.createObject(widget)
-      compare(icon.children[0].crossed, false)
-      compare(icon.children[0].dot, true)
-      fakeService.ready = false
-      fakeService.unreadTotal = 0
-      compare(icon.children[0].crossed, true)
-      compare(icon.children[0].dot, false)
-      button().pressed(Qt.MiddleButton)
+    function test_the_envelope_has_no_service_preview_or_toggle() {
+      publish({})
       button().pressed(Qt.RightButton)
-      compare(fakeService.refreshCount, 1)
-      compare(fakeService.calendarRefreshCount, 0)
-      compare(bridgeCalls, 0, "normal bar actions must use the direct service")
-      icon.destroy()
-      fakeService.unreadTotal = 3
-      BarBridge.clear(api)
+      button().pressed(Qt.MiddleButton)
+      compare(fakeShell.serviceCalls, 0)
+      compare(fakeShell.summonCalls, 0)
+      compare(fakeShell.toggleCalls, 0)
+      compare(widget.previewOpen, undefined)
+      compare(widget.gmail, undefined)
     }
 
-    function test_turning_it_off_takes_the_width_with_it() {
-      fakeService.showBarIcon = false
+    function test_left_click_launches_the_native_app_and_reports_failure() {
+      publish({})
+      button().pressed(Qt.LeftButton)
+      compare(launchProcess().running, true)
+      compare(JSON.stringify(launchProcess().command), '["magpie-mail"]')
+      compare(fakeShell.summonCalls, 0)
+      compare(fakeShell.toggleCalls, 0)
+      compare(widget.openWindow(), false, "one in-flight activation is enough")
+
+      launchProcess().running = false
+      launchProcess().exited(1)
+      compare(widget.launchFailed, true)
+      compare(widget.barTooltip, "Magpie Mail could not open. Click to try again.")
+      button().pressed(Qt.LeftButton)
+      compare(widget.launchFailed, false)
+      compare(launchProcess().running, true)
+      launchProcess().running = false
+      launchProcess().exited(0)
+      compare(widget.launchFailed, false)
+    }
+
+    function test_native_and_local_visibility_settings_both_take_the_width() {
+      publish({ showBarIcon: false })
       compare(widget.drawsIcon, false)
       compare(widget.visible, false)
       compare(widget.implicitWidth, 0)
       compare(widget.implicitHeight, 0)
-    }
 
-    function test_a_hidden_widget_still_hands_settings_to_the_service() {
-      fakeService.showBarIcon = false
-      fakeService.applyCount = 0
-
-      widget.settings = ({ refreshIntervalSec: 600, showBarIcon: false })
-
-      compare(fakeService.applyCount, 1,
-        "a hidden widget is still the only route settings have")
-      compare(fakeService.appliedSettings.refreshIntervalSec, 600)
-      compare(widget.drawsIcon, false, "and it is still hidden")
-    }
-
-    function test_no_service_yet_still_draws() {
-      fakeBar.shell = startingShell
-      compare(widget.gmail, null, "the shell has no service to hand over yet")
+      publish({ showBarIcon: true })
       compare(widget.drawsIcon, true)
-      compare(widget.visible, true)
-      verify(widget.implicitWidth > 0)
+      widget.settings = ({ showBarIcon: false })
+      compare(widget.drawsIcon, false)
+      compare(widget.implicitWidth, 0)
     }
   }
 }

@@ -41,7 +41,7 @@ Column {
     var values = [{ key: "restart", title: "Restart", y: restartSection.y }, { key: "display", title: "Layout and fonts", y: displaySettings.y }, { key: "backend", title: "Mail backend", y: backendSetup.y }]
     if (!root.service || root.service.hasTray !== false)
       values.push({ key: "bar", title: "Bar", y: barHeading.y })
-    if (root.service && root.service.hasMailto === true)
+    if (root.service && root.service.hasDefaultMailClient === true)
       values.push({ key: "mailClient", title: "Default mail client", y: mailClientHeading.y })
     values.push({ key: "reading", title: "Reading", y: readingHeading.y })
     if (!root.service || root.service.hasNotifications !== false
@@ -452,8 +452,7 @@ Column {
       Text {
         width: parent.width
         text: "Mail is still checked and still notifies; only the envelope goes. "
-          + "With it off the window opens from a keybinding or a terminal and "
-          + "nowhere else, so bind a key before turning this off:"
+          + "Open Magpie Mail from its app launcher or mail keyboard shortcut."
         color: root.dimColor
         font.family: root.panelFontFamily
         font.pixelSize: MailStyle.caption
@@ -461,16 +460,6 @@ Column {
         textFormat: Text.PlainText
       }
 
-      Text {
-        width: parent.width
-        text: "o.bind(\"SUPER + SHIFT + G\", \"Magpie Mail\", "
-          + "\"omarchy shell shell toggle omamail '\{}'\")"
-        color: root.dimColor
-        font.family: root.panelFontFamily
-        font.pixelSize: MailStyle.caption
-        wrapMode: Text.WrapAnywhere
-        textFormat: Text.PlainText
-      }
     }
 
     ToggleSwitch {
@@ -490,7 +479,7 @@ Column {
 
   Text {
     id: mailClientHeading
-    visible: !!root.service && root.service.hasMailto === true
+    visible: !!root.service && root.service.hasDefaultMailClient === true
     text: "DEFAULT MAIL CLIENT"
     color: root.dimColor
     font.family: root.panelFontFamily
@@ -501,7 +490,7 @@ Column {
   Rectangle {
     id: mailClientRow
     objectName: "default-mail-client-settings"
-    visible: !!root.service && root.service.hasMailto === true
+    visible: !!root.service && root.service.hasDefaultMailClient === true
     width: parent.width
     implicitHeight: Math.max(mailClientText.implicitHeight, mailClientButton.implicitHeight)
       + MailStyle.space(16)

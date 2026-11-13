@@ -40,6 +40,8 @@ assert "using winrt::Windows::UI::Notifications::ToastNotification;" in windows
 
 linux = (ROOT / "src" / "notifications_linux.cpp").read_text(encoding="utf-8")
 for required in (
+    'QStringLiteral("Magpie Mail")',
+    'QStringLiteral("desktop-entry"), QStringLiteral("omamail")',
     "serviceOwner(notificationService)",
     'QStringLiteral("GetId")',
     "m_busId + QLatin1Char('/') + owner",

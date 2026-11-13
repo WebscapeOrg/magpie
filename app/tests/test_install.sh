@@ -36,7 +36,7 @@ def macho(cpu=0x0100000c):
     return struct.pack("<IIIIIIII", 0xfeedfacf, cpu, 0, 2, 0, 0, 0, 0)
 
 output, kind, version = sys.argv[1:]
-if kind in ("mac-valid", "mac-mailto", "mac-missing-info", "mac-wrong-arch"):
+if kind in ("mac-valid", "mac-no-mailto", "mac-missing-info", "mac-wrong-arch"):
     top = "Omamail.app"
     plist = {
         "CFBundleIdentifier": "com.omamail.app",
@@ -45,13 +45,24 @@ if kind in ("mac-valid", "mac-mailto", "mac-missing-info", "mac-wrong-arch"):
         "CFBundleShortVersionString": version,
         "CFBundleVersion": version,
     }
-    if kind == "mac-mailto":
+    if kind != "mac-no-mailto":
         plist["CFBundleURLTypes"] = [{"CFBundleURLSchemes": ["mailto"]}]
     entries = {
         "Contents/MacOS/omamail-app": macho(),
         "Contents/MacOS/omamail": macho(),
         "Contents/Resources/qml/Main.qml": b"import QtQuick\nItem {}\n",
         "Contents/Resources/ui/Service.qml": b"import QtQuick\nItem {}\n",
+        "Contents/Resources/ui/assets/magpie-mail.png": b"png",
+        "Contents/Resources/backend-api.json": b"{}",
+        "Contents/Resources/backend-version": version.encode(),
+        "Contents/Resources/scripts/attachment.sh": b"script",
+        "Contents/Resources/scripts/default-mail.sh": b"script",
+        "Contents/Resources/scripts/register-mailto.sh": b"script",
+        "Contents/Resources/scripts/mailto.sh": b"script",
+        "Contents/Resources/scripts/diagnostics.py": b"script",
+        "Contents/Resources/scripts/open-link-window.py": b"script",
+        "Contents/Resources/scripts/link-window.html": b"html",
+        "Contents/Resources/scripts/open-magpie-calendar.py": b"script",
         "Contents/Resources/manifest.json": json.dumps({"version": version}).encode(),
         "Contents/Resources/omamail.icns": b"icon",
         "Contents/PlugIns/platforms/libqcocoa.dylib": macho(),
@@ -87,10 +98,21 @@ entries = {
     "bin/qt.conf": b"[Paths]\nPrefix=..\nPlugins=plugins\nQmlImports=qml\n",
     "qml/Main.qml": b"import QtQuick\nItem {}\n",
     "ui/Service.qml": b"import QtQuick\nItem {}\n",
+    "ui/assets/magpie-mail.png": b"png",
+    "backend-api.json": b"{}",
+    "backend-version": version.encode(),
+    "scripts/attachment.sh": b"script",
+    "scripts/default-mail.sh": b"script",
+    "scripts/register-mailto.sh": b"script",
+    "scripts/mailto.sh": b"script",
+    "scripts/diagnostics.py": b"script",
+    "scripts/open-link-window.py": b"script",
+    "scripts/link-window.html": b"html",
+    "scripts/open-magpie-calendar.py": b"script",
     "manifest.json": json.dumps({"version": metadata_version}).encode(),
     "plugins/platforms/libqxcb.so": elf(),
-    "share/applications/omamail.desktop": b"[Desktop Entry]\nType=Application\nName=Synthetic app\nExec=omamail\nIcon=omamail\n",
-    "share/icons/hicolor/scalable/apps/omamail.svg": b"<svg/>",
+    "share/applications/omamail.desktop": b"[Desktop Entry]\nType=Application\nName=Synthetic app\nExec=omamail %u\nIcon=omamail\nMimeType=x-scheme-handler/mailto;\n",
+    "share/icons/hicolor/160x160/apps/omamail.png": b"png",
     "release.json": json.dumps({
         "schemaVersion": {"schema-bool": True, "schema-float": 1.0}.get(kind, 1), "version": metadata_version,
         "name": "omamail", "target": target, "topLevel": top,
@@ -165,7 +187,9 @@ install_archive() {
 assert_old_install() {
   [ "$(cat "$OMAMAIL_INSTALL_ROOT/marker")" = valid ]
   [ "$(readlink "$OMAMAIL_BIN_DIR/omamail")" = "$OMAMAIL_INSTALL_ROOT/bin/omamail-app" ]
-  grep -Fq "\"$OMAMAIL_INSTALL_ROOT/bin/omamail-app\"" "$OMAMAIL_DESKTOP_DIR/omamail.desktop"
+  [ "$(readlink "$OMAMAIL_BIN_DIR/magpie-mail")" = "$OMAMAIL_INSTALL_ROOT/bin/omamail-app" ]
+  grep -Fq "\"$OMAMAIL_INSTALL_ROOT/bin/omamail-app\" %u" "$OMAMAIL_DESKTOP_DIR/omamail.desktop"
+  grep -Fq 'MimeType=x-scheme-handler/mailto;' "$OMAMAIL_DESKTOP_DIR/omamail.desktop"
   [ ! -e "$OMAMAIL_LAUNCH_LOG" ]
   [ ! -e "$OMAMAIL_INSTALL_ROOT.previous" ]
   if find "$temp/install" -name '*.new.*' -print | grep -q .; then
@@ -278,6 +302,7 @@ printf 'preserve me\n' > "$user_data"
 "$installer" --uninstall
 [ ! -e "$OMAMAIL_INSTALL_ROOT" ]
 [ ! -e "$OMAMAIL_BIN_DIR/omamail" ]
+[ ! -e "$OMAMAIL_BIN_DIR/magpie-mail" ]
 [ ! -e "$OMAMAIL_DESKTOP_DIR/omamail.desktop" ]
 [ "$(cat "$user_data")" = 'preserve me' ]
 [ ! -e "$OMAMAIL_LAUNCH_LOG" ]
@@ -307,13 +332,14 @@ for name in os.environ:
     context.unsetenv(name)
 for name in ('PATH', 'HOME'):
     context.setenv(name, env[name])
-application.launch([], context)
+url = 'mailto:ada@example.test?subject=One%20argument'
+application.launch_uris([url], context)
 deadline = time.monotonic()+3
 while not marker.exists() and time.monotonic() < deadline:
     time.sleep(.01)
 assert marker.exists(), 'Desktop Entry must launch the exact installed executable'
-assert json.loads(marker.read_text()) == [str(executable)]
-print('Linux Desktop Entry reserved path launch PASS')
+assert json.loads(marker.read_text()) == [str(executable), url]
+print('Linux Desktop Entry reserved path and exact mailto launch PASS')
 PYTHON
 
 export OMAMAIL_TEST_OS=Darwin
@@ -356,7 +382,7 @@ unset OMAMAIL_TEST_XATTR_FAIL
 grep -Fq 'could not clear macOS quarantine' "$temp/xattr-failure.err"
 [ "$(cat "$OMAMAIL_INSTALL_ROOT/marker")" = mac-valid ]
 [ ! -e "$OMAMAIL_INSTALL_ROOT.previous" ]
-for kind in mac-mailto mac-missing-info mac-wrong-arch; do
+for kind in mac-no-mailto mac-missing-info mac-wrong-arch; do
   archive="$temp/fixtures/$kind.tar.gz"
   make_archive "$archive" "$kind" 0.10.1
   sums=$(write_sums "$archive")

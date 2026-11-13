@@ -10,17 +10,16 @@ fail() { printf 'test_link_plugin.sh: %s\n' "$1" >&2; exit 1; }
 python3 -c "import json; json.load(open('manifest.json'))" || fail "manifest.json is not valid JSON"
 
 kinds=$(python3 -c "import json; print(' '.join(json.load(open('manifest.json'))['kinds']))")
-for kind in service bar-widget panel; do
-  case " $kinds " in *" $kind "*) ;; *) fail "manifest kinds must include $kind" ;; esac
-done
-
-for entry in service:ui/Service.qml barWidget:ui/BarWidget.qml panel:ui/App.qml; do
-  key=${entry%%:*}
-  file=${entry##*:}
-  declared=$(python3 -c "import json; print(json.load(open('manifest.json'))['entryPoints'].get('$key',''))")
-  [ "$declared" = "$file" ] || fail "entryPoints.$key must be $file, found '$declared'"
-  [ -f "$file" ] || fail "$file is declared in the manifest but does not exist"
-done
+[ "$kinds" = bar-widget ] || fail "manifest must contain only the envelope bar widget"
+[ "$(python3 -c "import json; print(json.load(open('manifest.json'))['entryPoints'].get('barWidget',''))")" = ui/BarWidget.qml ] \
+  || fail "entryPoints.barWidget must be ui/BarWidget.qml"
+[ -f ui/BarWidget.qml ] || fail "ui/BarWidget.qml is declared in the manifest but does not exist"
+python3 - <<'PY' || fail "the envelope must not load a shell service or panel"
+import json
+manifest = json.load(open('manifest.json'))
+assert 'service' not in manifest['entryPoints']
+assert 'panel' not in manifest['entryPoints']
+PY
 
 [ -x scripts/link-plugin.sh ] || fail "scripts/link-plugin.sh must be executable"
 # Every run gets a PATH of test folders only, so the real installer can never run here. The fake installer lives
@@ -113,10 +112,10 @@ desktop="$mailto_home/share/applications/omamail.desktop"
 [ -f "$desktop" ] || fail "register-mailto.sh did not write omamail.desktop"
 grep -q '^MimeType=x-scheme-handler/mailto;$' "$desktop" \
   || fail "omamail.desktop must claim mailto"
-grep -F "\"$(pwd)/scripts/mailto.sh\" %u" "$desktop" >/dev/null \
-  || fail "omamail.desktop Exec must be the plugin mailto handler"
-grep -q "^Icon=$(pwd)/ui/assets/magpie-mail.png$" "$desktop" \
-  || fail "omamail.desktop must use the Omamail mark"
+grep -F '"magpie-mail" %u' "$desktop" >/dev/null \
+  || fail "omamail.desktop Exec must use the stable native launcher"
+grep -q '^Icon=omamail$' "$desktop" || fail "omamail.desktop must use the installed app icon"
+! grep -q 'omarchy-shell shell summon' "$desktop" || fail "the native handler must not summon the shell"
 # A second run with the file already there must not require --claim-default
 # just to keep the desktop file current.
 XDG_DATA_HOME="$mailto_home/share" XDG_CONFIG_HOME="$mailto_home/config" \

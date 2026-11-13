@@ -20,6 +20,13 @@ TestCase {
 
   Item { id: focusParking }
 
+  Window {
+    id: foregroundWindow
+    visible: false
+    width: 320
+    height: 240
+  }
+
   Switch {
     id: styledSwitch
     visible: false
@@ -86,6 +93,7 @@ TestCase {
 
   function init() {
     host.reset()
+    foregroundWindow.visible = false
   }
 
   function test_standalone_controls_use_semantic_omamail_style() {
@@ -439,8 +447,8 @@ TestCase {
     compare(findChild(composition, "notification-settings").visible, false)
     compare(findChild(composition, "bar-settings").visible, false)
     verify(composition.shell.hide("omamail"))
-    compare(host.quitCalled, true)
-    compare(host.hidden, false)
+    compare(host.quitCalled, false)
+    compare(host.hidden, true)
   }
 
   function test_close_hides_rather_than_quits_where_the_dock_can_reopen() {
@@ -549,6 +557,122 @@ TestCase {
     compare(saved.installed.client_secret, "GOCSPX-synthetic-secret")
   }
 
+
+  function test_bar_status_forwards_only_sanitized_fields() {
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    host.barStatuses = []
+    verify(composition.shell.updateBarStatus({
+      ready: true, windowOpen: true, showBarIcon: false, unreadTotal: 7.9,
+      accountId: "private@example.test", subject: "private subject",
+      credentials: {token: "private-token"}
+    }))
+    compare(host.barStatuses.length, 1)
+    compare(host.barStatuses[0], {
+      ready: true, windowOpen: true, showBarIcon: false, unreadTotal: 7
+    })
+    compare(Object.keys(host.barStatuses[0]).sort(),
+      ["ready", "showBarIcon", "unreadTotal", "windowOpen"])
+    verify(composition.shell.updateBarStatus({unreadTotal: -4, accountId: "hidden"}))
+    compare(host.barStatuses[1], {
+      ready: false, windowOpen: false, showBarIcon: true, unreadTotal: 0
+    })
+  }
+
+  function test_native_window_lifecycle_publishes_status() {
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    verify(host.barStatuses.length > 0)
+    compare(host.barStatuses[host.barStatuses.length - 1].windowOpen, true)
+    composition.app.requestClose()
+    compare(composition.app.opened, false)
+    compare(host.barStatuses[host.barStatuses.length - 1].windowOpen, false)
+    host.activationRequested("{}")
+    compare(composition.app.opened, true)
+    compare(host.barStatuses[host.barStatuses.length - 1].windowOpen, true)
+  }
+
+  function test_background_starts_hidden_and_later_open_raises() {
+    host.startInBackground = true
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    compare(composition.app.opened, false)
+    compare(composition.visible, false)
+    compare(host.hidden, false)
+    compare(host.quitCalled, false)
+    host.activationRequested("{}")
+    compare(composition.app.opened, true)
+    verify(composition.visible)
+  }
+
+  function test_cold_compose_activation_uses_existing_app_open() {
+    host.initialActivation = '{"compose":true}'
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    tryCompare(composition.app, "composing", true)
+    verify(composition.visible)
+  }
+
+  function test_warm_mailto_activation_preserves_fields_and_focuses_window() {
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    foregroundWindow.visible = true
+    foregroundWindow.requestActivate()
+    tryVerify(function() { return foregroundWindow.active })
+    var url = "mailto:one+tag@example.test?subject=A+B%20C%2BD&body=100%25+%2B%0Aline%20two"
+    host.activationRequested(JSON.stringify({mailto: url}))
+    tryCompare(composition.app, "composing", true)
+    tryVerify(function() { return composition.active })
+    compare(findChild(composition, "compose-to-field").text, "one+tag@example.test")
+    compare(findChild(composition, "compose-subject-field").text, "A+B C+D")
+    foregroundWindow.visible = false
+  }
+
+  function test_open_activation_recovers_window_behind_another_window() {
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    foregroundWindow.visible = true
+    foregroundWindow.requestActivate()
+    tryVerify(function() { return foregroundWindow.active })
+    host.activationRequested("{}")
+    tryVerify(function() { return composition.active })
+    verify(composition.visible)
+    compare(composition.app.opened, true)
+    foregroundWindow.visible = false
+  }
+
+  function test_packaged_helpers_use_native_resources_and_installed_calendar() {
+    host.resourceRoot = "/fixture/native"
+    host.environmentValues.XDG_DATA_HOME = "/fixture/calendar-data"
+    var installed = "/fixture/calendar-data/magpie-calendar/open-magpie-calendar.py"
+    host.files[installed] = "synthetic opener"
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    compare(composition.service.helperRoot(), "/fixture/native")
+    compare(composition.service.helperPath("diagnostics.py"),
+      "/fixture/native/scripts/diagnostics.py")
+    compare(composition.service.calendarOpener(), installed)
+    verify(findChild(composition, "standalone-clipboard-attachment") !== null)
+    verify(composition.service.openMessageLink("https://public.example.test", ""))
+    compare(JSON.stringify(host.messageLinks), '[["https://public.example.test",""]]')
+    host.capabilities = ({agent:false,tray:false,mailto:true,notifications:true})
+    compare(composition.service.hasMailto, true)
+  }
+
+  function test_macos_keeps_mailto_without_linux_default_client_controls() {
+    host.capabilities = ({agent:false,tray:false,mailto:true,defaultMailClient:false,notifications:true})
+    var composition = createTemporaryObject(compositionComponent, testCase)
+    verify(composition)
+    wait(20)
+    compare(composition.service.hasMailto, true)
+    compare(composition.service.hasDefaultMailClient, false)
+    var helper = findChild(composition, "default-mail-client-process")
+    verify(helper !== null)
+    compare(helper.running, false)
+    composition.service.setDefaultMailClient(true)
+    compare(helper.running, false)
+    compare(composition.service.defaultMailClientBusy, false)
+  }
 
   function test_all_shared_clipboard_writes_cross_the_host_seam() {
     var composition = createTemporaryObject(compositionComponent, testCase)

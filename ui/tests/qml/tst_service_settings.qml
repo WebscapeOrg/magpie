@@ -142,7 +142,7 @@ Item {
       compare(service.configWrites, 0)
     }
 
-    function test_the_real_bar_widget_starting_up_cannot_restore_older_values() {
+    function test_the_envelope_cannot_restore_older_shell_settings() {
       var service = createTemporaryObject(settingsFileFactory, root)
       var own = findChild(service, "settings-file")
       own.contents = JSON.stringify({undoSendSeconds:30,suggestEvents:false,notifyNewMail:"On"})
@@ -152,7 +152,7 @@ Item {
       verify(widget)
       // The shell's injectProps order: bar first, settings last.
       widget.bar = serviceForWidget
-      compare(widget.gmail, service)
+      compare(widget.gmail, undefined)
       widget.settings = ({undoSendSeconds:10,suggestEvents:true,notifyNewMail:"Off"})
       compare(service.settings.undoSendSeconds, 30)
       compare(service.settings.suggestEvents, false)

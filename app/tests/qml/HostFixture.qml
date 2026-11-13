@@ -2,17 +2,21 @@ import QtQuick
 
 QtObject {
   property var manifest: ({
-    id: "omamail", name: "Omamail", version: "0.10.1",
+    id: "omamail", name: "Magpie Mail", version: "0.10.1",
     barWidget: {defaults:{refreshIntervalSec:333,maxMessages:17,notifyNewMail:"On"}}
   })
-  property var capabilities: ({agent:false,tray:false,mailto:false,notifications:true})
+  property var capabilities: ({agent:false,tray:false,mailto:false,defaultMailClient:false,notifications:true})
   property var settings: ({refreshIntervalSec:333,maxMessages:17,notifyNewMail:"Off"})
   property string backendPath: "/fixture/bin/omamail"
+  property string resourceRoot: "/fixture"
   property var backendContract: ({apiVersion:8, releasedApiVersion:7, contractHash:"", unreleasedMethods:[]})
   property string notificationError: ""
   property bool hidden: false
   property bool quitCalled: false
   property var pendingNotificationActivation: ({})
+  property string initialActivation: "{}"
+  property bool startInBackground: false
+  property var barStatuses: []
   property var environmentValues: ({
     HOME: "/fixture/home",
     XDG_CONFIG_HOME: "/fixture/config",
@@ -20,25 +24,39 @@ QtObject {
     OMAMAIL_BIN: "/fixture/bin/omamail"
   })
   property var opened: []
+  property var messageLinks: []
   property var copied: []
   property var notifications: []
   property var files: ({})
   property var watched: ({})
   property bool rejectWrites: false
   signal notificationActivated(string accountId, string messageId)
+  signal activationRequested(string payload)
   signal reopenRequested()
   signal closeRequested()
   signal changed(string path)
   signal failed(string path, string error)
 
   function reset() {
-    capabilities = ({agent:false,tray:false,mailto:false,notifications:true})
+    capabilities = ({agent:false,tray:false,mailto:false,defaultMailClient:false,notifications:true})
+    resourceRoot = "/fixture"
+    environmentValues = ({
+      HOME: "/fixture/home",
+      XDG_CONFIG_HOME: "/fixture/config",
+      XDG_CACHE_HOME: "/fixture/cache",
+      XDG_DATA_HOME: "/fixture/data",
+      OMAMAIL_BIN: "/fixture/bin/omamail"
+    })
     settings = ({refreshIntervalSec:333,maxMessages:17,notifyNewMail:"Off"})
     opened = []
+    messageLinks = []
     copied = []
     notifications = []
     notificationError = ""
     pendingNotificationActivation = ({})
+    initialActivation = "{}"
+    startInBackground = false
+    barStatuses = []
     files = ({ "/fixture/existing": "saved" })
     watched = ({})
     rejectWrites = false
@@ -48,6 +66,10 @@ QtObject {
 
   function environment(name) { return String(environmentValues[name] || "") }
   function openExternal(target) { opened = opened.concat([String(target)]); return true }
+  function openMessageLink(target, accountEmail) {
+    messageLinks = messageLinks.concat([[String(target), String(accountEmail)]])
+    return true
+  }
   function setClipboard(text) { copied = copied.concat([String(text)]); return true }
   function showNotification(id, title, body, accountId, messageId) {
     notifications = notifications.concat([{
@@ -60,6 +82,10 @@ QtObject {
   function cachePath(name) { return "/fixture/cache/omamail/" + String(name) }
   function localFilePath(url) { return String(url).replace(/^file:\/\//, "") }
   function updateSettings(value) { settings = value; return true }
+  function updateBarStatus(value) {
+    barStatuses = barStatuses.concat([value])
+    return true
+  }
   function hide() { hidden = true }
   function quit() { quitCalled = true }
   function takePendingNotificationActivation() {

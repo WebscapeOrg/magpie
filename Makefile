@@ -162,6 +162,7 @@ test-js:
 	node app/tests/test_theme.js
 	node app/tests/test_shell_theme.js
 	node ui/tests/test_bar_bridge.js
+	node ui/tests/test_bar_status.js
 	node ui/tests/test_backend_wire.js
 	node ui/tests/test_backend_queue.js
 	node ui/tests/test_backend_compatibility.js
@@ -225,6 +226,7 @@ test-shell-independent:
 	python3 tests/test_benchmark_processes.py
 	python3 tests/test_benchmark_results.py
 	python3 tests/test_app_make.py
+	python3 tests/test_omastore.py
 	python3 tests/test_performance_verification.py
 	python3 tests/test_diagnostics.py
 	python3 tests/test_network_migration.py

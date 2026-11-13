@@ -34,18 +34,16 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
   session check calls this file stale: the repository is public, and Dave chose to keep the rules off GitHub and erase
   them from its history (Q-002 in Medley, 10 November 2026).
 - **Magpie on Linux is installed only by the main machine's installer.** the main machine's `omarchy/bin/magpie-mail-install`
-  copies the plugin files from this repository's main checkout (not from a worktree) and the engine from its `target/release/omamail`
-  (built there with `make backend`) to `~/.local/share/omamail/bin/omamail`, which `magpie-mail-engine.service` runs. It
-  installs nothing, and says so, while the desktop is locked or `~/.local/state/magpie-mail/install-hold` exists, and it
-  never restarts the engine: run `systemctl --user restart magpie-mail-engine.service` yourself afterwards. The open
-  app reconnects by itself within a few seconds. A new plugin id or changed plugin files still need
-  `omarchy-restart-shell` while unlocked; check with `ps -o lstart= -p $(pgrep -x quickshell)` that it restarted. Do not run
-  `make install-backend-local`, `make install` or `make install-plugin`: the first two overwrite the running engine
-  file directly, without the installer's checks; `install` and `install-plugin` then run the main machine's whole
-  installer; and `install-plugin` stops and disables the engine service and deletes the engine. Do not run
-  `make publish` either: it is omamail's release process and opens a pull request in omamail's repository. The install
+  copies the five envelope files from this repository's main checkout (not from a worktree) and publishes the native app and
+  matching release backend under `~/.local/lib/omamail`. The initial cutover and every watched envelope or shell-configuration
+  write require an unlocked desktop and no `~/.local/state/magpie-mail/install-hold`; later native app, engine, launcher and
+  icon updates can proceed while locked. The installer never restarts the engine or Quickshell: follow the machine runbook for
+  any required service restart or shell reload. Do not run `make install-backend-local`, `make install` or `make install-plugin`:
+  the first two overwrite the running engine file directly, without the installer's checks; `install` and `install-plugin` then
+  run the main machine's whole installer; and `install-plugin` stops and disables the engine service and deletes the engine. Do
+  not run `make publish` either: it is omamail's release process and opens a pull request in omamail's repository. The install
   steps in docs/BACKEND.md and docs/BACKEND-RUNTIME.md are omamail's too. The iPhone and iPad app installs from
-  magpie-mail-ios. [MAGPIE.md](MAGPIE.md#installation-on-the-main-machine) has the rest.
+  magpie-mail-ios. [MAGPIE.md](MAGPIE.md#installation-on-the-main-machine) and [Normal app](docs/NORMAL-APP.md) have the rest.
 - **The QML relies only on what `backend-api.json` lists.** A method the desktop engine adds goes into its `methods`
   and `unreleased.methods`, and a parameter, answer or error the QML or the iPhone app newly depends on gets a contract
   case, named under `unreleased.cases`. A Rust test fails when the engine's methods and the list differ, and the QML
@@ -56,8 +54,9 @@ for its own contributors do not apply here. **Read [`MAGPIE.md`](./MAGPIE.md) fi
   never through other `omamail` commands ([backend](docs/BACKEND.md)).
 - **New files are registered in the Makefile.** New production QML goes into `QML_FILES`, or `make validate` fails. A
   new JavaScript, Python or shell test goes into its Makefile target, or nothing runs it.
-- **The root of `ui/Service.qml` declares no required properties.** The Omarchy shell constructs it and injects only
-  `shell`, `manifest`, `pluginRegistry` and `barWidgetRegistry`; the service reads settings from its own `settings.json`.
+- **The root of `ui/Service.qml` declares no required properties.** Only the native app constructs it now. It supplies
+  `shell`, `manifest`, `pluginRegistry`, `barWidgetRegistry`, `platform` and `initialSettings`; ordinary settings migrate
+  from Magpie's existing `settings.json`. The shell constructs only the envelope and never constructs a mail Service.
 - **Screens follow the [design notes](docs/DESIGN.md) and the [keys](docs/KEYS.md).** Colours come from the active
   Omarchy theme through `App.qml`, so Magpie follows Dave's theme; state is never shown by colour alone.
 - **Run `make validate` after a QML or behaviour change**, and the iPhone engine's tests (`cargo test --locked --lib
@@ -105,9 +104,10 @@ every agent.
   Rust unit tests sit beside their modules.
 - `mobile/` — `magpie-mobile`, the library Magpie for iPhone and iPad links, built with `--features mobile`
   ([mobile engine](docs/MOBILE-ENGINE.md)).
-- `ui/` — the plugin's QML and its JavaScript libraries; `ui/tests/` their tests. The JavaScript tests load the
-  libraries through `ui/tests/load.js`.
-- `app/` — omamail's standalone Qt app. `make validate` still tests its QML; Magpie does not ship it.
+- `ui/` — the native app's shared QML, the envelope-only `BarWidget.qml`, and their JavaScript libraries; `ui/tests/`
+  their tests. The JavaScript tests load the libraries through `ui/tests/load.js`.
+- `app/` — Magpie Mail's native Qt app. It composes the only full `Service.qml` and `App.qml`, owns activation,
+  notifications and status publication, and is covered by `make validate`. See [Normal app](docs/NORMAL-APP.md).
 - `tests/` — integration tests. `scripts/` — helpers the plugin runs, such as `unsubscribe.py` and `public_http.py`,
   and build and setup scripts.
 - `docs/` — how the code works. [Local mail](docs/LOCAL-MAIL.md), [mail backup](docs/MAIL-BACKUP.md), [mobile
@@ -124,9 +124,10 @@ every agent.
 - Repo: GitHub `WebscapeOrg/magpie-mail` (public, as omamail's fork); its main checkout is the one the main machine
   installs from. The `upstream` remote keeps
   huacnlee/omamail for reference; Magpie holds omamail's history up to 11 October 2026.
-- The main machine runs copies made from the main checkout: the plugin files, and its `target/release/omamail` as
-  `~/.local/share/omamail/bin/omamail` under `magpie-mail-engine.service`. Data and keyring entries keep omamail's names
-  (`~/.local/share/omamail` and the rest), so Google sign-ins survive ([MAGPIE.md](MAGPIE.md#installation-on-the-main-machine)).
+- The main machine runs copies made from the main checkout: the envelope plugin, and the native app plus its matching backend
+  under `~/.local/lib/omamail`, with the managed engine under `magpie-mail-engine.service`. Data and keyring entries keep
+  omamail's names (`~/.local/share/omamail` and the rest), so Google sign-ins survive
+  ([MAGPIE.md](MAGPIE.md#installation-on-the-main-machine)).
 - Branch work trees live in a `magpie-work` folder under `${XDG_STATE_HOME:-~/.local/state}`, not in `/tmp`, and so do
   Cargo target folders.
 - Siblings, each a checkout beside this one: magpie-mail-ios (Magpie for iPhone and iPad, which bundles `mobile/`),

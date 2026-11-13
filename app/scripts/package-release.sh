@@ -78,6 +78,14 @@ copy_product_files() {
   mkdir -p "$destination/qml" "$destination/ui" "$destination/licenses"
   cp -R "$qml/." "$destination/qml/"
   cp -R "$ui/." "$destination/ui/"
+  mkdir -p "$destination/scripts"
+  for helper in attachment.sh default-mail.sh register-mailto.sh mailto.sh diagnostics.py \
+      open-link-window.py link-window.html open-magpie-calendar.py; do
+    cp "$repo_root/scripts/$helper" "$destination/scripts/$helper"
+  done
+  chmod 755 "$destination/scripts/"*
+  cp "$repo_root/backend-api.json" "$destination/backend-api.json"
+  cp "$repo_root/backend-version" "$destination/backend-version"
   if [ -n "$manifest" ]; then
     cp "$manifest" "$destination/manifest.json"
   else
@@ -149,12 +157,12 @@ else
   top_level=omamail.app
   app="$stage/$top_level"
   mkdir -p "$app/bin" "$app/lib" "$app/plugins/platforms" "$app/share/applications" \
-    "$app/share/icons/hicolor/scalable/apps"
+    "$app/share/icons/hicolor/160x160/apps"
   cp "$host" "$app/bin/omamail-app"
   cp "$backend" "$app/bin/omamail"
   copy_product_files "$app"
   cp "$repo_root/app/resources/linux/omamail.desktop" "$app/share/applications/omamail.desktop"
-  cp "$repo_root/app/resources/icons/omamail.svg" "$app/share/icons/hicolor/scalable/apps/omamail.svg"
+  cp "$repo_root/ui/assets/magpie-mail.png" "$app/share/icons/hicolor/160x160/apps/omamail.png"
   cat > "$app/bin/qt.conf" <<'EOF'
 [Paths]
 Prefix=..

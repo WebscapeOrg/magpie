@@ -34,8 +34,14 @@ execute_process(COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/package-backend.py"
   standalone-manifest --output "${standalone_manifest}"
   COMMAND_ERROR_IS_FATAL ANY)
+file(READ "${standalone_manifest}" standalone_manifest_contents)
+string(JSON standalone_manifest_contents SET "${standalone_manifest_contents}"
+  name "\"Magpie Mail\"")
+file(WRITE "${standalone_manifest}" "${standalone_manifest_contents}")
 
 set(OMAMAIL_NATIVE_SOURCES
+  src/activation.cpp
+  src/activation.h
   src/app_icon.cpp
   src/app_icon.h
   src/application_host.cpp
@@ -48,6 +54,10 @@ set(OMAMAIL_NATIVE_SOURCES
   src/process.h
   src/resource_check.cpp
   src/resource_check.h
+  src/runtime.cpp
+  src/runtime.h
+  src/status_file.cpp
+  src/status_file.h
 )
 
 if(APPLE)
@@ -139,8 +149,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/qml/Main.qml")
   qt_add_resources(omamail-app standalone_brand
     PREFIX "/omamail/app"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}"
-    FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/omamail.svg"
-      "${CMAKE_CURRENT_SOURCE_DIR}/resources/macos/omamail.icns"
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/macos/omamail.icns"
   )
 endif()
 
@@ -173,12 +182,13 @@ if(BUILD_TESTING)
   omamail_native_test(tst_settings tst_settings.cpp)
   omamail_native_test(tst_resources tst_resources.cpp)
   omamail_native_test(tst_notifications tst_notifications.cpp)
+  omamail_native_test(tst_activation tst_activation.cpp)
 
   target_compile_definitions(tst_process PRIVATE
     PYTHON_EXECUTABLE="${Python3_EXECUTABLE}"
     RPC_BACKEND_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/rpc_backend.py")
-  set_tests_properties(tst_process tst_settings tst_resources tst_notifications PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+  set_tests_properties(tst_process tst_settings tst_resources tst_notifications tst_activation
+    PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
   add_test(NAME notification_source_boundary
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_notification_sources.py")
   add_test(NAME application_identity

@@ -1,68 +1,76 @@
 import QtQuick 2.15
 import QtTest 1.3
 import "../.." as Omamail
-import "../../bar/Bridge.js" as BarBridge
 
 Item {
+  id: root
   width: 400
   height: 60
 
   QtObject {
-    id: restrictedShell
-    function serviceFor(_id) { return null }
-    function summon(_id, _payload) {}
+    id: nativeHost
+    property bool standalone: true
+    property var capabilities: ({ agent: false, tray: false, mailto: false, notifications: false })
+    property var snapshots: []
+    property var configWrites: []
+
+    function updateBarStatus(value) {
+      snapshots = snapshots.concat([JSON.parse(JSON.stringify(value))])
+      return true
+    }
+    function writeConfig(name, text, callback) {
+      configWrites = configWrites.concat([{ name: name, text: text }])
+      if (callback) callback(true, "")
+      return true
+    }
+    function configPath(name) { return "/private-test/config/" + name }
+    function cachePath(name) { return "/private-test/cache/" + name }
   }
-  QtObject {
-    id: bar
-    property var shell: restrictedShell
-    property bool vertical: false
-    property color barForeground: Qt.rgba(1, 1, 1, 1)
+
+  Component {
+    id: serviceFactory
+    Omamail.Service {
+      platform: nativeHost
+      manifest: ({ id: "magpie-mail", name: "Magpie Mail", version: "1.0.0" })
+    }
   }
-  Omamail.BarWidget {
-    id: widget
-    bar: bar
-    settings: ({ refreshIntervalSec: 300, showBarIcon: true })
-  }
-  Component { id: serviceFactory; Omamail.Service {} }
 
   TestCase {
-    name: "BarBridgeService"
-    when: windowShown
+    name: "BarStatusService"
 
-    function test_real_service_publishes_and_retires_its_bar_interface() {
-      var service = serviceFactory.createObject(null)
+    function init() {
+      nativeHost.snapshots = []
+      nativeHost.configWrites = []
+    }
+
+    function test_native_service_publishes_only_the_envelope_snapshot() {
+      var service = createTemporaryObject(serviceFactory, root)
       verify(service !== null)
-      var api = service.barBridge
-      compare(BarBridge.current(), api)
-      widget.syncBridge()
-      compare(widget.directService, null)
-      verify(widget.gmail !== null)
-      verify(widget.gmail !== service)
-      compare(service.settings.refreshIntervalSec, 300)
+      nativeHost.snapshots = []
       service.unreadTotal = 9
       service.windowOpen = true
-      widget.syncBridge()
-      compare(widget.gmail.unreadTotal, 9)
-      compare(widget.gmail.windowOpen, true)
-      compare(widget.gmail.auth, undefined)
-      compare(widget.gmail.current, undefined)
-      compare(widget.gmail.shell, undefined)
+      service.replaceSettings({ showBarIcon: false })
+      verify(nativeHost.snapshots.length >= 3)
 
-      var replacement = serviceFactory.createObject(null)
-      verify(replacement !== null)
-      var next = replacement.barBridge
-      verify(next !== api)
-      widget.syncBridge()
-      compare(replacement.settings.refreshIntervalSec, 300)
-      service.destroy()
-      wait(0)
-      compare(BarBridge.current(), next)
-      compare(api.snapshot(), null)
-      replacement.destroy()
-      wait(0)
-      compare(BarBridge.current(), null)
-      widget.syncBridge()
-      compare(widget.gmail, null)
+      var published = nativeHost.snapshots[nativeHost.snapshots.length - 1]
+      compare(published.ready, false)
+      compare(published.windowOpen, true)
+      compare(published.showBarIcon, false)
+      compare(published.unreadTotal, 9)
+      compare(JSON.stringify(Object.keys(published).sort()),
+        '["ready","showBarIcon","unreadTotal","windowOpen"]')
+      compare(published.accountEmail, undefined)
+      compare(published.barMessages, undefined)
+      compare(published.auth, undefined)
+      compare(published.shell, undefined)
+      compare(published.updated, undefined, "the native host owns the publication timestamp")
+
+      nativeHost.snapshots = []
+      compare(service.publishBarStatus(false), true)
+      compare(nativeHost.snapshots.length, 1)
+      compare(nativeHost.snapshots[0].ready, false)
+      compare(nativeHost.snapshots[0].unreadTotal, 9)
+      compare(nativeHost.snapshots[0].windowOpen, true)
     }
   }
 }

@@ -1,5 +1,6 @@
 #include "file_store.h"
 
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -77,6 +78,7 @@ const QSet<QString> &allowedSettings()
         QStringLiteral("showBarIcon"), QStringLiteral("suggestEvents"),
         QStringLiteral("unifiedMailboxes"), QStringLiteral("appearance"),
         QStringLiteral("calendarRemindersEnabled"), QStringLiteral("calendarSnoozeMinutes"),
+        QStringLiteral("previewOnCursor"), QStringLiteral("markReadDelaySec"),
         QStringLiteral("aiAgent"), QStringLiteral("aiModel"), QStringLiteral("aiChatResetAt")};
     return keys;
 }
@@ -105,6 +107,47 @@ bool parseSettingsFile(const QString &path, QVariantMap *settings, QString *erro
     }
     *settings = document.object().toVariantMap();
     return SettingsStore::accepts(*settings, error);
+}
+
+bool migrateLegacyFile(const QString &source, const QString &target, bool settings)
+{
+    const QFileInfo sourceInfo(source);
+    const QFileInfo targetInfo(target);
+    if (!sourceInfo.exists()) return true;
+    if (targetInfo.exists() || targetInfo.isSymLink()) return true;
+    if (sourceInfo.isSymLink() || !sourceInfo.isFile()) return false;
+    QFile input(source);
+    if (!input.open(QIODevice::ReadOnly) || input.size() > maximumTextFileBytes) return false;
+    const QByteArray bytes = input.read(maximumTextFileBytes + 1);
+    if (settings) {
+        QVariantMap values;
+        if (!parseSettingsFile(source, &values, nullptr)) return false;
+    } else {
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) return false;
+    }
+    if (!QDir().mkpath(QFileInfo(target).absolutePath())) return false;
+    QSaveFile output(target);
+    if (!output.open(QIODevice::WriteOnly)) return false;
+    output.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    return output.write(bytes) == bytes.size() && output.commit();
+}
+
+void migrateLegacySettings(const QString &target)
+{
+    const QByteArray configured = qgetenv("XDG_CONFIG_HOME");
+    const QString configHome = configured.isEmpty()
+        ? QDir::homePath() + QStringLiteral("/.config")
+        : QString::fromLocal8Bit(configured);
+    const QString shared = QDir(configHome).filePath(QStringLiteral("omamail"));
+    const QString native = QFileInfo(target).absolutePath();
+    if (!migrateLegacyFile(QDir(shared).filePath(QStringLiteral("settings.json")),
+                           QDir(native).filePath(QStringLiteral("settings.json")), true))
+        qWarning() << "Magpie Mail could not migrate the existing settings.json";
+    if (!migrateLegacyFile(QDir(shared).filePath(QStringLiteral("notification-routes.json")),
+                           QDir(native).filePath(QStringLiteral("notification-routes.json")), false))
+        qWarning() << "Magpie Mail could not migrate notification routes";
 }
 }
 
@@ -249,6 +292,7 @@ SettingsStore::SettingsStore(QString path)
     if (m_path.isEmpty()) {
         m_path = QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation))
             .filePath(QStringLiteral("settings.json"));
+        migrateLegacySettings(m_path);
     }
 }
 

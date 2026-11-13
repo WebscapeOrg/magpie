@@ -8,6 +8,8 @@ the calendar is summoned by its new name first and by the old one when the shell
 """
 import base64
 import json
+import os
+from pathlib import Path
 import subprocess
 import sys
 import urllib.parse
@@ -54,6 +56,13 @@ def payload(value):
 
 def summon(value):
     message = json.dumps(value, allow_nan=False)
+    data_home = Path(os.environ.get('XDG_DATA_HOME') or (Path.home() / '.local/share'))
+    installed = data_home / 'magpie-calendar/open-magpie-calendar.py'
+    if installed.is_file():
+        # The installed opener works with both the plugin and native Calendar app.
+        subprocess.run([sys.executable, str(installed), message], stdin=subprocess.DEVNULL,
+                       capture_output=True, text=True, check=True, timeout=45)
+        return
     for plugin in CALENDAR_PLUGINS:
         answer = subprocess.run(['omarchy-shell', 'shell', 'summon', plugin, message], stdin=subprocess.DEVNULL,
                                 capture_output=True, text=True, check=True, timeout=15).stdout.strip()

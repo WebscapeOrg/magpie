@@ -44,7 +44,7 @@ private:
         writeFile(paths.standaloneQml, "import QtQuick\nItem {}\n");
         writeFile(paths.sharedUi, "import QtQuick\nItem {}\n");
         writeFile(paths.platformPlugin);
-        writeFile(paths.manifest, QByteArrayLiteral("{\"id\":\"omamail\",\"name\":\"Omamail\",\"version\":\"")
+        writeFile(paths.manifest, QByteArrayLiteral("{\"id\":\"omamail\",\"name\":\"Magpie Mail\",\"version\":\"")
             + QByteArrayLiteral(OMAMAIL_APP_VERSION) + QByteArrayLiteral("\"}"));
         writeFile(paths.backend, "#!/bin/sh\nexit 0\n");
         QFile backend(paths.backend);
@@ -55,7 +55,7 @@ private:
 
 private slots:
     void bundledIconFontCoversMaintainedPrivateUseGlyphs();
-    void platedIconReadsEveryPngInTheIcns();
+    void appleEnvelopeIconReadsEveryPngInTheIcns();
     void acceptsCompleteReadableLayout();
     void reportsEachMissingComponent_data();
     void reportsEachMissingComponent();
@@ -71,6 +71,7 @@ private slots:
     void bundleDiscoveryDoesNotUseDevelopmentFallbacks();
     void developmentDiscoveryUsesExplicitSourceAndBackend();
     void bundleDiscoveryAcceptsPortableRootLayout();
+    void resourceRootMatchesPackagedLayouts();
 };
 
 void ResourcesTest::bundledIconFontCoversMaintainedPrivateUseGlyphs()
@@ -99,7 +100,7 @@ void ResourcesTest::bundledIconFontCoversMaintainedPrivateUseGlyphs()
     }
 }
 
-void ResourcesTest::platedIconReadsEveryPngInTheIcns()
+void ResourcesTest::appleEnvelopeIconReadsEveryPngInTheIcns()
 {
     const QIcon icon = iconFromIcnsFile(QDir(QStringLiteral(OMAMAIL_SOURCE_ROOT))
         .filePath(QStringLiteral("app/resources/macos/omamail.icns")));
@@ -107,9 +108,10 @@ void ResourcesTest::platedIconReadsEveryPngInTheIcns()
     const QList<QSize> sizes = icon.availableSizes();
     for (int dimension : {32, 64, 128, 256, 512, 1024})
         QVERIFY2(sizes.contains(QSize(dimension, dimension)), qPrintable(QString::number(dimension)));
-    // Invariant: The plate is the Omarchy background, not the bare logo's transparency.
+    // Invariant: The icon is the reviewed Apple envelope, with artwork inside and
+    // transparency outside, not a substituted plate or another mail logo.
     const QImage image = icon.pixmap(QSize(64, 64)).toImage();
-    QCOMPARE(image.pixelColor(32, 16).name(), QStringLiteral("#1a1b26"));
+    QVERIFY(image.pixelColor(32, 16).alpha() > 0);
     QCOMPARE(image.pixelColor(2, 2).alpha(), 0);
 
     QVERIFY(iconFromIcns(QByteArray()).isNull());
@@ -158,7 +160,7 @@ void ResourcesTest::rejectsInvalidManifest()
 {
     QTemporaryDir directory;
     ResourcePaths paths = completeLayout(directory);
-    QVERIFY(writeFile(paths.manifest, "{\"id\":\"other\",\"name\":\"Omamail\",\"version\":\"0.10.1\"}"));
+    QVERIFY(writeFile(paths.manifest, "{\"id\":\"other\",\"name\":\"Magpie Mail\",\"version\":\"0.10.1\"}"));
     const ResourceCheck result = checkResources(paths);
     QVERIFY(!result.ok);
     QVERIFY(result.errors.join(QStringLiteral("\n")).contains(QStringLiteral("Invalid standalone manifest")));
@@ -364,6 +366,32 @@ void ResourcesTest::bundleDiscoveryAcceptsPortableRootLayout()
     QCOMPARE(paths.platformPlugin,
              staged.filePath(QStringLiteral("omamail.app/plugins/platforms/") + plugin));
     QCOMPARE(paths.backend, backend);
+}
+
+void ResourcesTest::resourceRootMatchesPackagedLayouts()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString package = directory.filePath(QStringLiteral("omamail.app"));
+    const QStringList helpers{
+        QStringLiteral("attachment.sh"), QStringLiteral("default-mail.sh"),
+        QStringLiteral("register-mailto.sh"), QStringLiteral("mailto.sh"),
+        QStringLiteral("diagnostics.py"), QStringLiteral("open-link-window.py"),
+        QStringLiteral("link-window.html"), QStringLiteral("open-magpie-calendar.py")};
+    for (const QString &helper : helpers)
+        QVERIFY(writeFile(package + QStringLiteral("/scripts/") + helper));
+    QVERIFY(writeFile(package + QStringLiteral("/backend-api.json"), "{}"));
+    QVERIFY(writeFile(package + QStringLiteral("/backend-version"), "0.11.0"));
+    const QString resolved = applicationResourceRoot(package + QStringLiteral("/bin/omamail-app"));
+    QCOMPARE(resolved, package);
+    for (const QString &helper : helpers)
+        QVERIFY2(QFileInfo(resolved + QStringLiteral("/scripts/") + helper).isFile(),
+                 qPrintable(helper));
+    QVERIFY(QFileInfo(resolved + QStringLiteral("/backend-api.json")).isFile());
+    QVERIFY(QFileInfo(resolved + QStringLiteral("/backend-version")).isFile());
+
+    const QString direct = directory.filePath(QStringLiteral("enterprise/omamail-app"));
+    QCOMPARE(applicationResourceRoot(direct), directory.filePath(QStringLiteral("enterprise")));
 }
 
 int main(int argc, char *argv[])

@@ -37,8 +37,8 @@ bindings_block() {
 $BLOCK_BEGIN
 hl.unbind("SUPER + SHIFT + E")
 hl.unbind("SUPER + SHIFT + ALT + E")
-o.bind("SUPER + SHIFT + E", "Email", "omarchy-shell shell summon magpie-mail '{}'")
-o.bind("SUPER + SHIFT + ALT + E", "New email", "omarchy-shell shell summon magpie-mail '{\"compose\":true}'")
+o.bind("SUPER + SHIFT + E", "Email", "magpie-mail")
+o.bind("SUPER + SHIFT + ALT + E", "New email", "magpie-mail --compose")
 $BLOCK_END
 EOF
 }

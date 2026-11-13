@@ -53,7 +53,7 @@ Item {
     || accountsSaveQueued || accountsReading || accountsReloadQueued || windowWriting
     || windowPrefsSettling.running || sending || runningActionCount > 0 || queuedActionCount > 0
   readonly property var capabilities: platform && platform.capabilities
-    ? platform.capabilities : ({ agent: true, tray: true, mailto: true, notifications: true })
+    ? platform.capabilities : ({ agent: true, tray: true, mailto: true, defaultMailClient: true, notifications: true })
   readonly property bool standalone: !!platform && platform.standalone === true
   readonly property bool smokeTest: standalone
     && Quickshell.env("OMAMAIL_SMOKE_TEST") === "1"
@@ -82,7 +82,7 @@ Item {
     sourceComponent: Component {
       Diagnostics {
         objectName: "diagnostics"
-        pluginDir: root.pluginDir
+        pluginDir: root.helperRoot()
         onFailed: function(message) { if (root.current) root.current.fail(message) }
       }
     }
@@ -158,6 +158,7 @@ Item {
   readonly property string agentUnavailableReason: agentRunner.availabilityError || "AI is unavailable."
   readonly property bool hasTray: capabilities.tray === true
   readonly property bool hasMailto: capabilities.mailto === true
+  readonly property bool hasDefaultMailClient: capabilities.defaultMailClient === true
   readonly property bool hasNotifications: capabilities.notifications === true
   // Invariant: The Omarchy plugin uses the shell palette; only a standalone host chooses appearance.
   readonly property bool hasAppearance: capabilities.appearance === true
@@ -392,6 +393,20 @@ Item {
   // Invariant: Only a stored boolean false hides the bar icon; malformed settings retain the default.
   readonly property bool showBarIcon: !settings || settings.showBarIcon !== false
 
+  function publishBarStatus(readyOverride) {
+    if (!standalone || !platform || typeof platform.updateBarStatus !== "function") return false
+    return platform.updateBarStatus({
+      ready: typeof readyOverride === "boolean" ? readyOverride : root.ready,
+      windowOpen: root.windowOpen,
+      showBarIcon: root.showBarIcon,
+      unreadTotal: root.unreadTotal
+    })
+  }
+
+  onReadyChanged: publishBarStatus()
+  onShowBarIconChanged: publishBarStatus()
+  onUnreadTotalChanged: publishBarStatus()
+
   // Invariant: Contact suggestions read external mail profiles without modifying or persisting their contents.
   property var recipientContacts: []
   property bool contactsLoading: false
@@ -406,8 +421,9 @@ Item {
   }
 
   function registerMailtoHandler() {
-    if (!hasMailto || pluginDir === "" || mailtoInstaller.running) return
-    mailtoInstaller.command = [pluginDir + "/scripts/register-mailto.sh", pluginDir]
+    // Native packages install their desktop entry; the app must not rewrite it on every launch.
+    if (standalone || !hasMailto || helperRoot() === "" || mailtoInstaller.running) return
+    mailtoInstaller.command = [helperPath("register-mailto.sh"), helperRoot()]
     mailtoInstaller.running = true
   }
 
@@ -417,18 +433,18 @@ Item {
   property string defaultMailClientError: ""
 
   function refreshDefaultMailClient() {
-    if (!hasMailto || pluginDir === "" || defaultMailClientProcess.running) return
-    defaultMailClientProcess.command = [pluginDir + "/scripts/default-mail.sh", "status"]
+    if (!hasDefaultMailClient || helperRoot() === "" || defaultMailClientProcess.running) return
+    defaultMailClientProcess.command = [helperPath("default-mail.sh"), "status"]
     defaultMailClientProcess.running = true
   }
 
   function setDefaultMailClient(enabled) {
-    if (!hasMailto || pluginDir === "" || defaultMailClientProcess.running) return
+    if (!hasDefaultMailClient || helperRoot() === "" || defaultMailClientProcess.running) return
     defaultMailClientBusy = true
     defaultMailClientError = ""
     defaultMailClientProcess.command = enabled
-      ? [pluginDir + "/scripts/default-mail.sh", "on", pluginDir]
-      : [pluginDir + "/scripts/default-mail.sh", "off"]
+      ? [helperPath("default-mail.sh"), "on", helperRoot()]
+      : [helperPath("default-mail.sh"), "off"]
     defaultMailClientProcess.running = true
   }
 
@@ -532,6 +548,25 @@ Item {
     })
   }
 
+  function helperRoot() {
+    if (standalone && platform && String(platform.resourceRoot || "") !== "")
+      return String(platform.resourceRoot)
+    return pluginDir
+  }
+
+  function helperPath(name) {
+    return helperRoot() + "/scripts/" + String(name || "")
+  }
+
+  function calendarOpener() {
+    if (standalone) {
+      var data = Quickshell.env("XDG_DATA_HOME") || (Quickshell.env("HOME") + "/.local/share")
+      var installed = data + "/magpie-calendar/open-magpie-calendar.py"
+      if (Quickshell.fileStore && Quickshell.fileStore.exists(installed)) return installed
+    }
+    return helperPath("open-magpie-calendar.py")
+  }
+
   function openExternal(value) {
     var target = String(value || "")
     if (target === "") return false
@@ -545,10 +580,14 @@ Item {
   function openMessageLink(value, accountId) {
     var target = String(value || "")
     if (target === "") return false
+    if (standalone && platform && typeof platform.openMessageLink === "function")
+      return platform.openMessageLink(target, accountEmailFor(accountId))
+    if (helperRoot() !== "")
+      return Quickshell.execDetached(["python3", "-I", helperPath("open-link-window.py"), target,
+        accountEmailFor(accountId)])
     if (platform && typeof platform.openExternal === "function")
       return platform.openExternal(target)
-    return Quickshell.execDetached(["python3", "-I", pluginDir + "/scripts/open-link-window.py", target,
-      accountEmailFor(accountId)])
+    return false
   }
 
   function copyText(value) {
@@ -1535,7 +1574,7 @@ Item {
 
   function openMagpieCalendar(request) {
     if (calendarLauncher.running) return false
-    calendarLauncher.command = ["python3",root.pluginDir + "/scripts/open-magpie-calendar.py",JSON.stringify(request || {})]
+    calendarLauncher.command = ["python3", root.calendarOpener(), JSON.stringify(request || {})]
     calendarLauncher.running = true
     return true
   }
@@ -1555,6 +1594,7 @@ Item {
     applyLiveHosts()
     if (windowOpen) restoreWindow = false
     saveWindowPrefs()
+    publishBarStatus()
   }
 
   readonly property var auth: current ? current.auth : null
@@ -2709,6 +2749,7 @@ Item {
 
   Process {
     id: defaultMailClientProcess
+    objectName: "default-mail-client-process"
     stdout: StdioCollector { waitForEnd: true }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
@@ -2724,22 +2765,20 @@ Item {
     }
   }
 
+  Timer {
+    interval: 5000
+    running: root.standalone
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: root.publishBarStatus()
+  }
+
   Component.onCompleted: {
-    barBridge = BarBridge.publish(function() {
-      return {
-        ready: root.ready, windowOpen: root.windowOpen,
-        showBarIcon: root.showBarIcon, unreadTotal: root.unreadTotal,
-        barTooltip: root.barTooltip, contentDirection: root.contentDirection,
-        barMessages: root.barMessages
-      }
-    }, function(values) { root.applySettings(BarBridge.settings(values, root.defaultSettingValues)) },
-      function() { root.refresh() })
     Qt.callLater(root.restoreAccountRegistry)
     Qt.callLater(root.refreshRecipientContacts)
     Qt.callLater(root.registerMailtoHandler)
     Qt.callLater(root.refreshDefaultMailClient)
   }
 
-  property var barBridge: null
-  Component.onDestruction: BarBridge.clear(barBridge)
+  Component.onDestruction: publishBarStatus(false)
 }

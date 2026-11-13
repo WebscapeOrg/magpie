@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Desktop Entry parsing must preserve a plugin path and one mailto argument."""
+"""Desktop Entry parsing must preserve one exact native mailto argument."""
 import importlib.util
 import json
 import os
@@ -32,6 +32,9 @@ class MailtoRegistration(unittest.TestCase):
                 tool = tools / name
                 tool.write_text('#!/bin/sh\nexit 0\n')
                 tool.chmod(0o700)
+            native = tools / 'magpie-mail'
+            native.write_text(f'#!{sys.executable}\nimport json,sys\nfrom pathlib import Path\nPath({str(marker)!r}).write_text(json.dumps(sys.argv))\n')
+            native.chmod(0o700)
             env = dict(HOME=str(root), XDG_DATA_HOME=str(root/'data'),
                        XDG_CONFIG_HOME=str(root/'config'), XDG_CACHE_HOME=str(root/'cache'),
                        PATH=str(tools)+os.pathsep+os.environ['PATH'])
@@ -45,7 +48,7 @@ class MailtoRegistration(unittest.TestCase):
             while not marker.exists() and time.monotonic() < deadline:
                 time.sleep(.01)
             self.assertTrue(marker.exists(), 'the exact handler did not launch')
-            self.assertEqual(json.loads(marker.read_text()), [str(handler), url])
+            self.assertEqual(json.loads(marker.read_text()), [str(native), url])
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
-# Omamail Architecture
+# Magpie Mail Architecture
 
-This document describes how Omamail is divided, where state belongs, and how components communicate. It is an engineering guide rather than a product specification. `SPEC.md` says what the product promises; `DESIGN.md` says how the interface behaves and is laid out; this document says which part of the program owns each decision.
+This document describes how Magpie Mail is divided, where state belongs, and how components communicate. It is an engineering guide rather than a product specification. `SPEC.md` says what the product promises; `DESIGN.md` says how the interface behaves and is laid out; this document says which part of the program owns each decision.
 
 Except for visual styling, GPUI and GPUI Component provide the default architectural model for Omamail. Their principles of stable identity, explicit state ownership, contextual actions, controlled values, semantic events, composable parts, behavior/presentation separation, lifecycle safety, precise vocabulary, and testable decisions apply here unless a Qt or shell constraint proves otherwise. Omamail translates those principles into QML properties, signals, JavaScript libraries, and Qt lifecycle rather than reproducing Rust APIs.
 
@@ -8,7 +8,7 @@ Use the [GPUI Component Coding Guides](http://longbridge.github.io/gpui-componen
 
 ## Architectural position
 
-Omamail is one stateful mail application with two desktop hosts: an Omarchy shell plugin and a standalone Qt executable. Its architecture has five layers:
+Magpie Mail is one stateful mail application with a native Qt host and an envelope-only Omarchy shell plugin. Its architecture has five layers:
 
 1. Host entry points connect Omarchy or the native Qt process to the application.
 2. The window composition owns window state, navigation, action dispatch, and top-level layout.
@@ -18,24 +18,21 @@ Omamail is one stateful mail application with two desktop hosts: an Omarchy shel
 
 Dependencies point down this list. A view may ask the application to perform an action, but it does not acquire provider knowledge or mutate storage on its own. The Gmail adapter supplies message resources without knowing which row, popup, or page is visible.
 
-The visual system is separate from all five layers. In the plugin, colors come from the active Omarchy theme; in the standalone app, the compatibility imports derive the same semantic roles from Qt's active system palette. `App.qml` passes those semantic values to components in either host. GPUI Component supplies the architectural and interaction baseline, not the visual language.
+The visual system is separate from all five layers. The native app and the small envelope follow the active Omarchy theme through their respective hosts. `App.qml` passes semantic values to components in the native window. GPUI Component supplies the architectural and interaction baseline, not the visual language.
 
 ## Entry points and window composition
 
-The Omarchy shell loads the QML entry points under `ui/`, as named by the root manifest:
+The Omarchy shell loads only `ui/BarWidget.qml`, as named by the root manifest. The envelope reads the native app's small freshness-checked status snapshot and launches it through the stable `magpie-mail` command. It has no account registry, backend, message preview, window toggle, credentials, or full Service. Its only shell setting is whether the envelope is visible.
 
-- `Service.qml` is the long-lived application and account host. The shell constructs it, so it declares no required properties. The shell injects `shell`, `manifest`, `pluginRegistry`, and `barWidgetRegistry`, and it reads its settings from `settings.json`. It owns state that must survive the window.
-- `BarWidget.qml` is the shell-facing trigger. Settings live in Magpie's own `settings.json`, read by `Service.qml`, so hiding the bar icon cannot change them; the shell's entry for the plugin only fills that file on a first run.
-- `App.qml` composes the application window. It owns visible navigation, action dispatch, focus context, non-popup surfaces, and the arrangement of the major panes.
+The native executable under `app/` is a host rather than a second implementation:
 
-The standalone executable under `app/` is a host rather than a second implementation:
-
-- `app/src/main.cpp` resolves packaged resources, validates them, and loads `app/qml/Main.qml`.
-- `app/qml/Main.qml` constructs the same `Service.qml` and `App.qml`, then supplies `StandaloneShell` and `StandaloneManifest` in place of the Omarchy objects.
+- `app/src/main.cpp` resolves packaged resources, validates them, acquires the single-instance activation channel, and loads `app/qml/Main.qml`.
+- `app/qml/Main.qml` constructs the only full `Service.qml` and `App.qml`, then supplies `StandaloneShell` and `StandaloneManifest`. Closing the window hides it; explicit Quit exits.
+- `Service.qml` owns account and background state and publishes only readiness, window visibility, bar visibility and unread count. The native host adds the timestamp and writes the private status file.
 - `app/qml/imports/` implements only the Quickshell and `qs.*` contracts used by the shared UI. It does not copy mail, provider, or navigation behavior.
-- `app/src/` owns native process containment, bounded line transport, private settings writes, file watching, external URL dispatch, clipboard access, and notifications. These capabilities are exposed through `Omamail.Native`; QML does not branch by operating system.
+- `app/src/` owns native process containment, bounded activation and line transport, private settings migration and writes, file watching, external URL dispatch, clipboard access, and notifications. These capabilities are exposed through `Omamail.Native`; QML does not branch by operating system.
 
-The standalone capability object is the product boundary: mail and native notifications are enabled, as is native AI on Linux and macOS. Windows AI, the system tray, and operating-system `mailto:` registration remain disabled. Shared views hide or avoid unsupported operations by capability rather than by host identity.
+The standalone capability object is the product boundary: mail and native notifications are enabled, as are native AI and `mailto:` on Linux and macOS. The default-mail-client settings action is Linux-only; macOS uses its bundle's URL declaration without XDG or Hyprland controls. Windows AI, Windows `mailto:`, and the system tray remain disabled. Shared views hide or avoid unsupported operations by capability rather than by host identity. See [Normal app](NORMAL-APP.md) for activation, migration and the status contract.
 
 This composition boundary is shaped by the shell entry-point contract and Qt's focus and popup behavior. `App.qml` coordinates:
 
@@ -50,7 +47,7 @@ This composition boundary is shaped by the shell entry-point contract and Qt's f
 
 ## Native and backend boundaries
 
-Both hosts keep one persistent `omamail serve` process and communicate with newline-delimited JSON-RPC over stdin/stdout. `ui/backend/Backend.qml` owns correlation, protocol/API compatibility, cancellation, and frame assembly. The plugin resolves its exact private backend pin; a packaged standalone host resolves the exact backend beside its own executable. Only the explicit development mode used by `make app-run` accepts a source build through `OMAMAIL_BIN`.
+The native app starts `omamail serve` and communicates with newline-delimited JSON-RPC over stdin/stdout. `ui/backend/Backend.qml` owns correlation, protocol/API compatibility, cancellation, and frame assembly. A packaged host resolves the exact backend beside its own executable and uses the managed-engine proxy when its existing marker is present. The shell envelope starts no backend. Only the explicit development mode used by `make app-run` accepts a source build through `OMAMAIL_BIN`.
 
 The Cargo `agent` feature is on by default for the Omarchy build. The standalone Make and release builds use `--no-default-features --features standalone`, which also enables `agent`. Agent worker commands and RPC methods require a Unix target, so Linux and macOS include them and Windows omits them at compilation as well as in its UI capabilities.
 

@@ -216,23 +216,21 @@ awk '
 ' components/MessageReader.qml \
   || fail "the reader toolbar control frames must share the status-bar inset"
 
-# Invariant: The bar trigger stays selected while its window is open.
-grep -q 'windowOpen' BarWidget.qml \
-  || fail "the bar icon must show an active style while the window is open"
-grep -q 'KeyboardPanel {' BarWidget.qml \
-  || fail "the bar icon must open a mail preview"
-[ -f bar/BarPreview.qml ] || fail "the bar preview view is missing"
+# Invariant: The envelope reports the native window state and only opens or raises it.
+grep -q 'windowOpen' BarWidget.qml || fail "the envelope must show the native window state"
+grep -q 'objectName: "bar-status-file"' BarWidget.qml || fail "the envelope must read native status"
+grep -q 'objectName: "bar-launch-process"' BarWidget.qml || fail "the envelope must launch the native app"
 python3 - <<'PY'
 from pathlib import Path
 
 widget = Path("BarWidget.qml").read_text()
-open_window = widget[widget.index("function openWindow()"):widget.index("function openMessage(")]
-if "shell.toggle" not in open_window or open_window.index("shell.toggle") > open_window.index("shell.summon"):
-    raise SystemExit("test_source.sh: the bar's main-window action must toggle an open window closed")
+for forbidden in ("serviceFor", "shell.toggle", "shell.summon", "KeyboardPanel", "BarBridge", "BarPreview"):
+    if forbidden in widget:
+        raise SystemExit(f"test_source.sh: the envelope must not contain {forbidden}")
 pressed = widget[widget.index("onPressed: function(buttonCode)"):]
 pressed = pressed[:pressed.index("\n    }")]
 if "buttonCode === Qt.LeftButton" not in pressed or "root.openWindow()" not in pressed:
-    raise SystemExit("test_source.sh: left-clicking the bar icon must open Omamail")
+    raise SystemExit("test_source.sh: left-clicking the envelope must open Magpie Mail")
 PY
 # Invariant: An open window uses the shell-style inner accent line; a filled glyph square conveys a
 # different state.
@@ -323,13 +321,10 @@ assert "readonly property var pendingSendHost" in service
 assert "calendarController:" not in service
 assert not Path("calendar").exists()
 PY
-if grep -q 'Open Omamail' bar/BarPreview.qml; then
-  fail "the bar preview must not contain a redundant Open Omamail button"
-fi
-grep -q 'messages: host ? inboxController.admitted(host.accountId,host.previewMessages) : \[\]' Service.qml \
-  || fail "the bar preview must use each account's unread preview feed"
-grep -q 'width: parent ? parent.width : 0' BarWidget.qml \
-  || fail "bar preview rows must stay inside the panel's padded content area"
+grep -q 'import "bar/Status.js" as Status' BarWidget.qml \
+  || fail "the envelope must sanitize and freshness-check its native snapshot"
+grep -q 'unreadTotal: root.unreadTotal' Service.qml \
+  || fail "the native Service must publish the all-account unread count"
 # Invariant: Row fills reach the list/reader divider; content padding belongs inside a row, not in a
 # gutter that cuts every selected background short.
 grep -q 'width: root.width$' components/MessageList.qml \
@@ -714,7 +709,8 @@ oversized=$(cd ..
       [ -f "$file" ] || continue
       case "$file" in
         (preview.png) ceiling=$preview_limit ;;
-        (app/resources/macos/omamail.icns) ceiling=111809 ;;
+        (app/resources/macos/omamail.icns) ceiling=306442 ;;
+        (app/resources/windows/omamail.ico) ceiling=370070 ;;
         (*) ceiling=$limit ;;
       esac
       size=$(wc -c < "$file")
@@ -744,39 +740,44 @@ FONT_CHECKSUMS
 icon_provenance=app/resources/macos/ICON-PROVENANCE.md
 [ -f "../$icon_provenance" ] || fail "the macOS icon must record its provenance"
 mac_icon=app/resources/macos/omamail.icns
-[ "$(cd .. && wc -c < "$mac_icon")" -eq 111809 ] \
+[ "$(cd .. && wc -c < "$mac_icon")" -eq 306442 ] \
   || fail "$mac_icon does not match its reviewed byte size"
-mac_icon_checksum=bd29ce1e72aa9db37ed5b1cb930956d2d933dc4426e7cea7f1b8baf2edb9262d
+mac_icon_checksum=c121abd180f0d02f224da9073444a4de7f4574cef33877a5ab761703798f4811
 actual_mac_icon_checksum=$(cd .. && shasum -a 256 "$mac_icon" | awk '{print $1}')
 [ "$actual_mac_icon_checksum" = "$mac_icon_checksum" ] \
   || fail "$mac_icon does not match its reviewed checksum"
 grep -q "$mac_icon_checksum" "../$icon_provenance" \
   || fail "$mac_icon checksum is missing from its shipped provenance"
-grep -q '1277a2cf247b275a15961fb20175420abb5dfc5489acb95313f4f604c09b6e78' "../$icon_provenance" \
-  || fail "the macOS icon source checksum is missing from its shipped provenance"
+grep -q '12fac6fadc0bfd7791a6975b79915349095152c5e9b57e81d28972bca9c5a7aa' "../$icon_provenance" \
+  || fail "the Apple envelope source checksum is missing from its shipped provenance"
 windows_icon=app/resources/windows/omamail.ico
-windows_icon_checksum=2562966adb272711ae0274f7eade7ef2680781bb4405182280a310658752131d
+windows_icon_checksum=f5bbbe791467ccd7c3834b6ad8f3b683b5364e2a72b7dc61f41ea3d6a8240440
 actual_windows_icon_checksum=$(cd .. && shasum -a 256 "$windows_icon" | awk '{print $1}')
 [ "$actual_windows_icon_checksum" = "$windows_icon_checksum" ] \
   || fail "$windows_icon does not match its reviewed checksum"
 grep -q "$windows_icon_checksum" "../$icon_provenance" \
   || fail "$windows_icon checksum is missing from its shipped provenance"
-grep -q '3c780a0881ca98ffb717eb2877bf2e8a877deb9ddc3593a2bcca1d19139616e4' "../$icon_provenance" \
-  || fail "the canonical Omamail logo checksum is missing from icon provenance"
+[ "$(cd .. && wc -c < "$windows_icon")" -eq 370070 ] \
+  || fail "$windows_icon does not match its reviewed byte size"
+actual_source_icon_checksum=$(cd .. && shasum -a 256 ui/assets/magpie-mail.png | awk '{print $1}')
+[ "$actual_source_icon_checksum" = 12fac6fadc0bfd7791a6975b79915349095152c5e9b57e81d28972bca9c5a7aa ] \
+  || fail "the Apple envelope artwork does not match its reviewed checksum"
 
 # Invariant: The compose form, account boundary and raw-message builder must keep the selected
 # send-as address all the way to the provider. A missing link silently falls back to a default
 # address and makes the selector lie. A mailto: link is a draft, not a page. The desktop handler
-# summons the window with the URL; open() turns that into compose fields. Toggle would close a
-# mailbox that is already on screen.
+# activates the native app with the exact URL; open() turns that into compose fields. Activation
+# raises a mailbox that is already on screen rather than toggling it closed.
 grep -q 'import "message/Mailto.js" as Mailto' App.qml \
   || fail "App.qml must parse mailto payloads through Mailto.js"
 grep -q 'Mailto.draftFromPayload(payload)' App.qml \
   || fail "open() must seed compose from a mailto payload"
 grep -q 'function beginDraft' components/ComposeView.qml \
   || fail "ComposeView must fill a new draft from a mailto"
-grep -q 'omarchy-shell shell summon' ../scripts/mailto.sh \
-  || fail "the mailto handler must summon Omamail, not toggle it"
+grep -q 'exec magpie-mail "$1"' ../scripts/mailto.sh \
+  || fail "the mailto handler must pass the exact URL to the native app"
+! grep -q 'omarchy-shell shell' ../scripts/mailto.sh \
+  || fail "the native mailto handler must not depend on a shell service"
 grep -q 'exec "$installer"' ../scripts/link-plugin.sh \
   || fail "Magpie's install helper must use the main machine's guarded copy installer"
 grep -q 'registerMailtoHandler' Service.qml \

@@ -13,7 +13,7 @@ ApplicationWindow {
   objectName: "standalone-composition"
   visible: mailApp.opened
   flags: Qt.Window | Qt.FramelessWindowHint
-  title: "Omamail"
+  title: "Magpie Mail"
   color: mailApp.background
   width: 1024
   height: 768
@@ -101,10 +101,22 @@ ApplicationWindow {
     onTriggered: root.saveWindowSize()
   }
 
+  function activate(payload) {
+    initialOpenIssued = true
+    activationFallback.stop()
+    shellAdapter.summon(manifestAdapter.value.id, String(payload || "{}"))
+    // Invariant: App.open() is idempotent when the window is already visible. Native
+    // activation still raises and focuses it when another application is in front.
+    show()
+    raise()
+    requestActivate()
+  }
+
   function openInitialWindow() {
     if (initialOpenIssued) return
-    initialOpenIssued = true
-    shellAdapter.summon(manifestAdapter.value.id, "{}")
+    var initial = root.nativeHost && root.nativeHost.initialActivation
+      ? String(root.nativeHost.initialActivation) : "{}"
+    activate(initial)
   }
 
   function queueActivation(accountId, messageId) {
@@ -261,8 +273,9 @@ ApplicationWindow {
       if (root.nativeHost) mailService.applySettings(root.nativeHost.settings)
     }
     function onReopenRequested() {
-      if (!mailApp.opened) shellAdapter.summon(manifestAdapter.value.id, "{}")
+      if (!mailApp.opened) root.activate("{}")
     }
+    function onActivationRequested(payload) { root.activate(String(payload || "{}")) }
     // Invariant: The host saw the platform close chord before Qt did — on macOS it takes
     // Cmd+W off the event stream ahead of the input method, which otherwise
     // swallows the chord while a composition is pending. Same exit as the
@@ -293,6 +306,8 @@ ApplicationWindow {
       root.routePendingActivation()
       if (root.pendingActivation) activationFallback.start()
     }
+    else if (root.nativeHost && root.nativeHost.startInBackground === true)
+      initialOpenIssued = true
     else openInitialWindow()
   }
 }

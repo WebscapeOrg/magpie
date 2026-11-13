@@ -1,211 +1,151 @@
 import QtQuick
-import "settings"
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 import "components"
-import "bar"
-import "bar/Bridge.js" as BarBridge
+import "bar/Status.js" as Status
 
 BarWidget {
   id: root
 
   moduleName: "magpie-mail"
 
-  readonly property var directService: bar && bar.shell
-    ? bar.shell.serviceFor("magpie-mail") : null
-  readonly property var gmail: directService
-    || (bridgeApi && bridgeState ? bridgedStatus : null)
-  property var bridgeApi: null
-  property var bridgeState: null
-  property string bridgeStateText: ""
-
-  function syncBridge() {
-    var api = BarBridge.current()
-    var state = api ? api.snapshot() : null
-    var serialized = JSON.stringify(state)
-    // Performance: Preserve preview delegate identity when its contents are unchanged.
-    if (serialized !== bridgeStateText) {
-      bridgeStateText = serialized
-      bridgeState = state
-    }
-    bridgeApi = api
+  property string statusPath: {
+    var runtime = Quickshell.env("XDG_RUNTIME_DIR")
+    return runtime ? runtime + "/magpie-mail/status.json" : ""
   }
+  property var activationCommand: ["magpie-mail"]
+  property var barStatus: null
+  property bool launchFailed: false
 
-  // Invariant: The bar bridge exposes presentation data and actions without account or authentication objects.
-  QtObject {
-    id: bridgedStatus
-    readonly property bool ready: !!root.bridgeState && root.bridgeState.ready
-    readonly property bool windowOpen: !!root.bridgeState && root.bridgeState.windowOpen
-    readonly property bool showBarIcon: !root.bridgeState || root.bridgeState.showBarIcon
-    readonly property int unreadTotal: root.bridgeState ? root.bridgeState.unreadTotal : 0
-    readonly property string barTooltip: root.bridgeState ? root.bridgeState.barTooltip : "Magpie Mail"
-    readonly property string contentDirection: root.bridgeState ? root.bridgeState.contentDirection : ""
-    readonly property var barMessages: root.bridgeState ? root.bridgeState.barMessages : []
-    function applySettings(values) {
-      if (root.bridgeApi) root.bridgeApi.applySettings(values)
-    }
-    function refresh() {
-      if (root.bridgeApi) root.bridgeApi.refresh()
-    }
-  }
-
-  // Invariant: JS library registration is not reactive; polling discovers service replacement.
-  Timer {
-    interval: 1000
-    running: !root.directService
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: root.syncBridge()
-  }
-
-  // Invariant: barForeground belongs to qs.Ui.Panel; the BarWidget receives its foreground through bar.
+  readonly property bool connected: !!barStatus && barStatus.ready
+  readonly property int unreadTotal: connected ? barStatus.unreadTotal : 0
+  readonly property bool windowOpen: !!barStatus && barStatus.windowOpen
+  readonly property string countText: Status.displayCount(unreadTotal)
+  readonly property string barTooltip: Status.tooltip(barStatus, launchFailed)
   readonly property color foreground: bar ? bar.barForeground : Commons.Color.foreground
-  property bool previewOpen: false
-  property bool popoutSwitchClosing: false
+  readonly property real baseSlot: Style.font.iconLarge + Style.space(9)
 
-  function close() { previewOpen = false }
-  function closeForPopoutSwitch() {
-    popoutSwitchClosing = true
-    close()
-    Qt.callLater(function() { root.popoutSwitchClosing = false })
-  }
-
-  // Docs: The Service ignores these once it has read Magpie's own settings file.
-  function pushSettings() {
-    if (gmail && typeof gmail.applySettings === "function") gmail.applySettings(settings)
-  }
-
-  onSettingsChanged: pushSettings()
-  onGmailChanged: pushSettings()
-  onBridgeApiChanged: if (!directService) pushSettings()
-  Component.onCompleted: {
-    syncBridge()
-    pushSettings()
+  function refreshStatus() {
+    barStatus = Status.snapshot(statusFile.text(), Date.now())
   }
 
   function openWindow() {
-    close()
-    if (!bar || !bar.shell) return
-    if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie-mail", "{}")
-    else if (typeof bar.shell.summon === "function") bar.shell.summon("magpie-mail", "{}")
+    if (launchProcess.running) return false
+    launchFailed = false
+    launchProcess.command = activationCommand
+    launchProcess.running = true
+    return true
   }
 
-  function openMessage(accountId, messageId) {
-    close()
-    if (!bar || !bar.shell) return
-    var payload = JSON.stringify({ accountId: accountId, messageId: messageId })
-    if (typeof bar.shell.summon === "function") bar.shell.summon("magpie-mail", payload)
-    else if (typeof bar.shell.toggle === "function") bar.shell.toggle("magpie-mail", payload)
+  FileView {
+    id: statusFile
+    objectName: "bar-status-file"
+    path: root.statusPath
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.refreshStatus()
+    onFileChanged: reload()
+    onLoadFailed: root.refreshStatus()
   }
 
+  Timer {
+    interval: 5000
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: {
+      statusFile.reload()
+      root.refreshStatus()
+    }
+  }
 
-  // The setting only stops drawing the icon; the widget stays so the icon can return at once.
-  readonly property bool drawsIcon: !gmail || gmail.showBarIcon
+  Process {
+    id: launchProcess
+    objectName: "bar-launch-process"
+    command: root.activationCommand
+    onExited: function(exitCode) {
+      root.launchFailed = exitCode !== 0
+      statusFile.reload()
+    }
+  }
 
+  readonly property bool drawsIcon: settings.showBarIcon !== false
+    && (!barStatus || barStatus.showBarIcon)
   visible: drawsIcon
   implicitWidth: drawsIcon ? button.implicitWidth : 0
   implicitHeight: drawsIcon ? button.implicitHeight : 0
 
   BarIconButton {
     id: button
-    visible: root.drawsIcon
     anchors.fill: parent
     bar: root.bar
-    tooltipText: root.gmail ? root.gmail.barTooltip : "Magpie Mail"
-
-    // Invariant: Component children resolve their own root identifiers; capture bar properties outside iconComponent.
-    readonly property bool connected: !!root.gmail && root.gmail.ready
-    readonly property bool windowOpen: root.previewOpen
-      || (!!root.gmail && root.gmail.windowOpen)
-    readonly property bool hasUnread: !!root.gmail && root.gmail.unreadTotal > 0
+    tooltipText: root.barTooltip
+    Accessible.name: root.barTooltip
+    slotSize: root.baseSlot + (root.countText !== ""
+      ? Style.space(root.vertical ? 16 : 34) : 0)
+    opticalSize: slotSize
 
     iconComponent: Component {
       Item {
-        MagpieLogo {
-          id: logo
-          readonly property bool crossed: !button.connected
-          readonly property bool dot: button.connected && button.hasUnread
+        Item {
           anchors.centerIn: parent
-          width: Style.font.iconLarge
-          height: width
-          opacity: button.connected ? 1 : 0.5
+          visible: true
+          width: horizontalLogo.width + (horizontalCount.visible
+            ? Style.space(4) + horizontalCount.implicitWidth : 0)
+          height: Math.max(horizontalLogo.height, horizontalCount.implicitHeight)
+
+          MagpieLogo {
+            id: horizontalLogo
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.font.iconLarge
+            height: width
+            opacity: root.connected ? 1 : 0.55
+            Accessible.ignored: true
+          }
+          Text {
+            id: horizontalCount
+            objectName: "bar-count-horizontal"
+            anchors.left: horizontalLogo.right
+            anchors.leftMargin: visible ? Style.space(4) : 0
+            anchors.verticalCenter: horizontalLogo.verticalCenter
+            visible: root.countText !== ""
+            text: root.countText
+            textFormat: Text.PlainText
+            color: root.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            renderType: Text.NativeRendering
+            Accessible.ignored: true
+          }
         }
-        ActionIcon {
-          anchors.right: parent.right
-          anchors.bottom: parent.bottom
-          visible: !button.connected
-          name: "close"
-          color: button.foreground
-          iconSize: Style.font.iconSmall
-          Accessible.name: "Mail offline"
-        }
-        Rectangle {
-          anchors.right: parent.right
-          anchors.top: parent.top
-          width: Style.space(4)
-          height: width
-          radius: width / 2
-          visible: logo.dot
-          color: Commons.Color.accent
-        }
+
       }
     }
 
     onPressed: function(buttonCode) {
-      if (buttonCode === Qt.LeftButton) {
-        root.openWindow()
-        return
-      }
-      if (buttonCode === Qt.MiddleButton) {
-        if (root.gmail) root.gmail.refresh()
-        return
-      }
-      root.previewOpen = !root.previewOpen
+      if (buttonCode === Qt.LeftButton) root.openWindow()
     }
   }
 
   Rectangle {
     id: openIndicator
-    readonly property bool vertical: !!root.bar && root.bar.vertical
-    visible: button.windowOpen
+    objectName: "bar-open-indicator"
+    readonly property bool vertical: root.vertical
+    visible: root.windowOpen
     color: Commons.Color.accent
     radius: Math.min(width, height) / 2
-    width: vertical ? MailStyle.space(2) : MailStyle.space(10)
-    height: vertical ? MailStyle.space(10) : MailStyle.space(2)
+    width: vertical ? Style.space(2) : Style.space(10)
+    height: vertical ? Style.space(10) : Style.space(2)
     x: vertical
-      ? (root.bar.position === "left" ? root.width - width - MailStyle.space(2) : MailStyle.space(2))
+      ? (root.bar.position === "left" ? root.width - width - Style.space(2) : Style.space(2))
       : Math.round((root.width - width) / 2)
     y: vertical
       ? Math.round((root.height - height) / 2)
       : (root.bar && root.bar.position === "top"
-        ? root.height - height - MailStyle.space(2) : MailStyle.space(2))
-  }
-
-  KeyboardPanel {
-    id: previewPanel
-    anchorItem: button
-    owner: root
-    bar: root.bar
-    open: root.previewOpen
-    contentWidth: fittedContentWidth(MailStyle.space(360))
-    contentHeight: fittedContentHeight(preview.implicitHeight, MailStyle.space(540))
-
-    BarPreview {
-      id: preview
-      width: parent ? parent.width : 0
-      messages: root.gmail ? root.gmail.barMessages : []
-      textColor: Commons.Color.popups.text
-      backgroundColor: Commons.Color.popups.background
-      accentColor: Commons.Color.accent
-      dimColor: Qt.rgba(Commons.Color.popups.text.r, Commons.Color.popups.text.g,
-        Commons.Color.popups.text.b, 0.62)
-      panelFontFamily: MailStyle.family
-      contentDirection: root.gmail ? root.gmail.contentDirection : ""
-      onMessageRequested: function(accountId, messageId) {
-        root.openMessage(accountId, messageId)
-      }
-    }
+        ? root.height - height - Style.space(2) : Style.space(2))
   }
 }

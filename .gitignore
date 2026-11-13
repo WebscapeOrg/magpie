@@ -6,6 +6,7 @@ node_modules/
 .claude/worktrees/
 .worktrees/
 app/build/
+app/build-*/
 
 # Planning material stays out of the repository and the installed plugin.
 docs/design/

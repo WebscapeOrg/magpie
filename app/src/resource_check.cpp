@@ -208,6 +208,20 @@ bool developmentResourcesEnabled()
     return qgetenv("OMAMAIL_DEVELOPMENT_RESOURCES") == QByteArrayLiteral("1");
 }
 
+QString applicationResourceRoot(const QString &executablePath)
+{
+    const QString directory = executablePath.isEmpty()
+        ? QCoreApplication::applicationDirPath() : QFileInfo(executablePath).absolutePath();
+#ifdef Q_OS_MACOS
+    if (directory.endsWith(QStringLiteral(".app/Contents/MacOS")))
+        return QDir::cleanPath(directory + QStringLiteral("/../Resources"));
+#endif
+    const QDir executableDirectory(directory);
+    if (executableDirectory.dirName() == QStringLiteral("bin"))
+        return QDir::cleanPath(executableDirectory.filePath(QStringLiteral("..")));
+    return directory;
+}
+
 ResourcePaths defaultResourcePaths(const QString &executablePath, bool developmentMode)
 {
     const QString executable = executablePath.isEmpty()
@@ -286,7 +300,7 @@ ResourceCheck checkResources(const ResourcePaths &paths)
         const QJsonObject value = document.object();
         if (bytes.size() > 1024 * 1024 || parseError.error != QJsonParseError::NoError
             || !document.isObject() || value.value(QStringLiteral("id")).toString() != QStringLiteral("omamail")
-            || value.value(QStringLiteral("name")).toString() != QStringLiteral("Omamail")
+            || value.value(QStringLiteral("name")).toString() != QStringLiteral("Magpie Mail")
             || value.value(QStringLiteral("version")).toString() != QStringLiteral(OMAMAIL_APP_VERSION)) {
             result.errors.append(QStringLiteral("Invalid standalone manifest: %1")
                                      .arg(paths.manifest));

@@ -33,13 +33,19 @@ Item {
       compare(Quickshell.detachedCommands, [])
     }
 
-    function test_the_standalone_app_keeps_its_own_opener() {
+    function test_the_standalone_app_keeps_its_account_aware_opener() {
       var service = createTemporaryObject(factory, parent)
       verify(service)
+      service.accountList = ({ activeId: "gmail:reader@example.com",
+        accounts: [({ id: "gmail:reader@example.com", provider: "gmail", email: "reader@example.com" })] })
       var opened = []
-      service.platform = { openExternal: function(target) { opened.push(target); return true } }
+      service.platform = {
+        standalone: true,
+        openMessageLink: function(target, email) { opened.push([target, email]); return true },
+        openExternal: function(target) { opened.push([target, ""]); return true }
+      }
       verify(service.openMessageLink("https://example.com/", "gmail:reader@example.com"))
-      compare(opened, ["https://example.com/"])
+      compare(opened, [["https://example.com/", "reader@example.com"]])
       compare(Quickshell.detachedCommands, [])
     }
 

@@ -35,16 +35,17 @@ for listed in re.findall(r"components/(\w+\.qml)", makefile):
     if listed not in components:
         failures.append(f"Makefile lists components/{listed}, which does not exist")
 
-# The manifest names these three by path, and the shell loads them by it. They
-# are the reason the root is not empty.
+# The shell loads only the envelope. Service.qml and App.qml remain at the UI
+# root because the native app composes them as shared resources.
 manifest = json.loads((repo / "manifest.json").read_text(encoding="utf-8"))
-for key, entry in (("service", "Service.qml"), ("barWidget", "BarWidget.qml"), ("panel", "App.qml")):
-    if manifest["entryPoints"].get(key) != f"ui/{entry}":
-        failures.append(f"manifest entryPoints.{key} must name ui/{entry}")
-    if not (root / entry).is_file():
-        failures.append(f"{entry} is declared in the manifest but missing")
+if manifest["entryPoints"] != {"barWidget": "ui/BarWidget.qml"}:
+    failures.append("the shell manifest must expose only ui/BarWidget.qml")
+if manifest.get("kinds") != ["bar-widget"]:
+    failures.append("the shell manifest must be envelope-only")
+if not (root / "BarWidget.qml").is_file():
+    failures.append("BarWidget.qml is declared in the manifest but missing")
 
-# Only the three shell-owned manifest entry points belong at the UI root.
+# Only the shared app components and the shell envelope belong at the UI root.
 for stray in sorted(root.glob("*.qml")):
     if stray.name not in ("Service.qml", "BarWidget.qml", "App.qml"):
         failures.append(f"{stray.name} sits at the root; it belongs in a module directory")

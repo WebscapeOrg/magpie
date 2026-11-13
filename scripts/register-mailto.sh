@@ -1,9 +1,8 @@
 #!/bin/sh
 # Registers Magpie as the desktop handler for mailto: links.
 #
-# The plugin is not an installed application until this file exists: XDG only
-# offers handlers that ship a .desktop claiming the scheme. The Exec path is
-# this checkout, so a development symlink and a cloned install both work.
+# XDG offers handlers only when a desktop file claims the scheme. The native
+# app's stable launcher owns single-instance delivery and exact URL arguments.
 set -eu
 
 fail() {
@@ -25,6 +24,14 @@ done
 plugin_dir=$(cd "$plugin_dir" && pwd)
 [ -x "$plugin_dir/scripts/mailto.sh" ] || fail 'register-mailto.sh: mailto.sh is missing'
 [ -f "$plugin_dir/ui/assets/magpie-mail.png" ] || fail 'register-mailto.sh: magpie-mail.png is missing'
+launcher=magpie-mail
+if ! command -v magpie-mail >/dev/null 2>&1; then
+  if [ -x "$plugin_dir/omamail-app" ]; then
+    launcher="$plugin_dir/omamail-app"
+  elif [ -x "$plugin_dir/bin/omamail-app" ]; then
+    launcher="$plugin_dir/bin/omamail-app"
+  fi
+fi
 
 data_home=${XDG_DATA_HOME:-${HOME:?}/.local/share}
 apps="$data_home/applications"
@@ -36,14 +43,14 @@ if [ ! -f "$desktop" ]; then
   claim_default=true
 fi
 
-python3 - "$plugin_dir" "$desktop" <<'PYTHON'
+python3 - "$plugin_dir" "$desktop" "$launcher" <<'PYTHON'
 import os
 from pathlib import Path
 import sys
 import tempfile
 
-plugin, destination = sys.argv[1:]
-if any(ord(character) < 32 or ord(character) == 127 for character in plugin):
+plugin, destination, launcher = sys.argv[1:]
+if any(ord(character) < 32 or ord(character) == 127 for character in plugin + launcher):
     raise SystemExit("register-mailto.sh: unsupported desktop path characters")
 
 def value(text):
@@ -58,10 +65,12 @@ content = f"""[Desktop Entry]
 Type=Application
 Name=✉️ Magpie Mail
 Comment=Email client for Omarchy
-Exec=/bin/sh -c {launch} {command(plugin + '/scripts/mailto.sh')} %u
-Icon={value(plugin + '/ui/assets/magpie-mail.png')}
+Exec=/bin/sh -c {launch} {command(launcher)} %u
+Icon=omamail
 Terminal=false
-StartupNotify=false
+StartupNotify=true
+StartupWMClass=omamail
+SingleMainWindow=true
 MimeType=x-scheme-handler/mailto;
 Categories=Office;Network;Email;
 """

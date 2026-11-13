@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import plistlib
 import subprocess
+import sys
 import tarfile
 import tempfile
 import tomllib
@@ -39,6 +40,9 @@ class PackageTest(unittest.TestCase):
         self.ui.mkdir()
         (self.qml / "Main.qml").write_text("import QtQuick\nItem {}\n", encoding="utf-8")
         (self.ui / "Service.qml").write_text("import QtQuick\nItem {}\n", encoding="utf-8")
+        (self.ui / "assets").mkdir()
+        (self.ui / "assets/magpie-mail.png").write_bytes(
+            (ROOT / "ui/assets/magpie-mail.png").read_bytes())
         self.manifest = self.root / "manifest.json"
         self.manifest.write_text(json.dumps({"version": VERSION}), encoding="utf-8")
         self.dist = self.root / "dist"
@@ -94,14 +98,17 @@ class PackageTest(unittest.TestCase):
             })
             if target == "macos-aarch64":
                 info = plistlib.load(package.extractfile(f"{top}/Contents/Info.plist"))
-                self.assertEqual(info["CFBundleDisplayName"], "Omamail")
-                self.assertEqual(info["CFBundleName"], "Omamail")
+                self.assertEqual(info["CFBundleDisplayName"], "Magpie Mail")
+                self.assertEqual(info["CFBundleName"], "Magpie Mail")
                 self.assertEqual(info["CFBundleIdentifier"], "com.omamail.app")
                 self.assertEqual(info["CFBundleIconFile"], "omamail.icns")
                 self.assertEqual(info["CFBundleExecutable"], "omamail-app")
                 self.assertEqual(info["CFBundleShortVersionString"], VERSION)
                 self.assertEqual(info["CFBundleVersion"], VERSION)
-                self.assertNotIn("CFBundleURLTypes", info)
+                self.assertTrue(any(
+                    "mailto" in entry.get("CFBundleURLSchemes", [])
+                    for entry in info.get("CFBundleURLTypes", [])
+                ), "the packaged macOS app must accept mailto URLs")
                 packaged_icon = package.extractfile(
                     f"{top}/Contents/Resources/omamail.icns"
                 ).read()
@@ -116,7 +123,7 @@ class PackageTest(unittest.TestCase):
             [
                 "Contents/MacOS/omamail-app", "Contents/MacOS/omamail",
                 "Contents/Resources/qml/Main.qml", "Contents/Resources/ui/Service.qml",
-                "Contents/Resources/manifest.json",
+                "Contents/Resources/ui/assets/magpie-mail.png", "Contents/Resources/manifest.json",
                 "Contents/Resources/licenses/NerdFonts-LICENSE",
                 "Contents/Resources/licenses/NerdFonts-README.md",
                 "Contents/Resources/licenses/NerdFonts-PROVENANCE.md",
@@ -125,6 +132,15 @@ class PackageTest(unittest.TestCase):
                 "Contents/Resources/licenses/GLYPH-SOURCES.md",
                 "Contents/PlugIns/platforms/libqcocoa.dylib",
                 "Contents/Resources/omamail.icns",
+                "Contents/Resources/backend-api.json", "Contents/Resources/backend-version",
+                "Contents/Resources/scripts/attachment.sh",
+                "Contents/Resources/scripts/default-mail.sh",
+                "Contents/Resources/scripts/register-mailto.sh",
+                "Contents/Resources/scripts/mailto.sh",
+                "Contents/Resources/scripts/diagnostics.py",
+                "Contents/Resources/scripts/open-link-window.py",
+                "Contents/Resources/scripts/link-window.html",
+                "Contents/Resources/scripts/open-magpie-calendar.py",
                 "Contents/Info.plist",
             ],
         )
@@ -134,12 +150,17 @@ class PackageTest(unittest.TestCase):
             "linux-x86_64", "omamail-app-linux-x86_64.tar.gz", "omamail.app",
             [
                 "bin/omamail-app", "bin/omamail", "bin/qt.conf", "qml/Main.qml", "ui/Service.qml",
-                "manifest.json", "plugins/platforms/libqxcb.so",
+                "ui/assets/magpie-mail.png", "manifest.json", "plugins/platforms/libqxcb.so",
                 "licenses/NerdFonts-LICENSE", "licenses/NerdFonts-README.md",
                 "licenses/NerdFonts-PROVENANCE.md", "licenses/Apache-2.0.txt",
                 "licenses/Pomicons-OFL-1.1.txt", "licenses/GLYPH-SOURCES.md",
+                "backend-api.json", "backend-version",
+                "scripts/attachment.sh", "scripts/default-mail.sh",
+                "scripts/register-mailto.sh", "scripts/mailto.sh", "scripts/diagnostics.py",
+                "scripts/open-link-window.py", "scripts/link-window.html",
+                "scripts/open-magpie-calendar.py",
                 "share/applications/omamail.desktop",
-                "share/icons/hicolor/scalable/apps/omamail.svg",
+                "share/icons/hicolor/160x160/apps/omamail.png",
             ],
         )
 
@@ -148,8 +169,55 @@ class PackageTest(unittest.TestCase):
             desktop = package.extractfile(
                 "omamail.app/share/applications/omamail.desktop"
             ).read().decode("utf-8")
-            self.assertIn("\nName=Omamail\n", "\n" + desktop)
+            self.assertIn("\nName=Magpie Mail\n", "\n" + desktop)
             self.assertIn("\nIcon=omamail\n", "\n" + desktop)
+            self.assertIn("\nExec=omamail %u\n", "\n" + desktop)
+            self.assertIn("\nMimeType=x-scheme-handler/mailto;\n", "\n" + desktop)
+            icon = package.extractfile(
+                "omamail.app/share/icons/hicolor/160x160/apps/omamail.png"
+            ).read()
+            self.assertEqual(icon, (ROOT / "ui/assets/magpie-mail.png").read_bytes())
+
+    def test_packaged_diagnostics_opens_with_isolated_state(self):
+        result = self.package("linux-x86_64")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        unpacked = self.root / "unpacked"
+        with tarfile.open(self.dist / "omamail-app-linux-x86_64.tar.gz", "r:gz") as package:
+            package.extractall(unpacked)
+        product = unpacked / "omamail.app"
+        self.assertTrue((product / "backend-version").is_file())
+        fake_bin = self.root / "agent-bin"
+        fake_bin.mkdir()
+        log = self.root / "agent-call.json"
+        agent = fake_bin / "omarchy-agent"
+        agent.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os, sys\n"
+            "from pathlib import Path\n"
+            "Path(os.environ['FAKE_LOG']).write_text(json.dumps(sys.argv))\n",
+            encoding="utf-8",
+        )
+        agent.chmod(0o700)
+        state = self.root / "state"
+        env = dict(
+            os.environ,
+            HOME=str(self.root / "home"),
+            XDG_STATE_HOME=str(state),
+            XDG_CONFIG_HOME=str(self.root / "config"),
+            XDG_CACHE_HOME=str(self.root / "cache"),
+            PATH=str(fake_bin) + os.pathsep + os.environ["PATH"],
+            FAKE_LOG=str(log),
+        )
+        opened = subprocess.run(
+            [sys.executable, str(product / "scripts/diagnostics.py"), "open"],
+            env=env, capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(opened.returncode, 0, opened.stderr)
+        report = state / "omamail/diagnostics/report.txt"
+        self.assertTrue(report.is_file())
+        self.assertIn(f"pinned backend: {VERSION}", report.read_text(encoding="utf-8"))
+        self.assertTrue(log.is_file())
+        self.assertIn("Diagnose an Omamail error", log.read_text(encoding="utf-8"))
 
     def test_missing_payload_fails_without_archive(self):
         self.backend.unlink()

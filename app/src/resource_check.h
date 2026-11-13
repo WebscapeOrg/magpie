@@ -22,6 +22,7 @@ struct SmokeMetrics {
 };
 
 bool developmentResourcesEnabled();
+QString applicationResourceRoot(const QString &executablePath = {});
 ResourcePaths defaultResourcePaths(const QString &executablePath = {},
                                    bool developmentMode = false);
 ResourceCheck checkResources(const ResourcePaths &paths);
